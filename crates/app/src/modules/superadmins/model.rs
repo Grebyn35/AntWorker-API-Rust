@@ -1,6 +1,6 @@
 //! What the module's route answers, and what its subcommand takes and reports.
 
-use platform::types::Timestamp;
+use platform::types::{EmailAddress, Timestamp, UserId};
 use serde::Serialize;
 use utoipa::ToSchema;
 
@@ -33,6 +33,18 @@ pub(crate) enum Refusal {
     AlreadySuperadmin,
     /// The account is no superadmin.
     NotSuperadmin,
+}
+
+/// One of the deployment's superadmins, as the subcommand's list shows them to the operator who
+/// runs it (SUPERADMINS-008).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Listed {
+    /// The superadmin.
+    pub(crate) user: UserId,
+    /// The email address of their account, by which an operator names them.
+    pub(crate) email: EmailAddress,
+    /// When the operator made them a superadmin.
+    pub(crate) since: Timestamp,
 }
 
 /// A user's row of `superadmins`, as their export holds it (SUPERADMINS-007).

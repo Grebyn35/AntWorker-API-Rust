@@ -12,7 +12,7 @@ Every route lives under `/v1`, except the health probes `/health/live` and `/hea
 ### API-02 The scope of a resource is in its path
 Workspace resources live under `/v1/workspaces/{workspace_id}/`, and the caller's own resources under `/v1/users/me/`.
 A public file's bytes, an avatar's and a workspace's picture's, which anyone may download without signing in, live under `/v1/public/`, which holds nothing else, and whose requests count in a bucket of the IP limit of their own (PLATFORM-082). <!-- part: files -->
-A superadmin's routes, which act on the deployment's workspaces, live under `/v1/superadmin/`, which holds nothing else. <!-- part: superadmins -->
+A superadmin's routes, which act on the deployment's workspaces, live under `/v1/superadmin/`, which holds nothing else, and one that acts on one workspace names it there, under `/v1/superadmin/workspaces/{workspace_id}/`. <!-- part: superadmins -->
 No header selects a workspace.
 - Why: every request names exactly what it acts on, and authorization checks that name (D3).
 - Check: `ci: check-openapi`, plus `clippy` (API-14).

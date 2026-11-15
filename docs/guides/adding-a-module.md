@@ -1,6 +1,6 @@
 # Adding a module
 
-How to add a module that holds a product's data, how to add a route to a module, new or old, and how to add a provider that users sign in through. It names where each piece goes and which rules it follows; the rules themselves are in [the standards](../standards/README.md), and how the parts fit together in [architecture.md](../architecture.md).
+How to add a module that holds a product's data, how to add a route to a module, new or old, how to add a provider that users sign in through, and how to add a subcommand that an operator runs. It names where each piece goes and which rules it follows; the rules themselves are in [the standards](../standards/README.md), and how the parts fit together in [architecture.md](../architecture.md).
 
 ## Module or route
 
@@ -59,7 +59,7 @@ Editing a migration that no release contains (DATA-09) means recreating the deve
 | A second member that a `PATCH` edits | `routes.rs`: each member of the patch's request type becomes optional; `service.rs`: a patch that names none changes nothing, and answers the resource as it stands | API-03, API-18, D88, D151 |
 | A value's limits and normalization | `model.rs`: a domain type, such as one built on `platform::types::one_line` | API-10, DATA-04, OBS-04 |
 | Who may call a route | a permission type and a row of the matrix in `access/permissions.rs`, the route's `workspace::<P>`, and the access spec's matrix | SEC-08, SEC-09 |
-| A route that reads across workspaces for a superadmin | `routes.rs`: `Routes::superadmin`, whose handler extracts `AuthorizeSuperadmin`; each function that reads across workspaces for it, down to the function of its query, takes the proof it gives, `Superadmin`, and reads only what a superadmin may see, nothing of a workspace's content | API-14, DATA-16, D62 <!-- part: superadmins --> |
+| A route that reads across workspaces for a superadmin, or acts on the workspace that its path names | `routes.rs`: `Routes::superadmin`, under `/v1/superadmin/`, whose handler extracts `AuthorizeSuperadmin`, and reads the workspace's ID with `path_id`; each function that reads across workspaces for it, or changes the path's workspace, down to the function of its query, takes the proof it gives, `Superadmin`, and reads only what a superadmin may see, nothing of a workspace's content; what it changes, it records in the caller's own log, under the scope of the proof's `Principal` | API-02, API-14, DATA-16, DATA-22, D62 <!-- part: superadmins --> |
 | What the route does | `service.rs`, in the unit of work that `Authorized<P>` opened | ARCH-09, ARCH-11 |
 | Its SQL | `repo.rs`, filtered by the workspace from the proof | ARCH-06, ARCH-10, DATA-14 to DATA-16, DATA-20 |
 | Its errors, with their codes | `error.rs`, and the codes each route lists in `routes()` | ERR-01 to ERR-06, ERR-13 |
@@ -129,6 +129,36 @@ cargo test -p xtask --locked                    # the setup's questions
 ```
 
 Then run `just checks`, and `just check-removable <key> minimal`, which proves that the template passes its checks without the provider.
+
+## Adding an operator's subcommand
+
+Some changes no route may make, whoever calls it, such as removing a lost authenticator app from an account ([auth spec](../spec/auth.md#second-factors)): an operator makes them on the deployment's server, through a subcommand of the API binary, which `just` runs over Secure Shell (SSH) with the image of the color that serves (ARCH-14, OPS-19). `remove-second-factor` is the one to copy. Its name is in kebab-case, and these are its pieces:
+
+| Piece | File | Rules |
+|---|---|---|
+| What it guarantees: what it takes, what it changes and records, each reason it changes nothing, and what it logs | The module's spec, written first: its behaviors, its entry of the Interface, and a section of the Design. Its line among the binary's subcommands in [architecture §9](../architecture.md#9-runtime-topology) | DOC-08, ARCH-14 |
+| What it does: a function that opens its own unit of work through `Database::for_operator`, since it acts for no request and no job, under an `#[expect]` of clippy's ban, records each change with no actor, under `AuditScope::attempt`, and answers what it did, or why it changed nothing, as types of the module. One that takes an account's address finds the account through `accounts::holder_for_update`, which locks the user's row | The module's `service.rs` and `model.rs`, exported by its `mod.rs` | ARCH-11, DATA-20, DATA-22 |
+| The address among the lookups by an email address, for a subcommand that takes one | DATA-16's list in [the data rules](../standards/data.md) | DATA-16 |
+| The subcommand: its variant of `Operation`, with what the operator gives it, whose doc comments are its help; its arm of `Operation::run`; its refusal, an error whose variants' messages say why it changed nothing, without personal data, with its variant of `Refused`; and what it answers that it did, which the binary logs | `crates/app/src/composition/tasks.rs`, and the refusal's re-export in `composition/mod.rs` and in `lib.rs`, for the end-to-end test | OPS-03, OBS-04 |
+| Its service of each color in the reference deployment, `<subcommand>-blue` and `<subcommand>-green`: each merges `*operator`, which passes the settings that an operator's subcommand reads, and sets its `command` and its color's image | `deploy/compose.yaml` | OPS-02 |
+| Its function, which calls `operate`; and its usage, its name in `tasks`, and its arm | `deploy/tasks/accounts.sh`, and `deploy/deploy.sh` | CODE-07, CODE-08 |
+| Its task: the recipe; the variant of `ServerTask` and its arm; and the function that runs `deploy.sh` on the server | `just/server.just`; `crates/xtask/src/tasks.rs`; `crates/xtask/src/deploy.rs` | OPS-19 |
+| Its tests: each behavior, by running the binary through `TestDatabase::run_api`, with the settings and the assertions of the test support's `operator`; its arm of `subcommand_settings`, and its name among the services that OPS-02's test expects; what its task takes; and its run on a deployment, in `operator_subcommands_run` | `crates/app/tests/integration/<module>.rs`; `crates/app/tests/integration/platform/config.rs`; the tests of `crates/xtask/src/main.rs`; `crates/app/tests/e2e/deploy.rs` | TEST-01, TEST-03, OPS-02 |
+| What an operator does, and when | A section of [deploy.md](../operations/deploy.md) | OPS-19 |
+
+The binary gives the subcommand the database and the deployment's `Mail`, and logs what it answers: one line that says what it did, or the one failure that says why it changed nothing, exiting 1 (OPS-03). Neither holds personal data, so the function answers without the address it was given, and its tests assert that no line holds it (OBS-04). An email that tells the account goes through `Mail::send`, in the unit of work, under `JobScope::attempt` ([platform spec](../spec/platform.md#sending-email)). A deploy's budget of connections counts one for an operator's subcommand, which runs one unit of work at a time (OPS-18).
+
+A subcommand of an optional part carries the part's marker on each of these pieces (ARCH-07). Its arm of `Operation::run` has an expression for its body, never a block, since removing another part can make it the match's last.
+
+The tests that a subcommand's lines can break run in a few minutes, once `just services` has started what they use:
+
+```
+cargo test -p app --locked --test integration -- <module> platform::config platform::startup
+cargo test -p xtask --locked                    # what the task takes
+just check-shell                                # the deployment's scripts and the recipes
+```
+
+Then run `just checks`. `just e2e ops_19` runs it on a deployment, against the image that `just image` builds.
 
 ## What the checks keep about the product
 

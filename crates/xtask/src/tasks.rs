@@ -95,17 +95,15 @@ pub enum ServerTask {
     },
     // end part: workspace_setup
     // part: superadmins
-    /// Makes the account that holds `email` a superadmin of the deployment at `host`, with
-    /// `add`, or ends its being one, with `remove`, through the subcommand of the image that
-    /// serves (SUPERADMINS-001, D62).
+    /// Makes an account a superadmin of the deployment at `host`, ends its being one, or lists
+    /// the deployment's superadmins, through the subcommand of the image that serves
+    /// (SUPERADMINS-001, SUPERADMINS-008, D62).
     Superadmin {
         /// The server, as SSH names it.
         host: String,
-        /// What to do: `add` or `remove`.
-        #[arg(value_parser = ["add", "remove"])]
-        change: String,
-        /// The account's email address.
-        email: String,
+        /// What to do.
+        #[command(subcommand)]
+        command: SuperadminTask,
     },
     // end part: superadmins
     /// Shows the last lines of the logs of the deployment's services at `host` (OPS-19).
@@ -118,6 +116,37 @@ pub enum ServerTask {
         arguments: Vec<String>,
     },
 }
+
+// part: superadmins
+/// What `just superadmin` does on a deployment (SUPERADMINS-001, SUPERADMINS-003,
+/// SUPERADMINS-008).
+#[derive(Subcommand)]
+pub enum SuperadminTask {
+    /// Makes the account that holds `email` a superadmin.
+    Add {
+        /// The account's email address.
+        email: String,
+    },
+    /// Ends the being a superadmin of the account that holds `email`.
+    Remove {
+        /// The account's email address.
+        email: String,
+    },
+    /// Shows the deployment's superadmins, each with the address of their account.
+    List,
+}
+
+impl SuperadminTask {
+    /// What the API's subcommand `superadmin` takes for the task.
+    fn arguments(&self) -> Vec<&str> {
+        match self {
+            Self::Add { email } => vec!["add", email],
+            Self::Remove { email } => vec!["remove", email],
+            Self::List => vec!["list"],
+        }
+    }
+}
+// end part: superadmins
 
 impl ServerTask {
     /// Runs the task, and exits as it does.
@@ -146,11 +175,7 @@ impl ServerTask {
             } => deploy::setup_workspace(&host, &name, &email, owner_name.as_deref()),
             // end part: workspace_setup
             // part: superadmins
-            Self::Superadmin {
-                host,
-                change,
-                email,
-            } => deploy::superadmin(&host, &change, &email),
+            Self::Superadmin { host, command } => deploy::superadmin(&host, &command.arguments()),
             // end part: superadmins
             Self::ServerSetup { host, version } => server::setup(&host, version.as_deref()),
             Self::ServerCheck { host, version } => server::check(&host, version.as_deref()),

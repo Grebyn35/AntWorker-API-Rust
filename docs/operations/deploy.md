@@ -195,7 +195,7 @@ A name is given to one run: a second run with it, by mistake or at the same time
 <!-- part: superadmins -->
 ## Superadmins
 
-A superadmin sees every workspace of the deployment: its name, when it was created, how many members it has, and its owner, and nothing of its content ([superadmins spec](../spec/superadmins.md), D62). No route makes a superadmin, so only someone who reaches the server does:
+A superadmin sees every workspace of the deployment: its name, when it was created, how many members it has, and its owner, and nothing of its content, and deletes any of them ([superadmins spec](../spec/superadmins.md), D62). No route makes a superadmin, so only someone who reaches the server does:
 
 ```
 just superadmin production add ada@example.com
@@ -209,7 +209,13 @@ just superadmin production remove ada@example.com
 
 ends the account's being a superadmin, from the moment the task ends.
 
-Either runs the API's subcommand `superadmin` as `remove-second-factor` runs, with the image of the color that serves, so it needs a replica running, and it exits 1, changing nothing, with a line that says why: when no account holds the address, when the account is a superadmin already, or is none to end. It logs what it did, and never the address.
+```
+just superadmin production list
+```
+
+shows who the deployment's superadmins are: a line for each, the one made first first, with the account's address, the user's ID, which the logs and the audit entries name them by, and when they became one (D157). The addresses reach your terminal alone: the task prints them outside the logs, which hold only how many it listed, and the container that ran it goes when it ends.
+
+Each runs the API's subcommand `superadmin` as `remove-second-factor` runs, with the image of the color that serves, so it needs a replica running. A change exits 1, changing nothing, with a line that says why: when no account holds the address, when the account is a superadmin already, or is none to end. It logs what it did, and never the address.
 <!-- end part: superadmins -->
 
 ## Scaling

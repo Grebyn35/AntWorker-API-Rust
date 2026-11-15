@@ -136,8 +136,8 @@ parts:
   - name: superadmins
     module: superadmins
     paths:
-      - crates/app/src/modules/access/repo/census.rs
-      - crates/app/src/modules/access/service/census.rs
+      - crates/app/src/modules/access/repo/superadmin.rs
+      - crates/app/src/modules/access/service/superadmin.rs
       - crates/app/src/modules/auth/service/second_factors/presence.rs
       - crates/app/src/modules/superadmins
       - crates/app/src/modules/workspaces/repo/superadmin.rs

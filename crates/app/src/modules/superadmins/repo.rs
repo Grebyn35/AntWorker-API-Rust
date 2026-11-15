@@ -1,5 +1,6 @@
 //! The SQL of `superadmins` (ARCH-10). Every query reads or writes the row of one user: the
-//! caller, or the account that the operator's subcommand names by its address (DATA-16).
+//! caller, or the account that the operator's subcommand names by its address (DATA-16). The
+//! subcommand's list is the exception: it reads every superadmin's row, for the operator.
 
 use platform::{
     db::UnitOfWork,
@@ -54,4 +55,21 @@ pub(super) async fn exported(
     Ok(created_at.map(|created_at| Exported {
         created_at: Timestamp::from_database(created_at),
     }))
+}
+
+/// Every superadmin, with when the operator made them one, the one made first first, for the
+/// operator's list of them (SUPERADMINS-008, DATA-16).
+pub(super) async fn all(uow: &mut UnitOfWork) -> Result<Vec<(UserId, Timestamp)>, Internal> {
+    let rows = sqlx::query!("SELECT user_id, created_at FROM superadmins ORDER BY created_at, id")
+        .fetch_all(uow.executor())
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            (
+                UserId::from_uuid(row.user_id),
+                Timestamp::from_database(row.created_at),
+            )
+        })
+        .collect())
 }

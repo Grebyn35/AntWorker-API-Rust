@@ -8,7 +8,7 @@
 # machine; docs/operations/deploy.md describes the deployment. Each task's code is a file of
 # tasks/, which this script sources.
 # It also sets up a workspace (WORKSPACES-023), which `just setup-workspace` runs. # part: workspace_setup
-# It also makes an account a superadmin, or ends one (SUPERADMINS-001), which `just superadmin` runs. # part: superadmins
+# It also makes an account a superadmin, ends one, or lists them (SUPERADMINS-001), which `just superadmin` runs. # part: superadmins
 #
 #   deploy.sh deploy <version> [--allow-restart]
 #       Verifies the release <version>, then deploys its images. Once its replicas serve, it
@@ -59,10 +59,12 @@
 # end part: workspace_setup
 # part: superadmins
 #   deploy.sh superadmin <add|remove> <email>
+#   deploy.sh superadmin list
 #       Makes the account that holds <email> a superadmin of the deployment, or ends its being
-#       one, through the API's subcommand of the same name, with the image of the color that
-#       serves. Fails, changing nothing, when no account holds the address, when, with email on,
-#       the account hasn't proved it, or when the account is one already, or is none to end.
+#       one, or shows the deployment's superadmins, each with the address of their account,
+#       through the API's subcommand of the same name, with the image of the color that serves.
+#       A change fails, changing nothing, when no account holds the address, when, with email
+#       on, the account hasn't proved it, or when the account is one already, or is none to end.
 # end part: superadmins
 #   deploy.sh check <version>
 #   deploy.sh check-images <API image> <Postgres image>
@@ -150,8 +152,9 @@ case $command in
     # end part: workspace_setup
     # part: superadmins
     superadmin)
-        if [ "$#" -ne 3 ]; then fail "usage: deploy.sh superadmin <add|remove> <email>"; fi
-        superadmin "$2" "$3"
+        if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then fail "usage: deploy.sh superadmin <add|remove> <email>, or deploy.sh superadmin list"; fi
+        shift
+        superadmin "$@"
         ;;
     # end part: superadmins
     check)

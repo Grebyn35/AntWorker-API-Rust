@@ -12,7 +12,7 @@
 //! `setup-workspace` runs deploy.sh the same way (WORKSPACES-023).
 // end part: workspace_setup
 // part: superadmins
-//! `superadmin` runs deploy.sh the same way (SUPERADMINS-001).
+//! `superadmin` runs deploy.sh the same way (SUPERADMINS-001, SUPERADMINS-008).
 // end part: superadmins
 
 use std::{
@@ -190,18 +190,17 @@ pub fn remove_second_factor(host: &str, email: &str) -> ExitCode {
 }
 
 // part: superadmins
-/// Makes the account that holds `email` a superadmin of the deployment that SSH reaches at `host`,
-/// or ends its being one, as `change` says, `add` or `remove`, through the API's subcommand
-/// `superadmin` (SUPERADMINS-001, SUPERADMINS-003).
-pub fn superadmin(host: &str, change: &str, email: &str) -> ExitCode {
-    on_server(
-        host,
-        &format!(
-            "DEPLOYMENT={DEPLOYMENT} sh {DEPLOYMENT}/deploy.sh superadmin {} {}",
-            quoted(change),
-            quoted(email)
-        ),
-    )
+/// Runs the API's subcommand `superadmin` with `arguments` on the deployment that SSH reaches at
+/// `host`: `add` or `remove` with an account's address, which makes the account a superadmin or
+/// ends its being one, or `list`, which shows the deployment's superadmins (SUPERADMINS-001,
+/// SUPERADMINS-003, SUPERADMINS-008).
+pub fn superadmin(host: &str, arguments: &[&str]) -> ExitCode {
+    let mut command = format!("DEPLOYMENT={DEPLOYMENT} sh {DEPLOYMENT}/deploy.sh superadmin");
+    for argument in arguments {
+        command.push(' ');
+        command.push_str(&quoted(argument));
+    }
+    on_server(host, &command)
 }
 // end part: superadmins
 

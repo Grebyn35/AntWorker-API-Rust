@@ -77,7 +77,12 @@ impl AuthorizeSuperadmin {
         let mut uow = self.authorizer.database.begin(&self.client).await?;
         let user = self.principal.user_id();
         match self.authorizer.superadmins.admits(&mut uow, user).await? {
-            Admission::Admitted => Ok((uow, Superadmin(()))),
+            Admission::Admitted => Ok((
+                uow,
+                Superadmin {
+                    principal: self.principal,
+                },
+            )),
             Admission::WithoutSecondFactor => Err(RequestError::SecondFactorSetupRequired.into()),
             Admission::Refused => {
                 drop(uow);
@@ -94,5 +99,17 @@ impl AuthorizeSuperadmin {
 
 /// The proof that the caller is a superadmin with a second factor, built only by
 /// [`AuthorizeSuperadmin::open`] (D62). The operation runs in the unit of work it was proven in,
-/// and a function that reads across workspaces for a superadmin takes it (DATA-16).
-pub struct Superadmin(());
+/// and a function that reads across workspaces for a superadmin, or changes a workspace that
+/// the path names for one, takes it (DATA-16).
+pub struct Superadmin {
+    principal: Principal,
+}
+
+impl Superadmin {
+    /// The caller, whose own log holds what they change as a superadmin, under the scope of
+    /// [`Principal::audit_scope`], and whose session an operation that needs its proof reads
+    /// (WORKSPACES-030).
+    pub fn principal(&self) -> &Principal {
+        &self.principal
+    }
+}

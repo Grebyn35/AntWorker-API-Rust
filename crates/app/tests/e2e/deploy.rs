@@ -953,8 +953,17 @@ fn operator_subcommands_run(deployment: &Deployment) {
     assert!(!written.contains("nobody@example.com"), "{written}");
     // end part: workspace_setup
     // part: superadmins
-    // The making of a superadmin (SUPERADMINS-001): with email off, the account that holds the
-    // address becomes one, and an address that no account holds ends none (SUPERADMINS-003).
+    superadmin_subcommand_runs(deployment);
+    // end part: superadmins
+}
+
+// part: superadmins
+/// Runs the subcommand `superadmin` on `deployment`, which serves, as
+/// [`operator_subcommands_run`] runs the others: with email off, the account that holds the
+/// address becomes a superadmin (SUPERADMINS-001), an address that no account holds ends none
+/// (SUPERADMINS-003), and the list shows the operator the superadmin's address, which its log
+/// doesn't hold (SUPERADMINS-008).
+fn superadmin_subcommand_runs(deployment: &Deployment) {
     let (registered, session) = crate::deployment::post(
         deployment.server.caddy_root(),
         deployment.url("https", 443, "/v1/users"),
@@ -972,6 +981,7 @@ fn operator_subcommands_run(deployment: &Deployment) {
     let nobody = deployment
         .server
         .deploy(&["superadmin", "remove", "nobody@example.com"]);
+    let listed = deployment.server.deploy(&["superadmin", "list"]);
     let written = lossy(&added);
     assert_eq!(added.status.code(), Some(0), "{written}");
     assert!(written.contains("subcommand finished"), "{written}");
@@ -987,8 +997,26 @@ fn operator_subcommands_run(deployment: &Deployment) {
         "{written}"
     );
     assert!(!written.contains("nobody@example.com"), "{written}");
-    // end part: superadmins
+    let written = lossy(&listed);
+    assert_eq!(listed.status.code(), Some(0), "{written}");
+    assert!(
+        written
+            .lines()
+            .any(|line| line.starts_with("  sam@example.com  ")),
+        "{written}"
+    );
+    let logged: Vec<&str> = written
+        .lines()
+        .filter(|line| line.contains("subcommand finished"))
+        .collect();
+    assert_eq!(logged.len(), 1, "{written}");
+    assert!(
+        logged[0].contains("listed the deployment's superadmins: 1"),
+        "{written}"
+    );
+    assert!(!logged[0].contains("sam@example.com"), "{written}");
 }
+// end part: superadmins
 
 #[tokio::test]
 async fn ops_19_status_shows_what_serves_and_the_backups_and_logs_show_the_services_output() {

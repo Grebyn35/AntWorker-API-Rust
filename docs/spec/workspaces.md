@@ -6,7 +6,7 @@
 A user creates a workspace through `POST /v1/workspaces`, and owns it. <!-- part: workspace_creation -->
 A workspace's owner and admins also set and remove its picture here, whose image `files` keeps (D117, D149). <!-- part: files -->
 The subcommand `setup-workspace`, which an operator runs, creates a workspace for its owner, and, with email on, their account when no account holds their address (D65). <!-- part: workspace_setup -->
-A superadmin lists every workspace of the deployment here, through a route of their own, which shows nothing of a workspace's content (D62). <!-- part: superadmins -->
+A superadmin lists every workspace of the deployment here, and deletes any of them, through routes of their own, which show nothing of a workspace's content (D62). <!-- part: superadmins -->
 
 ## Owns
 
@@ -42,6 +42,7 @@ A superadmin lists every workspace of the deployment here, through a route of th
 | `PUT /v1/workspaces/{workspace_id}/picture` | `workspace::<WorkspaceUpdate>` | WORKSPACES-019, WORKSPACES-020 <!-- part: files --> |
 | `DELETE /v1/workspaces/{workspace_id}/picture` | `workspace::<WorkspaceUpdate>` | WORKSPACES-021 <!-- part: files --> |
 | `GET /v1/superadmin/workspaces` | superadmin | WORKSPACES-029 <!-- part: superadmins --> |
+| `DELETE /v1/superadmin/workspaces/{workspace_id}` | superadmin | WORKSPACES-030 <!-- part: superadmins --> |
 
 Each `PATCH` accepts an `If-Match` (API-13, PLATFORM-071).
 `POST /v1/workspaces` accepts an `Idempotency-Key` (API-12). <!-- part: workspace_creation -->
@@ -82,6 +83,7 @@ ID 009 is retired.
 | WORKSPACES-027 | A name is given to one run: `workspace_setups` holds the normalized name that each run was given, under a unique constraint, so a run with a name that an earlier run was given sets nothing up, and of two runs at once with one name, one does. A rename of the workspace leaves the name used, and deleting the workspace frees it. The export of a user who is the workspace's only member holds the row, in `workspaces/workspace_setups.json`, with its `workspace_id`, `name` and `created_at`. <!-- part: workspace_setup --> | D65, ERR-05, DATA-06, DATA-23 | `workspaces_027_` |
 | WORKSPACES-028 | A run sets nothing up when what it is given names no workspace or no owner: a name that WORKSPACES-002 refuses, an address that ACCOUNTS-002 refuses, or an owner's name that ACCOUNTS-003 refuses; or, with email on, when the account that holds the address has an identity and hasn't proved the address, when no account holds it and the run was given no owner's name, or when an account takes the address while the run creates one. A run that sets nothing up, for these reasons or those of WORKSPACES-026 and WORKSPACES-027, changes nothing, and ends as a failure does (OPS-03), exiting 1, with a message that says why, without the name or the address. <!-- part: workspace_setup --> | D65, OPS-03, OBS-04, ERR-05 | `workspaces_028_` |
 | WORKSPACES-029 | `GET /v1/superadmin/workspaces` lists every workspace of the deployment, to a superadmin (SUPERADMINS-004), with `{id, name, created_at, member_count, owner}`, `owner` being `{user_id, name, email}`, the latest created first, in cursor pages. Its `search` matches the workspace's name. An item holds nothing else of its workspace. <!-- part: superadmins --> | D62, D155, API-05, API-06, API-20, DATA-16, DATA-17 | `workspaces_029_` |
+| WORKSPACES-030 | A superadmin's deletion of a workspace, `DELETE /v1/superadmin/workspaces/{workspace_id}`, deletes the workspace that the path names, whoever its members are, the caller among them or not, with everything in it, as WORKSPACES-017 says, in one unit of work, and answers 204. It needs the proof that WORKSPACES-018 needs, of the session that authenticates it, and answers 403 `request.reauthentication_required` without it. It records `workspace.deleted` in the caller's own log, with the workspace as its resource and `{"access": "superadmin"}` as its details. An access-change signal for each member closes their streams (ACCESS-006). A path that names no workspace, since none has the ID or it isn't a UUID, answers 404 `workspaces.not_found`, and changes and records nothing. <!-- part: superadmins --> | D62, D148, SEC-06, DATA-06, DATA-16, DATA-22, DATA-23, API-04, ERR-03 | `workspaces_030_` |
 
 ## Design
 
@@ -152,7 +154,7 @@ WORKSPACES-020's kinds and limit are an avatar's (ACCOUNTS-009): a list of the c
 <!-- part: superadmins -->
 ### A superadmin's routes
 
-A superadmin's routes on workspaces are this module's, since they read what it owns, and each is added through `Routes::superadmin`: its handler extracts `AuthorizeSuperadmin`, whose `open` gives the unit of work with the proof that the caller is a superadmin, `Superadmin`, or refuses them ([superadmins spec](superadmins.md#what-authorizes-a-superadmins-routes)). The proof names no workspace, so these routes read across workspaces, which no other route does: each function that does so for them takes the proof, and reads only what D62 gives a superadmin, a workspace's name, creation time, member count and owner, never a row of what its members share (DATA-16).
+A superadmin's routes on workspaces are this module's, since they read what it owns, and each is added through `Routes::superadmin`: its handler extracts `AuthorizeSuperadmin`, whose `open` gives the unit of work with the proof that the caller is a superadmin, `Superadmin`, or refuses them ([superadmins spec](superadmins.md#what-authorizes-a-superadmins-routes)). The proof names no workspace, so these routes read across workspaces, and act on a workspace that their path alone names, which no other route does: each function that does so for them takes the proof, and reads only what D62 gives a superadmin, a workspace's name, creation time, member count and owner, never a row of what its members share (DATA-16).
 
 The list of every workspace takes three queries, since a workspace's members belong to `access`, and its owner's name and address to `accounts` (ARCH-06):
 
@@ -163,6 +165,15 @@ The list of every workspace takes three queries, since a workspace's members bel
 A workspace that a deletion takes between the first read and the second drops out of the page, as one does from the list of a caller's own workspaces.
 
 The list is ordered and searched by what this module owns alone (D155). A search by the owner's name or address would hand `accounts` the ID of every workspace's owner, as a search of a workspace's members hands it every member's ([access spec](access.md#searching-members)), which a deployment's workspaces outgrow where a workspace's members don't. The owner is the one member that an item names, since D62 gives a superadmin a workspace's owner and its member count, and no more of its members.
+
+A superadmin's deletion of a workspace is the owner's deletion (Deleting a workspace), by a caller whom no membership authorizes, so it differs where that deletion leans on the owner's proof:
+
+1. The caller's proof is checked first, as an owner's is (The proof of a transfer and of a deletion): a superadmin's session destroys what a workspace's members share as an owner's does, so it needs the same proof of who its user is (D148). The check follows the authorization, and comes before the path is read, so a caller learns that they are no superadmin, or must prove who they are, whatever the path names.
+2. It records `workspace.deleted` in the caller's own log, under the scope of the proof's `Principal`, before any row of the workspace is locked, for the reason that an owner's deletion gives. The entry's details say that the caller deleted the workspace as a superadmin, `{"access": "superadmin"}`, the access that a refusal of a superadmin's route records (SUPERADMINS-004), so whoever reads the log tells a workspace deleted by a superadmin from one deleted by its owner.
+3. `access::dissolve_any` locks the membership of the workspace's owner, `FOR UPDATE`, which an owner's deletion holds from its authorization on, then ends every membership as `access::dissolve` does, each with its signal ([access spec](access.md#leaving-transferring-and-dissolving)). It answers that the workspace has no owner when none has the ID, or when it went while the lock waited: the unit of work then rolls back, the entry with it, and the route answers 404 `workspaces.not_found`. A superadmin's route hides no workspace from its caller, who lists them all, so its 404 is this module's own, as a row that a route doesn't find is, rather than the 404 `request.not_found` that keeps a workspace's existence from a caller who is no member (ACCESS-003, PLATFORM-072).
+4. It deletes the workspace's row, and the jobs enqueued for it, as steps 3 and 4 of an owner's deletion do.
+
+No email tells the workspace's members: each one's streams close with `access_changed`, as they do when its owner deletes it.
 <!-- end part: superadmins -->
 
 ### Listing members

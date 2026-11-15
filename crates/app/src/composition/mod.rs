@@ -8,9 +8,11 @@ mod providers;
 mod tasks;
 
 pub use config::Config;
-pub use tasks::{Operation, Refused, RemovalRefused, SeedError, SeedReport, seed, seed_allowed};
+pub use tasks::{
+    Done, Operation, Refused, RemovalRefused, SeedError, SeedReport, seed, seed_allowed,
+};
 // part: superadmins
-pub use tasks::{SuperadminChange, SuperadminRefused};
+pub use tasks::{SuperadminCommand, SuperadminRefused};
 // end part: superadmins
 // part: workspace_setup
 pub use tasks::SetupRefused;

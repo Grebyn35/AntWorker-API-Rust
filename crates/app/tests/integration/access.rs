@@ -1129,6 +1129,31 @@ async fn joining_while_the_owner_acts(
     StatusCode,
     (StatusCode, serde_json::Value),
 ) {
+    let owner: Actor = |_, ada| Box::pin(async move { ada.access.clone() });
+    joining_while(owner, method, path, body).await
+}
+
+/// Who sends the request that a join waits for: given the API and Ada, the workspace's owner,
+/// their access token.
+type Actor = for<'a> fn(&'a Api, &'a SignedIn) -> BoxFuture<'a, String>;
+
+/// Bob accepts Ada's invitation to her workspace while a request of `actor`'s, `method` to
+/// `path` with `body`, which has locked the membership of Ada, the workspace's owner, waits for a
+/// request of Grace's, an admin of the workspace, so the acceptance waits for the actor's
+/// request; returns the API, Bob, the workspace, the status of the actor's request, and the
+/// acceptance's answer.
+async fn joining_while(
+    actor: Actor,
+    method: Method,
+    path: fn(&str) -> String,
+    body: fn(&SignedIn) -> Option<serde_json::Value>,
+) -> (
+    Api,
+    SignedIn,
+    String,
+    StatusCode,
+    (StatusCode, serde_json::Value),
+) {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     let grace = users::register(&api, "grace@example.com").await;
@@ -1144,9 +1169,10 @@ async fn joining_while_the_owner_acts(
         crate::support::invitations::invite(&api, &ada, &workspace, "bob@example.com", "member")
             .await;
     let id = invited.json()["id"].as_str().unwrap().to_owned();
+    let access = actor(&api, &ada).await;
     let mut running = db.holding(&membership_of(&workspace, &grace)).await;
 
-    let acted = api.spawn(method, &path(&workspace), &ada.access, body(&grace));
+    let acted = api.spawn(method, &path(&workspace), &access, body(&grace));
     queries_wait_on_locks(db, 1).await;
     let accepted = api.spawn(
         Method::POST,
@@ -1199,6 +1225,32 @@ async fn access_010_a_join_that_waited_for_the_workspace_s_deletion_adds_no_memb
     assert_eq!(deleted, StatusCode::NO_CONTENT);
     assert!(joined(&api, &bob, &workspace).await.is_empty());
 }
+
+// part: superadmins
+#[tokio::test]
+async fn access_010_a_join_that_waited_for_a_superadmin_s_deletion_adds_no_member() {
+    let superadmin: Actor = |api, _| {
+        Box::pin(async move {
+            let sam = users::register(api, "sam@example.com").await;
+            crate::support::superadmins::make_with_app(api, &sam).await;
+            sam.access
+        })
+    };
+
+    let (api, bob, workspace, deleted, (status, problem)) = joining_while(
+        superadmin,
+        Method::DELETE,
+        |workspace| format!("/v1/superadmin/workspaces/{workspace}"),
+        |_| None,
+    )
+    .await;
+
+    assert_eq!(deleted, StatusCode::NO_CONTENT);
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(problem["code"], "invitations.not_found");
+    assert!(joined(&api, &bob, &workspace).await.is_empty());
+}
+// end part: superadmins
 
 #[tokio::test]
 async fn invitations_006_accepting_while_the_owner_deletes_the_workspace_answers_404() {

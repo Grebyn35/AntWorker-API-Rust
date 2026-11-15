@@ -1,6 +1,7 @@
 //! The deployment's superadmins: the operator's subcommand `superadmin`, what authorizes a
-//! superadmin's routes, and the list of every workspace (the superadmins spec, SUPERADMINS-001
-//! to SUPERADMINS-007, and the workspaces spec's "A superadmin's routes", WORKSPACES-029).
+//! superadmin's routes, the list of every workspace, and a superadmin's deletion of one (the
+//! superadmins spec, SUPERADMINS-001 to SUPERADMINS-008, the workspaces spec's "A superadmin's
+//! routes", WORKSPACES-029 and WORKSPACES-030, and ACCESS-011).
 
 use std::process::Output;
 
@@ -13,8 +14,8 @@ use crate::{
         Api, Options, execute_on,
         lists::pages,
         mailbox,
-        operator::{EMAIL_OFF, SENDS_EMAIL, finished, refused},
-        queries_wait_on_locks, second_factors, superadmins,
+        operator::{EMAIL_OFF, SENDS_EMAIL, finished, printed, refused},
+        queries_wait_on_locks, second_factors, streams, superadmins,
         users::{self, SignedIn},
         workspaces,
     },
@@ -25,6 +26,37 @@ const AREA: &str = "superadmin";
 
 /// The list of every workspace, a superadmin's route.
 const EVERY: &str = "/v1/superadmin/workspaces";
+
+/// A superadmin's deletion of `workspace`, as `caller`.
+async fn delete(api: &Api, caller: &SignedIn, workspace: &str) -> crate::support::api::Response {
+    api.request(Method::DELETE, &format!("{EVERY}/{workspace}"))
+        .bearer(&caller.access)
+        .send()
+        .await
+}
+
+/// A workspace named Acme, which Ada owns, with Grace as an admin and Bob as a member, and Sam,
+/// a superadmin with an authenticator app, who belongs to no workspace: the API, the four, and
+/// the workspace's ID.
+async fn acme_and_a_superadmin() -> (Api, [SignedIn; 4], String) {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let bob = users::register(&api, "bob@example.com").await;
+    let sam = users::register(&api, "sam@example.com").await;
+    superadmins::make_with_app(&api, &sam).await;
+    let workspace = workspaces::arrange(
+        api.database(),
+        "Acme",
+        &[
+            (&ada.user_id, "owner"),
+            (&grace.user_id, "admin"),
+            (&bob.user_id, "member"),
+        ],
+    )
+    .await;
+    (api, [ada, grace, bob, sam], workspace)
+}
 
 /// Runs the binary's `superadmin` with `arguments` on `api`'s database, in a deployment with the
 /// settings `env`.
@@ -667,4 +699,289 @@ async fn workspaces_029_a_limit_a_cursor_and_a_search_that_are_none_are_refused_
         .map(|error| error["field"].as_str().unwrap())
         .collect();
     assert_eq!(refused, ["/limit", "/cursor", "/search"]);
+}
+
+#[tokio::test]
+async fn superadmins_008_list_shows_each_superadmin_s_address_and_logs_none() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    users::register(&api, "sam@example.com").await;
+    // Grace became a superadmin before Ada did.
+    superadmins::make(&api, &ada).await;
+    superadmins::make(&api, &grace).await;
+    api.database()
+        .owner_executes(&format!(
+            "UPDATE superadmins SET created_at = CASE user_id \
+             WHEN '{}' THEN timestamptz '2026-11-01T10:00:00Z' \
+             ELSE timestamptz '2026-11-01T11:00:00.5Z' END",
+            grace.user_id
+        ))
+        .await;
+    let before = reads(&api, "SELECT count(*)::text FROM audit_entries").await;
+
+    let listed = run(&api, &SENDS_EMAIL, &["list"]).await;
+
+    assert_eq!(listed.status.code(), Some(0), "{}", printed(&listed));
+    // The standard output holds the list, the one made first first, and nothing but it and the
+    // log's lines.
+    let stdout = String::from_utf8_lossy(&listed.stdout).into_owned();
+    let shown: Vec<&str> = stdout
+        .lines()
+        .filter(|line| line.contains("superadmins, with") || line.contains("@example.com"))
+        .collect();
+    assert_eq!(
+        shown,
+        [
+            "The deployment's superadmins, with the ID of each one's user:".to_owned(),
+            format!(
+                "  grace@example.com  {}  since 2026-11-01T10:00:00.000000Z",
+                grace.user_id
+            ),
+            format!(
+                "  ada@example.com  {}  since 2026-11-01T11:00:00.500000Z",
+                ada.user_id
+            ),
+        ],
+        "{stdout}"
+    );
+    // The log says how many it listed, and holds no address (OPS-03, OBS-04).
+    let written = printed(&listed);
+    let logged: Vec<&str> = written
+        .lines()
+        .filter(|line| line.contains("subcommand finished"))
+        .collect();
+    assert_eq!(logged.len(), 1, "{written}");
+    assert!(logged[0].contains(AREA), "{written}");
+    assert!(
+        logged[0].contains("listed the deployment's superadmins: 2"),
+        "{written}"
+    );
+    assert!(!logged[0].contains("@example.com"), "{written}");
+    // It changes nothing and records nothing.
+    assert_eq!(superadmins_of(&api).await.len(), 2);
+    assert_eq!(
+        reads(&api, "SELECT count(*)::text FROM audit_entries").await,
+        before
+    );
+}
+
+#[tokio::test]
+async fn superadmins_008_list_says_that_a_deployment_has_no_superadmin() {
+    let api = Api::new().await;
+    users::register(&api, "ada@example.com").await;
+
+    let listed = run(&api, &EMAIL_OFF, &["list"]).await;
+
+    finished(
+        &listed,
+        AREA,
+        "listed the deployment's superadmins: 0",
+        &["@example.com"],
+    );
+    let stdout = String::from_utf8_lossy(&listed.stdout).into_owned();
+    assert!(
+        stdout
+            .lines()
+            .any(|line| line == "The deployment has no superadmin."),
+        "{stdout}"
+    );
+}
+
+#[tokio::test]
+async fn workspaces_030_a_superadmin_deletes_any_workspace_with_everything_in_it() {
+    let (api, [ada, grace, bob, sam], workspace) = acme_and_a_superadmin().await;
+    let db = api.database();
+    let other = workspaces::arrange(db, "Other", &[(&ada.user_id, "owner")]).await;
+    // Each workspace has an entry in its log, an event and a job enqueued for it.
+    for id in [&workspace, &other] {
+        workspaces::fill(db, id, &ada.user_id).await;
+    }
+    let mut signals = db.signals().await;
+
+    let deleted = api
+        .request(Method::DELETE, &format!("{EVERY}/{workspace}"))
+        .bearer(&sam.access)
+        .header("user-agent", "tests/1.0")
+        .send()
+        .await;
+
+    assert_eq!(deleted.status, 204);
+    assert!(deleted.body.is_empty());
+    assert_eq!(workspaces::held_by(db, &workspace).await, "0 0 0 0 0");
+    assert_eq!(workspaces::held_by(db, &other).await, "1 1 1 1 1");
+    // The superadmin's own log keeps the deletion, which says that a superadmin made it.
+    let user = &sam.user_id;
+    let (recorded, with_client) = entries(&api, "workspace.deleted").await;
+    assert_eq!(
+        recorded,
+        [format!(
+            "user {user} {user} - workspace {workspace} {{\"access\": \"superadmin\"}}"
+        )]
+    );
+    assert_eq!(with_client, "1", "the entry records its request's client");
+    // Each member's signal names the deletion's transaction: the owner's first, then each rank's.
+    let received = signals.received().await;
+    let transaction = received[0]["transaction"].as_u64().unwrap();
+    let expected = [&ada, &grace, &bob]
+        .map(|member| workspaces::signal(&member.user_id, &workspace, transaction));
+    assert_eq!(received, expected);
+}
+
+#[tokio::test]
+async fn workspaces_030_the_deletion_closes_each_member_s_streams() {
+    let (api, [ada, grace, _, sam], workspace) = acme_and_a_superadmin().await;
+    let mut owner = streams::opened(&api, &ada).await;
+    let mut admin = streams::opened(&api, &grace).await;
+
+    let deleted = delete(&api, &sam, &workspace).await;
+    let (_, owner_reason) = owner.closed().await;
+    let (_, admin_reason) = admin.closed().await;
+
+    assert_eq!(deleted.status, 204);
+    assert_eq!(owner_reason, "access_changed");
+    assert_eq!(admin_reason, "access_changed");
+}
+
+#[tokio::test]
+async fn workspaces_030_a_superadmin_who_owns_the_workspace_deletes_it_the_same_way() {
+    let api = Api::new().await;
+    let sam = users::register(&api, "sam@example.com").await;
+    superadmins::make_with_app(&api, &sam).await;
+    let db = api.database();
+    let workspace = workspaces::arrange(db, "Acme", &[(&sam.user_id, "owner")]).await;
+
+    let deleted = delete(&api, &sam, &workspace).await;
+
+    assert_eq!(deleted.status, 204);
+    assert_eq!(workspaces::held_by(db, &workspace).await, "0 0 0 0 0");
+    let user = &sam.user_id;
+    assert_eq!(
+        entries(&api, "workspace.deleted").await.0,
+        [format!(
+            "user {user} {user} - workspace {workspace} {{\"access\": \"superadmin\"}}"
+        )]
+    );
+}
+
+#[tokio::test]
+async fn workspaces_030_the_deletion_needs_a_proof_from_the_last_5_minutes() {
+    let (api, [.., sam], workspace) = acme_and_a_superadmin().await;
+    let db = api.database();
+    users::authenticated_ago(&api, &sam, 6).await;
+
+    let unproved = delete(&api, &sam, &workspace).await;
+    // A path that names no workspace asks for the proof all the same.
+    let unproved_elsewhere = delete(&api, &sam, "nowhere").await;
+    users::authenticated_ago(&api, &sam, 4).await;
+    let proved = delete(&api, &sam, &workspace).await;
+
+    for refused in [&unproved, &unproved_elsewhere] {
+        assert_eq!(refused.status, 403);
+        assert_eq!(refused.json()["code"], "request.reauthentication_required");
+    }
+    assert_eq!(proved.status, 204);
+    assert_eq!(workspaces::held_by(db, &workspace).await, "0 0 0 0 0");
+    assert_eq!(entries(&api, "workspace.deleted").await.0.len(), 1);
+}
+
+#[tokio::test]
+async fn workspaces_030_a_path_that_names_no_workspace_answers_404_and_records_nothing() {
+    let (api, [.., sam], workspace) = acme_and_a_superadmin().await;
+    // The ID of a row that is no workspace's.
+    let no_workspace = &sam.user_id;
+
+    let unknown = delete(&api, &sam, no_workspace).await;
+    let malformed = delete(&api, &sam, "acme").await;
+
+    for missing in [&unknown, &malformed] {
+        assert_eq!(missing.status, 404);
+        assert_eq!(missing.json()["code"], "workspaces.not_found");
+    }
+    assert_eq!(
+        workspaces::held_by(api.database(), &workspace).await,
+        "1 3 0 0 0"
+    );
+    assert!(entries(&api, "workspace.deleted").await.0.is_empty());
+}
+
+#[tokio::test]
+async fn access_011_a_deletion_that_waited_for_a_transfer_ends_the_new_owner_s_membership() {
+    let (api, [ada, grace, bob, sam], workspace) = acme_and_a_superadmin().await;
+    let db = api.database();
+    // A transfer of Ada's, which holds her membership, the owner's, from its authorization on.
+    let mut transfer = db
+        .holding(&format!(
+            "SELECT 1 FROM workspace_memberships \
+             WHERE workspace_id = '{workspace}' AND user_id = '{}' FOR UPDATE",
+            ada.user_id
+        ))
+        .await;
+    let mut signals = db.signals().await;
+
+    let deletion = api.spawn(
+        Method::DELETE,
+        &format!("{EVERY}/{workspace}"),
+        &sam.access,
+        None,
+    );
+    queries_wait_on_locks(db, 1).await;
+    // The transfer makes Grace the owner while the deletion waits at Ada's membership, and holds
+    // nothing else of the workspace.
+    for (user, role) in [(&ada, "admin"), (&grace, "owner")] {
+        execute_on(
+            &mut transfer,
+            &format!(
+                "UPDATE workspace_memberships SET role = '{role}' \
+                 WHERE workspace_id = '{workspace}' AND user_id = '{}'",
+                user.user_id
+            ),
+        )
+        .await;
+    }
+    execute_on(&mut transfer, "COMMIT").await;
+
+    assert_eq!(deletion.await.unwrap().0, 204);
+    assert_eq!(workspaces::held_by(db, &workspace).await, "0 0 0 0 0");
+    // The deletion ended each membership itself, the new owner's first, each with its signal:
+    // none went unsignalled with the workspace's row.
+    let received = signals.received().await;
+    let transaction = received[0]["transaction"].as_u64().unwrap();
+    let expected = [&grace, &ada, &bob]
+        .map(|member| workspaces::signal(&member.user_id, &workspace, transaction));
+    assert_eq!(received, expected);
+}
+
+#[tokio::test]
+async fn access_011_a_deletion_that_waited_for_the_owner_s_own_finds_no_workspace() {
+    let (api, [ada, .., sam], workspace) = acme_and_a_superadmin().await;
+    let db = api.database();
+    // A deletion of Ada's, the owner's, which holds her membership from its authorization on.
+    let mut owner_s = db
+        .holding(&format!(
+            "SELECT 1 FROM workspace_memberships \
+             WHERE workspace_id = '{workspace}' AND user_id = '{}' FOR UPDATE",
+            ada.user_id
+        ))
+        .await;
+
+    let deletion = api.spawn(
+        Method::DELETE,
+        &format!("{EVERY}/{workspace}"),
+        &sam.access,
+        None,
+    );
+    queries_wait_on_locks(db, 1).await;
+    execute_on(
+        &mut owner_s,
+        &format!("DELETE FROM workspaces WHERE id = '{workspace}'"),
+    )
+    .await;
+    execute_on(&mut owner_s, "COMMIT").await;
+
+    let (status, problem) = deletion.await.unwrap();
+    assert_eq!(status, 404);
+    assert_eq!(problem["code"], "workspaces.not_found");
+    // The superadmin deleted nothing, so their log records nothing.
+    assert!(entries(&api, "workspace.deleted").await.0.is_empty());
 }

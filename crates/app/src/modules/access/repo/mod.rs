@@ -2,14 +2,15 @@
 //! role, or end memberships, in `changes.rs`. Every query filters by the workspace or the user the
 //! operation's proof names (DATA-16).
 // part: superadmins
-//! The census in `census.rs` is the exception: it reads the workspaces that a superadmin's list
-//! read, under a proof that names none.
+//! The statements in `superadmin.rs` are the exception: they read the workspaces that a
+//! superadmin's list read, and lock the owner of the workspace that a superadmin deletes, under
+//! a proof that names none.
 // end part: superadmins
 
-// part: superadmins
-pub(super) mod census;
-// end part: superadmins
 pub(super) mod changes;
+// part: superadmins
+pub(super) mod superadmin;
+// end part: superadmins
 
 use platform::{
     db::UnitOfWork,

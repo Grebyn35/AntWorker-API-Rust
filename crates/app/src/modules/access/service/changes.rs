@@ -6,7 +6,8 @@
 use platform::{
     authz::Authorized,
     db::UnitOfWork,
-    types::{UserId, Version},
+    errors::Internal,
+    types::{UserId, Version, WorkspaceId},
 };
 
 use super::{changed, changed_all, end};
@@ -192,7 +193,13 @@ pub(crate) async fn dissolve(
     uow: &mut UnitOfWork,
     authorized: &Authorized<WorkspaceDelete>,
 ) -> Result<(), AccessError> {
-    let workspace = authorized.workspace_id();
+    Ok(end_all(uow, authorized.workspace_id()).await?)
+}
+
+/// Deletes every membership of `workspace`, from the highest rank to the lowest, a statement for
+/// each role, and signals each (ACCESS-006), for a deletion of the workspace whose unit of work
+/// holds its owner's membership.
+pub(super) async fn end_all(uow: &mut UnitOfWork, workspace: WorkspaceId) -> Result<(), Internal> {
     for role in Role::ALL {
         let users = repo::changes::delete_role(uow, workspace, role).await?;
         changed_all(uow, workspace, &users).await?;

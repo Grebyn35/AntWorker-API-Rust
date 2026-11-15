@@ -35,6 +35,11 @@ pub(crate) enum WorkspacesError {
     /// The member a transfer names isn't an admin (WORKSPACES-016).
     #[error("the member a transfer names isn't an admin")]
     TransferRequiresAdmin,
+    // part: superadmins
+    /// The path of a superadmin's route names no workspace (WORKSPACES-030).
+    #[error("the path names no workspace")]
+    NotFound,
+    // end part: superadmins
     /// `platform` refused the request, such as by authorization, its idempotency key or its
     /// input, or couldn't check it, or the update failed its precondition (PLATFORM-071).
     #[error(transparent)]
@@ -116,6 +121,9 @@ impl ErrorCode for WorkspacesError {
             Self::CannotRemoveSelf => "workspaces.cannot_remove_self",
             Self::MemberNotFound => "workspaces.member_not_found",
             Self::TransferRequiresAdmin => "workspaces.transfer_requires_admin",
+            // part: superadmins
+            Self::NotFound => "workspaces.not_found",
+            // end part: superadmins
             Self::Platform(error) => error.code(),
             Self::Internal(error) => error.code(),
         }
@@ -131,6 +139,9 @@ impl ErrorCode for WorkspacesError {
             Self::CannotRemoveSelf => "Can't remove yourself",
             Self::MemberNotFound => "Member not found",
             Self::TransferRequiresAdmin => "Only an admin can become the owner",
+            // part: superadmins
+            Self::NotFound => "Workspace not found",
+            // end part: superadmins
             Self::Platform(error) => error.title(),
             Self::Internal(error) => error.title(),
         }
@@ -144,6 +155,9 @@ impl ErrorCode for WorkspacesError {
             // end part: files
             Self::CannotRemoveSelf | Self::TransferRequiresAdmin => Category::BusinessRule,
             Self::MemberNotFound => Category::NotFound,
+            // part: superadmins
+            Self::NotFound => Category::NotFound,
+            // end part: superadmins
             Self::Platform(error) => error.category(),
             Self::Internal(error) => error.category(),
         }

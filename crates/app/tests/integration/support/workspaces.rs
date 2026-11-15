@@ -2,7 +2,12 @@
 //! that creates workspaces, so removing a part leaves the other tests passing (TEST-05, the
 //! workspaces spec's "Creating a workspace").
 
-use super::TestDatabase;
+use serde_json::{Value, json};
+
+use super::{
+    TestDatabase, audit,
+    events::{self, Event},
+};
 
 /// Creates a workspace named `name`, with `members` given as user IDs and roles, and returns its
 /// ID.
@@ -39,4 +44,50 @@ pub async fn join(db: &TestDatabase, workspace: &str, user: &str, role: &str) {
          VALUES ('{workspace}', '{user}', '{role}')"
     ))
     .await;
+}
+
+/// Gives `workspace` what a deletion of it must take with it: an entry in its log, acted by
+/// `actor`, an event, and a job enqueued for it and for `actor`.
+pub async fn fill(db: &TestDatabase, workspace: &str, actor: &str) {
+    audit::in_workspace_log(db, workspace, actor, "workspace.renamed").await;
+    db.owner_executes(&events::statement(
+        &[Event::to_workspace(
+            workspace,
+            "workspace.read",
+            "note.made",
+            "{}",
+        )],
+        false,
+    ))
+    .await;
+    db.owner_executes(&format!(
+        "INSERT INTO jobs (kind, payload, user_id, workspace_id) \
+         VALUES ('tests.kept', '{{}}', '{actor}', '{workspace}')"
+    ))
+    .await;
+}
+
+/// What `workspace` holds: its row, its memberships, the entries of its log, its events and the
+/// jobs enqueued for it, as their counts.
+pub async fn held_by(db: &TestDatabase, workspace: &str) -> String {
+    db.owner_reads(&format!(
+        "SELECT (SELECT count(*) FROM workspaces WHERE id = '{workspace}') || ' ' \
+         || (SELECT count(*) FROM workspace_memberships WHERE workspace_id = '{workspace}') \
+         || ' ' || (SELECT count(*) FROM audit_entries WHERE workspace_id = '{workspace}') \
+         || ' ' || (SELECT count(*) FROM events WHERE workspace_id = '{workspace}') \
+         || ' ' || (SELECT count(*) FROM jobs WHERE workspace_id = '{workspace}')"
+    ))
+    .await
+    .remove(0)
+}
+
+/// The signal of a change to `user`'s membership in `workspace`, which the transaction
+/// `transaction` made.
+pub fn signal(user: &str, workspace: &str, transaction: u64) -> Value {
+    json!({
+        "kind": "membership_changed",
+        "user_id": user,
+        "workspace_id": workspace,
+        "transaction": transaction
+    })
 }

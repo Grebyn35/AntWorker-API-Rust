@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH held AS (\n            SELECT id FROM workspace_memberships WHERE workspace_id = $1 AND role = 'owner'\n            FOR UPDATE\n        )\n        SELECT EXISTS (SELECT 1 FROM held) AS \"locked!\",\n            EXISTS (\n                SELECT 1 FROM workspace_memberships WHERE workspace_id = $1 AND role = 'owner'\n            ) AS \"owned!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "locked!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "owned!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "d0ea3dda0c42997d85f703cba33f82bef463912f0d30c57d34c9bca18b97a79d"
+}

@@ -339,7 +339,7 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
   Every superadmin must have one. <!-- part: superadmins -->
   Revoking a session closes its streams.
 - **Authorization (D2).** One permission matrix, in `access/permissions.rs`, maps roles to permissions. Every workspace route declares its permission in its type. Role rank limits who may change whom.
-  A superadmin's route is authorized by the caller being a superadmin instead, and reaches no workspace's content (D62). <!-- part: superadmins -->
+  A superadmin's route is authorized by the caller being a superadmin instead, and reads no workspace's content (D62). <!-- part: superadmins -->
 - **Observability (D10, D19).** Every response except the health probes carries a trace ID that leads to its logs, and to its trace whenever the request ended in an error. Metrics are declared in code. The metric catalog is generated from the declarations, and CI checks the dashboards and alerts against it.
 - **Configuration (D9).** Strict and typed, with no defaults that are unsafe in production. A disabled feature answers 503 and is advertised by the capabilities endpoint.
 - **Background jobs (D13).** Declared in one registry. A queued job runs at least once, on whichever instance claims it, with retries and a dead-letter state; a periodic job runs once per interval across the fleet. Each run holds a lease that a heartbeat renews, and shutdown is bounded.

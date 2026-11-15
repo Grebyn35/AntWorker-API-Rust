@@ -59,6 +59,7 @@ A member can change or remove only members at roles below their own, and can ass
 - **Transfer.** The owner transfers ownership to a member who holds the admin role. The two swap roles: that member becomes the owner, and the former owner becomes an admin (D2).
 - **Leave.** Any member except the owner may leave, which removes their own membership. The owner must transfer ownership before leaving.
 - **Deletion.** Of a workspace's members, the owner alone deletes it, which ends every membership with it, the owner's own among them. A deletion of an account ends its user's memberships as ACCOUNTS-013 and ACCOUNTS-014 say (D16).
+  A superadmin deletes any workspace, as no member of it, which ends every membership the same way (WORKSPACES-030, D62). <!-- part: superadmins -->
 - Why: no escalation by delegation, and a workspace always has exactly one owner (D2, D16).
 - Check: `test`. Each route that changes or removes a member, or assigns a role, has tests that act on a target of equal and of higher rank, and that assign an equal and a higher role. Transfer, leave and deletion each have tests, including an owner trying to leave, and an admin trying to delete.
 

@@ -320,6 +320,9 @@ const OPERATOR_CONNECTIONS: u32 = 1;
 /// connects to the database, builds the deployment's emails as `config` describes them, runs it,
 /// and logs what it answers it did, or, as a failure that ends the subcommand, why it changed
 /// nothing; neither holds personal data, which the logs never hold (OPS-03, OBS-04).
+// part: superadmins
+/// What it shows the operator, it prints first.
+// end part: superadmins
 async fn operate(area: String, config: OperatorConfig, operation: app::Operation) -> ExitCode {
     let database =
         match Database::connect(&config.database_url, OPERATOR_CONNECTIONS, &app::MIGRATIONS).await
@@ -333,13 +336,31 @@ async fn operate(area: String, config: OperatorConfig, operation: app::Operation
         Err(error) => return failed("mail", &error),
     };
     match operation.run(&database, &mail).await {
-        Ok(outcome) => {
-            lifecycle::report_outcome(&area, &outcome);
+        Ok(done) => {
+            // part: superadmins
+            show(&done.shown);
+            // end part: superadmins
+            lifecycle::report_outcome(&area, &done.outcome);
             ExitCode::SUCCESS
         }
         Err(refused) => failed(&area, &refused),
     }
 }
+
+// part: superadmins
+/// Prints what a subcommand shows the operator who ran it, a line each, such as the deployment's
+/// superadmins with their addresses: on the standard output, outside the logging setup, so no
+/// log holds a line's personal data (SUPERADMINS-008, OBS-04).
+#[expect(
+    clippy::print_stdout,
+    reason = "the lines are the subcommand's answer to the operator who ran it (CODE-03)"
+)]
+fn show(lines: &[String]) {
+    for line in lines {
+        println!("{line}");
+    }
+}
+// end part: superadmins
 
 /// Prints how to sign in to what `seed` created (SYSTEM-003).
 #[expect(

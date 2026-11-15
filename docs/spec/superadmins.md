@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`superadmins` holds the deployment's superadmins (D62): the users whom its operator made one, through the binary's subcommand `superadmin`, which nothing in the API does. A superadmin sees every workspace's name, creation time, member count and owner, through routes of their own, and never a workspace's content. This spec covers the subcommand, what authorizes a superadmin's routes, and the route that tells a caller whether they are one. The routes themselves are `workspaces`', which owns what they read ([workspaces spec](workspaces.md#a-superadmins-routes)).
+`superadmins` holds the deployment's superadmins (D62): the users whom its operator made one, through the binary's subcommand `superadmin`, which nothing in the API does. A superadmin sees every workspace's name, creation time, member count and owner, and deletes any workspace, through routes of their own, and never sees a workspace's content. This spec covers the subcommand, what authorizes a superadmin's routes, and the route that tells a caller whether they are one. The routes themselves are `workspaces`', which owns what they read ([workspaces spec](workspaces.md#a-superadmins-routes)).
 
 ## Owns
 
@@ -14,6 +14,7 @@
 
 - `Policy`, the `SuperadminPolicy` that `platform::authz` asks for every route whose access is `superadmin` (SUPERADMINS-004, SUPERADMINS-005).
 - `Change`, what the subcommand `superadmin` does with the account that holds the address it is given, and `change`, which runs it and answers why it changed nothing, as a `Refusal`, when it did (SUPERADMINS-001 to SUPERADMINS-003).
+- `listed`, which reads the deployment's superadmins for the subcommand's `list`, each as a `Listed`, with the address of their account (SUPERADMINS-008).
 - `Contract`, the personal data contract for `superadmins` (D31), which exports when the user became a superadmin, and whose erasure the foreign key carries out (SUPERADMINS-007).
 
 ## Routes
@@ -33,6 +34,7 @@
 | SUPERADMINS-005 | A superadmin whose account has no authenticator app gets 403 `request.second_factor_setup_required` from every route whose access is `superadmin`, whatever `SECOND_FACTOR_REQUIRED` says, until they have set one up (AUTH-056). Nothing records it. | D63, D154 | `superadmins_005_` |
 | SUPERADMINS-006 | `GET /v1/users/me/superadmin` answers 200 with `{"superadmin": <boolean>}`: whether the caller is a superadmin. It asks no authenticator app of a superadmin, so one with an app and one without both read `true`: it refuses an account without one only as any route of a user's does, while the deployment requires one of every user (AUTH-070). | D62, API-02, API-14, DATA-16 | `superadmins_006_` |
 | SUPERADMINS-007 | Deleting a superadmin's account ends their being one, with the account. The export of a user's data holds `superadmins/superadmins.json`: for a superadmin, one record with the `created_at` of their row, and for any other user, none. | D31, DATA-23 | `superadmins_007_` |
+| SUPERADMINS-008 | The subcommand `superadmin list` shows the operator who runs it the deployment's superadmins: it prints to its standard output a line for each, the one made first first, with the account's email address, the user's ID and when the operator made them a superadmin, under a line that says what they are, or, for a deployment without one, a line that says so. It changes nothing and records nothing, logs how many it listed, without an address, and exits 0. | D157, ARCH-14, OPS-03, OBS-04, DATA-16 | `superadmins_008_` |
 
 ## Design
 
@@ -42,13 +44,15 @@ A superadmin is a user with a row in `superadmins`. It is not a role: a role bel
 
 ### The subcommand
 
-An operator runs `superadmin add <email>` or `superadmin remove <email>` on the deployment's server, with the image of the color that serves, as `just superadmin` runs it over Secure Shell (SSH) ([deploy](../operations/deploy.md#superadmins)). It acts for no request, no job and no user, so it opens its unit of work through `Database::for_operator`, and its entry records no actor and no client, under `AuditScope::attempt`, in the account's own log ([platform spec](platform.md#unit-of-work)). Its log says what it did, and never the address (OBS-04).
+An operator runs `superadmin add <email>`, `superadmin remove <email>` or `superadmin list` on the deployment's server, with the image of the color that serves, as `just superadmin` runs it over Secure Shell (SSH) ([deploy](../operations/deploy.md#superadmins)). It acts for no request, no job and no user, so it opens its unit of work through `Database::for_operator`, and the entry of a change records no actor and no client, under `AuditScope::attempt`, in the account's own log ([platform spec](platform.md#unit-of-work)). Its log says what it did, and never the address (OBS-04).
 
 It reads which account holds the address through `accounts::holder_for_update`, which locks the user's row and reads it again under the lock, so a deletion of the account, or a change of its address, commits before the run reads it or after the run commits (DATA-20). With email on, an account becomes a superadmin only once it has proved the address, so nobody becomes one by registering an operator's address before its owner does. With email off, nothing proves an address, and the account that holds it is the one the operator means (D67).
 
-`add` inserts the row, and an account that has one already inserts nothing, which the run reports (ERR-05). `remove` deletes it. A request that a superadmin's route authorized before the removal committed runs to its end: it changes nothing that the removal's order with it could leave wrong, so the proof takes no lock.
+`add` inserts the row, and an account that has one already inserts nothing, which the run reports (ERR-05). `remove` deletes it. A request that a superadmin's route authorized before the removal committed runs to its end, and does what it could have done a moment before the removal: nothing that the removal's order with it could leave wrong, so the proof takes no lock.
 
 Neither sends an email: the operator who runs the subcommand knows whom they named, and the account's own log holds the entry.
+
+`list` reads every row of `superadmins`, the one made first first, and each user's address through `accounts::profiles`, by exactly those users' IDs, in one unit of work that changes nothing (DATA-16). An operator knows the people of a deployment by their addresses, as `add` and `remove` take them, so the list shows each superadmin's address, with the user's ID, which the logs and the audit entries name them by, and when they became one. An address is personal data, which no log holds (OBS-04): the subcommand hands the lines to the binary's `main.rs`, which prints them to the standard output, the answer to the operator who asked, outside the logging setup, so no log line and no telemetry holds them, and its log says only how many it listed (OPS-03). The one-off container that runs the subcommand goes when it ends, with what Docker kept of its output ([deploy](../operations/deploy.md#superadmins)).
 
 ### What authorizes a superadmin's routes
 
@@ -56,11 +60,11 @@ Neither sends an email: the operator who runs the subcommand knows whom they nam
 
 - The caller is no superadmin. `platform::authz` rolls the unit of work back, reports the refusal to the `SecurityEventSink`, which records it in a transaction of its own, and answers 403 (SUPERADMINS-004). A superadmin's routes are in the API's document, so a 404 would hide nothing.
 - The caller is a superadmin whose account has no authenticator app, which `auth::has_authenticator_app` reads. The request answers 403 `request.second_factor_setup_required`, the answer a client already handles for a deployment that requires a second factor of every user, by having the user set one up (AUTH-070).
-- The caller is a superadmin with an app. `open` returns the unit of work with the proof, `Superadmin`, which only it builds.
+- The caller is a superadmin with an app. `open` returns the unit of work with the proof, `Superadmin`, which only it builds, and which holds the caller: what a superadmin changes is recorded under the scope of their `Principal`, their own log with them as its actor, and an operation that needs a proof of who the session's user is reads their session (WORKSPACES-030).
 
 Every superadmin must have a second factor (D63), and the proof is where that holds (D154): whatever happened to the account since the operator made it a superadmin, such as the removal of its app, by its user or by an operator (AUTH-064, AUTH-072), no route serves it as a superadmin without one. So the subcommand takes an account without an app, which sets one up before its first request as a superadmin, and no removal of an app needs to know of superadmins.
 
-A function that reads across workspaces for a superadmin takes the proof, down to the function of its query, as `access::census` does, so the compiler keeps any other caller from it (DATA-16).
+A function that reads across workspaces for a superadmin, or changes a workspace that the path names for one, takes the proof, down to the function of its query, as `access::census` and `access::dissolve_any` do, so the compiler keeps any other caller from it (DATA-16).
 
 ### Whether the caller is a superadmin
 

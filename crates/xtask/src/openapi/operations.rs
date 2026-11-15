@@ -25,6 +25,9 @@ const PUBLIC: &str = "/v1/public";
 // part: superadmins
 /// The prefix of a superadmin's routes (API-02).
 const SUPERADMIN: &str = "/v1/superadmin";
+
+/// The prefix of a superadmin's routes that act on one workspace (API-02).
+const SUPERADMIN_WORKSPACE: &str = "/v1/superadmin/workspaces/{workspace_id}";
 // end part: superadmins
 
 /// Every way the document's operations break API-02 to API-04.
@@ -69,7 +72,8 @@ fn problems(
 /// API-02: a workspace's resources are under `/v1/workspaces/{workspace_id}/`, the caller's own
 /// under `/v1/users/me/`, and no header selects a workspace.
 // part: superadmins
-/// A superadmin's routes are under `/v1/superadmin/`, and every operation there is one.
+/// A superadmin's routes are under `/v1/superadmin/`, and every operation there is one; one that
+/// acts on one workspace names it under `/v1/superadmin/workspaces/{workspace_id}`.
 // end part: superadmins
 // part: files
 /// A public file's bytes are under `/v1/public/`: a public file's download is a public operation
@@ -91,7 +95,11 @@ fn scope(
             "{here} acts on a workspace, so its path starts with {WORKSPACE} (API-02)"
         ));
     }
-    if path.contains("{workspace_id}") && !under(WORKSPACE) {
+    let named_elsewhere = path.contains("{workspace_id}") && !under(WORKSPACE);
+    // part: superadmins
+    let named_elsewhere = named_elsewhere && !under(SUPERADMIN_WORKSPACE);
+    // end part: superadmins
+    if named_elsewhere {
         messages.push(format!(
             "{here} names {{workspace_id}} outside {WORKSPACE} (API-02)"
         ));
@@ -377,6 +385,29 @@ mod tests {
         assert_eq!(
             messages("/v1/users/me/superadmin", "get", &user),
             Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn api_02_a_superadmin_s_route_names_its_workspace_under_its_own_prefix_alone() {
+        let superadmin = json!({ "x-access": "superadmin", "responses": { "204": ok(false) } });
+        assert_eq!(
+            messages(
+                "/v1/superadmin/workspaces/{workspace_id}",
+                "delete",
+                &superadmin
+            ),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            messages(
+                "/v1/superadmin/members/{workspace_id}",
+                "delete",
+                &superadmin
+            ),
+            [
+                "DELETE /v1/superadmin/members/{workspace_id} names {workspace_id} outside /v1/workspaces/{workspace_id} (API-02)"
+            ]
         );
     }
     // end part: superadmins

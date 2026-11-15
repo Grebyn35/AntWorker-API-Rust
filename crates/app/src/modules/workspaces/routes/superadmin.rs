@@ -1,12 +1,14 @@
-//! A superadmin's routes on the deployment's workspaces: listing every one (the workspaces
-//! spec's "A superadmin's routes").
+//! A superadmin's routes on the deployment's workspaces: listing every one, and deleting any
+//! (the workspaces spec's "A superadmin's routes").
 
+use axum::{extract::RawPathParams, http::StatusCode};
 use platform::{
     authz::AuthorizeSuperadmin,
     db::Database,
-    errors::Problem,
-    http::{FieldErrors, Query, Routes},
+    errors::{Problem, RequestError},
+    http::{FieldErrors, Query, Routes, path_id},
     lists::{Cursor, Limit, List, Page, Search},
+    types::WorkspaceId,
 };
 use serde::Deserialize;
 use utoipa::IntoParams;
@@ -18,7 +20,13 @@ use crate::modules::workspaces::{
 
 /// A superadmin's routes, which take the database as their state, as the module's others do.
 pub(super) fn routes() -> Routes<Database> {
-    Routes::new().superadmin(routes!(every), &[])
+    Routes::new().superadmin(routes!(every), &[]).superadmin(
+        routes!(delete_any),
+        &[
+            &RequestError::ReauthenticationRequired,
+            &WorkspacesError::NotFound,
+        ],
+    )
 }
 
 /// The query of `GET /v1/superadmin/workspaces` (WORKSPACES-029).
@@ -67,4 +75,26 @@ async fn every(
     let (mut uow, superadmin) = authorize.open().await.map_err(WorkspacesError::from)?;
     let list = service::every(&mut uow, &superadmin, search.as_ref(), &page).await?;
     Ok(axum::Json(list))
+}
+
+/// Deletes a workspace of the deployment, with everything in it, whoever its members are.
+#[utoipa::path(
+    delete,
+    path = "/v1/superadmin/workspaces/{workspace_id}",
+    tag = "workspaces",
+    params(
+        ("workspace_id" = WorkspaceId, Path, description = "The workspace."),
+    ),
+    responses(
+        (status = 204, description = "The workspace is deleted, with everything in it."),
+    )
+)]
+async fn delete_any(
+    authorize: AuthorizeSuperadmin,
+    params: RawPathParams,
+) -> Result<StatusCode, Problem<WorkspacesError>> {
+    let workspace = path_id(&params, "workspace_id").map(WorkspaceId::from_uuid);
+    let (uow, superadmin) = authorize.open().await.map_err(WorkspacesError::from)?;
+    service::delete(uow, &superadmin, workspace).await?;
+    Ok(StatusCode::NO_CONTENT)
 }

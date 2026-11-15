@@ -33,6 +33,7 @@
 - `end_membership(uow, &Principal, workspace_id)`: ends the caller's membership in the workspace, with its signal (ACCESS-006), which the personal data contract of `workspaces` calls for each workspace the caller belongs to, as their account is deleted.
 - `workspace_ids_of(uow, UserId)`: the ID of every workspace the user belongs to, as `workspace_ids` gives a caller's (ACCESS-005), for a job that runs for the user with no `Principal`: in each of them `accounts` publishes that a provider's picture became the user's avatar (ACCOUNTS-028). <!-- part: files -->
 - `census(uow, &Superadmin, &[WorkspaceId])`: the owner and the number of members of each of the workspaces given, each as a `Census`, which a superadmin's list of every workspace read, for `workspaces` (WORKSPACES-029). <!-- part: superadmins -->
+- `dissolve_any(uow, &Superadmin, workspace_id)`: locks the membership of the workspace's owner, then ends every membership of the workspace, each with its signal, before `workspaces` deletes it for a superadmin, and answers whether the workspace was there (ACCESS-011, WORKSPACES-030). <!-- part: superadmins -->
 - `sole_workspaces(uow, UserId)`: the IDs of the workspaces whose only member is the user, read by their own memberships, whose content their export holds (D40, ACCOUNTS-024).
 - `Contract`, the personal data contract for `workspace_memberships` (D31), which exports the user's memberships ([accounts spec](accounts.md#what-an-export-holds)), and deletes them, each with its access-change signal.
 - `Role::outranks(role)`: compares two roles (SEC-09).
@@ -51,6 +52,7 @@
 | ACCESS-008 | `erasable` locks every membership of the user, `FOR UPDATE`, and answers whether a workspace they own has another member. Until the unit of work that called it ends, no one else joins a workspace whose owner's membership it locked, and a join that waited for it, once that unit of work deleted the workspace, adds no member; and no operation of the user's in any of their workspaces runs. | D16, DATA-20 | `access_008_` |
 | ACCESS-009 | Leaving, a transfer and a workspace's deletion each hold their caller's membership `FOR UPDATE` from the moment they are authorized. So of two such requests of one member sent at once, the second waits for the first, and answers as a request sent after it does: 404 `request.not_found` once the membership is gone, and 403 `request.permission_denied` once its role lacks the permission. | DATA-20, SEC-09 | `access_009_` |
 | ACCESS-010 | A join waits for a transfer, and for a deletion, of the workspace it joins, as it waits for a deletion of the owner's account (ACCESS-008): after a transfer it joins, and after a deletion it adds no member. <!-- part: invitations --> | DATA-20, D16 | `access_010_` |
+| ACCESS-011 | A superadmin's deletion of a workspace holds the membership of the workspace's owner `FOR UPDATE`, whoever owns it once the lock is taken, before it ends any membership, as the owner's own deletion holds it (ACCESS-009). So it waits for a transfer, and then ends the new owner's membership with the others, each with its signal; and it waits for the owner's deletion of the workspace, and for the deletion of the owner's account, after which it finds no workspace, and changes nothing. <!-- part: superadmins --> | DATA-20, SEC-06, D62 | `access_011_` |
 
 ## Design
 
@@ -90,6 +92,11 @@ Three operations change or end their caller's own membership: leaving, a transfe
 - `leave` deletes the caller's membership.
 - `transfer` locks the membership of the user it is given, `FOR UPDATE`, only where its role is `admin`, and a read without a lock tells a member who isn't an admin, the caller among them, from a user who isn't a member. It then makes the caller an admin and that member the owner, in that order (Uniqueness of the owner), and signals both.
 - `dissolve` deletes the workspace's memberships from the highest rank to the lowest, in a statement for each role, and signals each. A member's operation locks its caller's membership first, and after it only memberships that rank below (ACCESS-004). So a deletion that reaches a member's row before every row below it waits for that member's operation while it holds nothing the operation still needs. One statement over every role would lock the rows in the order it found them, and could hold a member's row while it waited for the admin who is removing that member, who would wait for it in turn (DATA-20).
+
+<!-- part: superadmins -->
+A superadmin's deletion of a workspace has no membership for the policy to lock, so `dissolve_any` takes the lock that an owner's deletion starts from: it reads the owner's membership `FOR UPDATE`, and ends the memberships as `dissolve` does only once it holds it (ACCESS-011). Whatever holds that membership ends first: a transfer, the owner's own deletion of the workspace, or the deletion of the owner's account (ACCESS-008, ACCESS-009). A transfer that the lock waited for made the member it waited at an admin, and the read locks none, so it reads again, and locks the new owner's: one statement locks the owner's membership and tells whether the workspace had an owner as the statement began, and it runs until it has locked one, or finds none, which is a workspace that is gone, or never was (ACCESS-001).
+A join locks the owner's membership first too, so it waits for a superadmin's deletion as for an owner's, and adds no member (ACCESS-010). <!-- part: invitations -->
+<!-- end part: superadmins -->
 
 ### Signals
 

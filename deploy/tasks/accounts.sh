@@ -41,8 +41,9 @@ setup_workspace() {
 # ends its being one, with remove, through the API's subcommand superadmin, which exits 1,
 # changing nothing, when no account holds the address, when, with email on, the account hasn't
 # proved it, or when the account is one already, or is none to end (SUPERADMINS-001 to
-# SUPERADMINS-003, D62).
+# SUPERADMINS-003, D62). With list as $1 alone, the subcommand shows the deployment's
+# superadmins, each with the address of their account (SUPERADMINS-008).
 superadmin() {
-    operate superadmin "$1" "$2"
+    operate superadmin "$@"
 }
 # end part: superadmins

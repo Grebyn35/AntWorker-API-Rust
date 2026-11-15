@@ -94,15 +94,16 @@ setup-workspace host name email owner_name="":
 
 # part: superadmins
 # Makes the account that holds `email` a superadmin of the reference deployment on `host`, with
-# `add` as `change`, or ends its being one, with `remove` (SUPERADMINS-001, D62). A superadmin
-# sees every workspace's name, creation time, member count and owner, and no route makes one.
-# With email on, only an account that has proved the address becomes one, and a superadmin's
-# routes serve it once it has an authenticator app. It runs the API's subcommand `superadmin` with
-# the image of the color that serves, and exits 1, changing nothing, when no account holds the
-# address, or the account is one already, or is none to end. docs/operations/deploy.md says when
-# to run it.
-[doc("Makes an account a superadmin on a server, or ends its being one")]
+# `add` as `change`, or ends its being one, with `remove` (SUPERADMINS-001, D62); with `list`,
+# and no `email`, shows the deployment's superadmins, each with the address of their account
+# (SUPERADMINS-008). A superadmin sees every workspace's name, creation time, member count and
+# owner, and deletes any workspace, and no route makes one. With email on, only an account that
+# has proved the address becomes one, and a superadmin's routes serve it once it has an
+# authenticator app. It runs the API's subcommand `superadmin` with the image of the color that
+# serves, and a change exits 1, changing nothing, when no account holds the address, or the
+# account is one already, or is none to end. docs/operations/deploy.md says when to run it.
+[doc("Makes an account a superadmin on a server, ends its being one, or lists them")]
 [group('server')]
-superadmin host change email:
-    {{ xtask }} superadmin {{ host }} {{ quote(change) }} {{ quote(email) }}
+superadmin host change email="":
+    {{ xtask }} superadmin {{ host }} {{ quote(change) }} {{ if email != "" { quote(email) } else { "" } }}
 # end part: superadmins

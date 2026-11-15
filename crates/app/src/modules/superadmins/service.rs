@@ -1,6 +1,8 @@
 //! Who is a superadmin: the `SuperadminPolicy` that `platform::authz` asks on every route of a
 //! superadmin's, the caller's own standing, and the operator's subcommand, which alone makes a
-//! superadmin, and which ends one (the superadmins spec).
+//! superadmin, which ends one, and which lists them (the superadmins spec).
+
+use std::collections::HashMap;
 
 use platform::{
     authn::{AuditScope, BoxFuture, Principal},
@@ -13,7 +15,7 @@ use platform::{
 use super::{
     audit,
     error::SuperadminsError,
-    model::{Change, Refusal, SuperadminStanding},
+    model::{Change, Listed, Refusal, SuperadminStanding},
     repo,
 };
 use crate::modules::{
@@ -109,4 +111,34 @@ pub(crate) async fn change(
         })?;
     uow.commit().await?;
     Ok(Ok(()))
+}
+
+/// The deployment's superadmins, the one made first first, each with the address of their
+/// account, for the subcommand's list, read in one unit of work on `database` that changes
+/// nothing (SUPERADMINS-008).
+pub(crate) async fn listed(database: &Database) -> Result<Vec<Listed>, Internal> {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the operator's subcommand acts for no request and no job (ARCH-14)"
+    )]
+    let mut uow = database.for_operator().await?;
+    let rows = repo::all(&mut uow).await?;
+    let users: Vec<UserId> = rows.iter().map(|(user, _)| *user).collect();
+    let mut emails: HashMap<UserId, EmailAddress> = accounts::profiles(&mut uow, &users)
+        .await
+        .map_err(|error| match error {
+            AccountsError::Internal(error) => error,
+            other => Internal::new(other),
+        })?
+        .into_iter()
+        .map(|profile| (profile.id, profile.email))
+        .collect();
+    // A superadmin whose account a deletion took between the two reads is one no more.
+    Ok(rows
+        .into_iter()
+        .filter_map(|(user, since)| {
+            let email = emails.remove(&user)?;
+            Some(Listed { user, email, since })
+        })
+        .collect())
 }

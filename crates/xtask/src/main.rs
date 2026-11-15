@@ -505,7 +505,7 @@ mod tests {
 
     // part: superadmins
     #[test]
-    fn superadmins_001_the_operator_s_subcommand_takes_a_server_a_change_and_an_address() {
+    fn superadmins_001_the_operator_s_subcommand_takes_a_server_and_what_to_do_there() {
         let cli = |arguments: &[&str]| {
             Cli::try_parse_from(
                 ["xtask", "superadmin"]
@@ -515,18 +515,33 @@ mod tests {
         };
         let added = cli(&["production", "add", "ada@example.com"]).unwrap();
         let removed = cli(&["production", "remove", "ada@example.com"]).unwrap();
+        let listed = cli(&["production", "list"]).unwrap();
 
         assert!(matches!(
             added.command,
-            Command::Server(ServerTask::Superadmin { host, change, email })
-                if host == "production" && change == "add" && email == "ada@example.com"
+            Command::Server(ServerTask::Superadmin {
+                host,
+                command: crate::tasks::SuperadminTask::Add { email },
+            }) if host == "production" && email == "ada@example.com"
         ));
         assert!(matches!(
             removed.command,
-            Command::Server(ServerTask::Superadmin { change, .. }) if change == "remove"
+            Command::Server(ServerTask::Superadmin {
+                command: crate::tasks::SuperadminTask::Remove { email },
+                ..
+            }) if email == "ada@example.com"
         ));
+        assert!(matches!(
+            listed.command,
+            Command::Server(ServerTask::Superadmin {
+                command: crate::tasks::SuperadminTask::List,
+                ..
+            })
+        ));
+        // An address names an account to change, and a list takes none.
         assert!(cli(&["production", "list", "ada@example.com"]).is_err());
         assert!(cli(&["production", "add"]).is_err());
+        assert!(cli(&["production"]).is_err());
     }
     // end part: superadmins
 }

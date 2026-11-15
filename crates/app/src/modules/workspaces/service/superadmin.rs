@@ -1,5 +1,5 @@
-//! What a superadmin does with the deployment's workspaces: listing every one (the workspaces
-//! spec's "A superadmin's routes").
+//! What a superadmin does with the deployment's workspaces: listing every one, and deleting any
+//! (the workspaces spec's "A superadmin's routes").
 
 use std::collections::HashMap;
 
@@ -10,10 +10,14 @@ use platform::{
     types::{UserId, WorkspaceId},
 };
 
+use super::erase;
 use crate::modules::{
     access::{self, Census},
     accounts::{self, PublicProfile},
+    audit::{self as log, Entry},
+    auth,
     workspaces::{
+        audit,
         error::WorkspacesError,
         model::{WorkspaceOverview, WorkspaceOwner},
         repo,
@@ -63,4 +67,32 @@ pub(in crate::modules::workspaces) async fn every(
         items,
         next_cursor: listed.next_cursor,
     })
+}
+
+/// Deletes `workspace`, the workspace that the path names, whoever its members are, with
+/// everything in it, for a superadmin, in the unit of work that their proof opened, once their
+/// session has proved who its user is: the entry in the superadmin's own log, the end of every
+/// membership, each with its access-change signal, the workspace and the jobs enqueued for it
+/// commit together. `workspace` is `None` when the path's ID isn't a UUID, which names no
+/// workspace, as an ID that no workspace has names none (WORKSPACES-030, PLATFORM-072).
+pub(in crate::modules::workspaces) async fn delete(
+    mut uow: UnitOfWork,
+    superadmin: &Superadmin,
+    workspace: Option<WorkspaceId>,
+) -> Result<(), WorkspacesError> {
+    let caller = superadmin.principal();
+    auth::require_recent_proof(&mut uow, caller).await?;
+    let workspace = workspace.ok_or(WorkspacesError::NotFound)?;
+    // The entry's foreign keys read the caller's row, so it is written before any row of the
+    // workspace is locked (the workspaces spec's "Deleting a workspace"). It says that the
+    // caller deleted the workspace as a superadmin, not as its owner.
+    let mut entry = Entry::new(audit::WORKSPACE_DELETED, audit::WORKSPACE, workspace.uuid());
+    entry.details = serde_json::json!({ "access": "superadmin" });
+    log::record(&mut uow, caller.audit_scope(), entry).await?;
+    if !access::dissolve_any(&mut uow, superadmin, workspace).await? {
+        // No workspace has the ID: the unit of work rolls back, and the entry with it.
+        return Err(WorkspacesError::NotFound);
+    }
+    erase(&mut uow, workspace).await?;
+    Ok(uow.commit().await?)
 }

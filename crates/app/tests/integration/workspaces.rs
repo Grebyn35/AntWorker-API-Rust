@@ -879,17 +879,6 @@ async fn published(api: &Api) -> Vec<String> {
         .await
 }
 
-/// The signal of a change to `user`'s membership in `workspace`, which the transaction
-/// `transaction` made.
-fn signal(user: &str, workspace: &str, transaction: u64) -> Value {
-    json!({
-        "kind": "membership_changed",
-        "user_id": user,
-        "workspace_id": workspace,
-        "transaction": transaction
-    })
-}
-
 #[tokio::test]
 async fn workspaces_011_reading_a_member_gives_them_as_the_list_does_with_their_etag() {
     let api = Api::new().await;
@@ -999,7 +988,7 @@ async fn workspaces_012_changing_a_role_stores_it_records_it_publishes_it_and_si
         .unwrap();
     assert_eq!(
         signals.received().await,
-        [signal(&grace.user_id, &workspace, transaction)]
+        [workspaces::signal(&grace.user_id, &workspace, transaction)]
     );
 }
 
@@ -1319,7 +1308,7 @@ async fn workspaces_014_leaving_ends_the_membership_records_it_publishes_it_and_
         .unwrap();
     assert_eq!(
         signals.received().await,
-        [signal(&grace.user_id, &workspace, transaction)]
+        [workspaces::signal(&grace.user_id, &workspace, transaction)]
     );
 }
 
@@ -1427,8 +1416,8 @@ async fn workspaces_015_transferring_swaps_the_roles_records_it_publishes_it_and
     assert_eq!(
         signals.received().await,
         [
-            signal(&ada.user_id, &workspace, transaction),
-            signal(&grace.user_id, &workspace, transaction)
+            workspaces::signal(&ada.user_id, &workspace, transaction),
+            workspaces::signal(&grace.user_id, &workspace, transaction)
         ]
     );
     // The workspace's own row didn't change: its version is the one it was created with.
@@ -1601,21 +1590,6 @@ async fn sec_19_workspace_transferred_reaches_the_members_and_no_replay_from_bef
     assert_eq!(after_joining.payload()["owner_id"], ada.user_id);
 }
 
-/// What `workspace` holds: its row, its memberships, the entries of its log, its events and the
-/// jobs enqueued for it, as their counts.
-async fn held_by(api: &Api, workspace: &str) -> String {
-    api.database()
-        .owner_reads(&format!(
-            "SELECT (SELECT count(*) FROM workspaces WHERE id = '{workspace}') || ' ' \
-             || (SELECT count(*) FROM workspace_memberships WHERE workspace_id = '{workspace}') \
-             || ' ' || (SELECT count(*) FROM audit_entries WHERE workspace_id = '{workspace}') \
-             || ' ' || (SELECT count(*) FROM events WHERE workspace_id = '{workspace}') \
-             || ' ' || (SELECT count(*) FROM jobs WHERE workspace_id = '{workspace}')"
-        ))
-        .await
-        .remove(0)
-}
-
 #[tokio::test]
 async fn workspaces_017_deleting_a_workspace_deletes_everything_in_it_and_records_it() {
     let api = Api::new().await;
@@ -1632,18 +1606,7 @@ async fn workspaces_017_deleting_a_workspace_deletes_everything_in_it_and_record
     let other = workspaces::arrange(db, "Other", &members[..2]).await;
     // Each workspace has an entry in its log, an event and a job enqueued for it.
     for id in [&workspace, &other] {
-        crate::support::audit::in_workspace_log(db, id, &ada.user_id, "workspace.renamed").await;
-        db.owner_executes(&events::statement(
-            &[Event::to_workspace(id, "workspace.read", "note.made", "{}")],
-            false,
-        ))
-        .await;
-        db.owner_executes(&format!(
-            "INSERT INTO jobs (kind, payload, user_id, workspace_id) \
-             VALUES ('tests.kept', '{{}}', '{}', '{id}')",
-            bob.user_id
-        ))
-        .await;
+        workspaces::fill(db, id, &ada.user_id).await;
     }
     let mut signals = db.signals().await;
     let path = format!("/v1/workspaces/{workspace}");
@@ -1651,8 +1614,8 @@ async fn workspaces_017_deleting_a_workspace_deletes_everything_in_it_and_record
     let deleted = send(&api, http::Method::DELETE, &path, &ada).await;
 
     assert_eq!(deleted.status, 204);
-    assert_eq!(held_by(&api, &workspace).await, "0 0 0 0 0");
-    assert_eq!(held_by(&api, &other).await, "1 2 1 1 1");
+    assert_eq!(workspaces::held_by(db, &workspace).await, "0 0 0 0 0");
+    assert_eq!(workspaces::held_by(db, &other).await, "1 2 1 1 1");
     // The owner's own log keeps the deletion, since the workspace's went with it.
     assert_eq!(
         entries(&api, "workspace.deleted").await,
@@ -1664,7 +1627,7 @@ async fn workspaces_017_deleting_a_workspace_deletes_everything_in_it_and_record
     // Each member's signal names the deletion's transaction: the owner's first, then each rank's.
     let received = signals.received().await;
     let transaction = received[0]["transaction"].as_u64().unwrap();
-    let expected = members.map(|(user, _)| signal(user, &workspace, transaction));
+    let expected = members.map(|(user, _)| workspaces::signal(user, &workspace, transaction));
     assert_eq!(received, expected);
     assert_eq!(send(&api, http::Method::GET, &path, &ada).await.status, 404);
 }

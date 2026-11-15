@@ -1,7 +1,7 @@
 //! The binary's subcommands besides `serve` that run the modules' logic (ARCH-14): the entry
 //! points of `seed`, which fills a development database, and [`Operation`], the subcommands that
 //! an operator runs, such as `remove-second-factor`, each with what it takes and what it does,
-//! which `main.rs` takes into its own.
+//! as a [`Done`], which `main.rs` takes into its own.
 
 use axum::Router;
 use platform::{
@@ -48,29 +48,62 @@ pub enum Operation {
     },
     // end part: workspace_setup
     // part: superadmins
-    /// Makes the account that holds an address a superadmin of the deployment, or ends its being
-    /// one. Exits 1, changing nothing, when no account holds the address, when, with email on,
-    /// the account hasn't proved it, or when the account is one already, or is none to end.
+    /// Makes an account a superadmin of the deployment, ends its being one, or lists the
+    /// deployment's superadmins.
     Superadmin {
-        /// What to do: `add` or `remove`.
-        #[arg(value_enum)]
-        change: SuperadminChange,
-        /// The account's email address.
-        email: String,
+        /// What to do.
+        #[command(subcommand)]
+        command: SuperadminCommand,
     },
     // end part: superadmins
 }
 
 // part: superadmins
-/// What the subcommand `superadmin` does with the account that holds the address.
-#[derive(Clone, Copy, clap::ValueEnum)]
-pub enum SuperadminChange {
-    /// Makes the account a superadmin.
-    Add,
-    /// Ends the account's being a superadmin.
-    Remove,
+/// What the subcommand `superadmin` does.
+#[derive(clap::Subcommand)]
+pub enum SuperadminCommand {
+    /// Makes the account that holds an address a superadmin. Exits 1, changing nothing, when no
+    /// account holds the address, when, with email on, the account hasn't proved it, or when
+    /// the account is one already.
+    Add {
+        /// The account's email address.
+        email: String,
+    },
+    /// Ends the being a superadmin of the account that holds an address. Exits 1, changing
+    /// nothing, when no account holds the address, or the account is none.
+    Remove {
+        /// The account's email address.
+        email: String,
+    },
+    /// Shows the deployment's superadmins, each with the address of their account, the one made
+    /// first first.
+    List,
 }
 // end part: superadmins
+
+/// What a subcommand that an operator runs did.
+pub struct Done {
+    /// What it did, for the subcommand's log, without personal data (OPS-03, OBS-04).
+    pub outcome: String,
+    // part: superadmins
+    /// What it shows the operator who ran it, a line each, which the binary prints to its
+    /// standard output, outside the logs, since a line may hold personal data, as the list of
+    /// the deployment's superadmins holds their addresses (SUPERADMINS-008).
+    pub shown: Vec<String>,
+    // end part: superadmins
+}
+
+impl Done {
+    /// A subcommand that did `outcome`.
+    fn of(outcome: impl Into<String>) -> Self {
+        Self {
+            outcome: outcome.into(),
+            // part: superadmins
+            shown: Vec::new(),
+            // end part: superadmins
+        }
+    }
+}
 
 /// Why an operator's subcommand changed nothing, which its message says without personal data,
 /// since the logs hold none (OPS-03, OBS-04).
@@ -93,17 +126,16 @@ pub enum Refused {
 
 impl Operation {
     /// Runs the subcommand on `database`, telling whom it tells through `mail` while email is
-    /// on, and answers what it did, for the subcommand's log, or why it changed nothing.
-    pub async fn run(self, database: &Database, mail: &Mail) -> Result<String, Refused> {
+    /// on, and answers what it did, or why it changed nothing.
+    pub async fn run(self, database: &Database, mail: &Mail) -> Result<Done, Refused> {
         match self {
             Self::RemoveSecondFactor { email } => {
                 let done = remove_second_factor(database, mail, &email).await?;
-                Ok(done.to_owned())
+                Ok(Done::of(done))
             }
             // part: superadmins
-            Self::Superadmin { change, email } => superadmin(database, mail, change, &email)
+            Self::Superadmin { command } => superadmin(database, mail, command)
                 .await
-                .map(str::to_owned)
                 .map_err(Refused::from),
             // end part: superadmins
             // part: workspace_setup
@@ -111,7 +143,10 @@ impl Operation {
                 name,
                 email,
                 owner_name,
-            } => Ok(setup_workspace(database, mail, &name, &email, owner_name.as_deref()).await?),
+            } => setup_workspace(database, mail, &name, &email, owner_name.as_deref())
+                .await
+                .map(Done::of)
+                .map_err(Refused::from),
             // end part: workspace_setup
         }
     }
@@ -306,29 +341,55 @@ impl From<superadmins::Refusal> for SuperadminRefused {
     }
 }
 
-/// Makes the account that holds `email` a superadmin, on `database`, or ends its being one, as
-/// `change` says, for the subcommand `superadmin`, which an operator runs, and answers what it
-/// did, for the subcommand's log. While `mail` is on, only an account that has proved the address
-/// becomes one (SUPERADMINS-001 to SUPERADMINS-003, D62).
+/// Does what `command` says on `database`, for the subcommand `superadmin`, which an operator
+/// runs, and answers what it did: makes the account that holds an address a superadmin, or ends
+/// its being one, or lists the deployment's superadmins. While `mail` is on, only an account
+/// that has proved the address becomes one (SUPERADMINS-001 to SUPERADMINS-003,
+/// SUPERADMINS-008, D62).
 async fn superadmin(
     database: &Database,
     mail: &Mail,
-    change: SuperadminChange,
-    email: &str,
-) -> Result<&'static str, SuperadminRefused> {
-    let (change, done) = match change {
-        SuperadminChange::Add => (
+    command: SuperadminCommand,
+) -> Result<Done, SuperadminRefused> {
+    let (change, email, done) = match command {
+        SuperadminCommand::Add { email } => (
             superadmins::Change::Add,
+            email,
             "made the account that holds the address a superadmin; a superadmin's routes serve \
              it once it has an authenticator app",
         ),
-        SuperadminChange::Remove => (
+        SuperadminCommand::Remove { email } => (
             superadmins::Change::Remove,
+            email,
             "the account that holds the address is no superadmin any more",
         ),
+        SuperadminCommand::List => return Ok(listed(superadmins::listed(database).await?)),
     };
-    superadmins::change(database, mail.is_on(), change, email).await??;
-    Ok(done)
+    superadmins::change(database, mail.is_on(), change, &email).await??;
+    Ok(Done::of(done))
+}
+
+/// What the subcommand's list did, for its log, which holds how many superadmins it listed and
+/// no address, and the lines that it shows the operator: each of `superadmins` with the address
+/// of their account, their ID and when they became one, or that the deployment has none
+/// (SUPERADMINS-008).
+fn listed(superadmins: Vec<superadmins::Listed>) -> Done {
+    let outcome = format!("listed the deployment's superadmins: {}", superadmins.len());
+    let shown = if superadmins.is_empty() {
+        vec!["The deployment has no superadmin.".to_owned()]
+    } else {
+        let title = "The deployment's superadmins, with the ID of each one's user:".to_owned();
+        let lines = superadmins.into_iter().map(|superadmin| {
+            format!(
+                "  {}  {}  since {}",
+                superadmin.email.as_str(),
+                superadmin.user,
+                superadmin.since
+            )
+        });
+        std::iter::once(title).chain(lines).collect()
+    };
+    Done { outcome, shown }
 }
 // end part: superadmins
 
