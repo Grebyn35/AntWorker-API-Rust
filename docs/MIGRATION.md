@@ -324,6 +324,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 13b5891..e6d2a02: as above, with pass 1's fixes | 2 | 3 (2, 1, 0 shared) | 0 | 0 | `clean`: 57fb423 <!-- part: workspace_setup --> |
 | 1fb3e30..8ec9d3c: the last part of the full `workspaces` module: users creating workspaces through `POST /v1/workspaces` as the part `workspace_creation` (WORKSPACES-001, SYSTEM-008), with the run `organization`, the capabilities' member, a step of the seed for each part that creates workspaces, and the core's tests, the end-to-end tests and the hub's load test without the route | 1 | 4 (4, 2, 2 shared) | 2 | 0 | `next pass`: 1627477 <!-- part: workspace_creation --> |
 | 1fb3e30..1627477: as above, with pass 1's fixes | 2 | 4 (3, 2, 1 shared) | 0 | 0 | `clean`: 2b523bd <!-- part: workspace_creation --> |
+| cb8b700..f6ef87e: the first part of `superadmins`: the operator's subcommands declared in the composition root, the table and the subcommand `superadmin`, the proof of a superadmin in `platform::authz` with `Routes::superadmin`, the route that tells a caller whether they are one, a superadmin's list of every workspace, which `workspaces` serves, the part's entry and its run, and the documents it changed | 1 | 11 (6, 7, 2 shared) | 4 | 0 | `next pass` <!-- part: superadmins --> |
 
 ## Decisions
 
