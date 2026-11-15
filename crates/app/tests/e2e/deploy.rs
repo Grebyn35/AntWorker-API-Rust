@@ -955,7 +955,7 @@ fn operator_subcommands_run(deployment: &Deployment) {
     // part: superadmins
     // The making of a superadmin (SUPERADMINS-001): with email off, the account that holds the
     // address becomes one, and an address that no account holds ends none (SUPERADMINS-003).
-    let (registered, session) = post(
+    let (registered, session) = crate::deployment::post(
         deployment.server.caddy_root(),
         deployment.url("https", 443, "/v1/users"),
         serde_json::json!({

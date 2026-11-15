@@ -101,10 +101,10 @@ impl Operation {
                 Ok(done.to_owned())
             }
             // part: superadmins
-            Self::Superadmin { change, email } => {
-                let done = superadmin(database, mail, change, &email).await?;
-                Ok(done.to_owned())
-            }
+            Self::Superadmin { change, email } => superadmin(database, mail, change, &email)
+                .await
+                .map(str::to_owned)
+                .map_err(Refused::from),
             // end part: superadmins
             // part: workspace_setup
             Self::SetupWorkspace {
