@@ -1,5 +1,7 @@
-//! Inviting someone by email, and the invitee seeing and accepting the invitation (the
-//! invitations spec).
+//! Inviting someone by email, and the invitee seeing, accepting and declining the invitation
+//! (the invitations spec). What a workspace's members do with its invitations is in `managing`.
+
+mod managing;
 
 use serde_json::{Value, json};
 
@@ -28,6 +30,17 @@ async fn accept(api: &Api, user: &SignedIn, id: &str) -> Response {
     api.request(
         http::Method::POST,
         &format!("/v1/users/me/invitations/{id}/accept"),
+    )
+    .bearer(&user.access)
+    .send()
+    .await
+}
+
+/// Declines the invitation `id`, as `user`.
+async fn decline(api: &Api, user: &SignedIn, id: &str) -> Response {
+    api.request(
+        http::Method::POST,
+        &format!("/v1/users/me/invitations/{id}/decline"),
     )
     .bearer(&user.access)
     .send()
@@ -65,7 +78,20 @@ async fn invitations_001_inviting_an_email_creates_a_pending_invitation_and_enqu
     assert_eq!(body["email"], invitee.as_str());
     assert_eq!(body["role"], "member");
     assert_eq!(body["inviter_id"], ada.user_id.as_str());
+    assert_eq!(response.header("etag"), "\"1\"");
     let db = api.database();
+    let events = db
+        .owner_reads(
+            "SELECT name || ' ' || scope || ' ' || workspace_id || ' ' || permission || ' ' \
+             || (payload->>'invitation_id') FROM events WHERE name LIKE 'invitation.%'",
+        )
+        .await;
+    assert_eq!(
+        events,
+        [format!(
+            "invitation.created workspace {workspace} invitations.read {id}"
+        )]
+    );
     let lasts = db
         .owner_reads("SELECT (expires_at - created_at = interval '7 days')::text FROM invitations")
         .await;
@@ -249,6 +275,8 @@ async fn invitations_003_inviting_again_refreshes_the_invitation_in_place() {
 
     assert_eq!(response.status, 200);
     assert!(response.headers("location").is_empty());
+    // The invitation's version moved with the test's change of its expiry, then the refresh.
+    assert_eq!(response.header("etag"), "\"3\"");
     let body = response.json();
     assert_eq!(body["id"], id.as_str());
     assert_eq!(body["role"], "member");
@@ -283,6 +311,39 @@ async fn invitations_003_inviting_again_refreshes_the_invitation_in_place() {
     );
     let jobs = db.owner_reads("SELECT count(*)::text FROM jobs").await;
     assert_eq!(jobs, ["2"]);
+    let events = db
+        .owner_reads(
+            "SELECT name || ' ' || scope || ' ' || (payload->>'invitation_id') FROM events \
+             WHERE name LIKE 'invitation.%' ORDER BY created_at, id",
+        )
+        .await;
+    assert_eq!(
+        events,
+        [
+            format!("invitation.created workspace {id}"),
+            format!("invitation.updated workspace {id}"),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn invitations_003_an_expired_invitation_is_refreshed_in_place() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let workspace = acme(&api, &ada, &[]).await;
+    let first = invite(&api, &ada, &workspace, "carol@example.com", "member").await;
+    let db = api.database();
+    db.owner_executes("UPDATE invitations SET expires_at = now() - interval '1 second'")
+        .await;
+
+    let response = invite(&api, &ada, &workspace, "carol@example.com", "member").await;
+
+    assert_eq!(response.status, 200);
+    assert_eq!(response.json()["id"], first.json()["id"]);
+    let renewed = db
+        .owner_reads("SELECT (expires_at > now() + interval '6 days')::text FROM invitations")
+        .await;
+    assert_eq!(renewed, ["true"]);
 }
 
 #[tokio::test]
@@ -518,7 +579,10 @@ async fn invitations_008_an_invitee_with_an_account_receives_invitation_received
     invite(&api, &ada, &workspace, "nobody@example.com", "member").await;
 
     let events = db
-        .owner_reads("SELECT name || ' ' || user_id || ' ' || payload::text FROM events")
+        .owner_reads(
+            "SELECT name || ' ' || user_id || ' ' || payload::text FROM events \
+             WHERE scope = 'user'",
+        )
         .await;
     let received = format!(
         "invitation.received {} {{\"workspace_id\": \"{workspace}\", \"invitation_id\": \"{}\"}}",
@@ -743,6 +807,10 @@ async fn sec_19_member_joined_reaches_the_members_and_no_replay_from_before_join
     assert_eq!(accepted.status, 200);
     assert_eq!(joined.status, 200);
     for stream in [&mut owner, &mut member] {
+        // Dan's invitation came after the streams opened (INVITATIONS-001).
+        let invited = stream.event().await;
+        assert_eq!(invited.event.as_deref(), Some("invitation.created"));
+        assert_eq!(invited.payload()["invitation_id"], welcome["id"]);
         let frame = stream.event().await;
         assert_eq!(frame.event.as_deref(), Some("member.joined"));
         assert_eq!(frame.payload()["user_id"], carol.user_id.as_str());
@@ -757,4 +825,84 @@ async fn sec_19_member_joined_reaches_the_members_and_no_replay_from_before_join
         ]
     );
     assert_eq!(replayed[0].payload()["user_id"], dan.user_id.as_str());
+}
+
+#[tokio::test]
+async fn invitations_017_declining_deletes_the_invitation_records_and_publishes() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let carol = users::register(&api, "carol@example.com").await;
+    let workspace = acme(&api, &ada, &[]).await;
+    let invitation = invite(&api, &ada, &workspace, "carol@example.com", "member")
+        .await
+        .json();
+    let id = invitation["id"].as_str().unwrap();
+    let db = api.database();
+    db.owner_executes("UPDATE invitations SET expires_at = now() - interval '1 second'")
+        .await;
+    db.owner_executes("DELETE FROM events").await;
+
+    let response = decline(&api, &carol, id).await;
+    let again = decline(&api, &carol, id).await;
+
+    assert_eq!(response.status, 204);
+    assert!(
+        db.owner_reads("SELECT id FROM invitations")
+            .await
+            .is_empty()
+    );
+    let entries = db
+        .owner_reads(
+            "SELECT action || ' ' || scope || ' ' || workspace_id || ' ' || actor_user_id || ' ' \
+             || resource_type || ' ' || resource_id || ' ' \
+             || coalesce(target_user_id::text, '-') || ' ' || details::text \
+             FROM audit_entries WHERE action = 'invitation.declined'",
+        )
+        .await;
+    assert_eq!(
+        entries,
+        [format!(
+            "invitation.declined workspace {workspace} {} invitation {id} - {{}}",
+            carol.user_id
+        )]
+    );
+    let events = db
+        .owner_reads(
+            "SELECT name || ' ' || scope || ' ' || workspace_id || ' ' || permission || ' ' \
+             || payload::text FROM events",
+        )
+        .await;
+    assert_eq!(
+        events,
+        [format!(
+            "invitation.declined workspace {workspace} invitations.read \
+             {{\"workspace_id\": \"{workspace}\", \"invitation_id\": \"{id}\"}}"
+        )]
+    );
+    assert_eq!(again.status, 404);
+    assert_eq!(again.json()["code"], "invitations.not_found");
+}
+
+#[tokio::test]
+async fn invitations_017_an_invitation_not_addressed_to_the_caller_answers_404() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let dave = users::register(&api, "dave@example.com").await;
+    let workspace = acme(&api, &ada, &[]).await;
+    let invitation = invite(&api, &ada, &workspace, "carol@example.com", "member")
+        .await
+        .json();
+
+    let to_another = decline(&api, &dave, invitation["id"].as_str().unwrap()).await;
+    let no_id = decline(&api, &dave, "not-an-id").await;
+
+    for response in [&to_another, &no_id] {
+        assert_eq!(response.status, 404);
+        assert_eq!(response.json()["code"], "invitations.not_found");
+    }
+    let left = api
+        .database()
+        .owner_reads("SELECT email FROM invitations")
+        .await;
+    assert_eq!(left, ["carol@example.com"]);
 }

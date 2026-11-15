@@ -10,7 +10,9 @@ mod service;
 pub(crate) use error::AccessError;
 pub(crate) use model::{MemberFilter, Membership, Role};
 // part: invitations
-pub(crate) use permissions::InvitationsCreate;
+pub(crate) use permissions::{
+    InvitationsCancel, InvitationsCreate, InvitationsRead, InvitationsUpdate,
+};
 // end part: invitations
 // part: files
 pub(crate) use permissions::{FilesDelete, FilesRead, FilesUpload};

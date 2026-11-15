@@ -2,7 +2,7 @@
 
 use platform::{
     rate_limit::Bucket,
-    types::{EmailAddress, Timestamp, UserId, WorkspaceId},
+    types::{EmailAddress, Timestamp, UserId, Version, WorkspaceId},
 };
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -18,7 +18,7 @@ pub(crate) struct NewInvitation {
     pub(crate) role: Role,
 }
 
-/// An invitation to a workspace (INVITATIONS-001).
+/// An invitation to a workspace (INVITATIONS-001, INVITATIONS-011).
 // `Deserialize` only reads back a stored result that an idempotency key replays (PLATFORM-036).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub(crate) struct Invitation {
@@ -30,22 +30,40 @@ pub(crate) struct Invitation {
     pub(crate) email: EmailAddress,
     /// The role it offers.
     pub(crate) role: Role,
-    /// The member who invited, or refreshed the invitation last.
-    pub(crate) inviter_id: UserId,
+    /// The member who invited, refreshed the invitation or sent it again last, or null once
+    /// their account is deleted (ACCOUNTS-018).
+    pub(crate) inviter_id: Option<UserId>,
     /// When it was first created.
     pub(crate) created_at: Timestamp,
     /// When it expires.
     pub(crate) expires_at: Timestamp,
 }
 
-/// What inviting answered, which an idempotency key keeps: the invitation, and whether inviting
-/// created it or refreshed one (INVITATIONS-001, INVITATIONS-003).
+/// What inviting answered, which an idempotency key keeps: the invitation, with its row's
+/// version, and whether inviting created it or refreshed one (INVITATIONS-001, INVITATIONS-003).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct Invited {
     /// Whether the invitation is new.
     pub(crate) created: bool,
+    /// The invitation, with the version its `ETag` names.
+    pub(crate) current: CurrentInvitation,
+}
+
+/// An invitation as it now stands, with the version its `ETag` names (INVITATIONS-011,
+/// PLATFORM-071).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct CurrentInvitation {
     /// The invitation.
     pub(crate) invitation: Invitation,
+    /// Its row's version.
+    pub(crate) version: Version,
+}
+
+/// What changing an invitation's role takes (INVITATIONS-013).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct NewRole {
+    /// The role the invitation is to offer.
+    pub(crate) role: Role,
 }
 
 /// One of the caller's own invitations (INVITATIONS-004).

@@ -15,7 +15,7 @@
 - The permission types used with `Authorized<P>`, one type per permission of the matrix below that a route requires.
 - `AccessPolicy`, implemented for `platform::authz`: `authorize`, and `memberships`, which gives each of a set of users their `Memberships`, for the hub's streams (ACCESS-007).
 - `add_owner(uow, workspace_id, user_id)`: makes a user the owner of a new workspace, and signals the change of their access. Called only by `workspaces`, in the one operation that creates a workspace.
-- `hold_owner(uow, workspace_id)`: locks the membership of the workspace's owner `FOR KEY SHARE`, whoever owns it once the lock is taken, and answers whether the workspace is still there (ACCESS-008, ACCESS-010). Called only by `invitations`, as accepting's first lock. <!-- part: invitations -->
+- `hold_owner(uow, workspace_id)`: locks the membership of the workspace's owner `FOR KEY SHARE`, whoever owns it once the lock is taken, and answers whether the workspace is still there (ACCESS-008, ACCESS-010). Called only by `invitations`, as the first lock of accepting and of declining. <!-- part: invitations -->
 - `add_member(uow, workspace_id, user_id, role)`: adds a member, or reports that the user is one already, which changes nothing. Called only by `invitations`, after accepting, once `hold_owner` has locked the owner's membership. <!-- part: invitations -->
 - `is_member(uow, workspace_id, user_id)`: whether the user belongs to the workspace. <!-- part: invitations -->
 - `remove(uow, &Authorized<MembersRemove>, user_id)`: removes a member, subject to rank.
@@ -70,7 +70,10 @@ Rank, from highest to lowest: `owner`, `admin`, `member`.
 | `members.read` | Listing members, with their names, emails and roles | yes | yes | yes |
 | `members.update` | Changing the role of a member of lower rank, to a role below one's own | yes | yes | |
 | `members.remove` | Removing a member of lower rank | yes | yes | |
-| `invitations.create` | Inviting at a role below one's own | yes | yes | <!-- part: invitations --> |
+| `invitations.read` | Listing and reading the workspace's invitations, with their emails and roles, and receiving their events | yes | yes | yes <!-- part: invitations --> |
+| `invitations.create` | Inviting at a role below one's own, and sending such an invitation again | yes | yes | <!-- part: invitations --> |
+| `invitations.update` | Changing the role of an invitation at a role below one's own, to a role below one's own | yes | yes | <!-- part: invitations --> |
+| `invitations.cancel` | Cancelling an invitation at a role below one's own | yes | yes | <!-- part: invitations --> |
 | `files.read` | Listing, reading and downloading the workspace's files, and receiving their events | yes | yes | yes <!-- part: files --> |
 | `files.upload` | Uploading a file, private or public | yes | yes | yes <!-- part: files --> |
 | `files.delete` | Deleting a file | yes | yes | <!-- part: files --> |

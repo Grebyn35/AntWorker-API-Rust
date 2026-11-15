@@ -838,4 +838,29 @@ async fn invitations_004_an_invitation_whose_inviter_s_account_is_deleted_lists_
     assert_eq!(items[0]["workspace_id"], json!(workspace));
     assert_eq!(items[0]["inviter_name"], json!(null));
 }
+
+#[tokio::test]
+async fn invitations_011_an_invitation_whose_inviter_s_account_is_deleted_shows_no_inviter() {
+    let Shared {
+        api,
+        ada,
+        bob,
+        workspace,
+        ..
+    } = shared().await;
+    let invited = invitations::invite(&api, &ada, &workspace, "dan@example.com", "member").await;
+    let id = invited.json()["id"].as_str().unwrap().to_owned();
+
+    let deleted = delete(&api, &ada).await;
+    let read = api
+        .get(&format!("/v1/workspaces/{workspace}/invitations/{id}"))
+        .bearer(&bob.access)
+        .send()
+        .await;
+
+    assert_eq!(deleted.status, 204);
+    assert_eq!(read.status, 200);
+    assert_eq!(read.json()["inviter_id"], json!(null));
+    assert_eq!(read.json()["email"], "dan@example.com");
+}
 // end part: invitations

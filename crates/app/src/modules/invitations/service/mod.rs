@@ -1,4 +1,7 @@
-//! Inviting, an invitee's own invitations, and accepting (the invitations spec).
+//! Inviting, an invitee's own invitations, accepting and declining, with what a workspace's
+//! members do with its invitations in `managing` (the invitations spec).
+
+mod managing;
 
 use std::collections::HashMap;
 
@@ -7,27 +10,30 @@ use platform::{
     authz::{self, Authorize, Authorized},
     db::{Database, UnitOfWork},
     errors::Internal,
+    events::{UserEvent, WorkspaceEvent},
     idempotency::{Claimed, IdempotencyKey},
     lists::{List, Page, Search, key},
     mail::Mail,
     rate_limit::RateLimits,
-    types::{Client, UserId},
+    types::{Client, EmailAddress, UserId, WorkspaceId},
 };
 use serde_json::json;
 
 use super::{
     audit, emails,
     error::InvitationsError,
-    events as published,
+    events::{self as published, AddressedInvitation, InvitationChanged},
     model::{Accepted, Invited, NewInvitation, ReceivedInvitation, Settings},
     repo,
 };
 use crate::modules::{
-    access::{self, InvitationsCreate, Role},
+    access::{self, InvitationsCreate, InvitationsRead, Role},
     accounts::{self, DisplayName, PublicProfile},
     audit::{self as log, Entry},
     workspaces::{self, WorkspaceName},
 };
+
+pub(crate) use managing::{cancel, change_role, invitation, invitations, resend};
 
 /// What the routes of `invitations` share: the database, the emails, how long an invitation
 /// lasts, and how many a member may send.
@@ -81,51 +87,94 @@ pub(crate) async fn invite(
     {
         return Err(InvitationsError::AlreadyMember);
     }
-    let expiry_days = invitations.settings.expiry_days;
-    let (invitation, created) = repo::upsert(
+    let (current, created) = repo::upsert(
         &mut uow,
         workspace,
         &input.email,
         input.role,
         inviter,
-        expiry_days,
+        invitations.settings.expiry_days,
     )
     .await?;
-    let action = if created {
-        audit::INVITATION_CREATED
+    let id = current.invitation.id;
+    let (action, event) = if created {
+        (audit::INVITATION_CREATED, &published::INVITATION_CREATED)
     } else {
-        audit::INVITATION_UPDATED
+        (audit::INVITATION_UPDATED, &published::INVITATION_UPDATED)
     };
-    let mut entry = Entry::new(action, audit::INVITATION, invitation.id);
+    let mut entry = Entry::new(action, audit::INVITATION, id);
     entry.target = invitee;
     entry.details = json!({ "role": input.role });
     log::record(&mut uow, authorized.audit_scope(), entry).await?;
-    let email = emails::Invitation {
-        to: input.email,
-        inviter: inviter_name(&mut uow, inviter).await?,
-        workspace: workspace_name(&mut uow, authorized).await?,
-        role: input.role,
-        expires_in_days: expiry_days,
-    }
-    .render()?;
-    invitations
-        .mail
-        .send(&mut uow, authorized.job_scope(), email)
-        .await?;
+    announce(&mut uow, event, workspace, id).await?;
+    send_email(&mut uow, invitations, authorized, input.email, input.role).await?;
     if let Some(user) = invitee {
-        let payload = published::InvitationReceived {
-            invitation_id: invitation.id,
-            workspace_id: workspace,
-        };
-        uow.publish_to_user(&published::INVITATION_RECEIVED, user, &payload)
-            .await?;
+        tell(
+            &mut uow,
+            &published::INVITATION_RECEIVED,
+            user,
+            workspace,
+            id,
+        )
+        .await?;
     }
-    let invited = Invited {
-        created,
-        invitation,
-    };
+    let invited = Invited { created, current };
     uow.commit_with(&invited).await?;
     Ok(invited)
+}
+
+/// Enqueues the invitation email to `to`, offering `role` in the caller's workspace, with the
+/// caller as its inviter, under the proof's scope (INVITATIONS-010).
+async fn send_email(
+    uow: &mut UnitOfWork,
+    invitations: &Invitations,
+    authorized: &Authorized<InvitationsCreate>,
+    to: EmailAddress,
+    role: Role,
+) -> Result<(), InvitationsError> {
+    let email = emails::Invitation {
+        to,
+        inviter: inviter_name(uow, authorized.principal().user_id()).await?,
+        workspace: workspace_name(uow, authorized).await?,
+        role,
+        expires_in_days: invitations.settings.expiry_days,
+    }
+    .render()?;
+    Ok(invitations
+        .mail
+        .send(uow, authorized.job_scope(), email)
+        .await?)
+}
+
+/// Publishes `event` about the invitation `id` to the members of `workspace` who may read its
+/// invitations.
+async fn announce(
+    uow: &mut UnitOfWork,
+    event: &WorkspaceEvent<InvitationsRead, InvitationChanged>,
+    workspace: WorkspaceId,
+    id: uuid::Uuid,
+) -> Result<(), Internal> {
+    let payload = InvitationChanged {
+        workspace_id: workspace,
+        invitation_id: id,
+    };
+    uow.publish_to_workspace(event, workspace, &payload).await
+}
+
+/// Publishes `event` about the invitation `id` of `workspace` to `user`, whose account holds its
+/// address (Who an invitation reaches).
+async fn tell(
+    uow: &mut UnitOfWork,
+    event: &UserEvent<AddressedInvitation>,
+    user: UserId,
+    workspace: WorkspaceId,
+    id: uuid::Uuid,
+) -> Result<(), Internal> {
+    let payload = AddressedInvitation {
+        invitation_id: id,
+        workspace_id: workspace,
+    };
+    uow.publish_to_user(event, user, &payload).await
 }
 
 /// The inviter's name, for the email.
@@ -141,7 +190,8 @@ async fn inviter_name(
     Ok(profile.name)
 }
 
-/// The name of the workspace the caller invites to, for the email.
+/// The name of the workspace the caller invites to, or sends an invitation of again, for the
+/// email.
 async fn workspace_name(
     uow: &mut UnitOfWork,
     authorized: &Authorized<InvitationsCreate>,
@@ -254,7 +304,7 @@ pub(crate) async fn accept(
         clippy::disallowed_methods,
         reason = "accepting an invitation is how its invitee joins (the invitations spec)"
     )]
-    let scope = principal.joiner_scope(workspace);
+    let scope = principal.invitee_scope(workspace);
     let entry = Entry::new(audit::INVITATION_ACCEPTED, audit::INVITATION, id);
     log::record(&mut uow, scope, entry).await?;
     let payload = published::MemberJoined {
@@ -274,4 +324,37 @@ pub(crate) async fn accept(
         workspace_id: workspace,
         role: found.role,
     })
+}
+
+/// Declines the invitation `id` addressed to the caller, expired or not: its deletion, its audit
+/// entry and the members' event commit together (INVITATIONS-017). `None` is an ID that isn't a
+/// UUID, which names no invitation.
+pub(crate) async fn decline(
+    database: &Database,
+    client: &Client,
+    principal: &Principal,
+    id: Option<uuid::Uuid>,
+) -> Result<(), InvitationsError> {
+    let id = id.ok_or(InvitationsError::NotFound)?;
+    let mut uow = database.begin(client).await?;
+    let email = accounts::profile(&mut uow, principal).await?.email;
+    let workspace = repo::workspace_of(&mut uow, id, &email)
+        .await?
+        .ok_or(InvitationsError::NotFound)?;
+    // The owner's membership first, then the invitation, as accepting takes them (DATA-20).
+    if !access::hold_owner(&mut uow, workspace).await? {
+        return Err(InvitationsError::NotFound);
+    }
+    if !repo::delete(&mut uow, id, &email).await? {
+        return Err(InvitationsError::NotFound);
+    }
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "declining an invitation is its invitee's answer to the workspace (the invitations spec)"
+    )]
+    let scope = principal.invitee_scope(workspace);
+    let entry = Entry::new(audit::INVITATION_DECLINED, audit::INVITATION, id);
+    log::record(&mut uow, scope, entry).await?;
+    announce(&mut uow, &published::INVITATION_DECLINED, workspace, id).await?;
+    Ok(uow.commit().await?)
 }

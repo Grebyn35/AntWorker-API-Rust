@@ -1,6 +1,12 @@
-//! Inviting, listing the caller's invitations, and accepting one (the invitations spec's Routes).
+//! Inviting, listing the caller's invitations, and accepting or declining one (the invitations
+//! spec's Routes). What a workspace's members do with its invitations is in `managing.rs`.
 
-use axum::extract::{RawPathParams, State};
+mod managing;
+
+use axum::{
+    extract::{RawPathParams, State},
+    http::StatusCode,
+};
 use platform::{
     authn::Principal,
     authz::Authorize,
@@ -17,8 +23,11 @@ use utoipa_axum::routes;
 
 use super::{
     error::InvitationsError,
-    events::{INVITATION_RECEIVED, MEMBER_JOINED},
-    model::{Accepted, Invitation, NewInvitation, ReceivedInvitation},
+    events::{
+        INVITATION_CANCELLED, INVITATION_CREATED, INVITATION_DECLINED, INVITATION_RECEIVED,
+        INVITATION_REVISED, INVITATION_UPDATED, INVITATION_WITHDRAWN, MEMBER_JOINED,
+    },
+    model::{Accepted, CurrentInvitation, Invitation, NewInvitation, ReceivedInvitation},
     service::{self, Invitations},
 };
 use crate::modules::access::{InvitationsCreate, Role};
@@ -26,7 +35,16 @@ use crate::modules::access::{InvitationsCreate, Role};
 /// The module's routes, which take its state, and the events they publish.
 pub(crate) fn routes() -> Routes<Invitations> {
     Routes::new()
-        .events(&[&INVITATION_RECEIVED, &MEMBER_JOINED])
+        .events(&[
+            &INVITATION_RECEIVED,
+            &INVITATION_REVISED,
+            &INVITATION_WITHDRAWN,
+            &INVITATION_CREATED,
+            &INVITATION_UPDATED,
+            &INVITATION_CANCELLED,
+            &INVITATION_DECLINED,
+            &MEMBER_JOINED,
+        ])
         .workspace::<InvitationsCreate>(routes!(invite), &[&InvitationsError::AlreadyMember])
         .user(routes!(received), &[])
         .user(
@@ -37,6 +55,8 @@ pub(crate) fn routes() -> Routes<Invitations> {
                 &InvitationsError::AlreadyMember,
             ],
         )
+        .user(routes!(decline), &[&InvitationsError::NotFound])
+        .merge(managing::routes())
 }
 
 /// What inviting takes (INVITATIONS-001).
@@ -75,8 +95,12 @@ impl TryFrom<InviteRequest> for NewInvitation {
     ),
     responses(
         (status = 201, description = "The new invitation.", body = Invitation,
-            headers(("location" = String, description = "The new invitation: `/v1/workspaces/{workspace_id}/invitations/{id}`."))),
-        (status = 200, description = "The address's invitation to the workspace, refreshed in place.", body = Invitation),
+            headers(
+                ("location" = String, description = "The new invitation: `/v1/workspaces/{workspace_id}/invitations/{id}`."),
+                ("etag" = String, description = "The invitation's version, which a change of its role's `If-Match` names (API-13)."),
+            )),
+        (status = 200, description = "The address's invitation to the workspace, expired or not, refreshed in place.", body = Invitation,
+            headers(("etag" = String, description = "The invitation's new version (API-13)."))),
     )
 )]
 async fn invite(
@@ -94,15 +118,18 @@ async fn invite(
         &invitations,
     )
     .await?;
-    let invitation = invited.invitation;
+    let CurrentInvitation {
+        invitation,
+        version,
+    } = invited.current;
     if !invited.created {
-        return Ok(ResourceResponse::ok(invitation));
+        return Ok(ResourceResponse::ok(invitation).tagged(version));
     }
     let location = format!(
         "/v1/workspaces/{}/invitations/{}",
         invitation.workspace_id, invitation.id
     );
-    Ok(ResourceResponse::created(invitation, location))
+    Ok(ResourceResponse::created(invitation, location).tagged(version))
 }
 
 /// The query of `GET /v1/users/me/invitations` (INVITATIONS-004).
@@ -181,4 +208,27 @@ async fn accept(
     let id = path_id(&params, "invitation_id");
     let accepted = service::accept(&invitations.database, &client, &principal, id).await?;
     Ok(axum::Json(accepted))
+}
+
+/// Declines an invitation addressed to the caller, expired or not.
+#[utoipa::path(
+    post,
+    path = "/v1/users/me/invitations/{invitation_id}/decline",
+    tag = "invitations",
+    params(
+        ("invitation_id" = uuid::Uuid, Path, description = "The invitation."),
+    ),
+    responses(
+        (status = 204, description = "The invitation was declined."),
+    )
+)]
+async fn decline(
+    State(invitations): State<Invitations>,
+    client: Client,
+    principal: Principal,
+    params: RawPathParams,
+) -> Result<StatusCode, Problem<InvitationsError>> {
+    let id = path_id(&params, "invitation_id");
+    service::decline(&invitations.database, &client, &principal, id).await?;
+    Ok(StatusCode::NO_CONTENT)
 }

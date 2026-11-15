@@ -13,6 +13,7 @@ parts:
     paths:
       - crates/app/src/modules/invitations
       - crates/app/templates/invitations
+      - crates/app/tests/integration/invitations
       - crates/app/tests/integration/invitations.rs
       - crates/app/tests/integration/support/invitations.rs
       - crates/app/tests/load/streams.js

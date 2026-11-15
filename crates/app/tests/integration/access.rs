@@ -524,6 +524,53 @@ const FIXTURES: &[Fixture] = &[
         headers: &[],
         success: StatusCode::CREATED,
     },
+    Fixture {
+        method: "get",
+        template: "/v1/workspaces/{workspace_id}/invitations",
+        path: |workspace, _| format!("/v1/workspaces/{workspace}/invitations"),
+        row: None,
+        body: None,
+        headers: &[],
+        success: StatusCode::OK,
+    },
+    Fixture {
+        method: "get",
+        template: "/v1/workspaces/{workspace_id}/invitations/{invitation_id}",
+        path: |workspace, id| format!("/v1/workspaces/{workspace}/invitations/{id}"),
+        row: Some(|db, workspace| Box::pin(crate::support::invitations::arrange(db, workspace))),
+        body: None,
+        headers: &[],
+        success: StatusCode::OK,
+    },
+    // The arranged invitation offers the member role, which every role allowed to change, send
+    // again or cancel one outranks, and which a change may assign (INVITATIONS-014).
+    Fixture {
+        method: "patch",
+        template: "/v1/workspaces/{workspace_id}/invitations/{invitation_id}",
+        path: |workspace, id| format!("/v1/workspaces/{workspace}/invitations/{id}"),
+        row: Some(|db, workspace| Box::pin(crate::support::invitations::arrange(db, workspace))),
+        body: Some((r#"{"role": "member"}"#, "application/merge-patch+json")),
+        headers: &[],
+        success: StatusCode::OK,
+    },
+    Fixture {
+        method: "post",
+        template: "/v1/workspaces/{workspace_id}/invitations/{invitation_id}/resend",
+        path: |workspace, id| format!("/v1/workspaces/{workspace}/invitations/{id}/resend"),
+        row: Some(|db, workspace| Box::pin(crate::support::invitations::arrange(db, workspace))),
+        body: None,
+        headers: &[],
+        success: StatusCode::OK,
+    },
+    Fixture {
+        method: "delete",
+        template: "/v1/workspaces/{workspace_id}/invitations/{invitation_id}",
+        path: |workspace, id| format!("/v1/workspaces/{workspace}/invitations/{id}"),
+        row: Some(|db, workspace| Box::pin(crate::support::invitations::arrange(db, workspace))),
+        body: None,
+        headers: &[],
+        success: StatusCode::NO_CONTENT,
+    },
     // end part: invitations
     // part: files
     Fixture {
@@ -1129,21 +1176,24 @@ async fn joining_while_the_owner_acts(
     StatusCode,
     (StatusCode, serde_json::Value),
 ) {
-    let owner: Actor = |_, ada| Box::pin(async move { ada.access.clone() });
-    joining_while(owner, method, path, body).await
+    answering_while(OWNER, "accept", method, path, body).await
 }
+
+/// Ada, the workspace's owner, as the actor whose request an answer waits for.
+const OWNER: Actor = |_, ada| Box::pin(async move { ada.access.clone() });
 
 /// Who sends the request that a join waits for: given the API and Ada, the workspace's owner,
 /// their access token.
 type Actor = for<'a> fn(&'a Api, &'a SignedIn) -> BoxFuture<'a, String>;
 
-/// Bob accepts Ada's invitation to her workspace while a request of `actor`'s, `method` to
-/// `path` with `body`, which has locked the membership of Ada, the workspace's owner, waits for a
-/// request of Grace's, an admin of the workspace, so the acceptance waits for the actor's
-/// request; returns the API, Bob, the workspace, the status of the actor's request, and the
-/// acceptance's answer.
-async fn joining_while(
+/// Bob answers Ada's invitation to her workspace, `answer` being `accept` or `decline`, while a
+/// request of `actor`'s, `method` to `path` with `body`, which has locked the membership of Ada,
+/// the workspace's owner, waits for a request of Grace's, an admin of the workspace, so the answer
+/// waits for the actor's request; returns the API, Bob, the workspace, the status of the actor's
+/// request, and the answer's response.
+async fn answering_while(
     actor: Actor,
+    answer: &str,
     method: Method,
     path: fn(&str) -> String,
     body: fn(&SignedIn) -> Option<serde_json::Value>,
@@ -1174,9 +1224,9 @@ async fn joining_while(
 
     let acted = api.spawn(method, &path(&workspace), &access, body(&grace));
     queries_wait_on_locks(db, 1).await;
-    let accepted = api.spawn(
+    let answered = api.spawn(
         Method::POST,
-        &format!("/v1/users/me/invitations/{id}/accept"),
+        &format!("/v1/users/me/invitations/{id}/{answer}"),
         &bob.access,
         None,
     );
@@ -1184,8 +1234,8 @@ async fn joining_while(
     execute_on(&mut running, "ROLLBACK").await;
 
     let (acted, _) = acted.await.unwrap();
-    let accepted = accepted.await.unwrap();
-    (api, bob, workspace, acted, accepted)
+    let answered = answered.await.unwrap();
+    (api, bob, workspace, acted, answered)
 }
 
 /// Bob's membership in `workspace`, as his role, if he has one.
@@ -1237,8 +1287,9 @@ async fn access_010_a_join_that_waited_for_a_superadmin_s_deletion_adds_no_membe
         })
     };
 
-    let (api, bob, workspace, deleted, (status, problem)) = joining_while(
+    let (api, bob, workspace, deleted, (status, problem)) = answering_while(
         superadmin,
+        "accept",
         Method::DELETE,
         |workspace| format!("/v1/superadmin/workspaces/{workspace}"),
         |_| None,
@@ -1264,9 +1315,12 @@ async fn invitations_006_accepting_while_the_owner_deletes_the_workspace_answers
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert_eq!(problem["code"], "invitations.not_found");
 }
-/// Bob accepts Ada's invitation to her workspace, whose only member she is, while the deletion of
-/// her account holds its owner's membership; returns the acceptance's response, with the database.
-async fn joining_while_the_owner_is_deleted() -> (Api, SignedIn, crate::support::api::Response) {
+/// Bob answers Ada's invitation to her workspace, whose only member she is, `answer` being
+/// `accept` or `decline`, while the deletion of her account holds its owner's membership; returns
+/// the answer's response, with the database.
+async fn answering_while_the_owner_is_deleted(
+    answer: &str,
+) -> (Api, SignedIn, crate::support::api::Response) {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     let bob = users::register(&api, "bob@example.com").await;
@@ -1279,7 +1333,7 @@ async fn joining_while_the_owner_is_deleted() -> (Api, SignedIn, crate::support:
     let mut held = db.holding(&identity_of(&ada)).await;
 
     let delete = call(&api, Method::DELETE, "/v1/users/me", &ada);
-    let path = format!("/v1/users/me/invitations/{id}/accept");
+    let path = format!("/v1/users/me/invitations/{id}/{answer}");
     let accept = async {
         queries_wait_on_locks(db, 1).await;
         let accept = call(&api, Method::POST, &path, &bob);
@@ -1296,7 +1350,7 @@ async fn joining_while_the_owner_is_deleted() -> (Api, SignedIn, crate::support:
 
 #[tokio::test]
 async fn access_008_a_join_that_waited_for_the_owner_s_deletion_adds_no_member() {
-    let (api, bob, _) = joining_while_the_owner_is_deleted().await;
+    let (api, bob, _) = answering_while_the_owner_is_deleted("accept").await;
 
     let memberships = api
         .database()
@@ -1311,9 +1365,38 @@ async fn access_008_a_join_that_waited_for_the_owner_s_deletion_adds_no_member()
 
 #[tokio::test]
 async fn invitations_006_accepting_while_the_workspace_goes_with_its_owner_answers_404() {
-    let (_, _, accepted) = joining_while_the_owner_is_deleted().await;
+    let (_, _, accepted) = answering_while_the_owner_is_deleted("accept").await;
 
     assert_eq!(accepted.status, StatusCode::NOT_FOUND);
     assert_eq!(accepted.json()["code"], "invitations.not_found");
+}
+
+#[tokio::test]
+async fn invitations_017_declining_while_the_owner_deletes_the_workspace_answers_404() {
+    let (api, .., deleted, (status, problem)) = answering_while(
+        OWNER,
+        "decline",
+        Method::DELETE,
+        |workspace| format!("/v1/workspaces/{workspace}"),
+        |_| None,
+    )
+    .await;
+
+    assert_eq!(deleted, StatusCode::NO_CONTENT);
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(problem["code"], "invitations.not_found");
+    let declined = api
+        .database()
+        .owner_reads("SELECT id FROM audit_entries WHERE action = 'invitation.declined'")
+        .await;
+    assert!(declined.is_empty());
+}
+
+#[tokio::test]
+async fn invitations_017_declining_while_the_workspace_goes_with_its_owner_answers_404() {
+    let (_, _, declined) = answering_while_the_owner_is_deleted("decline").await;
+
+    assert_eq!(declined.status, StatusCode::NOT_FOUND);
+    assert_eq!(declined.json()["code"], "invitations.not_found");
 }
 // end part: invitations

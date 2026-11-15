@@ -110,11 +110,12 @@ impl Principal {
     }
 
     // part: invitations
-    /// The scope of the entry that records this caller joining `workspace` by accepting an
-    /// invitation addressed to them: the workspace's log, with them as the actor, before any
-    /// `Authorized<P>` can name it (INVITATIONS-005). Only accepting an invitation calls it;
+    /// The scope of the entry that records this caller accepting or declining an invitation of
+    /// `workspace` addressed to them: the workspace's log, with them as the actor, though no
+    /// `Authorized<P>` can name it, since they aren't its member yet, or won't be
+    /// (INVITATIONS-005, INVITATIONS-017). Only accepting and declining an invitation call it;
     /// clippy bans it elsewhere.
-    pub fn joiner_scope(&self, workspace: WorkspaceId) -> AuditScope {
+    pub fn invitee_scope(&self, workspace: WorkspaceId) -> AuditScope {
         AuditScope {
             log: Log::Workspace(workspace),
             actor: Some(self.user_id),

@@ -55,7 +55,9 @@ A superadmin's route is authorized by `Superadmin`, which the policy of `superad
 - Check: `test` (TEST-08: every workspace route answers every role as the matrix says for the permission its builder documents, so a handler that extracts `Authorize` for another permission fails wherever the two differ), plus `review`.
 
 ### SEC-09 Role rank limits who may change whom
-A member can change or remove only members at roles below their own, and can assign only roles below their own. Each workspace has exactly one owner. Three actions are exceptions, and each has its own rule:
+A member can change or remove only members at roles below their own, and can assign only roles below their own. Each workspace has exactly one owner.
+An invitation offers its role, so a member invites, changes, sends again or cancels only an invitation at a role below their own. <!-- part: invitations -->
+Three actions are exceptions to the rank of members, and each has its own rule:
 - **Transfer.** The owner transfers ownership to a member who holds the admin role. The two swap roles: that member becomes the owner, and the former owner becomes an admin (D2).
 - **Leave.** Any member except the owner may leave, which removes their own membership. The owner must transfer ownership before leaving.
 - **Deletion.** Of a workspace's members, the owner alone deletes it, which ends every membership with it, the owner's own among them. A deletion of an account ends its user's memberships as ACCOUNTS-013 and ACCOUNTS-014 say (D16).

@@ -1,21 +1,24 @@
-//! The SQL of `invitations` (ARCH-10), but the expiry sweep's, which `jobs.rs` holds. A
-//! workspace's invitations are filtered by the workspace from the proof, and an invitee's by the
-//! caller's address (DATA-16).
+//! The SQL of `invitations` (ARCH-10), but the expiry sweep's, which `jobs.rs` holds: inviting,
+//! an invitee's own invitations, accepting and declining here, and what a workspace's members do
+//! with its invitations in `managing`. A workspace's invitations are filtered by the workspace
+//! from the proof, and an invitee's by the caller's address (DATA-16).
+
+pub(super) mod managing;
 
 use platform::{
     db::UnitOfWork,
     errors::Internal,
     lists::Page,
     personal_data::PAGE,
-    types::{EmailAddress, Timestamp, UserId, WorkspaceId},
+    types::{EmailAddress, Timestamp, UserId, Version, WorkspaceId},
 };
 
-use super::model::{ExportedInvitation, Found, Invitation, Pending};
+use super::model::{CurrentInvitation, ExportedInvitation, Found, Invitation, Pending};
 use crate::modules::access::Role;
 
 /// Inserts the invitation of `email` to `workspace` at `role`, or refreshes the one there is: its
-/// role, inviter and expiry are replaced and its ID kept. Returns it, with whether it is new
-/// (INVITATIONS-001, INVITATIONS-003).
+/// role, inviter and expiry are replaced and its ID kept. Returns it, with its row's version and
+/// whether it is new (INVITATIONS-001, INVITATIONS-003).
 pub(super) async fn upsert(
     uow: &mut UnitOfWork,
     workspace: WorkspaceId,
@@ -23,7 +26,7 @@ pub(super) async fn upsert(
     role: Role,
     inviter_id: UserId,
     expiry_days: u32,
-) -> Result<(Invitation, bool), Internal> {
+) -> Result<(CurrentInvitation, bool), Internal> {
     let days = i32::try_from(expiry_days).map_err(Internal::new)?;
     let row = sqlx::query!(
         r#"INSERT INTO invitations (workspace_id, email, role, inviter_id, expires_at)
@@ -32,7 +35,7 @@ pub(super) async fn upsert(
             role = EXCLUDED.role,
             inviter_id = EXCLUDED.inviter_id,
             expires_at = EXCLUDED.expires_at
-        RETURNING id, created_at, expires_at, (xmax = 0) AS "created!""#,
+        RETURNING id, created_at, expires_at, version, (xmax = 0) AS "created!""#,
         workspace.uuid(),
         email.as_str(),
         role.name(),
@@ -46,11 +49,15 @@ pub(super) async fn upsert(
         workspace_id: workspace,
         email: email.clone(),
         role,
-        inviter_id,
+        inviter_id: Some(inviter_id),
         created_at: Timestamp::from_database(row.created_at),
         expires_at: Timestamp::from_database(row.expires_at),
     };
-    Ok((invitation, row.created))
+    let current = CurrentInvitation {
+        invitation,
+        version: Version::from_database(row.version),
+    };
+    Ok((current, row.created))
 }
 
 /// A page of the unexpired invitations to `email`, the latest first, to `workspaces` only when a
@@ -108,7 +115,8 @@ pub(super) async fn workspace_ids(
 }
 
 /// The workspace of the invitation `id`, if it is addressed to `email`, read without a lock, so an
-/// acceptance learns whose owner's membership to lock before it locks the invitation (DATA-20).
+/// acceptance or a decline learns whose owner's membership to lock before it locks the invitation
+/// (DATA-20).
 pub(super) async fn workspace_of(
     uow: &mut UnitOfWork,
     id: uuid::Uuid,
@@ -150,20 +158,21 @@ pub(super) async fn find(
     .transpose()
 }
 
-/// Deletes the invitation `id` addressed to `email`.
+/// Deletes the invitation `id` addressed to `email`, which locks it until the unit of work ends,
+/// and returns whether there was one (DATA-20).
 pub(super) async fn delete(
     uow: &mut UnitOfWork,
     id: uuid::Uuid,
     email: &EmailAddress,
-) -> Result<(), Internal> {
-    sqlx::query!(
+) -> Result<bool, Internal> {
+    let deleted = sqlx::query!(
         "DELETE FROM invitations WHERE id = $1 AND email = $2",
         id,
         email.as_str(),
     )
     .execute(uow.executor())
     .await?;
-    Ok(())
+    Ok(deleted.rows_affected() > 0)
 }
 
 /// A page of the invitations of `workspace`, one whose only member is the user, which came from

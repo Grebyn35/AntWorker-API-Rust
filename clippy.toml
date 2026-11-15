@@ -131,7 +131,7 @@ disallowed-methods = [
     { path = "platform::authn::Principal::founder_scope", reason = "only a user's creation of a workspace records them as its founder (the workspaces spec)" }, # part: workspace_creation
     { path = "platform::authn::Principal::erased_job_scope", reason = "only the deletion of an account enqueues a job for no one, once it has erased the user (the accounts spec)" },
     { path = "platform::authn::Principal::leaver_scope", reason = "only the personal data contract of workspaces records a deleted user leaving (the workspaces spec)" },
-    { path = "platform::authn::Principal::joiner_scope", reason = "only accepting an invitation records as the member who joins (the invitations spec)" }, # part: invitations
+    { path = "platform::authn::Principal::invitee_scope", reason = "only accepting and declining an invitation record in its workspace's log as its invitee (the invitations spec)" }, # part: invitations
     { path = "platform::authn::AuditScope::setup", reason = "only the operator's setup of a workspace records in the log of a workspace that no member's proof names (the workspaces spec)" }, # part: workspace_setup
     { path = "platform::authz::Superadmin::owner_scope", reason = "only a superadmin's creation of a workspace records them in its log as the owner it creates it for (the workspaces spec)" }, # part: superadmins
     { path = "platform::jobs::JobScope::attempt", reason = "only a password reset and an operator's subcommand enqueue a job for an account that no proof scopes (PLATFORM-013)" },

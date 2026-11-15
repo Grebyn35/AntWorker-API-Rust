@@ -62,11 +62,33 @@ impl Permission for MembersRemove {
 }
 
 // part: invitations
-/// Inviting someone at a role below one's own.
+/// Listing and reading the workspace's invitations, with their emails and roles, and receiving
+/// their events.
+pub(crate) struct InvitationsRead;
+
+impl Permission for InvitationsRead {
+    const NAME: &'static str = "invitations.read";
+}
+
+/// Inviting someone at a role below one's own, and sending such an invitation again.
 pub(crate) struct InvitationsCreate;
 
 impl Permission for InvitationsCreate {
     const NAME: &'static str = "invitations.create";
+}
+
+/// Changing the role of an invitation at a role below one's own, to a role below one's own.
+pub(crate) struct InvitationsUpdate;
+
+impl Permission for InvitationsUpdate {
+    const NAME: &'static str = "invitations.update";
+}
+
+/// Cancelling an invitation at a role below one's own.
+pub(crate) struct InvitationsCancel;
+
+impl Permission for InvitationsCancel {
+    const NAME: &'static str = "invitations.cancel";
 }
 // end part: invitations
 
@@ -104,7 +126,13 @@ const MATRIX: &[(&str, &[Role])] = &[
     ("members.update", &[Role::Owner, Role::Admin]),
     ("members.remove", &[Role::Owner, Role::Admin]),
     // part: invitations
+    (
+        "invitations.read",
+        &[Role::Owner, Role::Admin, Role::Member],
+    ),
     ("invitations.create", &[Role::Owner, Role::Admin]),
+    ("invitations.update", &[Role::Owner, Role::Admin]),
+    ("invitations.cancel", &[Role::Owner, Role::Admin]),
     // end part: invitations
     // part: files
     ("files.read", &[Role::Owner, Role::Admin, Role::Member]),

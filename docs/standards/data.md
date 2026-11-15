@@ -121,7 +121,7 @@ Tenancy is enforced by the application, and every query on user or workspace dat
   - before sign-in, by the token or the sign-in email
   - in a password reset, by the address it names (AUTH-034, AUTH-037)
   - when asking to change one's address, by the address asked for, which no account may hold (AUTH-048)
-  - when inviting, by the invitee's email <!-- part: invitations -->
+  - when inviting, by the invitee's email, and when changing, sending again or cancelling an invitation, by its address <!-- part: invitations -->
   - in the setup subcommand, by its owner's email (WORKSPACES-023) <!-- part: workspace_setup -->
   - in the operator's removal of a second factor, by the address it is given (AUTH-072)
   - in the operator's making of a superadmin, or ending of one, by the address it is given (SUPERADMINS-001) <!-- part: superadmins -->

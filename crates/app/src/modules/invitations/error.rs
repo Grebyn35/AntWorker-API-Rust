@@ -18,8 +18,9 @@ pub(crate) enum InvitationsError {
     /// The invitation expired (INVITATIONS-006).
     #[error("the invitation expired")]
     Expired,
-    /// No invitation with the ID is addressed to the caller (INVITATIONS-006).
-    #[error("no invitation with the ID is addressed to the caller")]
+    /// No invitation with the ID is the workspace's, or addressed to the caller (INVITATIONS-006,
+    /// INVITATIONS-011, INVITATIONS-017).
+    #[error("no invitation with the ID is the workspace's, or addressed to the caller")]
     NotFound,
     /// The member's limit on inviting refused the request, or couldn't count it
     /// (INVITATIONS-009).
