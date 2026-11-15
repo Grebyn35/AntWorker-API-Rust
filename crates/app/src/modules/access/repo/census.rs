@@ -2,15 +2,18 @@
 //! (WORKSPACES-029).
 
 use platform::{
+    authz::Superadmin,
     db::UnitOfWork,
     errors::Internal,
     types::{UserId, WorkspaceId},
 };
 
-/// The owner and the number of members of each of `workspaces`, which a superadmin's list read.
-/// A workspace without memberships, which a deletion took since, has no row.
+/// The owner and the number of members of each of `workspaces`, which a superadmin's list read,
+/// for a superadmin, whose proof it takes, since it reads across workspaces (DATA-16). A
+/// workspace without memberships, which a deletion took since, has no row.
 pub(in crate::modules::access) async fn census(
     uow: &mut UnitOfWork,
+    _superadmin: &Superadmin,
     workspaces: &[WorkspaceId],
 ) -> Result<Vec<(WorkspaceId, UserId, i64)>, Internal> {
     let workspaces: Vec<uuid::Uuid> = workspaces.iter().map(|id| id.uuid()).collect();

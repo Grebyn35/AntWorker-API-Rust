@@ -362,6 +362,32 @@ impl Api {
         self.contract.document()
     }
 
+    /// Every operation of the document, as its method, its path, with an ID that parses in place
+    /// of each parameter, so a request to it reaches authentication, and its access level
+    /// (API-14), for a generated test of the routes of an access level.
+    pub fn operations(&self) -> Vec<(Method, String, String)> {
+        let mut operations = Vec::new();
+        for (template, item) in self.document()["paths"].as_object().unwrap() {
+            let path: String = template
+                .split('/')
+                .map(|part| {
+                    if part.starts_with('{') {
+                        "01900000-0000-7000-8000-000000000000"
+                    } else {
+                        part
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("/");
+            for (method, operation) in item.as_object().unwrap() {
+                let method = Method::from_bytes(method.to_ascii_uppercase().as_bytes()).unwrap();
+                let access = operation["x-access"].as_str().unwrap().to_owned();
+                operations.push((method, path.clone(), access));
+            }
+        }
+        operations
+    }
+
     /// The checks against the document, which a stream's frames go through.
     pub fn contract(&self) -> Arc<Contract> {
         self.contract.clone()

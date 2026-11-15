@@ -44,6 +44,10 @@ pub enum RequestError {
     EmailUnverified,
     /// The caller's account has no second factor, which the deployment requires of every account
     /// and the route needs (AUTH-070).
+    // part: superadmins
+    /// A superadmin's route needs one of its caller whatever the deployment requires
+    /// (SUPERADMINS-005).
+    // end part: superadmins
     #[error("the caller's account has no second factor")]
     SecondFactorSetupRequired,
     /// A request that changes something comes from an origin that isn't listed, or a cookie
@@ -218,7 +222,7 @@ impl ErrorCode for RequestError {
                 "Verify the account's email address with the code sent to it first.".to_owned(),
             ),
             Self::SecondFactorSetupRequired => Some(
-                "The deployment requires a second factor: set up an authenticator app first."
+                "A second factor is required: set up an authenticator app first."
                     .to_owned(),
             ),
             Self::ReauthenticationRequired => {

@@ -38,7 +38,7 @@
 
 ### Who is a superadmin
 
-A superadmin is a user with a row in `superadmins`. It is not a role: a role belongs to a membership, and a superadmin needs none ([architecture's glossary](../architecture.md#11-glossary)). Only the subcommand writes the table, so only someone who reaches the deployment's server makes a superadmin, or ends one: no route does, whoever calls it (D62).
+A superadmin is a user with a row in `superadmins`. It is not a role: a role belongs to a membership, and a superadmin needs none ([architecture's glossary](../architecture.md#11-glossary)). Only the subcommand makes a superadmin, so only someone who reaches the deployment's server does: no route does, whoever calls it (D62). The subcommand ends one too, and so does the deletion of their account, which takes the row with it (SUPERADMINS-007).
 
 ### The subcommand
 
@@ -60,7 +60,7 @@ Neither sends an email: the operator who runs the subcommand knows whom they nam
 
 Every superadmin must have a second factor (D63), and the proof is where that holds (D154): whatever happened to the account since the operator made it a superadmin, such as the removal of its app, by its user or by an operator (AUTH-064, AUTH-072), no route serves it as a superadmin without one. So the subcommand takes an account without an app, which sets one up before its first request as a superadmin, and no removal of an app needs to know of superadmins.
 
-A function that reads across workspaces for a superadmin takes the proof, as `access::census` does, so the compiler keeps any other caller from it (DATA-16).
+A function that reads across workspaces for a superadmin takes the proof, down to the function of its query, as `access::census` does, so the compiler keeps any other caller from it (DATA-16).
 
 ### Whether the caller is a superadmin
 

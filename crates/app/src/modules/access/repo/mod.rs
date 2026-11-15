@@ -1,6 +1,10 @@
 //! The SQL of `workspace_memberships` (ARCH-10), with the statements that change a membership's
 //! role, or end memberships, in `changes.rs`. Every query filters by the workspace or the user the
 //! operation's proof names (DATA-16).
+// part: superadmins
+//! The census in `census.rs` is the exception: it reads the workspaces that a superadmin's list
+//! read, under a proof that names none.
+// end part: superadmins
 
 // part: superadmins
 pub(super) mod census;

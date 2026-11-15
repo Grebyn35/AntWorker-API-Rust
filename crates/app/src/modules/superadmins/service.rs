@@ -1,6 +1,6 @@
 //! Who is a superadmin: the `SuperadminPolicy` that `platform::authz` asks on every route of a
 //! superadmin's, the caller's own standing, and the operator's subcommand, which alone makes a
-//! superadmin, or ends one (the superadmins spec).
+//! superadmin, and which ends one (the superadmins spec).
 
 use platform::{
     authn::{AuditScope, BoxFuture, Principal},

@@ -95,6 +95,7 @@ The server refuses to start unless it connects as the role `app`, and that role 
   `export_entries` and `export_chunks` are such tables too (the accounts spec's Owns).
   So are `workspace_files`, `user_files`, `avatars`, `workspace_pictures`, `exported_files` and `object_deletions` (the files spec's Owns). <!-- part: files -->
   So is `workspace_setups` (the workspaces spec's Owns). <!-- part: workspace_setup -->
+  So is `superadmins` (the superadmins spec's Owns). <!-- part: superadmins -->
   On a sequence that a mechanism of `platform` draws from, such as `events_position_seq`, it has `USAGE` alone, which takes the next value, and can't set one.
 - `app` has `statement_timeout` and `idle_in_transaction_session_timeout` set at the role level.
 - Why: a role can do only what its job needs, and a stuck transaction can't hold locks indefinitely.

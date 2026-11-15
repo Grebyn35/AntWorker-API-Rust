@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 use crate::{
     accounts::exports::{built, document},
     support::{
-        Api, execute_on,
+        Api, Options, execute_on,
         lists::pages,
         mailbox,
         operator::{EMAIL_OFF, SENDS_EMAIL, finished, refused},
@@ -84,31 +84,13 @@ async fn standing(api: &Api, user: &SignedIn) -> Value {
     response.json()
 }
 
-/// Every route of the API's document whose access is `superadmin`, as its method and its path
-/// with an ID that parses in place of each parameter.
+/// Every route of the API's document whose access is `superadmin`, as its method and its path.
 fn superadmin_routes(api: &Api) -> Vec<(Method, String)> {
-    let paths = api.document()["paths"].as_object().unwrap().clone();
-    let mut routes = Vec::new();
-    for (template, item) in &paths {
-        let path: String = template
-            .split('/')
-            .map(|part| {
-                if part.starts_with('{') {
-                    "01900000-0000-7000-8000-000000000000"
-                } else {
-                    part
-                }
-            })
-            .collect::<Vec<_>>()
-            .join("/");
-        for (method, operation) in item.as_object().unwrap() {
-            if operation["x-access"] == "superadmin" {
-                let method = Method::from_bytes(method.to_ascii_uppercase().as_bytes()).unwrap();
-                routes.push((method, path.clone()));
-            }
-        }
-    }
-    routes
+    api.operations()
+        .into_iter()
+        .filter(|(_, _, access)| access == "superadmin")
+        .map(|(method, path, _)| (method, path))
+        .collect()
 }
 
 #[tokio::test]
@@ -184,11 +166,24 @@ async fn superadmins_002_with_email_on_an_account_that_has_not_proved_its_addres
 }
 
 #[tokio::test]
-async fn superadmins_002_with_email_off_the_account_that_holds_the_address_becomes_one() {
+async fn superadmins_002_with_email_off_an_account_that_never_proved_its_address_becomes_one() {
     let api = Api::new().await;
     let address = mailbox::address("ada");
     // Nothing proves an address with email off, so the account never proved its own.
     let ada = users::register_unverified(&api, &address).await;
+
+    let added = run(&api, &EMAIL_OFF, &["add", &address]).await;
+
+    assert_eq!(added.status.code(), Some(0));
+    assert_eq!(superadmins_of(&api).await, [ada.user_id]);
+}
+
+#[tokio::test]
+async fn superadmins_002_with_email_off_an_account_that_proved_its_address_becomes_one() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    // The account proved its address while the deployment sent email.
+    let ada = users::register(&api, &address).await;
 
     let added = run(&api, &EMAIL_OFF, &["add", &address]).await;
 
@@ -437,17 +432,47 @@ async fn superadmins_005_every_route_of_a_superadmin_s_asks_a_superadmin_for_an_
 }
 
 #[tokio::test]
+async fn superadmins_005_a_deployment_that_requires_an_app_of_every_user_answers_the_same() {
+    let api = Api::with(Options::default().set("SECOND_FACTOR_REQUIRED", true)).await;
+    let ada = users::register(&api, "ada@example.com").await;
+    superadmins::make(&api, &ada).await;
+
+    let response = api.get(EVERY).bearer(&ada.access).send().await;
+
+    assert_eq!(response.status, 403);
+    assert_eq!(
+        response.json()["code"],
+        "request.second_factor_setup_required"
+    );
+}
+
+#[tokio::test]
+async fn superadmins_005_such_a_deployment_serves_a_superadmin_who_has_an_app() {
+    let api = Api::with(Options::default().set("SECOND_FACTOR_REQUIRED", true)).await;
+    let ada = users::register(&api, "ada@example.com").await;
+    superadmins::make_with_app(&api, &ada).await;
+
+    let response = api.get(EVERY).bearer(&ada.access).send().await;
+
+    assert_eq!(response.status, 200, "{}", response.json());
+}
+
+#[tokio::test]
 async fn superadmins_006_a_caller_reads_whether_they_are_a_superadmin() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     let grace = users::register(&api, "grace@example.com").await;
-    // A superadmin without an app is one all the same.
-    superadmins::make(&api, &ada).await;
+    let sam = users::register(&api, "sam@example.com").await;
+    // A superadmin is one with an authenticator app, and without.
+    superadmins::make_with_app(&api, &ada).await;
+    superadmins::make(&api, &grace).await;
 
-    let superadmin = standing(&api, &ada).await;
-    let user = standing(&api, &grace).await;
+    let with_app = standing(&api, &ada).await;
+    let without_app = standing(&api, &grace).await;
+    let user = standing(&api, &sam).await;
 
-    assert_eq!(superadmin, json!({ "superadmin": true }));
+    assert_eq!(with_app, json!({ "superadmin": true }));
+    assert_eq!(without_app, json!({ "superadmin": true }));
     assert_eq!(user, json!({ "superadmin": false }));
     // Asking is no refused request.
     assert!(entries(&api, "access.denied").await.0.is_empty());

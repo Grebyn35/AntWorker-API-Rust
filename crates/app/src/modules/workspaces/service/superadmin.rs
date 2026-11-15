@@ -7,11 +7,11 @@ use platform::{
     authz::Superadmin,
     db::UnitOfWork,
     lists::{List, Page, Search, key},
-    types::UserId,
+    types::{UserId, WorkspaceId},
 };
 
 use crate::modules::{
-    access,
+    access::{self, Census},
     accounts::{self, PublicProfile},
     workspaces::{
         error::WorkspacesError,
@@ -30,10 +30,10 @@ pub(in crate::modules::workspaces) async fn every(
     search: Option<&Search>,
     page: &Page,
 ) -> Result<List<WorkspaceOverview>, WorkspacesError> {
-    let rows = repo::superadmin::every(uow, search, page).await?;
+    let rows = repo::superadmin::every(uow, superadmin, search, page).await?;
     let listed = page.list(rows, |(id, _, created_at)| key(*created_at, id.uuid()));
     let ids: Vec<_> = listed.items.iter().map(|(id, _, _)| *id).collect();
-    let mut census = access::census(uow, superadmin, &ids).await?;
+    let mut census: HashMap<WorkspaceId, Census> = access::census(uow, superadmin, &ids).await?;
     let owners: Vec<UserId> = census.values().map(|counted| counted.owner).collect();
     let profiles: HashMap<UserId, PublicProfile> = accounts::profiles(uow, &owners)
         .await?

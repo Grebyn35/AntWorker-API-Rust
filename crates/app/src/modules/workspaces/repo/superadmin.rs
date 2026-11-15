@@ -2,6 +2,7 @@
 //! "A superadmin's routes").
 
 use platform::{
+    authz::Superadmin,
     db::UnitOfWork,
     errors::Internal,
     lists::{Page, Search},
@@ -12,9 +13,11 @@ use crate::modules::workspaces::model::WorkspaceName;
 
 /// A page of every workspace, with its name and when it was created, the latest created first,
 /// kept to those whose name contains `search`, ignoring case in every script (PLATFORM-047),
-/// read through the index on their creation time and ID (DATA-17).
+/// read through the index on their creation time and ID (DATA-17), for a superadmin, whose proof
+/// it takes, since it reads across workspaces (DATA-16).
 pub(in crate::modules::workspaces) async fn every(
     uow: &mut UnitOfWork,
+    _superadmin: &Superadmin,
     search: Option<&Search>,
     page: &Page,
 ) -> Result<Vec<(WorkspaceId, WorkspaceName, Timestamp)>, Internal> {

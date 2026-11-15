@@ -95,8 +95,8 @@ setup-workspace host name email owner_name="":
 # part: superadmins
 # Makes the account that holds `email` a superadmin of the reference deployment on `host`, with
 # `add` as `change`, or ends its being one, with `remove` (SUPERADMINS-001, D62). A superadmin
-# sees every workspace's name, creation time, member count and owner, and no route makes or ends
-# one. With email on, only an account that has proved the address becomes one, and a superadmin's
+# sees every workspace's name, creation time, member count and owner, and no route makes one.
+# With email on, only an account that has proved the address becomes one, and a superadmin's
 # routes serve it once it has an authenticator app. It runs the API's subcommand `superadmin` with
 # the image of the color that serves, and exits 1, changing nothing, when no account holds the
 # address, or the account is one already, or is none to end. docs/operations/deploy.md says when

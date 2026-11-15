@@ -4,7 +4,8 @@
 //! The statement of a change of its picture is in `picture.rs`.
 // end part: files
 // part: superadmins
-//! The statements of a superadmin's routes are in `superadmin.rs`.
+//! The statements of a superadmin's routes are in `superadmin.rs`: they alone read every
+//! workspace, under a proof that names none.
 // end part: superadmins
 // part: workspace_setup
 //! The statements of the operator's setup of a workspace are in `setup.rs`.

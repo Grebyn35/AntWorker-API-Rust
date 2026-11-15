@@ -20,7 +20,7 @@ use platform::{
 };
 
 // part: superadmins
-pub(crate) use self::census::census;
+pub(crate) use self::census::{Census, census};
 // end part: superadmins
 pub(crate) use self::changes::{
     Removal, RoleChange, Transfer, change_role, dissolve, leave, remove, transfer,

@@ -32,8 +32,8 @@ pub enum Admission {
 /// Decides whether a caller is a superadmin, which `superadmins` implements for `platform`
 /// (ARCH-13).
 pub trait SuperadminPolicy: Send + Sync {
-    /// Whether `user` is a superadmin, read inside `uow`, the request's unit of work
-    /// (SUPERADMINS-004).
+    /// Whether `user` is a superadmin, and, when they are, whether their account has a second
+    /// factor, read inside `uow`, the request's unit of work (SUPERADMINS-004, SUPERADMINS-005).
     fn admits<'a>(
         &'a self,
         uow: &'a mut UnitOfWork,
