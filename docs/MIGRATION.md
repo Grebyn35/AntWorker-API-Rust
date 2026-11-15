@@ -337,7 +337,8 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 211aee4..a4804a7: as above, with pass 1's fixes | 2 | 2 (2, 0, 0 shared) | 0 | 0 | `clean`: 6cb3771 <!-- part: superadmins --> |
 | d6aebe5..f864aa4: what the tasks leave on the machine that runs them, and write to it: the bound on the copies of `check-removable` and `check-new-module`, and their builds without incremental compilation (OPS-21, D162), Cargo started from `xtask` without the variables that `cargo run` gave it, and the tests' databases in memory, on a Postgres of the tests' own, with a test's wait while too many are yet to be dropped (TEST-05, D163) | 1 | 6 (6, 3, 3 shared) | 1 | 0 | `next pass`: c7bd808 |
 | d6aebe5..c7bd808: as above, with pass 1's fixes | 2 | 8 (6, 4, 2 shared) | 1 | 1 | `stopped: no progress`: e6de2f9 |
-| c404b93..5433646: the first part of the full `invitations`: reading and listing a workspace's invitations, changing an invitation's role, sending it again, cancelling it, and its invitee's decline, with the owner's decision on a change, and the documents they changed | 1 | 12 (9, 7, 4 shared) | 6 | 0 | `next pass` <!-- part: invitations --> |
+| c404b93..5433646: the first part of the full `invitations`: reading and listing a workspace's invitations, changing an invitation's role, sending it again, cancelling it, and its invitee's decline, with the owner's decision on a change, and the documents they changed | 1 | 12 (9, 7, 4 shared) | 6 | 0 | `next pass`: af29bf2 <!-- part: invitations --> |
+| c404b93..af29bf2: as above, with pass 1's fixes | 2 | 4 (3, 3, 2 shared) | 1 | 1 | `stopped: no progress` <!-- part: invitations --> |
 
 ## Decisions
 
