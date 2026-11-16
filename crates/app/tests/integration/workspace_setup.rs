@@ -151,6 +151,14 @@ async fn workspaces_023_a_run_creates_the_workspace_for_the_account_that_holds_t
         recorded,
         [format!("workspace {id} - {user} workspace {id} {{}}")]
     );
+    assert_eq!(
+        reads(
+            &api,
+            "SELECT coalesce(permission, '-') FROM audit_entries WHERE action = 'workspace.created'"
+        )
+        .await,
+        ["workspace.read"]
+    );
     assert!(!with_client, "an operator's subcommand records no client");
     // No session of the owner's created the workspace, so no event tells them: the signal
     // closes their streams.

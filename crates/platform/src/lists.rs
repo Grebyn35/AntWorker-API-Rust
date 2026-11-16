@@ -10,7 +10,7 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use utoipa::{
     PartialSchema, ToSchema,
-    openapi::{ArrayBuilder, ObjectBuilder, RefOr, Schema, Type},
+    openapi::{ArrayBuilder, KnownFormat, ObjectBuilder, RefOr, Schema, SchemaFormat, Type},
 };
 
 use crate::{
@@ -116,8 +116,8 @@ pub fn parameter<T>(
 
 /// The values of the query parameter `name`, a list's filter that takes several, separated by
 /// commas, each through `parse`, if it was sent, or `None`, recording why, when `errors` refuses
-/// it: as `too_many` with more than 50 values, as `invalid` with an empty one, and otherwise with
-/// the fault of the first value that `parse` refuses (PLATFORM-088).
+/// it: as `too_many` with more than 50 values, and otherwise with the fault of the first of its
+/// values, in their order, that is empty, as `invalid`, or that `parse` refuses (PLATFORM-088).
 pub fn values<T>(
     errors: &mut FieldErrors,
     name: &str,
@@ -315,6 +315,29 @@ macro_rules! filter_values {
     };
 }
 
+/// The schema of a moment that a list's filter takes, which `Timestamp::read` reads, for its
+/// documentation: `YYYY-MM-DDTHH:MM:SS`, then 0 to 6 digits of a second's fraction after a `.`,
+/// then `Z` (PLATFORM-088).
+pub struct Moment;
+
+impl PartialSchema for Moment {
+    fn schema() -> RefOr<Schema> {
+        ObjectBuilder::new()
+            .schema_type(Type::String)
+            .format(Some(SchemaFormat::KnownFormat(KnownFormat::DateTime)))
+            .pattern(Some(
+                "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,6})?Z$",
+            ))
+            .into()
+    }
+}
+
+impl ToSchema for Moment {
+    fn name() -> Cow<'static, str> {
+        Cow::Borrowed("Moment")
+    }
+}
+
 /// The characters of a cursor: its bytes in base64url, without padding.
 const CURSOR_CHARS: usize = (4 * CURSOR_LEN).div_ceil(3);
 
@@ -447,6 +470,30 @@ mod tests {
             values(&mut errors, "resource_id", None, |_| Ok(())),
             Some(None)
         );
+    }
+
+    #[test]
+    fn platform_088_a_filter_answers_the_fault_of_its_first_refused_value() {
+        // A route whose parse takes `1` alone, and refuses anything else with a code of its own.
+        let refused = |value: &str| {
+            let mut errors = FieldErrors::new();
+            let read = values(&mut errors, "role", Some(value), |value| match value {
+                "1" => Ok(()),
+                _ => Err(Invalid::new("unknown_role", "Send 1.")),
+            });
+            errors
+                .finish_query(read)
+                .unwrap_err()
+                .errors()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|fault| fault.code)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(refused("1,,x"), ["invalid"]);
+        assert_eq!(refused("1,x,"), ["unknown_role"]);
+        assert_eq!(refused("x,,1"), ["unknown_role"]);
+        assert_eq!(refused(&vec!["x"; 51].join(",")), ["too_many"]);
     }
 
     #[test]

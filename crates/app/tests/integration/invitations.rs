@@ -100,14 +100,14 @@ async fn invitations_001_inviting_an_email_creates_a_pending_invitation_and_enqu
     let entries = db
         .owner_reads(
             "SELECT action || ' ' || scope || ' ' || workspace_id || ' ' || actor_user_id || ' ' \
-             || resource_type || ' ' || resource_id || ' ' || details::text FROM audit_entries \
-             WHERE action LIKE 'invitation.%'",
+             || resource_type || ' ' || resource_id || ' ' || details::text || ' ' \
+             || coalesce(permission, '-') FROM audit_entries WHERE action LIKE 'invitation.%'",
         )
         .await;
     assert_eq!(
         entries,
         [format!(
-            "invitation.created workspace {workspace} {} invitation {id} {{\"role\": \"member\"}}",
+            "invitation.created workspace {workspace} {} invitation {id} {{\"role\": \"member\"}} invitations.read",
             ada.user_id
         )]
     );
@@ -297,19 +297,20 @@ async fn invitations_003_inviting_again_refreshes_the_invitation_in_place() {
         .owner_reads(
             "SELECT action || ' ' || scope || ' ' || workspace_id || ' ' || actor_user_id || ' ' \
              || resource_type || ' ' || resource_id || ' ' \
-             || coalesce(target_user_id::text, '-') || ' ' || details::text \
-             FROM audit_entries WHERE action LIKE 'invitation.%' ORDER BY created_at, id",
+             || coalesce(target_user_id::text, '-') || ' ' || details::text || ' ' \
+             || coalesce(permission, '-') FROM audit_entries WHERE action LIKE 'invitation.%' \
+             ORDER BY created_at, id",
         )
         .await;
     assert_eq!(
         entries,
         [
             format!(
-                "invitation.created workspace {workspace} {} invitation {id} - {{\"role\": \"member\"}}",
+                "invitation.created workspace {workspace} {} invitation {id} - {{\"role\": \"member\"}} invitations.read",
                 bob.user_id
             ),
             format!(
-                "invitation.updated workspace {workspace} {} invitation {id} - {{\"role\": \"admin\"}}",
+                "invitation.updated workspace {workspace} {} invitation {id} - {{\"role\": \"admin\"}} invitations.read",
                 ada.user_id
             ),
         ]
@@ -433,13 +434,14 @@ async fn invitations_005_accepting_adds_the_caller_and_deletes_the_invitation() 
         .owner_reads(
             "SELECT scope || ' ' || workspace_id || ' ' || actor_user_id || ' ' || resource_type \
              || ' ' || resource_id || ' ' || coalesce(target_user_id::text, '-') || ' ' \
-             || details::text FROM audit_entries WHERE action = 'invitation.accepted'",
+             || details::text || ' ' || coalesce(permission, '-') FROM audit_entries \
+             WHERE action = 'invitation.accepted'",
         )
         .await;
     assert_eq!(
         entries,
         [format!(
-            "workspace {workspace} {} invitation {id} - {{}}",
+            "workspace {workspace} {} invitation {id} - {{}} members.read",
             carol.user_id
         )]
     );
@@ -861,14 +863,14 @@ async fn invitations_017_declining_deletes_the_invitation_records_and_publishes(
         .owner_reads(
             "SELECT action || ' ' || scope || ' ' || workspace_id || ' ' || actor_user_id || ' ' \
              || resource_type || ' ' || resource_id || ' ' \
-             || coalesce(target_user_id::text, '-') || ' ' || details::text \
-             FROM audit_entries WHERE action = 'invitation.declined'",
+             || coalesce(target_user_id::text, '-') || ' ' || details::text || ' ' \
+             || coalesce(permission, '-') FROM audit_entries WHERE action = 'invitation.declined'",
         )
         .await;
     assert_eq!(
         entries,
         [format!(
-            "invitation.declined workspace {workspace} {} invitation {id} - {{}}",
+            "invitation.declined workspace {workspace} {} invitation {id} - {{}} invitations.read",
             carol.user_id
         )]
     );

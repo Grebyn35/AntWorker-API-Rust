@@ -72,7 +72,7 @@ pub(super) async fn insert(
         )
         INSERT INTO audit_entry_clients (entry_id, user_id, client_ip, user_agent)
         SELECT id, client_user_id, $10, $11 FROM entry
-        WHERE $10::inet IS NOT NULL OR $11::text IS NOT NULL",
+        WHERE $10::inet IS NOT NULL",
         log,
         user,
         workspace,

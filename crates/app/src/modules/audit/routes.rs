@@ -7,7 +7,7 @@ use platform::{
     db::Database,
     errors::Problem,
     http::{FieldErrors, Query, Routes},
-    lists::{self, Cursor, Limit, List, Page},
+    lists::{self, Cursor, Limit, List, Moment, Page},
     types::{AnyId, Client, Timestamp, UserId, WorkspaceId},
 };
 use serde::Deserialize;
@@ -73,10 +73,10 @@ pub(crate) struct EntriesQuery {
     #[param(value_type = Option<UserIds>, inline, style = Form, explode = false)]
     target_user_id: Option<String>,
     /// Only the entries recorded at this moment or after.
-    #[param(value_type = Option<Timestamp>)]
+    #[param(value_type = Option<Moment>, inline)]
     from: Option<String>,
     /// Only the entries recorded before this moment.
-    #[param(value_type = Option<Timestamp>)]
+    #[param(value_type = Option<Moment>, inline)]
     to: Option<String>,
 }
 

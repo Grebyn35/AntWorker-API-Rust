@@ -27,10 +27,10 @@ struct Row {
 
 impl Row {
     fn logged(self) -> LoggedEntry {
-        // A client's row holds its IP address, its user agent or both (the audit spec's
-        // "Recording an entry"), so a joined one has one of them.
-        let client = (self.client_ip.is_some() || self.user_agent.is_some()).then(|| EntryClient {
-            ip: self.client_ip.map(|ip| ip.addr().to_string()),
+        // Every client's row holds its IP address, so a joined one has it (the audit spec's
+        // Owns).
+        let client = self.client_ip.map(|ip| EntryClient {
+            ip: ip.addr().to_string(),
             user_agent: self.user_agent,
         });
         LoggedEntry {

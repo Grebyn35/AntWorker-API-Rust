@@ -65,11 +65,13 @@ async fn invited(api: &Api, user: &SignedIn, workspace: &str, email: &str, role:
 }
 
 /// Each entry of an `invitation.%` action but the invitations' creation, oldest first, as its
-/// action, actor, resource, target and details, `-` for no actor or target.
+/// action, permission, actor, resource, target and details, `-` for no permission, actor or
+/// target.
 async fn entries(api: &Api) -> Vec<String> {
     api.database()
         .owner_reads(
-            "SELECT action || ' ' || coalesce(actor_user_id::text, '-') || ' ' || resource_id \
+            "SELECT action || ' ' || coalesce(permission, '-') || ' ' \
+             || coalesce(actor_user_id::text, '-') || ' ' || resource_id \
              || ' ' || coalesce(target_user_id::text, '-') || ' ' || details::text \
              FROM audit_entries WHERE action LIKE 'invitation.%' \
              AND action <> 'invitation.created' ORDER BY created_at, id",
@@ -269,7 +271,7 @@ async fn invitations_013_changing_the_role_stores_it_records_and_publishes_witho
     assert_eq!(
         entries(&api).await,
         [format!(
-            "invitation.role_changed {} {id} {} {{\"to\": \"member\", \"from\": \"admin\"}}",
+            "invitation.role_changed invitations.read {} {id} {} {{\"to\": \"member\", \"from\": \"admin\"}}",
             ada.user_id, carol.user_id
         )]
     );
@@ -501,7 +503,7 @@ async fn invitations_015_sending_again_renews_the_invitation_and_enqueues_its_em
     assert_eq!(
         entries(&api).await,
         [format!(
-            "invitation.resent {} {id} {} {{}}",
+            "invitation.resent invitations.read {} {id} {} {{}}",
             bob.user_id, carol.user_id
         )]
     );
@@ -611,7 +613,7 @@ async fn invitations_016_cancelling_deletes_the_invitation_records_and_publishes
     assert_eq!(
         entries(&api).await,
         [format!(
-            "invitation.cancelled {} {id} {} {{}}",
+            "invitation.cancelled invitations.read {} {id} {} {{}}",
             ada.user_id, carol.user_id
         )]
     );
@@ -646,7 +648,10 @@ async fn invitations_016_cancelling_an_invitation_to_an_address_without_an_accou
     assert_eq!(response.status, 204);
     assert_eq!(
         entries(&api).await,
-        [format!("invitation.cancelled {} {id} - {{}}", ada.user_id)]
+        [format!(
+            "invitation.cancelled invitations.read {} {id} - {{}}",
+            ada.user_id
+        )]
     );
     assert_eq!(
         events(&api).await,

@@ -150,13 +150,13 @@ pub(crate) struct LoggedEntry {
     pub(super) client: Option<EntryClient>,
 }
 
-/// The client of the request that recorded an entry: its IP address and its user agent, either of
-/// which it may lack (AUDIT-003, AUDIT-010).
+/// The client of the request that recorded an entry: its IP address, and its user agent, which a
+/// request may not send (AUDIT-003, AUDIT-010).
 #[derive(Debug, Serialize, ToSchema)]
 pub(crate) struct EntryClient {
-    /// The client's IP address, as the trusted proxies gave it (SEC-13), or null.
-    pub(super) ip: Option<String>,
-    /// The client's `User-Agent`, or null.
+    /// The client's IP address, as the trusted proxies gave it (SEC-13).
+    pub(super) ip: String,
+    /// The client's `User-Agent`, or null for a request that sent none.
     pub(super) user_agent: Option<String>,
 }
 

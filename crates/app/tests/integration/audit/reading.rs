@@ -229,25 +229,41 @@ async fn audit_008_a_user_reads_their_own_log_and_what_was_done_to_them() {
         ],
     )
     .await;
+    let globex = workspaces::arrange(
+        db,
+        "Globex",
+        &[(&ada.user_id, "owner"), (&grace.user_id, "admin")],
+    )
+    .await;
     // Grace acts in the workspace, and the owner acts on another member: neither is done to her.
     rename(&api, &grace, &acme, &[]).await;
     let carol_removed = format!("/v1/workspaces/{acme}/members/{}", carol.user_id);
     act(&api, &ada, (Method::DELETE, &carol_removed), &[], 204).await;
     let grace_removed = format!("/v1/workspaces/{acme}/members/{}", grace.user_id);
     act(&api, &ada, (Method::DELETE, &grace_removed), &[], 204).await;
+    // In a workspace she still belongs to, an entry done to her whose permission her role,
+    // admin, lacks: `workspace.delete` is the owner's alone (the access spec).
+    Logged {
+        target: Some(&grace.user_id),
+        permission: Some("workspace.delete"),
+        ..Logged::new(&globex, &ada.user_id, "thing.kept")
+    }
+    .record(db)
+    .await;
 
     let body = listed(&api, &grace, OWN).await;
 
-    // She is no member of the workspace, and still reads what was done to her there.
-    let mut expected = vec!["member.removed".to_owned()];
+    // She is no member of Acme, and still reads what was done to her there, and she reads what
+    // was done to her in Globex whatever its permission.
+    let mut expected = vec!["thing.kept".to_owned(), "member.removed".to_owned()];
     expected.extend(own_log(db, &grace.user_id).await);
-    assert!(expected.len() > 1, "her own log holds her registration");
+    assert!(expected.len() > 2, "her own log holds her registration");
     assert_eq!(column(&body, "action"), expected);
-    let mut logs = vec![acme.clone()];
+    let mut logs = vec![globex.clone(), acme.clone()];
     logs.resize(expected.len(), "-".to_owned());
     assert_eq!(column(&body, "workspace_id"), logs);
-    assert_eq!(body["items"][0]["target_user_id"], grace.user_id.as_str());
-    assert_eq!(body["items"][0]["actor_user_id"], ada.user_id.as_str());
+    assert_eq!(body["items"][1]["target_user_id"], grace.user_id.as_str());
+    assert_eq!(body["items"][1]["actor_user_id"], ada.user_id.as_str());
     assert_eq!(body["next_cursor"], Value::Null);
 }
 
@@ -372,65 +388,101 @@ async fn audit_009_each_filter_keeps_the_entries_that_match_one_of_its_values() 
         let path = format!("{}?{query}", log_of(&acme));
         assert_eq!(actions(&api, &ada, &path).await, expected, "{query}");
     }
-    // A user's own read filters both of its reads: her own log, which holds her registration,
-    // and the entries done to her.
-    for (query, expected) in [
-        (
-            "action=user.registered,member.removed".to_owned(),
-            vec!["user.registered", "member.removed"],
-        ),
-        ("to=2026-11-02T00:00:00Z".to_owned(), vec!["member.removed"]),
-        (
-            format!("resource_type=workspace&actor_user_id={ada_id}"),
-            vec!["member.removed"],
-        ),
-        ("action=user.registered".to_owned(), vec!["user.registered"]),
-    ] {
-        let path = format!("{OWN}?{query}");
-        assert_eq!(actions(&api, &grace, &path).await, expected, "{query}");
-    }
+}
+
+/// Gives the entry `id` the time `at`, an SQL timestamp.
+async fn recorded_at(db: &TestDatabase, id: &str, at: &str) {
+    db.owner_executes(&format!(
+        "UPDATE audit_entries SET created_at = '{at}' WHERE id = '{id}'"
+    ))
+    .await;
 }
 
 #[tokio::test]
-async fn audit_009_the_values_a_list_refuses_are_named_together() {
+async fn audit_009_each_filter_of_one_s_own_list_keeps_the_entries_of_both_its_reads() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
-    let acme = workspaces::arrange(api.database(), "Acme", &[(&ada.user_id, "owner")]).await;
-    let too_many = vec![ada.user_id.as_str(); 51].join(",");
-    let query = format!(
-        "action=Member.Removed&resource_type=file,&resource_id=nope&actor_user_id={too_many}\
-         &target_user_id={}&from=2026-11-01&to=2026-11-01T00:00:00Z",
-        ada.user_id
-    );
-
-    for path in [log_of(&acme), OWN.to_owned()] {
-        let response = api
-            .get(&format!("{path}?{query}"))
-            .bearer(&ada.access)
-            .send()
-            .await;
-
-        assert_eq!(response.status, 400);
-        let body = response.json();
-        assert_eq!(body["code"], "request.invalid_query");
-        let refused: Vec<String> = body["errors"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|error| format!("{} {}", error["field"], error["code"]))
-            .collect();
-        assert_eq!(
-            refused,
-            [
-                r#""/action" "invalid""#,
-                r#""/resource_type" "invalid""#,
-                r#""/resource_id" "invalid""#,
-                r#""/actor_user_id" "too_many""#,
-                r#""/from" "invalid""#,
-            ],
-            "{path}"
-        );
+    let grace = users::register(&api, "grace@example.com").await;
+    let db = api.database();
+    let acme = workspaces::arrange(db, "Acme", &[(&ada.user_id, "owner")]).await;
+    let (ada_id, grace_id) = (ada.user_id.as_str(), grace.user_id.as_str());
+    let first = "00000000-0000-4000-8000-000000000001";
+    let second = "00000000-0000-4000-8000-000000000002";
+    // Two entries of her own log, then two done to her in Acme's log, an hour apart; her
+    // registration's entries are of today, after them all.
+    let entries = [
+        Logged {
+            resource: ("session", first),
+            ..Logged::own(grace_id, "thing.started")
+        },
+        Logged {
+            target: Some(ada_id),
+            ..Logged::own(grace_id, "thing.shared")
+        },
+        Logged {
+            target: Some(grace_id),
+            ..Logged::new(&acme, ada_id, "thing.done")
+        },
+        Logged {
+            target: Some(grace_id),
+            resource: ("thing", second),
+            ..Logged::new(&acme, ada_id, "thing.started")
+        },
+    ];
+    for (hour, entry) in (10..).zip(entries) {
+        let id = entry.record(db).await;
+        recorded_at(db, &id, &format!("2026-11-01T{hour}:00:00Z")).await;
     }
+    // Neither is hers: one done to Ada, and one of Ada's own log.
+    for entry in [
+        Logged {
+            target: Some(ada_id),
+            ..Logged::new(&acme, ada_id, "thing.started")
+        },
+        Logged::own(ada_id, "thing.started"),
+    ] {
+        entry.record(db).await;
+    }
+    let before = "to=2026-11-02T00:00:00Z";
+
+    for (query, expected) in [
+        ("action=thing.started".to_owned(), vec!["thing.started"; 2]),
+        (
+            "resource_type=session,thing".to_owned(),
+            vec!["thing.started"; 2],
+        ),
+        (
+            format!("resource_id={first},{second}"),
+            vec!["thing.started"; 2],
+        ),
+        (
+            format!("actor_user_id={ada_id}"),
+            vec!["thing.started", "thing.done"],
+        ),
+        (
+            format!("actor_user_id={grace_id}&{before}"),
+            vec!["thing.shared", "thing.started"],
+        ),
+        (format!("target_user_id={ada_id}"), vec!["thing.shared"]),
+        (
+            format!("target_user_id={grace_id}"),
+            vec!["thing.started", "thing.done"],
+        ),
+        (
+            "from=2026-11-01T11:00:00Z&to=2026-11-01T13:00:00Z".to_owned(),
+            vec!["thing.done", "thing.shared"],
+        ),
+        (
+            format!("from=2026-11-01T12:30:00Z&{before}"),
+            vec!["thing.started"],
+        ),
+    ] {
+        let body = listed(&api, &grace, &format!("{OWN}?{query}")).await;
+        assert_eq!(column(&body, "action"), expected, "{query}");
+    }
+    // Each read gives its own: the same action in her own log and done to her.
+    let both = listed(&api, &grace, &format!("{OWN}?action=thing.started")).await;
+    assert_eq!(column(&both, "workspace_id"), [acme.as_str(), "-"]);
 }
 
 /// An API whose clients' addresses come from `X-Forwarded-For`, as the tests' proxy sends it
@@ -496,10 +548,8 @@ async fn audit_010_a_user_s_own_read_shows_only_the_clients_that_were_theirs() {
     let ada_client = [("user-agent", "Ada/1"), ("x-forwarded-for", "203.0.113.1")];
     act(&api, &ada, (Method::DELETE, &removal), &ada_client, 204).await;
     let leaving = format!("/v1/workspaces/{acme}/leave");
-    let carol_client = [
-        ("user-agent", "Carol/1"),
-        ("x-forwarded-for", "203.0.113.3"),
-    ];
+    // Carol's client sends no user agent.
+    let carol_client = [("x-forwarded-for", "203.0.113.3")];
     act(&api, &carol, (Method::POST, &leaving), &carol_client, 204).await;
     // Grace signs in with a wrong password: the attempt has no actor, and its client is hers to
     // see, as the user's whose log holds it (AUDIT-006).
@@ -525,10 +575,10 @@ async fn audit_010_a_user_s_own_read_shows_only_the_clients_that_were_theirs() {
         graces["items"][0]["client"],
         json!({ "ip": "203.0.113.7", "user_agent": "Someone/9" })
     );
-    // Carol did her leaving, so its client is hers.
+    // Carol did her leaving, so its client is hers, without the user agent it didn't send.
     assert_eq!(carols["items"][0]["action"], "member.left");
     assert_eq!(
         carols["items"][0]["client"],
-        json!({ "ip": "203.0.113.3", "user_agent": "Carol/1" })
+        json!({ "ip": "203.0.113.3", "user_agent": null })
     );
 }

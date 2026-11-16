@@ -49,13 +49,13 @@ async fn workspaces_001_creating_a_workspace_makes_the_caller_its_owner() {
         .owner_reads(
             "SELECT action || ' ' || scope || ' ' || workspace_id || ' ' || actor_user_id || ' ' \
              || resource_type || ' ' || resource_id || ' ' || details::text \
-             FROM audit_entries WHERE action = 'workspace.created'",
+             || ' ' || coalesce(permission, '-') FROM audit_entries WHERE action = 'workspace.created'",
         )
         .await;
     assert_eq!(
         entries,
         [format!(
-            "workspace.created workspace {id} {} workspace {id} {{}}",
+            "workspace.created workspace {id} {} workspace {id} {{}} workspace.read",
             ada.user_id
         )]
     );

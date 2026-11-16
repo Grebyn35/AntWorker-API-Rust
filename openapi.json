@@ -383,23 +383,23 @@
         "type": "object"
       },
       "EntryClient": {
-        "description": "The client of the request that recorded an entry: its IP address and its user agent, either of\nwhich it may lack (AUDIT-003, AUDIT-010).",
+        "description": "The client of the request that recorded an entry: its IP address, and its user agent, which a\nrequest may not send (AUDIT-003, AUDIT-010).",
         "properties": {
           "ip": {
-            "description": "The client's IP address, as the trusted proxies gave it (SEC-13), or null.",
-            "type": [
-              "string",
-              "null"
-            ]
+            "description": "The client's IP address, as the trusted proxies gave it (SEC-13).",
+            "type": "string"
           },
           "user_agent": {
-            "description": "The client's `User-Agent`, or null.",
+            "description": "The client's `User-Agent`, or null for a request that sent none.",
             "type": [
               "string",
               "null"
             ]
           }
         },
+        "required": [
+          "ip"
+        ],
         "type": "object"
       },
       "Export": {
@@ -11397,7 +11397,9 @@
             "name": "from",
             "required": false,
             "schema": {
-              "$ref": "#/components/schemas/Timestamp"
+              "format": "date-time",
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,6})?Z$",
+              "type": "string"
             }
           },
           {
@@ -11406,7 +11408,9 @@
             "name": "to",
             "required": false,
             "schema": {
-              "$ref": "#/components/schemas/Timestamp"
+              "format": "date-time",
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,6})?Z$",
+              "type": "string"
             }
           }
         ],
@@ -26890,7 +26894,9 @@
             "name": "from",
             "required": false,
             "schema": {
-              "$ref": "#/components/schemas/Timestamp"
+              "format": "date-time",
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,6})?Z$",
+              "type": "string"
             }
           },
           {
@@ -26899,7 +26905,9 @@
             "name": "to",
             "required": false,
             "schema": {
-              "$ref": "#/components/schemas/Timestamp"
+              "format": "date-time",
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,6})?Z$",
+              "type": "string"
             }
           }
         ],

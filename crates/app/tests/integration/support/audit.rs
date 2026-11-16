@@ -48,16 +48,24 @@ pub async fn in_workspace_log(
     .remove(0)
 }
 
-/// An entry of a workspace's log, which [`Logged::record`] records through the `owner`
-/// connection, as `audit::record` records one, for the tests of what reads a log (TEST-09).
+/// The log that holds an entry that [`Logged`] records: a workspace's, or a user's own, by its
+/// ID.
+#[derive(Clone, Copy)]
+pub enum Log<'a> {
+    Workspace(&'a str),
+    Own(&'a str),
+}
+
+/// An entry of a log, which [`Logged::record`] records through the `owner` connection, as
+/// `audit::record` records one, for the tests of what reads a log (TEST-09).
 pub struct Logged<'a> {
-    pub workspace: &'a str,
+    pub log: Log<'a>,
     pub actor: &'a str,
     pub action: &'a str,
     /// The kind of resource it happened to, and the resource's ID.
     pub resource: (&'a str, &'a str),
     pub target: Option<&'a str>,
-    /// The permission that reading it takes beside `audit.read`, if any.
+    /// The permission that reading it in a workspace's log takes beside `audit.read`, if any.
     pub permission: Option<&'a str>,
 }
 
@@ -66,10 +74,22 @@ impl<'a> Logged<'a> {
     /// reading takes no permission beside `audit.read`.
     pub fn new(workspace: &'a str, actor: &'a str, action: &'a str) -> Self {
         Self {
-            workspace,
+            log: Log::Workspace(workspace),
             actor,
             action,
             resource: ("workspace", workspace),
+            target: None,
+            permission: None,
+        }
+    }
+
+    /// `action` in `user`'s own log, acted by `user` on their account, done to no target.
+    pub fn own(user: &'a str, action: &'a str) -> Self {
+        Self {
+            log: Log::Own(user),
+            actor: user,
+            action,
+            resource: ("user", user),
             target: None,
             permission: None,
         }
@@ -79,11 +99,16 @@ impl<'a> Logged<'a> {
     pub async fn record(&self, db: &TestDatabase) -> String {
         let text =
             |value: Option<&str>| value.map_or("NULL".to_owned(), |value| format!("'{value}'"));
+        let (scope, user, workspace) = match self.log {
+            Log::Workspace(workspace) => ("workspace", None, Some(workspace)),
+            Log::Own(user) => ("user", Some(user), None),
+        };
         db.owner_reads(&format!(
-            "INSERT INTO audit_entries (scope, workspace_id, actor_user_id, target_user_id, \
-             action, resource_type, resource_id, permission) \
-             VALUES ('workspace', '{}', '{}', {}, '{}', '{}', '{}', {}) RETURNING id::text",
-            self.workspace,
+            "INSERT INTO audit_entries (scope, user_id, workspace_id, actor_user_id, \
+             target_user_id, action, resource_type, resource_id, permission) \
+             VALUES ('{scope}', {}, {}, '{}', {}, '{}', '{}', '{}', {}) RETURNING id::text",
+            text(user),
+            text(workspace),
             self.actor,
             text(self.target),
             self.action,

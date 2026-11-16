@@ -137,14 +137,14 @@ async fn workspaces_019_setting_a_picture_stores_it_records_it_and_publishes_it(
         .owner_reads(
             "SELECT scope || ' ' || workspace_id || ' ' || actor_user_id || ' ' \
              || coalesce(target_user_id::text, '-') || ' ' || resource_type || ' ' \
-             || resource_id || ' ' || details::text \
+             || resource_id || ' ' || details::text || ' ' || coalesce(permission, '-') \
              FROM audit_entries WHERE action = 'picture.uploaded'",
         )
         .await;
     assert_eq!(
         entries,
         [format!(
-            "workspace {workspace} {} - picture {id} {{}}",
+            "workspace {workspace} {} - picture {id} {{}} workspace.read",
             grace.user_id
         )]
     );
@@ -486,13 +486,13 @@ async fn workspaces_021_removing_a_picture_deletes_it_records_it_and_publishes_i
         .owner_reads(
             "SELECT scope || ' ' || workspace_id || ' ' || actor_user_id || ' ' \
              || resource_type || ' ' || resource_id || ' ' || details::text \
-             FROM audit_entries WHERE action = 'picture.deleted'",
+             || ' ' || coalesce(permission, '-') FROM audit_entries WHERE action = 'picture.deleted'",
         )
         .await;
     assert_eq!(
         entries,
         [format!(
-            "workspace {workspace} {} picture {id} {{}}",
+            "workspace {workspace} {} picture {id} {{}} workspace.read",
             ada.user_id
         )]
     );

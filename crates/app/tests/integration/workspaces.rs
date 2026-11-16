@@ -326,13 +326,13 @@ async fn workspaces_005_removing_a_member_deletes_their_membership_and_signals_i
         .owner_reads(
             "SELECT scope || ' ' || workspace_id || ' ' || actor_user_id || ' ' || target_user_id \
              || ' ' || resource_type || ' ' || resource_id || ' ' || details::text \
-             FROM audit_entries WHERE action = 'member.removed'",
+             || ' ' || coalesce(permission, '-') FROM audit_entries WHERE action = 'member.removed'",
         )
         .await;
     assert_eq!(
         entries,
         [format!(
-            "workspace {workspace} {} {} workspace {workspace} {{}}",
+            "workspace {workspace} {} {} workspace {workspace} {{}} members.read",
             ada.user_id, grace.user_id
         )]
     );
@@ -599,14 +599,14 @@ async fn workspaces_008_renaming_stores_the_name_records_it_and_publishes_it() {
         .owner_reads(
             "SELECT scope || ' ' || workspace_id || ' ' || actor_user_id || ' ' \
              || coalesce(target_user_id::text, '-') || ' ' || resource_type || ' ' \
-             || resource_id || ' ' || details::text \
+             || resource_id || ' ' || details::text || ' ' || coalesce(permission, '-') \
              FROM audit_entries WHERE action = 'workspace.renamed'",
         )
         .await;
     assert_eq!(
         entries,
         [format!(
-            "workspace {workspace} {} - workspace {workspace} {{}}",
+            "workspace {workspace} {} - workspace {workspace} {{}} workspace.read",
             grace.user_id
         )]
     );
@@ -857,13 +857,13 @@ async fn roles(api: &Api, workspace: &str) -> Vec<String> {
 }
 
 /// The entries of `action`, each as its scope, the log it is in, its actor, its target, its
-/// resource and its details.
+/// resource, its details and its permission.
 async fn entries(api: &Api, action: &str) -> Vec<String> {
     api.database()
         .owner_reads(&format!(
             "SELECT scope || ' ' || coalesce(workspace_id, user_id) || ' ' || actor_user_id || ' ' \
              || coalesce(target_user_id::text, '-') || ' ' || resource_type || ' ' || resource_id \
-             || ' ' || details::text \
+             || ' ' || details::text || ' ' || coalesce(permission, '-') \
              FROM audit_entries WHERE action = '{action}'"
         ))
         .await
@@ -970,7 +970,7 @@ async fn workspaces_012_changing_a_role_stores_it_records_it_publishes_it_and_si
         entries(&api, "member.role_changed").await,
         [format!(
             "workspace {workspace} {} {} workspace {workspace} \
-             {{\"to\": \"admin\", \"from\": \"member\"}}",
+             {{\"to\": \"admin\", \"from\": \"member\"}} members.read",
             ada.user_id, grace.user_id
         )]
     );
@@ -1291,7 +1291,7 @@ async fn workspaces_014_leaving_ends_the_membership_records_it_publishes_it_and_
     assert_eq!(
         entries(&api, "member.left").await,
         [format!(
-            "workspace {workspace} {0} {0} workspace {workspace} {{}}",
+            "workspace {workspace} {0} {0} workspace {workspace} {{}} members.read",
             grace.user_id
         )]
     );
@@ -1397,7 +1397,7 @@ async fn workspaces_015_transferring_swaps_the_roles_records_it_publishes_it_and
     assert_eq!(
         entries(&api, "workspace.transferred").await,
         [format!(
-            "workspace {workspace} {} {} workspace {workspace} {{}}",
+            "workspace {workspace} {} {} workspace {workspace} {{}} members.read",
             ada.user_id, grace.user_id
         )]
     );
@@ -1620,7 +1620,7 @@ async fn workspaces_017_deleting_a_workspace_deletes_everything_in_it_and_record
     assert_eq!(
         entries(&api, "workspace.deleted").await,
         [format!(
-            "user {0} {0} - workspace {workspace} {{}}",
+            "user {0} {0} - workspace {workspace} {{}} -",
             ada.user_id
         )]
     );

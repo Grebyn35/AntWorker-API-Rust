@@ -1048,6 +1048,16 @@ async fn workspaces_031_a_superadmin_creates_a_workspace_that_they_own() {
             format!("user {user} {user} - workspace {id} {{\"access\": \"superadmin\"}}"),
         ]
     );
+    // The workspace's entry is read with `workspace.read`, and the superadmin's own needs none.
+    assert_eq!(
+        reads(
+            &api,
+            "SELECT coalesce(permission, '-') FROM audit_entries \
+             WHERE action = 'workspace.created' ORDER BY id"
+        )
+        .await,
+        ["workspace.read", "-"]
+    );
     assert_eq!(with_client, "2", "each entry records its request's client");
     let events = db
         .owner_reads(

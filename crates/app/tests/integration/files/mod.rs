@@ -178,13 +178,13 @@ pub(crate) fn without_links(file: &Value) -> Value {
     file
 }
 
-/// Each audit entry of `action`, as its log, workspace, actor, resource and details.
+/// Each audit entry of `action`, as its log, workspace, actor, resource, details and permission.
 async fn entries(api: &Api, action: &str) -> Vec<String> {
     api.database()
         .owner_reads(&format!(
             "SELECT scope || ' ' || workspace_id || ' ' || actor_user_id || ' ' \
              || resource_type || ' ' || resource_id || ' ' || details::text \
-             FROM audit_entries WHERE action = '{action}'"
+             || ' ' || coalesce(permission, '-') FROM audit_entries WHERE action = '{action}'"
         ))
         .await
 }
@@ -289,7 +289,7 @@ async fn files_001_uploading_stores_the_file_records_it_and_publishes_it() {
     assert_eq!(
         entries(&api, "file.uploaded").await,
         [format!(
-            "workspace {workspace} {} file {id} {{}}",
+            "workspace {workspace} {} file {id} {{}} files.read",
             grace.user_id
         )]
     );
@@ -1119,7 +1119,7 @@ async fn files_010_deleting_a_file_deletes_its_row_records_it_and_publishes_it()
     assert_eq!(
         entries(&api, "file.deleted").await,
         [format!(
-            "workspace {workspace} {} file {id} {{}}",
+            "workspace {workspace} {} file {id} {{}} files.read",
             grace.user_id
         )]
     );
