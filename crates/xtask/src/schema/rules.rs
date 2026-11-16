@@ -18,8 +18,8 @@ const SOFT_DELETES: [&str; 3] = ["deleted_at", "is_deleted", "deleted"];
 
 /// Every problem the catalog has. `bookkeeping` lists the tables of `platform`'s bookkeeping,
 /// which architecture.md §5 gives `platform`. A view's name and columns follow DATA-01 and DATA-06,
-/// as a table's do, but it stores no rows, so it has neither key nor defaults of its own (DATA-02),
-/// nor the trigger of a table whose rows are edited.
+/// as a table's do, but DATA-02's columns, and the trigger of a table whose rows are edited, are a
+/// table's: a view, which stores no rows, needs none of its own.
 pub fn check(catalog: &Value, bookkeeping: &[String]) -> Vec<Problem> {
     let mut problems = Vec::new();
     let (views, tables): (Vec<&Value>, Vec<&Value>) = list(catalog, "tables")
@@ -554,15 +554,18 @@ mod tests {
     }
 
     #[test]
-    fn data_02_a_view_has_neither_key_nor_defaults_of_its_own() {
-        let catalog = catalog();
-        let view = &catalog["tables"][5];
-        assert_eq!(view["view"], true);
-        assert!(list(view, "columns").all(|column| column["default"].is_null()));
-        assert!(
-            !list(&catalog, "constraints").any(|constraint| constraint["table"] == view["name"])
-        );
+    fn data_02_a_view_has_no_standard_columns_of_its_own() {
+        let mut catalog = catalog();
         assert!(messages(&catalog).is_empty());
+        // The same relation, read as a table, lacks them.
+        catalog["tables"][5]["view"] = json!(false);
+        assert_eq!(
+            messages(&catalog),
+            [
+                "deletable_audit_entries: its id isn't `id uuid PRIMARY KEY DEFAULT uuidv7()` (DATA-02)",
+                "deletable_audit_entries: its created_at isn't `timestamptz NOT NULL DEFAULT now()` (DATA-02)",
+            ]
+        );
     }
 
     #[test]

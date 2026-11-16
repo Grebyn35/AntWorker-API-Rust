@@ -11,9 +11,10 @@
 //!   scope columns, if any, record whom its work is for; as a module's bookkeeping of what it keeps
 //!   outside the database, which holds no tenant's data; or as the workspaces themselves.
 //!
-//! - A view holds the rows of the table it selects from, so it is placed as that table is, with
-//!   its columns: a query of a view of workspace data, such as `deletable_audit_entries`, names its
-//!   tenant, or is in a file of [`CROSS_TENANT`].
+//! - A view takes the columns of the table it selects from, whose rows it shows, so a view of
+//!   workspace data, such as `deletable_audit_entries`, is checked as workspace data: a query of it
+//!   names a tenant, or is in a file of [`CROSS_TENANT`]. Any other view is placed by its own name,
+//!   as a table is.
 //!
 //! It reads the migrations' tables and views as `tables` does, and the code as token streams
 //! (`rust`).

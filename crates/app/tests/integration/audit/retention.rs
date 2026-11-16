@@ -1,7 +1,7 @@
 //! Retention (the audit spec's "Retention"): the view through which `app` deletes entries, and
 //! the hourly job that deletes those older than the retention.
 
-use crate::support::{Api, Options, execute_on, users, workspaces};
+use crate::support::{Api, Options, audit, execute_on, users, workspaces};
 
 /// The periodic job of retention.
 const JOB: &str = "audit.expire_entries";
@@ -37,10 +37,21 @@ async fn audit_005_app_deletes_through_the_view_only_the_entries_recorded_more_t
         arrange(&api, &ada.user_id, "user.renamed", age, 1).await;
     }
     // The oldest has a client, which goes with it.
-    db.owner_executes(
-        "INSERT INTO audit_entry_clients (entry_id, user_id, client_ip) \
-         SELECT id, user_id, '203.0.113.9' FROM audit_entries \
-         WHERE action = 'user.renamed' ORDER BY created_at LIMIT 1",
+    let oldest = db
+        .owner_reads(
+            "SELECT id::text FROM audit_entries WHERE action = 'user.renamed' \
+             ORDER BY created_at LIMIT 1",
+        )
+        .await
+        .remove(0);
+    audit::with_client(
+        db,
+        &oldest,
+        &audit::Client {
+            user: &ada.user_id,
+            ip: "203.0.113.9",
+            agent: "Desktop/1.2",
+        },
     )
     .await;
     let clients_before = db

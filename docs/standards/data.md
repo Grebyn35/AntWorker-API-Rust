@@ -6,7 +6,7 @@ Schema, migrations, database roles, tenancy, queries and transactions.
 
 ### DATA-01 Naming
 These names apply to the product schema: the tables, views, columns and constraints that the files in `migrations/` create.
-- Tables are plural `snake_case` (`workspace_memberships`).
+- Tables and views are plural `snake_case` (`workspace_memberships`).
 - Foreign-key columns are `<singular>_id`, and timestamps are `<event>_at`.
 - Constraints and indexes are named explicitly:
   - `<table>_<columns>_key` for unique constraints
@@ -20,7 +20,7 @@ These names apply to the product schema: the tables, views, columns and constrai
 - Every table of the product schema (DATA-01) has `id uuid PRIMARY KEY DEFAULT uuidv7()` and `created_at timestamptz NOT NULL DEFAULT now()`.
 - A table whose rows are edited also has `updated_at` and `version`. One shared trigger maintains both. A table of `platform`'s bookkeeping, whose rows only its own mechanism changes and no client edits, such as the rate-limit buckets, has neither.
 - Pure join tables use a composite primary key instead of `id`.
-- A view stores no rows, so it has neither key nor defaults of its own: the table it shows has them.
+- These columns are a table's: a view, which stores no rows, needs none of its own.
 
 The migrator's own table, `_sqlx_migrations`, follows the layout sqlx gives it, and tables that tests create are throwaway, so neither is part of the product schema.
 - Why: IDs are time-ordered and index-friendly, and every editable row supports `ETag` (D24, API-13).
@@ -42,7 +42,7 @@ Every reference is a declared foreign key with an explicit `ON DELETE`: `CASCADE
 - Check: `ci: check-schema`.
 
 ### DATA-06 Deletes are hard deletes
-Rows are deleted, not flagged. No table has a soft-delete column.
+Rows are deleted, not flagged. No table or view has a soft-delete column.
 - Why: deleted personal data is actually gone (D24, D31).
 - Check: `ci: check-schema` (no `deleted_at` or `is_deleted` columns).
 
