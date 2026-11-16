@@ -198,8 +198,8 @@ mod tests {
         let chunks = [
             "event: stream.opened\ndata: {}\n\n",
             ": \n\n",
-            "id: 1\nevent: invitation.rec",
-            "eived\ndata: {}\n",
+            "id: 1\nevent: workspace.upd",
+            "ated\ndata: {}\n",
             "\n",
         ];
         let mut body = String::new();
@@ -220,7 +220,7 @@ mod tests {
             frames,
             [
                 ("stream.opened".to_owned(), None),
-                ("invitation.received".to_owned(), Some("1".to_owned()))
+                ("workspace.updated".to_owned(), Some("1".to_owned()))
             ]
         );
     }

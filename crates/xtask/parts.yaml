@@ -16,8 +16,6 @@ parts:
       - crates/app/tests/integration/invitations
       - crates/app/tests/integration/invitations.rs
       - crates/app/tests/integration/support/invitations.rs
-      - crates/app/tests/load/streams.js
-      - crates/xtask/src/load/streams
       - docs/spec/invitations.md
     words:
       - invit

@@ -6,9 +6,10 @@
 //! publishes events at constant rates, raising the rate until a step fails, and narrowing the
 //! gap, as the search for a replica's capacity does.
 //!
-//! An event is `invitation.received`, which inviting a stream's user again publishes to that user's
-//! 10 streams (INVITATIONS-003, INVITATIONS-008), an event that changes no one's access, so no
-//! stream closes. A step passes when no request failed, k6 dropped none, every
+//! Each user owns a workspace of their own, of which they are the only member, and an event is
+//! `workspace.updated`, which renaming it publishes to its members' streams (WORKSPACES-008), so
+//! to that user's 10: an event of the core, which every fork keeps, and one that changes no one's
+//! access, so no stream closes. A step passes when no request failed, k6 dropped none, every
 //! event reached each of its user's streams once, the streams of a user received the same events
 //! in the same order, no stream closed, and the 99th percentile of the lag of the events that the
 //! measured replica's hub delivered, which k6 reads from Prometheus, is within the latency
@@ -17,7 +18,7 @@
 mod client;
 mod readers;
 
-use std::{path::Path, process::ExitCode};
+use std::{collections::BTreeMap, path::Path, process::ExitCode};
 
 use serde_json::{Value, json};
 
@@ -144,11 +145,6 @@ fn start(
         &listen,
         "--env",
         "OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318",
-        // One inviter invites at the step's rate (INVITATIONS-009).
-        "--env",
-        "INVITATION_LIMIT=100000",
-        "--env",
-        "INVITATION_WINDOW_SECONDS=1",
     ]);
     for setting in replica.settings {
         args.extend(["--env", setting]);
@@ -234,7 +230,7 @@ fn measure(
         ""
     };
     report(&format!(
-        "Hub capacity: {bound}{} events a second, each to the 10 streams of its user, {} frames a second to {} open streams, on one replica with {cpus} CPU and {memory} of memory, with none lost and the 99th percentile of their lag within {} ms. Each open stream holds about {per_stream:.1} KiB.",
+        "Hub capacity: {bound}{} events a second, each to the 10 streams of one user, {} frames a second to {} open streams, on one replica with {cpus} CPU and {memory} of memory, with none lost and the 99th percentile of their lag within {} ms. Each open stream holds about {per_stream:.1} KiB.",
         capacity.rate,
         capacity.rate * STREAMS_PER_USER as u64,
         USERS * STREAMS_PER_USER,
@@ -310,58 +306,63 @@ fn host_address(root: &Path, id: &str) -> Result<String, String> {
 }
 
 /// The users whose streams the hub holds, each with an access token, and the data k6 publishes
-/// with: an inviter, who owns a workspace and has invited each user once. Their addresses hold
-/// `run`. The workspace is arranged in the database, as a test arranges its state, rather than
-/// through one of the parts that create workspaces, so the test runs whichever of them a fork
-/// keeps.
+/// with: each user's workspace, of which they are the owner and the only member, with their token.
+/// Their addresses hold `run`. The workspaces are arranged in the database, as a test arranges
+/// its state, rather than through one of the parts that create workspaces, so the test runs
+/// whichever of them a fork keeps.
 fn arrange(root: &Path, publisher: &str, run: &str) -> Result<Vec<String>, String> {
-    let register = |email: &str| -> Result<String, String> {
+    let mut tokens = BTreeMap::new();
+    for n in 0..USERS {
+        let email = format!("load-{run}-{n}@example.com");
         let body =
             json!({ "email": email, "password": "plum-tractor-41-quiet", "name": "Load Test" });
-        match client::request(publisher, "POST", "/v1/users", None, Some(&body))? {
+        let token = match client::request(publisher, "POST", "/v1/users", None, Some(&body))? {
             (201, answer) => answer["access_token"]
                 .as_str()
                 .map(str::to_owned)
-                .ok_or_else(|| format!("registering {email} answered no access token")),
-            (status, answer) => Err(format!("registering {email} answered {status}: {answer}")),
-        }
-    };
-    let owner = format!("load-{run}-inviter@example.com");
-    let inviter = register(&owner)?;
-    let workspace = owned_workspace(root, &owner)?;
-    let mut emails = Vec::new();
-    let mut tokens = Vec::new();
-    for n in 0..USERS {
-        let email = format!("load-{run}-{n}@example.com");
-        tokens.push(register(&email)?);
-        let path = format!("/v1/workspaces/{workspace}/invitations");
-        let body = json!({ "email": email, "role": "member" });
-        match client::request(publisher, "POST", &path, Some(&inviter), Some(&body))? {
-            (201, _) => {}
+                .ok_or_else(|| format!("registering {email} answered no access token"))?,
             (status, answer) => {
-                return Err(format!("inviting {email} answered {status}: {answer}"));
+                return Err(format!("registering {email} answered {status}: {answer}"));
             }
-        }
-        emails.push(email);
+        };
+        tokens.insert(email, token);
     }
-    let data = json!({ "token": inviter, "workspace": workspace, "invitees": emails });
+    let owned = owned_workspaces(root, run)?;
+    let mut workspaces = Vec::new();
+    for (email, workspace) in owned {
+        let token = tokens.get(&email).ok_or_else(|| {
+            format!("{email} owns a workspace, though the task registered no such user")
+        })?;
+        workspaces.push(json!({ "id": workspace, "token": token }));
+    }
+    if workspaces.len() != USERS {
+        return Err(format!(
+            "{} of the {USERS} users own a workspace",
+            workspaces.len()
+        ));
+    }
+    let data = json!({ "workspaces": workspaces });
     let directory = root.join("target/load");
     write(&directory, &data).map_err(|error| format!("can't write the data k6 reads: {error}"))?;
-    Ok(tokens)
+    Ok(tokens.into_values().collect())
 }
 
-/// Arranges a workspace in the development Postgres, owned by the account that holds `email`, as the
-/// role that owns the schema, and returns its ID.
-fn owned_workspace(root: &Path, email: &str) -> Result<String, String> {
+/// Arranges a workspace in the development Postgres for each account whose address holds `run`,
+/// owned by that account alone, as the role that owns the schema, and returns each account's
+/// address with its workspace's ID.
+fn owned_workspaces(root: &Path, run: &str) -> Result<Vec<(String, String)>, String> {
     let url = database_url("DATABASE_OWNER_URL")?;
     let statement = format!(
-        "WITH created AS (INSERT INTO workspaces (name) VALUES ('Load Test') RETURNING id), \
+        "WITH owners AS MATERIALIZED (SELECT id AS user_id, email, uuidv7() AS workspace_id \
+         FROM users WHERE email LIKE 'load-{run}-%'), \
+         created AS (INSERT INTO workspaces (id, name) \
+         SELECT workspace_id, 'Load Test' FROM owners RETURNING id), \
          joined AS (INSERT INTO workspace_memberships (workspace_id, user_id, role) \
-         SELECT created.id, users.id, 'owner' FROM created, users \
-         WHERE users.email = '{email}' RETURNING workspace_id) \
-         SELECT workspace_id FROM joined"
+         SELECT created.id, owners.user_id, 'owner' FROM created \
+         JOIN owners ON owners.workspace_id = created.id RETURNING workspace_id, user_id) \
+         SELECT owners.email, joined.workspace_id FROM joined JOIN owners USING (user_id)"
     );
-    let workspace = docker(
+    let rows = docker(
         root,
         &[
             "exec",
@@ -375,11 +376,14 @@ fn owned_workspace(root: &Path, email: &str) -> Result<String, String> {
             &statement,
         ],
     )
-    .map_err(|error| format!("arranging the workspace failed: {error}"))?;
-    if workspace.is_empty() {
-        return Err(format!("no account holds {email}, so it owns no workspace"));
-    }
-    Ok(workspace)
+    .map_err(|error| format!("arranging the workspaces failed: {error}"))?;
+    rows.lines()
+        .map(|row| {
+            row.split_once('|')
+                .map(|(email, workspace)| (email.to_owned(), workspace.to_owned()))
+                .ok_or_else(|| format!("arranging the workspaces answered {row:?}"))
+        })
+        .collect()
 }
 
 #[expect(

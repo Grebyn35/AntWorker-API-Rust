@@ -1,15 +1,15 @@
 // One step of the hub's load test (OPS-16): `just load-test streams` runs it at rising rates. It
-// publishes events at a constant rate through the publishing replica, by inviting each stream's
-// user again, which publishes `invitation.received` to that user's streams on the measured
-// replica (INVITATIONS-003, INVITATIONS-008): an event that changes no one's access, so no stream
-// closes. k6 runs it, and prints the step's outcome as one JSON line, which
+// publishes events at a constant rate through the publishing replica, by renaming the workspace of
+// each stream's user, its owner and only member, as that user, which publishes `workspace.updated`
+// to the user's streams on the measured replica (WORKSPACES-008): an event that changes no one's
+// access, so no stream closes. k6 runs it, and prints the step's outcome as one JSON line, which
 // the task reads.
 //
-// TARGET is the publishing replica's address, RATE the invitations a second, DURATION how long the
-// step lasts, DATA the file of the inviter's access token, the workspace and the invitees'
-// addresses, which the task wrote, and PROMETHEUS the address of the Prometheus that the replicas'
-// metrics reach. After the step, the script reads from Prometheus the 99th percentile of the lag
-// of the events that the measured replica's hub delivered: the replica whose hub holds streams.
+// TARGET is the publishing replica's address, RATE the renames a second, DURATION how long the
+// step lasts, DATA the file of the workspaces and their owners' access tokens, which the task
+// wrote, and PROMETHEUS the address of the Prometheus that the replicas' metrics reach. After the
+// step, the script reads from Prometheus the 99th percentile of the lag of the events that the
+// measured replica's hub delivered: the replica whose hub holds streams.
 
 import http from "k6/http";
 import exec from "k6/execution";
@@ -46,14 +46,15 @@ export const options = {
 const lag = new Trend("hub_lag_p99_ms");
 
 export default function () {
-  const invitee = data.invitees[exec.scenario.iterationInTest % data.invitees.length];
-  http.post(
-    `${target}/v1/workspaces/${data.workspace}/invitations`,
-    JSON.stringify({ email: invitee, role: "member" }),
+  const iteration = exec.scenario.iterationInTest;
+  const workspace = data.workspaces[iteration % data.workspaces.length];
+  http.patch(
+    `${target}/v1/workspaces/${workspace.id}`,
+    JSON.stringify({ name: `Load Test ${iteration}` }),
     {
       headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${data.token}`,
+        "Content-Type": "application/merge-patch+json",
+        Authorization: `Bearer ${workspace.token}`,
       },
     },
   );

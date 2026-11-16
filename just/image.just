@@ -93,7 +93,7 @@ e2e *tests: bound-build services
 # GET /v1/users/me as a signed-in user, or with `sign-ins`, for POST /v1/sessions, whose
 # passwords' hashes are the API's CPU-heavy work, beside requests that hash nothing, which must
 # be served within the objective too. docs/operations/release.md says when to run it.
-# `just load-test streams` measures the replica's hub instead, with 1,000 streams open on it. # part: invitations
+# `just load-test streams` measures the replica's hub instead, with 1,000 streams open on it.
 [doc("Measures one replica's capacity, for the release notes")]
 [group('image')]
 load-test route="capabilities": services

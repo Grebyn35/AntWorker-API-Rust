@@ -231,11 +231,9 @@ enum Command {
     #[command(name = "load-test")]
     LoadTest {
         /// The route: `capabilities`, `GET /v1/capabilities`, which a release's notes give,
-        /// `me`, `GET /v1/users/me` with a signed-in user's access token, or `sign-ins`,
-        /// `POST /v1/sessions` with a password, beside requests that hash nothing.
-        // part: invitations
-        /// Or `streams`, which measures the replica's hub instead (OPS-16).
-        // end part: invitations
+        /// `me`, `GET /v1/users/me` with a signed-in user's access token, `sign-ins`,
+        /// `POST /v1/sessions` with a password, beside requests that hash nothing, or `streams`,
+        /// which measures the replica's hub instead (OPS-16).
         #[arg(default_value = "capabilities")]
         route: String,
     },

@@ -16,10 +16,8 @@
 //! platform spec's Telemetry export, under Batching).
 //!
 //! The search is a pure function, so tests cover it without Docker.
-// part: invitations
 //!
 //! `streams` measures a replica's hub instead (OPS-16): see its module.
-// end part: invitations
 
 use std::{
     path::{Path, PathBuf},
@@ -32,9 +30,7 @@ use crate::{repo::Repo, telemetry_config};
 use replica::{LABEL, healthy, hold_the_machine, image, limits, prepare, start_the_stack};
 
 mod replica;
-// part: invitations
 mod streams;
-// end part: invitations
 
 /// The rate the search for a replica's capacity starts at, in requests a second.
 const FIRST_RATE: u64 = 200;
@@ -143,20 +139,10 @@ pub fn next_rate(first: u64, steps: &[(u64, bool)]) -> Option<u64> {
 }
 
 /// Runs the load test against the API's image under test, once it holds the machine and has pushed
-/// the image: of a replica's capacity on `route`.
-// part: invitations
-/// With `streams`, it measures the replica's hub instead.
-// end part: invitations
+/// the image: of a replica's capacity on `route`, or with `streams`, of the replica's hub.
 pub fn run(route: &str) -> ExitCode {
-    let path = path_of(route);
-    // part: invitations
-    let path = path.or((route == "streams").then_some(""));
-    // end part: invitations
-    let Some(path) = path else {
-        let names = ["capabilities", "me", "sign-ins"];
-        // part: invitations
-        let names = [names.as_slice(), &["streams"]].concat();
-        // end part: invitations
+    let Some(path) = path_of(route).or((route == "streams").then_some("")) else {
+        let names = ["capabilities", "me", "sign-ins", "streams"];
         return fail(&format!("no route is named {route}: {}", names.join(", ")));
     };
     let root = root();
@@ -185,7 +171,6 @@ pub fn run(route: &str) -> ExitCode {
         Ok(prepared) => prepared,
         Err(error) => return fail(&error),
     };
-    // part: invitations
     if route == "streams" {
         let replica = streams::Replica {
             image,
@@ -194,7 +179,6 @@ pub fn run(route: &str) -> ExitCode {
         };
         return streams::run(&root, &replica, (&cpus, &memory), objective_ms);
     }
-    // end part: invitations
     let listen = format!("LISTEN_ADDR=0.0.0.0:{PORT}");
     let label = format!("{LABEL}=true");
     let mut args = vec![

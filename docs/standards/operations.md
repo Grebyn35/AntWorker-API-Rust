@@ -116,7 +116,7 @@ The bundled Postgres archives its write-ahead log continuously, and takes base b
 
 ### OPS-16 Capacity is measured
 `just load-test` runs one replica of the image, with the reference deployment's CPU and memory limits for a replica, and finds the highest constant rate of requests it serves with no request failed and the 99th percentile within the latency objective. That rate is the replica's capacity. The task runs before each release, and its result is part of the release notes.
-`just load-test streams` measures the replica's hub the same way: with 1,000 streams open on it, 10 for each of 100 users, it finds the highest constant rate of events, each to the 10 streams of its user, that the hub delivers with no event lost or repeated and the 99th percentile of their lag within the latency objective, while a second replica takes the requests that publish them, and it reports the memory each open stream holds; it runs before each release too, and its result goes in the notes beside the other. <!-- part: invitations -->
+`just load-test streams` measures the replica's hub the same way: with 1,000 streams open on it, 10 for each of 100 users, it finds the highest constant rate of events, each to the 10 streams of one user, that the hub delivers with no event lost or repeated and the 99th percentile of their lag within the latency objective, while a second replica takes the requests that publish them, and it reports the memory each open stream holds; it runs before each release too, and its result goes in the notes beside the other.
 - Why: capacity is a number, not a guess (D20).
 - Check: `review` (the release checklist in `docs/operations/release.md`), plus `test` (the search for the highest rate).
 
