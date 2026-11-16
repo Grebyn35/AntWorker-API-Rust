@@ -73,8 +73,8 @@ pub fn workspace_events(text: &str) -> Vec<&str> {
     declared(text, &[WORKSPACE_EVENT])
 }
 
-/// The name of each event that `text` declares through one of `constructors`: the string that
-/// the constructor takes first.
+/// The name of each event or audit action that `text` declares through one of `constructors`:
+/// the string that the constructor takes first.
 pub(super) fn declared<'a>(text: &'a str, constructors: &[&str]) -> Vec<&'a str> {
     let mut names = Vec::new();
     for constructor in constructors {

@@ -71,7 +71,8 @@ pub(super) const DEVICE_TOKEN_ISSUED: Action = Action::new(
     &[DEVICE_TOKEN],
 )
 .in_own_log();
-/// A session proved its user's password again (AUTH-021).
+/// A session proved again who its user is, with their password or through a provider (AUTH-021,
+/// AUTH-080).
 pub(super) const SESSION_REAUTHENTICATED: Action<ThroughProvider> = Action::new(
     "session.reauthenticated",
     "The user proved who they are again in a session, for an action that asks for a recent proof.",
@@ -150,8 +151,8 @@ pub(super) const EMAIL_CHANGED: Action = Action::new(
 )
 .in_own_log();
 
-/// A sign-in's password matched, for an account with an authenticator app, which issued a
-/// challenge for its code (AUTH-058).
+/// A sign-in to an account with an authenticator app, with its password or through a provider,
+/// issued a challenge for the app's code (AUTH-058).
 pub(super) const SIGN_IN_CHALLENGED: Action<ThroughProvider> = Action::new(
     "sign_in.challenged",
     "A sign-in to an account with an authenticator app asked for the app's code.",

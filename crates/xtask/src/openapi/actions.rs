@@ -18,7 +18,9 @@ const NAME_MAX_CHARS: usize = 100;
 /// The constructor of a module's audit actions, which clippy allows only in its `audit.rs`.
 const ACTION: &str = "Action::new(";
 
-/// A finding for each action that a module's `audit.rs` declares and `document`'s catalog lacks.
+/// A finding for each action that a module's `audit.rs` declares and `document`'s catalog lacks,
+/// and for each action's component of `document` whose action isn't named as a log's filter takes
+/// it, or that gives its entries' `action` as anything but the action's name.
 pub fn check(repo: &Repo, document: &Value) -> Vec<Finding> {
     let catalog: BTreeSet<&str> = document["components"]["schemas"]
         .as_object()
