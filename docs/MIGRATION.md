@@ -356,6 +356,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | a91afcd..639c5f0: as above, with pass 1's fixes | 2 | 4 (4, 2, 2 shared) | 4 | 2 | `stopped: no progress`: c149c5d |
 | 2ae960f..ee65d82: the second part of the full `audit`: bounded retention, with the owner's decision on the view through which `app` deletes old entries, the checks' reading of views, and the documents they changed | 1 | 6 (6, 4, 4 shared) | 2 | 0 | `next pass`: e0b3db5 |
 | 2ae960f..e0b3db5: as above, with pass 1's fixes | 2 | 6 (6, 2, 2 shared) | 1 | 1 | `stopped: no progress` |
+| ece7d73..887c202: the third and last part of the full `audit`: the action catalog, with each action's declaration of its description, logs, kinds of resource and type of details, its route, its components in `openapi.json`, `check-openapi`'s reading of them, and the documents they changed | 1 | 9 (8, 4, 3 shared) | 2 | 0 | `next pass` |
 
 ## Decisions
 
