@@ -8,7 +8,7 @@ use platform::{
     rate_limit::Bucket,
 };
 
-use crate::modules::auth;
+use crate::modules::{audit, auth};
 // part: files
 use crate::modules::files;
 // end part: files
@@ -18,6 +18,7 @@ use crate::modules::invitations;
 
 /// The settings of the modules, which `serve` reads before its async runtime starts (OPS-01).
 pub struct Config {
+    pub(super) audit: audit::Settings,
     pub(super) auth: auth::Settings,
     /// The OAuth providers that the deployment configures (AUTH-081).
     pub(super) providers: auth::Providers,
@@ -65,6 +66,13 @@ impl Config {
         let sign_in_window = settings.duration("SIGN_IN_WINDOW_SECONDS", 900, 1..=day)?;
         let refresh = settings.duration("REFRESH_TOKEN_SECONDS", 30 * day, 3_600..=365 * day)?;
         Ok(Self {
+            audit: audit::Settings {
+                retention_days: settings.number(
+                    "AUDIT_RETENTION_DAYS",
+                    365,
+                    audit::RETENTION_FLOOR_DAYS..=3_650,
+                )?,
+            },
             providers: auth::Providers::from_settings(settings)?,
             auth: auth::Settings {
                 lifetimes: auth::Lifetimes {

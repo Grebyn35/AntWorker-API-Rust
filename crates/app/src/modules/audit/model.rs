@@ -69,6 +69,18 @@ impl Resource {
     }
 }
 
+/// The fewest days that `AUDIT_RETENTION_DAYS` takes: the floor of `deletable_audit_entries`,
+/// through which retention deletes, and which shows no entry recorded more recently, as its
+/// migration states (AUDIT-005).
+pub(crate) const RETENTION_FLOOR_DAYS: u32 = 90;
+
+/// How long each log keeps an entry (AUDIT-011).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Settings {
+    /// Its days, from [`RETENTION_FLOOR_DAYS`] to 3,650.
+    pub(crate) retention_days: u32,
+}
+
 /// What a module records about one change or security event (AUDIT-003). The log and the actor
 /// come from the `AuditScope` it is recorded with, never from here (AUDIT-002).
 #[derive(Clone, Debug, PartialEq)]

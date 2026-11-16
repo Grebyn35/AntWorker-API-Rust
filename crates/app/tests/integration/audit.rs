@@ -1,6 +1,8 @@
-//! The audit writer (the audit spec). Reading the logs is in `reading`.
+//! The audit writer (the audit spec). Reading the logs is in `reading`, and retention in
+//! `retention`.
 
 mod reading;
+mod retention;
 
 use crate::support::{Api, Options, users};
 
@@ -79,7 +81,7 @@ async fn audit_003_an_entry_records_the_client_its_trace_and_only_ids() {
 }
 
 #[tokio::test]
-async fn audit_005_the_app_role_can_t_change_or_delete_an_entry() {
+async fn audit_005_the_app_role_changes_no_entry_and_deletes_none_from_the_tables() {
     let api = Api::new().await;
     users::register(&api, "ada@example.com").await;
     let db = api.database();
@@ -90,6 +92,9 @@ async fn audit_005_the_app_role_can_t_change_or_delete_an_entry() {
         "DELETE FROM audit_entries",
         "UPDATE audit_entry_clients SET client_ip = NULL",
         "DELETE FROM audit_entry_clients",
+        // The view through which retention deletes old entries changes none, and adds none.
+        "UPDATE deletable_audit_entries SET created_at = now()",
+        "INSERT INTO deletable_audit_entries (created_at) VALUES (now())",
     ] {
         let refused = db.try_execute(&db.app_url(), statement).await;
 

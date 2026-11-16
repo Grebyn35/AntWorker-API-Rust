@@ -115,8 +115,7 @@ pub async fn compose(
         mail,
         ..
     } = resources;
-    let mut jobs = Jobs::new(database, server.job_dead_letter_retention);
-    mail.register(&mut jobs).map_err(Internal::new)?;
+    let mut jobs = registry(database, server, mail, config.audit)?;
     let contracts = contracts(mail);
     let providers = Arc::new(config.providers);
     let auth = auth_service(resources, server, config.auth, &providers, &contracts).await?;
@@ -199,6 +198,22 @@ pub async fn compose(
         #[cfg(feature = "test-support")]
         hub,
     })
+}
+
+/// The registry of jobs, with `platform`'s sweeps, the sending of email, and audit's retention,
+/// none of which a module's service runs (AUDIT-011).
+fn registry(
+    database: &Database,
+    server: &ServerConfig,
+    mail: &Mail,
+    audit: audit::Settings,
+) -> Result<Jobs, Internal> {
+    let mut jobs = Jobs::new(database, server.job_dead_letter_retention);
+    mail.register(&mut jobs).map_err(Internal::new)?;
+    audit::Retention::new(database.clone(), audit)
+        .register(&mut jobs)
+        .map_err(Internal::new)?;
+    Ok(jobs)
 }
 
 /// The service of `auth`, on `resources`, with `server`'s keys and outbound settings, the module's

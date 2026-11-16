@@ -17,12 +17,16 @@ pub(super) const MIGRATIONS_TABLE: &str = "_sqlx_migrations";
 const SOFT_DELETES: [&str; 3] = ["deleted_at", "is_deleted", "deleted"];
 
 /// Every problem the catalog has. `bookkeeping` lists the tables of `platform`'s bookkeeping,
-/// which architecture.md §5 gives `platform`.
+/// which architecture.md §5 gives `platform`. A view's name and columns follow the tables' rules,
+/// but it stores no rows, so it has neither keys, defaults nor triggers of its own (DATA-02).
 pub fn check(catalog: &Value, bookkeeping: &[String]) -> Vec<Problem> {
     let mut problems = Vec::new();
-    let tables: Vec<&Value> = list(catalog, "tables")
+    let (views, tables): (Vec<&Value>, Vec<&Value>) = list(catalog, "tables")
         .filter(|table| table["name"] != MIGRATIONS_TABLE)
-        .collect();
+        .partition(|table| table["view"] == true);
+    for view in &views {
+        problems.extend(columns(view));
+    }
     for table in &tables {
         problems.extend(columns(table));
         problems.extend(standard_columns(catalog, table, bookkeeping));
@@ -371,8 +375,8 @@ mod tests {
 
     use super::*;
 
-    /// A catalog that follows every rule: an edited table, a join table, a bookkeeping table and
-    /// an append-only table.
+    /// A catalog that follows every rule: an edited table, a join table, a bookkeeping table, an
+    /// append-only table, and the view through which retention deletes its entries.
     fn catalog() -> Value {
         let id = json!({ "name": "id", "type": "uuid", "not_null": true, "default": "uuidv7()" });
         let created = json!({ "name": "created_at", "type": "timestamp with time zone", "not_null": true, "default": "now()" });
@@ -383,6 +387,9 @@ mod tests {
             json!({ "name": "user_id", "type": "uuid", "not_null": true, "default": null });
         let trigger = json!([{ "function": "set_row_version", "before_update_row": true }]);
         let dml = json!(["DELETE", "INSERT", "SELECT", "UPDATE"]);
+        // A view's columns have no defaults, and their nullability is the table's business.
+        let shown_id = json!({ "name": "id", "type": "uuid", "not_null": false, "default": null });
+        let shown_created = json!({ "name": "created_at", "type": "timestamp with time zone", "not_null": false, "default": null });
         json!({
             "tables": [
                 { "name": "users", "owner": "owner", "app": dml, "columns": [id, created, updated, version], "triggers": trigger },
@@ -390,6 +397,7 @@ mod tests {
                 { "name": "rate_limit_buckets", "owner": "owner", "app": dml, "columns": [id, created], "triggers": [] },
                 { "name": "audit_entries", "owner": "owner", "app": ["INSERT", "SELECT"], "columns": [id, created, user_id], "triggers": [] },
                 { "name": "_sqlx_migrations", "owner": "owner", "app": ["SELECT"], "columns": [], "triggers": [] },
+                { "name": "deletable_audit_entries", "view": true, "owner": "owner", "app": ["DELETE", "SELECT"], "columns": [shown_id, shown_created], "triggers": [] },
             ],
             "constraints": [
                 { "name": "users_pkey", "table": "users", "type": "p", "columns": ["id"], "on_delete": " " },
@@ -545,6 +553,26 @@ mod tests {
     }
 
     #[test]
+    fn data_02_a_view_follows_the_name_and_column_rules_and_has_no_keys_or_defaults() {
+        let mut catalog = catalog();
+        assert!(messages(&catalog).is_empty());
+        catalog["tables"][5]["name"] = json!("deletable_audit_entry");
+        catalog["tables"][5]["columns"]
+            .as_array_mut()
+            .unwrap()
+            .push(
+                json!({ "name": "deleted", "type": "boolean", "not_null": false, "default": null }),
+            );
+        assert_eq!(
+            messages(&catalog),
+            [
+                "the table deletable_audit_entry isn't a plural snake_case name (DATA-01)",
+                "deletable_audit_entry.deleted marks rows deleted: rows are deleted, not flagged (DATA-06)",
+            ]
+        );
+    }
+
+    #[test]
     fn data_05_foreign_keys_delete_explicitly_and_are_indexed() {
         let mut catalog = catalog();
         catalog["constraints"][4]["on_delete"] = json!("a");
@@ -605,6 +633,18 @@ mod tests {
                 "PUBLIC may execute the functions owner creates (DATA-19)",
                 "app has no idle_in_transaction_session_timeout of its own (DATA-19)",
                 "app may create objects in the schema public (DATA-19)",
+            ]
+        );
+    }
+
+    #[test]
+    fn data_19_app_holds_only_select_and_delete_on_deletable_audit_entries() {
+        let mut catalog = catalog();
+        catalog["tables"][5]["app"] = json!(["DELETE", "SELECT", "UPDATE"]);
+        assert_eq!(
+            messages(&catalog),
+            [
+                "app holds DELETE, SELECT, UPDATE on deletable_audit_entries, not only DELETE and SELECT (DATA-19)"
             ]
         );
     }

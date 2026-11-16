@@ -11,14 +11,22 @@
 //!   scope columns, if any, record whom its work is for; as a module's bookkeeping of what it keeps
 //!   outside the database, which holds no tenant's data; or as the workspaces themselves.
 //!
-//! It reads the migrations' `CREATE TABLE` and `ALTER TABLE ... ADD COLUMN` statements as text,
-//! and the code as token streams (`rust`).
+//! - A view holds the rows of the table it selects from, so it is placed as that table is, with
+//!   its columns: a query of a view of workspace data, such as `deletable_audit_entries`, names its
+//!   tenant, or is in a file of [`CROSS_TENANT`].
+//!
+//! It reads the migrations' tables and views as `tables` does, and the code as token streams
+//! (`rust`).
 
 use std::collections::BTreeMap;
 
 use proc_macro2::{Delimiter, TokenTree};
 
 use crate::{Finding, Outcome, repo::Repo, rust::Source, sql::referenced};
+
+mod tables;
+
+pub use tables::{Table, tables};
 
 /// The migrations, whose tables the check places.
 const MIGRATIONS: &str = "migrations/";
@@ -97,6 +105,7 @@ const TENANTS: &[&str] = &["workspaces"];
 /// as expiry (DATA-16).
 const CROSS_TENANT: &[&str] = &[
     "crates/app/src/modules/accounts/jobs.rs",
+    "crates/app/src/modules/audit/jobs.rs",
     "crates/app/src/modules/auth/jobs.rs",
     // part: files
     "crates/app/src/modules/files/jobs.rs",
@@ -125,16 +134,6 @@ const MACROS: [&str; 6] = [
     "query_as_unchecked",
     "query_scalar_unchecked",
 ];
-
-/// A table the migrations create, with its columns, and where it is created.
-pub struct Table {
-    /// Its columns' names.
-    pub columns: Vec<String>,
-    /// The migration that creates it.
-    pub path: String,
-    /// The line of its `CREATE TABLE`.
-    pub line: usize,
-}
 
 /// Checks the migrations' tables and every query of the code.
 pub fn check(repo: &Repo) -> Outcome {
@@ -174,115 +173,6 @@ fn check_with(repo: &Repo, addressed: &[(&str, &str)], cross_tenant: &[&str]) ->
     }
 }
 
-/// The tables of every migration, by name.
-pub fn tables(repo: &Repo) -> BTreeMap<String, Table> {
-    let mut tables = BTreeMap::new();
-    let mut migrations: Vec<_> = repo
-        .files()
-        .filter(|file| file.path.starts_with(MIGRATIONS) && file.path.ends_with(".sql"))
-        .collect();
-    migrations.sort_by(|a, b| a.path.cmp(&b.path));
-    for file in migrations {
-        let words = words(&file.text);
-        for (index, (word, line)) in words.iter().enumerate() {
-            let next = |offset: usize| words.get(index + offset).map(|(word, _)| word.as_str());
-            if word == "create" && next(1) == Some("table") {
-                if let (Some(name), Some(body)) = (next(2), body_after(&file.text, *line, next(2)))
-                {
-                    tables.insert(
-                        name.to_owned(),
-                        Table {
-                            columns: columns(&body),
-                            path: file.path.clone(),
-                            line: *line,
-                        },
-                    );
-                }
-            } else if word == "alter" && next(1) == Some("table") && next(3) == Some("add") {
-                let column = if next(4) == Some("column") {
-                    next(5)
-                } else {
-                    None
-                };
-                if let (Some(name), Some(column)) = (next(2), column)
-                    && let Some(table) = tables.get_mut(name)
-                {
-                    table.columns.push(column.to_owned());
-                }
-            }
-        }
-    }
-    tables
-}
-
-/// The text inside the parentheses that follow `name` on or after `line` of `text`.
-fn body_after(text: &str, line: usize, name: Option<&str>) -> Option<String> {
-    let name = name?;
-    let start: usize = text
-        .split_inclusive('\n')
-        .take(line.saturating_sub(1))
-        .map(str::len)
-        .sum();
-    let rest = &text[start..];
-    let at = rest.to_ascii_lowercase().find(name)?;
-    let open = rest[at..].find('(')? + at;
-    let mut depth = 0;
-    for (offset, c) in rest[open..].char_indices() {
-        match c {
-            '(' => depth += 1,
-            ')' => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(rest[open + 1..open + offset].to_owned());
-                }
-            }
-            _ => {}
-        }
-    }
-    None
-}
-
-/// The columns of a `CREATE TABLE`'s body: the first word of each part at the top level that
-/// isn't a constraint.
-fn columns(body: &str) -> Vec<String> {
-    let mut parts = Vec::new();
-    let mut depth = 0;
-    let mut current = String::new();
-    for line in body.lines() {
-        // A comment holds no column.
-        let line = line.split("--").next().unwrap_or_default();
-        for c in line.chars().chain(std::iter::once('\n')) {
-            match c {
-                '(' => depth += 1,
-                ')' => depth -= 1,
-                ',' if depth == 0 => {
-                    parts.push(std::mem::take(&mut current));
-                    continue;
-                }
-                _ => {}
-            }
-            current.push(c);
-        }
-    }
-    parts.push(current);
-    parts
-        .iter()
-        .filter_map(|part| part.split_whitespace().next())
-        .map(str::to_ascii_lowercase)
-        .filter(|word| {
-            ![
-                "constraint",
-                "primary",
-                "unique",
-                "check",
-                "foreign",
-                "exclude",
-            ]
-            .contains(&word.as_str())
-        })
-        .collect()
-}
-
 /// Every table without a `workspace_id` that the lists don't place, and every listed name that
 /// no migration creates.
 fn placements(tables: &BTreeMap<String, Table>) -> Vec<Finding> {
@@ -307,7 +197,7 @@ fn placements(tables: &BTreeMap<String, Table>) -> Vec<Finding> {
                     "`{name}` has no `workspace_id`, and check-tenancy lists it as neither account \
                      data, platform data nor a module's bookkeeping: data a module adds for its \
                      product lives in a workspace, and a table of another kind goes in its list in \
-                     crates/xtask/src/tenancy.rs (DATA-16, D39)"
+                     crates/xtask/src/tenancy/mod.rs (DATA-16, D39)"
                 ),
             )
         })
@@ -315,7 +205,7 @@ fn placements(tables: &BTreeMap<String, Table>) -> Vec<Finding> {
     for name in listed {
         if !tables.contains_key(name) {
             findings.push(Finding::new(
-                "crates/xtask/src/tenancy.rs",
+                "crates/xtask/src/tenancy/mod.rs",
                 1,
                 format!("check-tenancy lists `{name}`, which no migration creates"),
             ));
@@ -480,7 +370,10 @@ fn words_of(text: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{
+        tables::{body_after, columns},
+        *,
+    };
 
     const MIGRATION: &str = "\
 -- Things.
@@ -563,7 +456,7 @@ CREATE TABLE notes (id uuid PRIMARY KEY, body text);
                 "migrations/1_things.sql:10: `notes` has no `workspace_id`, and check-tenancy lists \
               it as neither account data, platform data nor a module's bookkeeping: data a module \
               adds for its product lives in a workspace, and a table of another kind goes in its \
-              list in crates/xtask/src/tenancy.rs (DATA-16, D39)"
+              list in crates/xtask/src/tenancy/mod.rs (DATA-16, D39)"
             ]
         );
     }
@@ -594,6 +487,39 @@ CREATE TABLE notes (id uuid PRIMARY KEY, body text);
                 "crates/app/src/modules/things/repo.rs:8",
             ]
         );
+    }
+
+    #[test]
+    fn data_16_a_view_holds_its_table_s_rows_so_its_queries_name_their_tenant() {
+        let migrations = format!(
+            "{MIGRATION}CREATE VIEW old_things AS\nSELECT id, name FROM things WHERE name <> '';\n\
+             CREATE OR REPLACE VIEW other_things AS SELECT id FROM things;\n"
+        );
+        let code = r#"
+            fn f() {
+                sqlx::query!("DELETE FROM old_things WHERE id = $1", id);
+            }
+        "#;
+        let repo = Repo::of(&[
+            ("migrations/1_things.sql", &migrations),
+            ("crates/app/src/modules/things/repo.rs", code),
+            ("crates/app/src/modules/things/jobs.rs", code),
+        ]);
+        let tables = tables(&repo);
+        assert_eq!(
+            tables["old_things"].columns,
+            ["id", "workspace_id", "user_id", "name"]
+        );
+        assert_eq!(tables["old_things"].line, 11);
+        assert_eq!(tables["other_things"].columns, tables["things"].columns);
+        let lines: Vec<String> = check_with(&repo, &[], &["crates/app/src/modules/things/jobs.rs"])
+            .findings
+            .iter()
+            .map(ToString::to_string)
+            .filter(|finding| finding.contains("names no"))
+            .map(|finding| finding.split(": ").next().unwrap().to_owned())
+            .collect();
+        assert_eq!(lines, ["crates/app/src/modules/things/repo.rs:3"]);
     }
 
     #[test]

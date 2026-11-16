@@ -5,14 +5,15 @@ use serde_json::Value;
 
 use crate::migrated;
 
-/// The catalog, as one JSON value: the tables with their columns, their triggers and the
-/// privileges `app` holds on them, the sequences with theirs, the constraints, the indexes, the
+/// The catalog, as one JSON value: the tables and views, each marked as a view or not, with their
+/// columns, their triggers and the privileges `app` holds on them, the sequences with theirs, the constraints, the indexes, the
 /// functions, and the roles' privileges and settings that DATA-12 and DATA-19 give.
 const QUERY: &str = r"
 WITH app AS (SELECT oid FROM pg_roles WHERE rolname = 'app')
 SELECT json_build_object(
   'tables', (SELECT coalesce(json_agg(json_build_object(
       'name', c.relname,
+      'view', c.relkind = 'v',
       'owner', pg_get_userbyid(c.relowner),
       'app', (SELECT coalesce(json_agg(p.privilege_type ORDER BY p.privilege_type), '[]')
               FROM aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) p, app

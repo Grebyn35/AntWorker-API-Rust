@@ -8,10 +8,14 @@ use super::rules::{MIGRATIONS_TABLE, Problem, list, strings, text};
 /// The privileges `app` may hold on a table (DATA-19).
 const DML: [&str; 4] = ["DELETE", "INSERT", "SELECT", "UPDATE"];
 
-/// The tables on which `app` holds less than DML, with what it holds (DATA-19).
-const APPEND_ONLY: [(&str, [&str; 2]); 2] = [
+/// The tables and views on which `app` holds less than DML, with what it holds (DATA-19): the
+/// audit log's tables, which it only inserts into and reads, and the view through which retention
+/// deletes, which shows only the entries recorded more than 90 days ago, and which it only reads
+/// and deletes from (AUDIT-005).
+const LIMITED: [(&str, [&str; 2]); 3] = [
     ("audit_entries", ["INSERT", "SELECT"]),
     ("audit_entry_clients", ["INSERT", "SELECT"]),
+    ("deletable_audit_entries", ["DELETE", "SELECT"]),
 ];
 
 /// The role-level settings `app` has (DATA-19).
@@ -24,23 +28,22 @@ pub fn check(catalog: &Value) -> Vec<Problem> {
     problems
 }
 
-/// DATA-12 and DATA-19: what `app` holds on each table, and who owns the schema's objects.
+/// DATA-12 and DATA-19: what `app` holds on each table and view, and who owns the schema's
+/// objects.
 fn objects(catalog: &Value) -> Vec<Problem> {
     let mut problems = Vec::new();
     let mut problem = |subject: &str, message: String| problems.push((subject.to_owned(), message));
     for table in list(catalog, "tables") {
         let name = text(table, "name");
         let held = strings(table, "app");
-        if let Some((_, only)) = APPEND_ONLY
-            .iter()
-            .find(|(append_only, _)| *append_only == name)
-        {
+        if let Some((_, only)) = LIMITED.iter().find(|(limited, _)| *limited == name) {
             if held != only {
                 problem(
                     name,
                     format!(
-                        "app holds {} on {name}, not only INSERT and SELECT (DATA-19)",
-                        held.join(", ")
+                        "app holds {} on {name}, not only {} (DATA-19)",
+                        held.join(", "),
+                        only.join(" and ")
                     ),
                 );
             }
