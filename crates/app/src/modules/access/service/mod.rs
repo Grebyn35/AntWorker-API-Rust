@@ -11,7 +11,7 @@ use std::collections::HashMap;
 
 use platform::{
     authn::{BoxFuture, Principal},
-    authz::{AccessPolicy, Authorized, Decision, Memberships},
+    authz::{AccessPolicy, Authorized, Decision, Memberships, Permission},
     db::UnitOfWork,
     errors::Internal,
     events::{self, AccessChange},
@@ -34,6 +34,26 @@ use super::{
     permissions::{self, MembersRead},
     repo,
 };
+
+/// The names of the permissions that the caller's role holds in the workspace, from the role that
+/// the proof carries, by which `audit` keeps a page of the workspace's log to the entries whose
+/// permission the caller holds (AUDIT-007, SEC-08).
+pub(crate) fn permissions<P: Permission>(
+    authorized: &Authorized<P>,
+) -> Result<Vec<&'static str>, AccessError> {
+    Ok(permissions::held(Role::from_name(authorized.role())?))
+}
+
+/// Whether the caller's role holds `Q` too, beside the `P` that the proof proves, from the role
+/// that the proof carries, such as `audit.read_clients` beside `audit.read` (AUDIT-010, SEC-08).
+pub(crate) fn holds<Q: Permission, P: Permission>(
+    authorized: &Authorized<P>,
+) -> Result<bool, AccessError> {
+    Ok(permissions::grants(
+        Role::from_name(authorized.role())?,
+        Q::NAME,
+    ))
+}
 
 /// Decides by the caller's membership and the matrix.
 pub(crate) struct Policy;

@@ -5,14 +5,20 @@
     reason = "a module declares its audit actions and resources here (the audit spec)"
 )]
 
-use crate::modules::audit::{Action, Resource};
+use crate::modules::{
+    access::SampleItemsRead,
+    audit::{Action, Resource},
+};
 
 /// A sample item was created (SAMPLE_ITEMS-001).
-pub(super) const SAMPLE_ITEM_CREATED: Action = Action::new("sample_item.created");
+pub(super) const SAMPLE_ITEM_CREATED: Action =
+    Action::read_with::<SampleItemsRead>("sample_item.created");
 /// A sample item was renamed (SAMPLE_ITEMS-005).
-pub(super) const SAMPLE_ITEM_RENAMED: Action = Action::new("sample_item.renamed");
+pub(super) const SAMPLE_ITEM_RENAMED: Action =
+    Action::read_with::<SampleItemsRead>("sample_item.renamed");
 /// A sample item was deleted (SAMPLE_ITEMS-006).
-pub(super) const SAMPLE_ITEM_DELETED: Action = Action::new("sample_item.deleted");
+pub(super) const SAMPLE_ITEM_DELETED: Action =
+    Action::read_with::<SampleItemsRead>("sample_item.deleted");
 
 /// A sample item.
 pub(super) const SAMPLE_ITEM: Resource = Resource::new("sample_item");

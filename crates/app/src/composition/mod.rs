@@ -255,6 +255,7 @@ fn routes(resources: &Resources, states: States) -> Routes {
         .with_state(states.capabilities)
         .merge(accounts::routes().with_state(database.clone()))
         .merge(accounts::export_routes().with_state(states.exports.clone()))
+        .merge(audit::routes().with_state(database.clone()))
         .merge(auth::routes().with_state(states.auth.clone()))
         .merge(
             auth::provider_routes().with_state(auth::ProviderRoutes::new(
@@ -352,6 +353,7 @@ pub fn openapi(service: Service) -> OpenApi {
         system::routes().openapi(service),
         accounts::routes().openapi(service),
         accounts::export_routes().openapi(service),
+        audit::routes().openapi(service),
         auth::routes().openapi(service),
         auth::export_routes().openapi(service),
         auth::provider_routes().openapi(service),

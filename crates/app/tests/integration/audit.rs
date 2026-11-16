@@ -1,4 +1,6 @@
-//! The audit writer (the audit spec).
+//! The audit writer (the audit spec). Reading the logs is in `reading`.
+
+mod reading;
 
 use crate::support::{Api, Options, users};
 

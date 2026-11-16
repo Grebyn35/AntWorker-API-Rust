@@ -83,13 +83,14 @@ async fn stored_names(api: &Api, workspace: &str) -> Vec<String> {
         .await
 }
 
-/// Each audit entry of `action`, as its log, workspace, actor, resource and details.
+/// Each audit entry of `action`, as its log, workspace, actor, resource, details, and the
+/// permission that reading it takes (the audit spec's "Reading a workspace's log").
 async fn entries(api: &Api, action: &str) -> Vec<String> {
     api.database()
         .owner_reads(&format!(
             "SELECT scope || ' ' || workspace_id || ' ' || actor_user_id || ' ' \
-             || resource_type || ' ' || resource_id || ' ' || details::text \
-             FROM audit_entries WHERE action = '{action}'"
+             || resource_type || ' ' || resource_id || ' ' || details::text || ' ' \
+             || permission FROM audit_entries WHERE action = '{action}'"
         ))
         .await
 }
@@ -129,7 +130,7 @@ async fn sample_items_001_creating_a_sample_item_stores_it_records_it_and_publis
     assert_eq!(
         entries(&api, "sample_item.created").await,
         [format!(
-            "workspace {workspace} {} sample_item {id} {{}}",
+            "workspace {workspace} {} sample_item {id} {{}} sample_items.read",
             grace.user_id
         )]
     );
@@ -383,7 +384,7 @@ async fn sample_items_005_renaming_stores_the_name_records_it_and_publishes_it()
     assert_eq!(
         entries(&api, "sample_item.renamed").await,
         [format!(
-            "workspace {workspace} {} sample_item {id} {{}}",
+            "workspace {workspace} {} sample_item {id} {{}} sample_items.read",
             grace.user_id
         )]
     );
@@ -425,7 +426,7 @@ async fn sample_items_006_deleting_a_sample_item_deletes_it_records_it_and_publi
     assert_eq!(
         entries(&api, "sample_item.deleted").await,
         [format!(
-            "workspace {workspace} {} sample_item {id} {{}}",
+            "workspace {workspace} {} sample_item {id} {{}} sample_items.read",
             grace.user_id
         )]
     );

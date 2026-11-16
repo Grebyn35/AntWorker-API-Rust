@@ -638,6 +638,15 @@ const FIXTURES: &[Fixture] = &[
         success: StatusCode::NO_CONTENT,
     },
     // end part: files
+    Fixture {
+        method: "get",
+        template: "/v1/workspaces/{workspace_id}/audit-entries",
+        path: |workspace, _| format!("/v1/workspaces/{workspace}/audit-entries"),
+        row: None,
+        body: None,
+        headers: &[],
+        success: StatusCode::OK,
+    },
 ];
 
 /// The fixture of the route `method` `template`, if it has one.

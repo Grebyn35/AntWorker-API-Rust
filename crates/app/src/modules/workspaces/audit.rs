@@ -5,23 +5,30 @@
     reason = "a module declares its audit actions and resources here (the audit spec)"
 )]
 
-use crate::modules::audit::{Action, Resource};
+use crate::modules::{
+    access::{MembersRead, WorkspaceRead},
+    audit::{Action, Resource},
+};
 
 /// A workspace was created (the workspaces spec's "Creating a workspace").
-pub(super) const WORKSPACE_CREATED: Action = Action::new("workspace.created");
+pub(super) const WORKSPACE_CREATED: Action =
+    Action::read_with::<WorkspaceRead>("workspace.created");
 /// A workspace was renamed (WORKSPACES-008).
-pub(super) const WORKSPACE_RENAMED: Action = Action::new("workspace.renamed");
+pub(super) const WORKSPACE_RENAMED: Action =
+    Action::read_with::<WorkspaceRead>("workspace.renamed");
 /// A member was removed (WORKSPACES-005).
-pub(super) const MEMBER_REMOVED: Action = Action::new("member.removed");
+pub(super) const MEMBER_REMOVED: Action = Action::read_with::<MembersRead>("member.removed");
 /// A workspace has another owner (WORKSPACES-015).
-pub(super) const WORKSPACE_TRANSFERRED: Action = Action::new("workspace.transferred");
+pub(super) const WORKSPACE_TRANSFERRED: Action =
+    Action::read_with::<MembersRead>("workspace.transferred");
 /// A workspace was deleted, recorded in the own log of whoever deleted it (WORKSPACES-017).
 pub(super) const WORKSPACE_DELETED: Action = Action::new("workspace.deleted");
 /// A member's role changed (WORKSPACES-012).
-pub(super) const MEMBER_ROLE_CHANGED: Action = Action::new("member.role_changed");
+pub(super) const MEMBER_ROLE_CHANGED: Action =
+    Action::read_with::<MembersRead>("member.role_changed");
 /// A member left the workspace, themselves or as their account was deleted (WORKSPACES-014,
 /// ACCOUNTS-014).
-pub(super) const MEMBER_LEFT: Action = Action::new("member.left");
+pub(super) const MEMBER_LEFT: Action = Action::read_with::<MembersRead>("member.left");
 
 /// A workspace, which an action on one of its members names too, with the member as its target
 /// (AUDIT-006).
@@ -29,9 +36,9 @@ pub(super) const WORKSPACE: Resource = Resource::new("workspace");
 
 // part: files
 /// A workspace's picture was set (WORKSPACES-019).
-pub(super) const PICTURE_UPLOADED: Action = Action::new("picture.uploaded");
+pub(super) const PICTURE_UPLOADED: Action = Action::read_with::<WorkspaceRead>("picture.uploaded");
 /// A workspace's picture was removed (WORKSPACES-021).
-pub(super) const PICTURE_DELETED: Action = Action::new("picture.deleted");
+pub(super) const PICTURE_DELETED: Action = Action::read_with::<WorkspaceRead>("picture.deleted");
 
 /// A workspace's picture.
 pub(super) const PICTURE: Resource = Resource::new("picture");

@@ -2,13 +2,13 @@
 
 ## Purpose
 
-`audit` records who did what. Every module writes entries through it, inside the unit of work of the change (D1, D6). It also implements the `SecurityEventSink` that records refused requests. Deleting a user anonymizes the entries that name them (AUDIT-006). Reading the logs, the action catalog and retention arrive with the full module: a workspace's log, with the IP address and user agent of each of its entries, is read by its owner and its admins, while a user reads their own log, with its IP addresses and user agents, and the entries of every log whose target they are (D166).
+`audit` records who did what. Every module writes entries through it, inside the unit of work of the change (D1, D6). It also implements the `SecurityEventSink` that records refused requests. A workspace's owner and admins read its log, each the entries whose permission their role holds, with the IP address and user agent of each entry; a user reads their own log, with its IP addresses and user agents, and every entry of a workspace's log whose target they are (D6, D166). Deleting a user anonymizes the entries that name them (AUDIT-006). Retention and the action catalog arrive with the full module's next parts.
 
 ## Owns
 
 | Table | Holds |
 |---|---|
-| `audit_entries` | `id`; `scope`, `user` or `workspace`; `user_id`, the user whose log holds an entry of the user scope; `workspace_id`, the workspace whose log holds one of the workspace scope; `actor_user_id`, `target_user_id`, `action`, `resource_type`, `resource_id`; `details`, IDs and non-personal fields only; `trace_id` and `created_at`. |
+| `audit_entries` | `id`; `scope`, `user` or `workspace`; `user_id`, the user whose log holds an entry of the user scope; `workspace_id`, the workspace whose log holds one of the workspace scope; `actor_user_id`, `target_user_id`, `action`, `resource_type`, `resource_id`; `details`, IDs and non-personal fields only; `permission`, which reading an entry of the workspace scope takes beside `audit.read`, or null for one that whoever reads the log reads, and for every entry of the user scope (Reading a workspace's log); `trace_id` and `created_at`. |
 | `audit_entry_clients` | The client of an entry recorded in a request: `id`, `entry_id`, which is unique; `user_id`, the user whose deletion deletes it: the entry's actor, or, for an entry without one, the user whose log holds it; `client_ip`, `user_agent` and `created_at`. Both columns are personal data (DATA-23). |
 
 ## Interface
@@ -22,7 +22,14 @@
 - `SecurityEventSink`, implemented for `platform::authz`.
   Its `refused_superadmin` records the refusal of a caller who is no superadmin at a superadmin's route (SUPERADMINS-004). <!-- part: superadmins -->
 - `Contract`, the personal data contract for `audit_entries` and `audit_entry_clients` (D31), which exports the user's own log and the log of each workspace whose only member is the user, with the client of each entry the user acted in ([accounts spec](accounts.md#what-an-export-holds)), and whose erasure the foreign keys carry out (AUDIT-006).
-- `Action` and `Resource`, the types of an entry's action and of the kind of resource it happened to. Each module declares its actions, named `<resource>.<past-tense verb>`, such as `member.removed`, and its kinds of resource, such as `workspace`, as constants in its own `audit.rs` (ARCH-03): clippy bans their constructors everywhere else.
+- `Action` and `Resource`, the types of an entry's action and of the kind of resource it happened to. Each module declares its actions, named `<resource>.<past-tense verb>`, such as `member.removed`, and its kinds of resource, such as `workspace`, as constants in its own `audit.rs` (ARCH-03): clippy bans their constructors everywhere else. `Action::read_with::<P>(name)` declares an action that a workspace's log shows only to a reader whose role holds `P`, and `Action::new(name)` one that it shows to whoever reads the log, or that only a user's own log records (Reading a workspace's log).
+
+## Routes
+
+| Method and path | Access | Behaviors |
+|---|---|---|
+| `GET /v1/workspaces/{workspace_id}/audit-entries` | `workspace::<AuditRead>` | AUDIT-007, AUDIT-009, AUDIT-010 |
+| `GET /v1/users/me/audit-entries` | user | AUDIT-008, AUDIT-009, AUDIT-010 |
 
 ## Behaviors
 
@@ -34,6 +41,10 @@
 | AUDIT-004 | A refused workspace request records `access.denied`, with the route's permission: a member's in the workspace's log, and a non-member's in their own, with the workspace as its resource. A member whose workspace was deleted while the refused request ran is no member of it any more, and their refusal is recorded in their own log, as a non-member's; a non-member whose account was deleted while the refused request ran has no log left, and their refusal is recorded nowhere. | D6, ACCESS-003, DATA-22 | `audit_004_` |
 | AUDIT-005 | No request can change or delete an entry: `app` holds only `INSERT` and `SELECT` on `audit_entries` and `audit_entry_clients`. Deleting a user changes entries through foreign keys alone (AUDIT-006). | D6, DATA-19 | `audit_005_` |
 | AUDIT-006 | An entry names a user only as its actor, its target, or the user whose log holds it, and, in that user's own log alone, as its resource; never in its details. Deleting the user deletes their own log, and, in every other log, sets to null each entry's actor and target that was them, and deletes the client IP and user agent of each entry they acted in. | D6, D31, D124, SEC-18 | `audit_006_` |
+| AUDIT-007 | `GET /v1/workspaces/{workspace_id}/audit-entries` lists entries of the workspace's log, the latest first, in cursor pages, each as `{id, workspace_id, action, resource_type, resource_id, actor_user_id, target_user_id, details, trace_id, created_at, client}`: every entry that records no permission, such as a refusal, and every entry whose permission the reader's role holds, as the workspace's events reach only the members who hold theirs. An entry records, as it is recorded, the permission that its action declares. With the template's roles, its owner and its admins read it, and each reads every entry (D166). | D2, D6, SEC-08, API-06, DATA-17 | `audit_007_` |
+| AUDIT-008 | `GET /v1/users/me/audit-entries` lists the entries of the caller's own log, and every entry of a workspace's log whose target is the caller, whatever its permission and whether or not they are still a member of the workspace, the latest first, in cursor pages, each as AUDIT-007 shows one, with `workspace_id` null for an entry of their own log. It lists no other entry. | D6, DATA-16, API-06 | `audit_008_` |
+| AUDIT-009 | Both lists take five filters, `action`, `resource_type`, `resource_id`, `actor_user_id` and `target_user_id`, each of 1 to 50 values separated by commas (PLATFORM-088), and keep the entries that match one value of each filter given; and `from` and `to`, moments (API-11), which keep the entries recorded at or after `from`, and before `to`. An action is two words joined by a dot, and a resource type one word, each word of lowercase ASCII letters, digits and underscores that starts with a letter, of at most 100 characters in all; the other three take UUIDs. A value that isn't so answers 400 `request.invalid_query`, which names each parameter it refuses (PLATFORM-045). | API-09, API-10, D6 | `audit_009_` |
+| AUDIT-010 | An entry's `client` is `{ip, user_agent}`, the client IP and the user agent of the request that recorded it, either of which may be null, or is null. A workspace's log shows the client of each entry that has one to a reader whose role holds `audit.read_clients`, and to no other reader; with the template's roles, every role that reads the log holds it (D166). A user's own read shows the client of each entry that was theirs, as `audit_entry_clients` gives a client its user (Owns): the entry's actor's, or, for an entry without one, the user's whose log holds it; and no other entry's client. | SEC-18, D6, D166 | `audit_010_` |
 
 ## Design
 
@@ -41,7 +52,7 @@
 
 `record` inserts one row through the unit of work's executor, so the entry commits with the change (AUDIT-001), and, in the same statement, the row of its client. The client IP and the user agent come from the unit of work, which opens with its request's (platform spec, "Unit of work"); a job's unit of work holds neither, and records no client, and nor does an operator's subcommand's (AUTH-072). The trace ID is that of the span the entry is recorded in (OBS-07). An `Entry` holds the action, the resource's type and ID, the target user if any, and `details`, a JSON object a module builds from IDs and non-personal fields (SEC-18).
 
-`AuditScope` is a `platform` type whose fields are private: only the proofs build one with an actor, so no module can record an entry as someone the request didn't prove it is (AUDIT-002). A job's run records its entries, of the changes it makes to a module's data (DATA-22), through `JobContext::audit_scope`, in the own log of the user it runs for, with no actor and no client, since no request of theirs made them. An entry of the user scope sets `user_id` and leaves `workspace_id` null; one of the workspace scope does the reverse, which the check `audit_entries_scope_check` enforces. `scope` is a Postgres enum (DATA-04), while `action` and `resource_type` are text: each module declares its own actions and resources in its `audit.rs`, so adding one changes no type that every module's entries share.
+`AuditScope` is a `platform` type whose fields are private: only the proofs build one with an actor, so no module can record an entry as someone the request didn't prove it is (AUDIT-002). A job's run records its entries, of the changes it makes to a module's data (DATA-22), through `JobContext::audit_scope`, in the own log of the user it runs for, with no actor and no client, since no request of theirs made them. An entry of the user scope sets `user_id` and leaves `workspace_id` and `permission` null; one of the workspace scope sets `workspace_id`, and leaves `user_id` null, which the check `audit_entries_scope_check` enforces. An entry of the workspace scope records the permission that its action declares, if any (Reading a workspace's log). `scope` is a Postgres enum (DATA-04), while `action` and `resource_type` are text: each module declares its own actions and resources in its `audit.rs`, so adding one changes no type that every module's entries share.
 
 ### Keys and grants
 
@@ -49,7 +60,21 @@
 
 An entry's client IP and user agent are its actor's, or, for an entry without one, such as a failed sign-in, are kept as long as the log of the user that holds it. They live in `audit_entry_clients`, whose `entry_id` references the entry with `ON DELETE CASCADE`, and whose `user_id` references that user with `ON DELETE CASCADE`, so deleting the user deletes the client of every entry that was theirs, while the entry stays. Postgres carries out a foreign key's action with the privileges of its table's owner, so the deletion of a user, which `app` may make, anonymizes the entries without `app` holding `UPDATE` or `DELETE` on either table, and no request can change an entry any other way (AUDIT-005). A column of the entry itself couldn't go so: a foreign key's action sets to null only its own columns.
 
+Each log's entries are read the latest first through the index on its user, or its workspace, and the entry's time and ID, and the entries whose target is a user through the index on the target and the entry's time and ID (Reading one's own log), each of which indexes its foreign key too (DATA-05).
+
 An entry names a user only in the three columns that reference `users`, or, in that user's own log, which goes with them, as its resource, so these actions leave no entry that names a deleted user (AUDIT-006): an action on a member names the workspace as its resource, and the member as its target, such as `member.removed`, and an action whose resource is a user, such as `user.renamed`, is recorded only in that user's own log.
+
+### Reading a workspace's log
+
+The route authorizes its reader with `audit.read` (D166). The reader's role decides what the page holds, and `access` decides from it (SEC-08): `access::permissions` gives the names of the permissions the role holds, and the query keeps the entries whose `permission` is null or one of them, so the log shows a reader what the workspace's stream would send them (D2, SEC-19); `access::holds::<AuditReadClients>` decides whether the query joins each entry's client (AUDIT-010). Both read the role that the proof carries, which the policy locked for the unit of work (PLATFORM-009), so a page and its reader's authorization agree.
+
+An action that a workspace's log records declares the permission of the workspace event that its change publishes, such as `members.read` for `member.removed` and `workspace.transferred`, whose events reach the members who may list members; an action whose change publishes no workspace event, as a workspace's creation, declares `workspace.read`. `access.denied` declares none, so whoever reads the log reads a refusal. An entry whose `permission` is null is read with `audit.read` alone, which also covers an entry that a replica of the previous release records while a deploy runs both releases, since its code writes no `permission` (DATA-10).
+
+The query runs through the index on the log's workspace and the entry's time and ID, and the filters narrow the rows it reaches (DATA-17).
+
+### Reading one's own log
+
+A user's own read is the union of two reads, each limited to the page's rows and in the list's order, through its own index: the entries of their own log, by `user_id`, and the entries of the workspace scope whose `target_user_id` is theirs, which no entry of their own log is, so none appears twice. Each filters by the caller's ID alone, which D6 asks of the second: what was done to a user is theirs to see, whatever the workspace (DATA-16). The page joins only the clients whose `user_id` is the caller's, which are the clients of their own log's entries, and of the entries of a workspace's log that they acted in themselves, such as their leaving, as their export holds them (AUDIT-010, the accounts spec's "What an export holds").
 
 ### Recording a refusal
 

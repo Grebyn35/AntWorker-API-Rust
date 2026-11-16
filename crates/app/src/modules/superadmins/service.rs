@@ -20,7 +20,7 @@ use super::{
 };
 use crate::modules::{
     accounts::{self, AccountsError},
-    audit::{self as log, AuditError, Entry},
+    audit::{self as log, Entry},
     auth::{self, AuthError},
 };
 
@@ -104,11 +104,7 @@ pub(crate) async fn change(
         Change::Remove => audit::SUPERADMIN_REMOVED,
     };
     let entry = Entry::new(action, audit::USER, user.uuid());
-    log::record(&mut uow, AuditScope::attempt(user), entry)
-        .await
-        .map_err(|error| match error {
-            AuditError::Internal(error) => error,
-        })?;
+    log::record(&mut uow, AuditScope::attempt(user), entry).await?;
     uow.commit().await?;
     Ok(Ok(()))
 }

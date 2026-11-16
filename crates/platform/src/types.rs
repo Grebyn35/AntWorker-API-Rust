@@ -143,6 +143,22 @@ id_type!(
     WorkspaceId
 );
 
+/// The schema of a UUID that may name a row of any kind, such as the resource of an audit
+/// entry, for a parameter's documentation (API-11).
+pub struct AnyId;
+
+impl PartialSchema for AnyId {
+    fn schema() -> RefOr<Schema> {
+        uuid_schema()
+    }
+}
+
+impl ToSchema for AnyId {
+    fn name() -> Cow<'static, str> {
+        Cow::Borrowed("AnyId")
+    }
+}
+
 fn uuid_schema() -> RefOr<Schema> {
     ObjectBuilder::new()
         .schema_type(Type::String)
@@ -200,25 +216,48 @@ impl<'de> Deserialize<'de> for Timestamp {
 }
 
 impl Timestamp {
+    /// The moment in `text`, as a request gives one, such as a list's filter: RFC 3339 in UTC
+    /// with a `Z`, with 0 to 6 digits of a second's fraction (API-11, PLATFORM-088).
+    pub fn read(text: &str) -> Result<Self, Invalid> {
+        Self::parse_with(text, 0).ok_or_else(|| {
+            Invalid::new(
+                "invalid",
+                "A moment is RFC 3339 in UTC, such as 2026-11-16T09:30:00Z, to the microsecond at \
+                 most.",
+            )
+        })
+    }
+
     /// The moment in `text`, as `Display` writes it: `YYYY-MM-DDTHH:MM:SS.ffffffZ`.
     fn parse(text: &str) -> Option<Self> {
-        let bytes = text.as_bytes();
-        let shape_ok = bytes.len() == 27
-            && [
-                (4, b'-'),
-                (7, b'-'),
-                (10, b'T'),
-                (13, b':'),
-                (16, b':'),
-                (19, b'.'),
-                (26, b'Z'),
-            ]
-            .iter()
-            .all(|&(index, byte)| bytes[index] == byte);
-        if !shape_ok {
+        Self::parse_with(text, 6)
+    }
+
+    /// The moment in `text`, `YYYY-MM-DDTHH:MM:SS`, then a fraction of a second of at least
+    /// `digits` and at most 6 digits, after a `.` unless it has none, then `Z`.
+    fn parse_with(text: &str, digits: usize) -> Option<Self> {
+        let (seconds, fraction) = text.strip_suffix('Z')?.split_at_checked(19)?;
+        let bytes = seconds.as_bytes();
+        let separators = [(4, b'-'), (7, b'-'), (10, b'T'), (13, b':'), (16, b':')];
+        let shape_ok = bytes.iter().enumerate().all(|(index, &byte)| {
+            separators
+                .iter()
+                .find(|&&(at, _)| at == index)
+                .map_or(byte.is_ascii_digit(), |&(_, separator)| byte == separator)
+        });
+        let fraction = match fraction.strip_prefix('.') {
+            None if fraction.is_empty() => "",
+            Some(fraction) if !fraction.is_empty() => fraction,
+            _ => return None,
+        };
+        if !shape_ok
+            || !(digits..=6).contains(&fraction.len())
+            || !fraction.bytes().all(|byte| byte.is_ascii_digit())
+        {
             return None;
         }
-        let number = |range: std::ops::Range<usize>| text.get(range)?.parse::<u32>().ok();
+        let number = |range: std::ops::Range<usize>| seconds.get(range)?.parse::<u32>().ok();
+        let micros = format!("{fraction:0<6}").parse::<u32>().ok()?;
         let month = time::Month::try_from(u8::try_from(number(5..7)?).ok()?).ok()?;
         let date = time::Date::from_calendar_date(
             i32::try_from(number(0..4)?).ok()?,
@@ -230,7 +269,7 @@ impl Timestamp {
             u8::try_from(number(11..13)?).ok()?,
             u8::try_from(number(14..16)?).ok()?,
             u8::try_from(number(17..19)?).ok()?,
-            number(20..26)?,
+            micros,
         )
         .ok()?;
         Some(Self(date.with_time(time).assume_utc()))
@@ -417,6 +456,46 @@ mod tests {
         let read: Timestamp = serde_json::from_value(written).unwrap();
         assert_eq!(read, Timestamp::from_database(at));
         assert!(serde_json::from_str::<Timestamp>("\"2026-11-01T02:26:40Z\"").is_err());
+    }
+
+    #[test]
+    fn platform_088_a_filter_s_moment_is_rfc_3339_in_utc_to_the_microsecond_at_most() {
+        let at = |nanos: i128| {
+            Ok(Timestamp::from_database(
+                time::OffsetDateTime::from_unix_timestamp_nanos(nanos).unwrap(),
+            ))
+        };
+        assert_eq!(
+            Timestamp::read("2026-11-01T02:26:40Z"),
+            at(1_793_500_000_000_000_000)
+        );
+        assert_eq!(
+            Timestamp::read("2026-11-01T02:26:40.25Z"),
+            at(1_793_500_000_250_000_000)
+        );
+        assert_eq!(
+            Timestamp::read("2026-11-01T02:26:40.123456Z"),
+            at(1_793_500_000_123_456_000)
+        );
+        for refused in [
+            "2026-11-01T02:26:40.1234567Z",
+            "2026-11-01T02:26:40.Z",
+            "2026-11-01T02:26:40",
+            "2026-11-01T02:26:40+00:00",
+            "2026-11-01 02:26:40Z",
+            "2026-+1-01T02:26:40Z",
+            "2026-02-30T02:26:40Z",
+            "2026-11-01T24:00:00Z",
+            "2026-11-01T02:26:40.12a4Z",
+            "2026-11-01T02:26:4é0Z",
+            "",
+        ] {
+            assert_eq!(
+                Timestamp::read(refused).unwrap_err().code,
+                "invalid",
+                "{refused}"
+            );
+        }
     }
 
     #[test]

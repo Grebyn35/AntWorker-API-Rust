@@ -95,7 +95,8 @@ pub fn problems(document: &Value) -> Vec<Problem> {
     problems
 }
 
-/// API-11: the IDs among an operation's path and query parameters are UUIDs.
+/// API-11: the IDs among an operation's path and query parameters are UUIDs, each of them, of a
+/// filter that takes several, an array's item (PLATFORM-088).
 fn identifiers(
     document: &Value,
     path: &str,
@@ -120,8 +121,13 @@ fn identifiers(
         .filter(|name| is_id(name))
         .filter(|name| {
             !parameters.iter().any(|parameter| {
-                parameter["name"] == name.as_str()
-                    && formats_of(document, &parameter["schema"], 0).contains(&"uuid")
+                let schema = resolve(document, &parameter["schema"]);
+                let id = if schema["type"] == "array" {
+                    &schema["items"]
+                } else {
+                    &parameter["schema"]
+                };
+                parameter["name"] == name.as_str() && formats_of(document, id, 0).contains(&"uuid")
             })
         })
         .map(|name| {
@@ -324,13 +330,18 @@ mod tests {
             "parameters": [
                 { "name": "thing_id", "in": "path", "schema": { "type": "string" } },
                 { "name": "owner_id", "in": "query", "schema": { "type": "string", "format": "uuid" } },
+                { "name": "maker_id", "in": "query", "schema": {
+                    "type": "array", "items": { "type": "string", "format": "uuid" } } },
+                { "name": "seller_id", "in": "query", "schema": {
+                    "type": "array", "items": { "type": "string" } } },
             ],
             "responses": {},
         } } } });
         assert_eq!(
             messages(&document),
             [
-                "GET /v1/things/{thing_id}: the parameter thing_id isn't documented as format: uuid (API-11)"
+                "GET /v1/things/{thing_id}: the parameter thing_id isn't documented as format: uuid (API-11)",
+                "GET /v1/things/{thing_id}: the parameter seller_id isn't documented as format: uuid (API-11)",
             ]
         );
     }

@@ -36,6 +36,8 @@
 - `dissolve_any(uow, &Superadmin, workspace_id)`: locks the membership of the workspace's owner, then ends every membership of the workspace, each with its signal, before `workspaces` deletes it for a superadmin, and answers whether the workspace was there (ACCESS-011, WORKSPACES-030). <!-- part: superadmins -->
 - `sole_workspaces(uow, UserId)`: the IDs of the workspaces whose only member is the user, read by their own memberships, whose content their export holds (D40, ACCOUNTS-024).
 - `Contract`, the personal data contract for `workspace_memberships` (D31), which exports the user's memberships ([accounts spec](accounts.md#what-an-export-holds)), and deletes them, each with its access-change signal.
+- `permissions(&Authorized<P>)`: the names of the permissions that the caller's role holds in the workspace, by which `audit` keeps a page of the workspace's log to the entries whose permission the caller holds, as the hub keeps events by names alone (AUDIT-007).
+- `holds::<Q>(&Authorized<P>)`: whether the caller's role holds `Q` too, such as `audit.read_clients` beside `audit.read`, which decides whether a page of the workspace's log shows its entries' clients (AUDIT-010). Both read the role that the proof carries, and no row.
 - `offerable(&Authorized<P>)`: the roles that the caller may offer in an invitation, those below their own, and so the roles of the invitations they may refresh, change, send again or cancel (SEC-09). Called only by `invitations`, so `access` decides the rank of an invitation, as it decides a member's (SEC-08). <!-- part: invitations -->
 
 ## Behaviors
@@ -70,6 +72,8 @@ Rank, from highest to lowest: `owner`, `admin`, `member`.
 | `members.read` | Listing members, with their names, emails and roles | yes | yes | yes |
 | `members.update` | Changing the role of a member of lower rank, to a role below one's own | yes | yes | |
 | `members.remove` | Removing a member of lower rank | yes | yes | |
+| `audit.read` | Reading the workspace's audit log, each entry whose permission one holds (D166) | yes | yes | |
+| `audit.read_clients` | Reading the IP address and user agent of each entry of the workspace's audit log (D166) | yes | yes | |
 | `invitations.read` | Listing and reading the workspace's invitations, with their emails and roles, and receiving their events | yes | yes | yes <!-- part: invitations --> |
 | `invitations.create` | Inviting at a role below one's own, and sending such an invitation again | yes | yes | <!-- part: invitations --> |
 | `invitations.update` | Changing the role of an invitation at a role below one's own, to a role below one's own | yes | yes | <!-- part: invitations --> |

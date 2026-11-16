@@ -5,22 +5,32 @@
     reason = "a module declares its audit actions and resources here (the audit spec)"
 )]
 
-use crate::modules::audit::{Action, Resource};
+use crate::modules::{
+    access::{InvitationsRead, MembersRead},
+    audit::{Action, Resource},
+};
 
 /// An invitation was created (INVITATIONS-001).
-pub(super) const INVITATION_CREATED: Action = Action::new("invitation.created");
+pub(super) const INVITATION_CREATED: Action =
+    Action::read_with::<InvitationsRead>("invitation.created");
 /// An invitation was refreshed in place (INVITATIONS-003).
-pub(super) const INVITATION_UPDATED: Action = Action::new("invitation.updated");
+pub(super) const INVITATION_UPDATED: Action =
+    Action::read_with::<InvitationsRead>("invitation.updated");
 /// An invitation's role changed (INVITATIONS-013).
-pub(super) const INVITATION_ROLE_CHANGED: Action = Action::new("invitation.role_changed");
+pub(super) const INVITATION_ROLE_CHANGED: Action =
+    Action::read_with::<InvitationsRead>("invitation.role_changed");
 /// An invitation was sent again (INVITATIONS-015).
-pub(super) const INVITATION_RESENT: Action = Action::new("invitation.resent");
+pub(super) const INVITATION_RESENT: Action =
+    Action::read_with::<InvitationsRead>("invitation.resent");
 /// An invitation was cancelled (INVITATIONS-016).
-pub(super) const INVITATION_CANCELLED: Action = Action::new("invitation.cancelled");
+pub(super) const INVITATION_CANCELLED: Action =
+    Action::read_with::<InvitationsRead>("invitation.cancelled");
 /// An invitation was accepted, and its invitee joined the workspace (INVITATIONS-005).
-pub(super) const INVITATION_ACCEPTED: Action = Action::new("invitation.accepted");
+pub(super) const INVITATION_ACCEPTED: Action =
+    Action::read_with::<MembersRead>("invitation.accepted");
 /// An invitation was declined by its invitee (INVITATIONS-017).
-pub(super) const INVITATION_DECLINED: Action = Action::new("invitation.declined");
+pub(super) const INVITATION_DECLINED: Action =
+    Action::read_with::<InvitationsRead>("invitation.declined");
 
 /// An invitation.
 pub(super) const INVITATION: Resource = Resource::new("invitation");

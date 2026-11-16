@@ -5,7 +5,7 @@ use platform::{
     rate_limit::LimitError,
 };
 
-use crate::modules::{accounts::AccountsError, audit::AuditError};
+use crate::modules::accounts::AccountsError;
 
 /// A failure of `auth`.
 #[derive(Debug, thiserror::Error)]
@@ -131,14 +131,6 @@ impl From<AccountsError> for AuthError {
             AccountsError::Platform(PlatformError::Request(error)) => Self::Request(error),
             AccountsError::Limit(error) => Self::Limit(error),
             other => Self::Internal(Internal::new(other)),
-        }
-    }
-}
-
-impl From<AuditError> for AuthError {
-    fn from(error: AuditError) -> Self {
-        match error {
-            AuditError::Internal(error) => Self::Internal(error),
         }
     }
 }

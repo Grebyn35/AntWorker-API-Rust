@@ -1,38 +1,77 @@
-//! Recording entries inside the unit of work of the change they record (D1, D6), and the
+//! Recording entries inside the unit of work of the change they record (D1, D6), the
 //! `SecurityEventSink` that records refused requests (AUDIT-004, the audit spec's "Recording a
-//! refusal").
+//! refusal"), and reading the logs (AUDIT-007, AUDIT-008).
 
 use platform::{
-    authn::{AuditScope, BoxFuture, Log},
-    authz::{Refusal, SecurityEventSink},
+    authn::{AuditScope, BoxFuture, Log, Principal},
+    authz::{Authorized, Refusal, SecurityEventSink},
     db::{Database, UnitOfWork},
     errors::Internal,
+    lists::{List, Page, key},
     telemetry,
+    types::Client,
 };
-
-// part: superadmins
-use platform::types::Client;
-// end part: superadmins
 
 use super::{
     audit,
     error::AuditError,
-    model::Entry,
+    model::{Entry, EntryFilter, LoggedEntry},
     repo::{self, Inserted},
 };
+use crate::modules::access::{self, AuditRead, AuditReadClients};
 
 /// Records `entry` in the log that `scope` names, in `uow`, so it commits or rolls back with the
-/// change (AUDIT-001). The actor comes from the scope, the client from the unit of work, and the
-/// trace ID from the current span (AUDIT-002, AUDIT-003).
+/// change, which fails with it, as an internal error (AUDIT-001). The actor comes from the scope,
+/// the client from the unit of work, and the trace ID from the current span (AUDIT-002,
+/// AUDIT-003).
 pub(crate) async fn record(
     uow: &mut UnitOfWork,
     scope: AuditScope,
     entry: Entry,
-) -> Result<(), AuditError> {
+) -> Result<(), Internal> {
     match repo::insert(uow, scope, &entry, &telemetry::trace_id()).await? {
         Inserted::Recorded => Ok(()),
-        Inserted::LogGone => Err(Internal::new("the audit entry's log is gone").into()),
+        Inserted::LogGone => Err(Internal::new("the audit entry's log is gone")),
     }
+}
+
+/// A page of the log of the caller's workspace that `filter` keeps, the latest first: the entries
+/// whose permission the caller's role holds, or that declare none, each with its client if the
+/// role holds `audit.read_clients`, as `access` decides from the role the proof carries
+/// (AUDIT-007, AUDIT-009, AUDIT-010, SEC-08).
+pub(crate) async fn workspace_entries(
+    uow: &mut UnitOfWork,
+    authorized: &Authorized<AuditRead>,
+    filter: &EntryFilter,
+    page: &Page,
+) -> Result<List<LoggedEntry>, AuditError> {
+    let permissions = access::permissions(authorized)?;
+    let clients = access::holds::<AuditReadClients, _>(authorized)?;
+    let rows = repo::reading::workspace(
+        uow,
+        authorized.workspace_id(),
+        &permissions,
+        clients,
+        filter,
+        page,
+    )
+    .await?;
+    Ok(page.list(rows, |row| key(row.created_at, row.id)))
+}
+
+/// A page of the entries that the caller reads as their own, which `filter` keeps, the latest
+/// first: those of their own log, and those of a workspace's log whose target is them, each with
+/// its client when it was theirs (AUDIT-008, AUDIT-009, AUDIT-010).
+pub(crate) async fn own_entries(
+    database: &Database,
+    client: &Client,
+    principal: &Principal,
+    filter: &EntryFilter,
+    page: &Page,
+) -> Result<List<LoggedEntry>, AuditError> {
+    let mut uow = database.begin(client).await?;
+    let rows = repo::reading::own(&mut uow, principal.user_id(), filter, page).await?;
+    Ok(page.list(rows, |row| key(row.created_at, row.id)))
 }
 
 /// Records each refusal in a unit of work of its own, since the refused operation wrote nothing.

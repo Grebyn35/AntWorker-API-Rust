@@ -133,7 +133,7 @@ Cryptography comes from the RustCrypto crates (`aes-gcm`, `hmac`, `sha2`, `argon
 ## Privacy
 
 ### SEC-18 Audit entries hold no plain personal data, except IP address and user agent
-The values a module records in an audit entry are IDs and non-personal fields. An email appears only as a keyed hash. IP address and user agent are stored, but can be read only with the permission `access` defines for them (D2, D6). Erasing an account anonymizes its entries (D31).
+The values a module records in an audit entry are IDs and non-personal fields. An email appears only as a keyed hash. IP address and user agent are stored, but a workspace's log shows them only to a reader who holds the permission `access` defines for them, and a user reads them only of the entries that were theirs, in their own read and in their export (D2, D6, D166, AUDIT-010). Erasing an account anonymizes its entries (D31).
 - Why: the audit log is kept longer than most data and read by more people (D6, D7).
 - Check: `test` (each audit action's test asserts its stored values), plus `review`.
 

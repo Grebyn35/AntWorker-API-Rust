@@ -16,7 +16,7 @@ use platform::{
 use super::{Auth, buckets};
 use crate::modules::{
     accounts::{self, AccountsError, Address},
-    audit::{self as audit_log, Action, AuditError, Entry},
+    audit::{self as audit_log, Action, Entry},
     auth::{
         audit,
         emails::{ChangeCodeEmail, CodeEmail, ResetCodeEmail},
@@ -231,8 +231,7 @@ impl Auth {
             scope,
             Entry::new(issued, audit::VERIFICATION_CODE, id),
         )
-        .await
-        .map_err(|AuditError::Internal(error)| error)?;
+        .await?;
         uow.commit().await?;
         #[expect(
             clippy::disallowed_methods,

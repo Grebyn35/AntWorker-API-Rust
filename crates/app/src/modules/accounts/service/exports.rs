@@ -32,7 +32,7 @@ use crate::modules::{
         model::{Export, ExportState},
         repo::{self, exports as stored},
     },
-    audit::{self as log, AuditError, Entry},
+    audit::{self as log, Entry},
 };
 // part: files
 use crate::modules::files::{self, ExportedFile, Files};
@@ -277,9 +277,7 @@ impl Exports {
         let size = Layout::new(entries, time::OffsetDateTime::UNIX_EPOCH).size();
         let export = stored::ready(&mut uow, user, id, size, LIFETIME).await?;
         let entry = Entry::new(audit::EXPORT_COMPLETED, audit::EXPORT, id);
-        log::record(&mut uow, scope, entry)
-            .await
-            .map_err(internal)?;
+        log::record(&mut uow, scope, entry).await?;
         let to = repo::profile(&mut uow, user)
             .await?
             .ok_or_else(|| Internal::new("the export's user doesn't exist"))?
@@ -311,21 +309,12 @@ impl Exports {
         let mut uow = self.database.for_job(context).await?;
         if stored::fail(&mut uow, user, id).await? {
             let entry = Entry::new(audit::EXPORT_FAILED, audit::EXPORT, id);
-            log::record(&mut uow, scope, entry)
-                .await
-                .map_err(internal)?;
+            log::record(&mut uow, scope, entry).await?;
             let payload = published::ExportChanged { export_id: id };
             uow.publish_to_user(&published::EXPORT_FAILED, user, &payload)
                 .await?;
         }
         uow.commit().await
-    }
-}
-
-/// An audit entry's failure, as the internal error it is in a job's run.
-fn internal(error: AuditError) -> Internal {
-    match error {
-        AuditError::Internal(error) => error,
     }
 }
 

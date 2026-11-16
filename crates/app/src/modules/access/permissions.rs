@@ -61,6 +61,20 @@ impl Permission for MembersRemove {
     const NAME: &'static str = "members.remove";
 }
 
+/// Reading the workspace's audit log, each entry whose permission one holds (D166).
+pub(crate) struct AuditRead;
+
+impl Permission for AuditRead {
+    const NAME: &'static str = "audit.read";
+}
+
+/// Reading the IP address and user agent of each entry of the workspace's audit log (D166).
+pub(crate) struct AuditReadClients;
+
+impl Permission for AuditReadClients {
+    const NAME: &'static str = "audit.read_clients";
+}
+
 // part: invitations
 /// Listing and reading the workspace's invitations, with their emails and roles, and receiving
 /// their events.
@@ -125,6 +139,8 @@ const MATRIX: &[(&str, &[Role])] = &[
     ("members.read", &[Role::Owner, Role::Admin, Role::Member]),
     ("members.update", &[Role::Owner, Role::Admin]),
     ("members.remove", &[Role::Owner, Role::Admin]),
+    ("audit.read", &[Role::Owner, Role::Admin]),
+    ("audit.read_clients", &[Role::Owner, Role::Admin]),
     // part: invitations
     (
         "invitations.read",

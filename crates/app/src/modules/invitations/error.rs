@@ -5,9 +5,7 @@ use platform::{
     rate_limit::LimitError,
 };
 
-use crate::modules::{
-    access::AccessError, accounts::AccountsError, audit::AuditError, workspaces::WorkspacesError,
-};
+use crate::modules::{access::AccessError, accounts::AccountsError, workspaces::WorkspacesError};
 
 /// A failure of `invitations`.
 #[derive(Debug, thiserror::Error)]
@@ -55,14 +53,6 @@ impl From<AccountsError> for InvitationsError {
             AccountsError::Internal(error) => Self::Internal(error),
             AccountsError::Platform(error) => Self::Platform(error),
             other => Self::Internal(Internal::new(other)),
-        }
-    }
-}
-
-impl From<AuditError> for InvitationsError {
-    fn from(error: AuditError) -> Self {
-        match error {
-            AuditError::Internal(error) => Self::Internal(error),
         }
     }
 }

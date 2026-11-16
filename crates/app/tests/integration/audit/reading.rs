@@ -1,0 +1,534 @@
+//! Reading a workspace's log and one's own (the audit spec's Routes).
+
+use http::Method;
+use serde_json::{Value, json};
+
+use crate::support::{
+    Api, Options, TestDatabase,
+    audit::{Logged, in_own_log},
+    lists,
+    users::{self, SignedIn},
+    workspaces,
+};
+
+/// The path of `workspace`'s log.
+fn log_of(workspace: &str) -> String {
+    format!("/v1/workspaces/{workspace}/audit-entries")
+}
+
+/// The path of the caller's own entries.
+const OWN: &str = "/v1/users/me/audit-entries";
+
+/// The body of the page at `path`, read as `reader`, which answers 200.
+async fn listed(api: &Api, reader: &SignedIn, path: &str) -> Value {
+    let response = api.get(path).bearer(&reader.access).send().await;
+    assert_eq!(response.status, 200, "{path}");
+    response.json()
+}
+
+/// The `field` of each item of a list's body, with `-` for null.
+fn column(body: &Value, field: &str) -> Vec<String> {
+    body["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item[field].as_str().unwrap_or("-").to_owned())
+        .collect()
+}
+
+/// The action of each entry of the page at `path`, read as `reader`.
+async fn actions(api: &Api, reader: &SignedIn, path: &str) -> Vec<String> {
+    column(&listed(api, reader, path).await, "action")
+}
+
+/// The actions of `user`'s own log, the latest first.
+async fn own_log(db: &TestDatabase, user: &str) -> Vec<String> {
+    db.owner_reads(&format!(
+        "SELECT action FROM audit_entries WHERE user_id = '{user}' \
+         ORDER BY created_at DESC, id DESC"
+    ))
+    .await
+}
+
+/// Renames `workspace` as `member`, which records `workspace.renamed`, with `headers`.
+async fn rename(api: &Api, member: &SignedIn, workspace: &str, headers: &[(&str, &str)]) {
+    let mut call = api
+        .patch(
+            &format!("/v1/workspaces/{workspace}"),
+            &json!({ "name": "Renamed" }),
+        )
+        .bearer(&member.access);
+    for (name, value) in headers {
+        call = call.header(name, value);
+    }
+    assert_eq!(call.send().await.status, 200);
+}
+
+/// Sends `method` to `path` as `caller`, with `headers`, which answers `status`.
+async fn act(
+    api: &Api,
+    caller: &SignedIn,
+    (method, path): (Method, &str),
+    headers: &[(&str, &str)],
+    status: u16,
+) {
+    let mut call = api.request(method, path).bearer(&caller.access);
+    for (name, value) in headers {
+        call = call.header(name, value);
+    }
+    assert_eq!(call.send().await.status, status, "{path}");
+}
+
+#[tokio::test]
+async fn audit_007_the_owner_and_an_admin_read_the_workspace_s_log_the_latest_first() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let carol = users::register(&api, "carol@example.com").await;
+    let db = api.database();
+    let acme = workspaces::arrange(
+        db,
+        "Acme",
+        &[
+            (&ada.user_id, "owner"),
+            (&grace.user_id, "admin"),
+            (&carol.user_id, "member"),
+        ],
+    )
+    .await;
+    let globex = workspaces::arrange(db, "Globex", &[(&ada.user_id, "owner")]).await;
+    rename(&api, &grace, &acme, &[]).await;
+    rename(&api, &ada, &globex, &[]).await;
+    // A member's refusal is recorded in the workspace's log (AUDIT-004).
+    act(&api, &carol, (Method::GET, &log_of(&acme)), &[], 403).await;
+    let removal = format!("/v1/workspaces/{acme}/members/{}", carol.user_id);
+    act(&api, &ada, (Method::DELETE, &removal), &[], 204).await;
+
+    for reader in [&ada, &grace] {
+        let body = listed(&api, reader, &log_of(&acme)).await;
+
+        assert_eq!(
+            column(&body, "action"),
+            ["member.removed", "access.denied", "workspace.renamed"]
+        );
+        assert_eq!(column(&body, "workspace_id"), [acme.as_str(); 3]);
+        assert_eq!(
+            column(&body, "actor_user_id"),
+            [ada.user_id.as_str(), &carol.user_id, &grace.user_id]
+        );
+        assert_eq!(column(&body, "target_user_id"), [&carol.user_id, "-", "-"]);
+        assert_eq!(body["next_cursor"], Value::Null);
+        let stored = db
+            .owner_reads(
+                "SELECT id || ' ' || resource_type || ' ' || resource_id || ' ' || details::text \
+                 || ' ' || trace_id || ' ' \
+                 || to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') \
+                 FROM audit_entries WHERE action = 'member.removed'",
+            )
+            .await;
+        let item = &body["items"][0];
+        let shown = format!(
+            "{} {} {} {} {} {}",
+            item["id"].as_str().unwrap(),
+            item["resource_type"].as_str().unwrap(),
+            item["resource_id"].as_str().unwrap(),
+            item["details"],
+            item["trace_id"].as_str().unwrap(),
+            item["created_at"].as_str().unwrap(),
+        );
+        assert_eq!(stored, [shown]);
+    }
+    // Each entry of a workspace's log records the permission that its action declares, and a
+    // refusal none (the audit spec's "Reading a workspace's log").
+    let recorded = db
+        .owner_reads(&format!(
+            "SELECT action || ' ' || coalesce(permission, '-') FROM audit_entries \
+             WHERE workspace_id = '{acme}' ORDER BY created_at, id"
+        ))
+        .await;
+    assert_eq!(
+        recorded,
+        [
+            "workspace.renamed workspace.read",
+            "access.denied -",
+            "member.removed members.read",
+        ]
+    );
+}
+
+#[tokio::test]
+async fn audit_007_an_entry_whose_permission_the_reader_s_role_lacks_is_left_out() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let db = api.database();
+    let acme = workspaces::arrange(
+        db,
+        "Acme",
+        &[(&ada.user_id, "owner"), (&grace.user_id, "admin")],
+    )
+    .await;
+    // `workspace.delete` is the owner's alone, and `members.read` every role's (the access spec).
+    for (action, permission) in [
+        ("thing.listed", Some("members.read")),
+        ("thing.deleted", Some("workspace.delete")),
+        ("thing.refused", None),
+    ] {
+        Logged {
+            permission,
+            ..Logged::new(&acme, &ada.user_id, action)
+        }
+        .record(db)
+        .await;
+    }
+
+    assert_eq!(
+        actions(&api, &grace, &log_of(&acme)).await,
+        ["thing.refused", "thing.listed"]
+    );
+    assert_eq!(
+        actions(&api, &ada, &log_of(&acme)).await,
+        ["thing.refused", "thing.deleted", "thing.listed"]
+    );
+}
+
+#[tokio::test]
+async fn audit_007_a_page_boundary_between_entries_recorded_at_once_loses_none() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    let acme = workspaces::arrange(db, "Acme", &[(&ada.user_id, "owner")]).await;
+    for action in ["thing.one", "thing.two", "thing.three"] {
+        Logged::new(&acme, &ada.user_id, action).record(db).await;
+    }
+    db.owner_executes("UPDATE audit_entries SET created_at = '2026-11-01T12:00:00Z'")
+        .await;
+
+    let pages = lists::pages(&api, &ada, &format!("{}?limit=1", log_of(&acme)), "action").await;
+
+    assert_eq!(pages.len(), 3);
+    let mut seen: Vec<_> = pages.into_iter().flatten().collect();
+    seen.sort();
+    assert_eq!(seen, ["thing.one", "thing.three", "thing.two"]);
+}
+
+#[tokio::test]
+async fn audit_008_a_user_reads_their_own_log_and_what_was_done_to_them() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let carol = users::register(&api, "carol@example.com").await;
+    let db = api.database();
+    let acme = workspaces::arrange(
+        db,
+        "Acme",
+        &[
+            (&ada.user_id, "owner"),
+            (&grace.user_id, "admin"),
+            (&carol.user_id, "member"),
+        ],
+    )
+    .await;
+    // Grace acts in the workspace, and the owner acts on another member: neither is done to her.
+    rename(&api, &grace, &acme, &[]).await;
+    let carol_removed = format!("/v1/workspaces/{acme}/members/{}", carol.user_id);
+    act(&api, &ada, (Method::DELETE, &carol_removed), &[], 204).await;
+    let grace_removed = format!("/v1/workspaces/{acme}/members/{}", grace.user_id);
+    act(&api, &ada, (Method::DELETE, &grace_removed), &[], 204).await;
+
+    let body = listed(&api, &grace, OWN).await;
+
+    // She is no member of the workspace, and still reads what was done to her there.
+    let mut expected = vec!["member.removed".to_owned()];
+    expected.extend(own_log(db, &grace.user_id).await);
+    assert!(expected.len() > 1, "her own log holds her registration");
+    assert_eq!(column(&body, "action"), expected);
+    let mut logs = vec![acme.clone()];
+    logs.resize(expected.len(), "-".to_owned());
+    assert_eq!(column(&body, "workspace_id"), logs);
+    assert_eq!(body["items"][0]["target_user_id"], grace.user_id.as_str());
+    assert_eq!(body["items"][0]["actor_user_id"], ada.user_id.as_str());
+    assert_eq!(body["next_cursor"], Value::Null);
+}
+
+#[tokio::test]
+async fn audit_008_a_page_boundary_between_entries_of_both_reads_recorded_at_once_loses_none() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let db = api.database();
+    let acme = workspaces::arrange(db, "Acme", &[(&ada.user_id, "owner")]).await;
+    let grace_id = &grace.user_id;
+    for action in ["own.one", "own.two"] {
+        in_own_log(db, grace_id, grace_id, action, None).await;
+    }
+    for action in ["done.one", "done.two"] {
+        Logged {
+            target: Some(grace_id),
+            ..Logged::new(&acme, &ada.user_id, action)
+        }
+        .record(db)
+        .await;
+    }
+    db.owner_executes(&format!(
+        "UPDATE audit_entries SET created_at = '2026-11-01T12:00:00Z' \
+         WHERE user_id = '{grace_id}' OR target_user_id = '{grace_id}'"
+    ))
+    .await;
+    let mut expected = own_log(db, grace_id).await;
+    expected.extend(["done.one".to_owned(), "done.two".to_owned()]);
+    expected.sort();
+
+    let pages = lists::pages(&api, &grace, &format!("{OWN}?limit=1"), "action").await;
+
+    assert_eq!(pages.len(), expected.len());
+    let mut seen: Vec<_> = pages.into_iter().flatten().collect();
+    seen.sort();
+    assert_eq!(seen, expected);
+}
+
+/// Arranges, in `acme`'s log, four entries of one day, an hour apart from 10:00 to 13:00: two of
+/// files, acted by `ada` and by `grace`, one that `ada` did to `grace`, and one of the
+/// workspace, acted by `grace`.
+async fn four_entries(db: &TestDatabase, acme: &str, ada: &str, grace: &str) {
+    let first = "00000000-0000-4000-8000-000000000001";
+    let second = "00000000-0000-4000-8000-000000000002";
+    let entries = [
+        Logged {
+            resource: ("file", first),
+            ..Logged::new(acme, ada, "file.uploaded")
+        },
+        Logged {
+            resource: ("file", second),
+            ..Logged::new(acme, grace, "file.deleted")
+        },
+        Logged {
+            target: Some(grace),
+            ..Logged::new(acme, ada, "member.removed")
+        },
+        Logged::new(acme, grace, "workspace.renamed"),
+    ];
+    for (hour, entry) in (10..).zip(entries) {
+        let id = entry.record(db).await;
+        db.owner_executes(&format!(
+            "UPDATE audit_entries SET created_at = '2026-11-01T{hour}:00:00Z' WHERE id = '{id}'"
+        ))
+        .await;
+    }
+}
+
+#[tokio::test]
+async fn audit_009_each_filter_keeps_the_entries_that_match_one_of_its_values() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let db = api.database();
+    let acme = workspaces::arrange(
+        db,
+        "Acme",
+        &[(&ada.user_id, "owner"), (&grace.user_id, "admin")],
+    )
+    .await;
+    four_entries(db, &acme, &ada.user_id, &grace.user_id).await;
+    let (ada_id, grace_id) = (&ada.user_id, &grace.user_id);
+    let first = "00000000-0000-4000-8000-000000000001";
+    let second = "00000000-0000-4000-8000-000000000002";
+
+    for (query, expected) in [
+        (
+            "action=file.uploaded,file.deleted".to_owned(),
+            vec!["file.deleted", "file.uploaded"],
+        ),
+        (
+            "resource_type=workspace".to_owned(),
+            vec!["workspace.renamed", "member.removed"],
+        ),
+        (
+            format!("resource_id={first},{second}"),
+            vec!["file.deleted", "file.uploaded"],
+        ),
+        (
+            format!("actor_user_id={grace_id}"),
+            vec!["workspace.renamed", "file.deleted"],
+        ),
+        (
+            format!("target_user_id={grace_id},{ada_id}"),
+            vec!["member.removed"],
+        ),
+        (
+            "from=2026-11-01T11:00:00Z&to=2026-11-01T13:00:00.000Z".to_owned(),
+            vec!["member.removed", "file.deleted"],
+        ),
+        (
+            "from=2026-11-01T11:00:00.000001Z".to_owned(),
+            vec!["workspace.renamed", "member.removed"],
+        ),
+        (
+            format!("action=file.uploaded,workspace.renamed&actor_user_id={grace_id}"),
+            vec!["workspace.renamed"],
+        ),
+        ("action=nothing.happened".to_owned(), vec![]),
+    ] {
+        let path = format!("{}?{query}", log_of(&acme));
+        assert_eq!(actions(&api, &ada, &path).await, expected, "{query}");
+    }
+    // A user's own read filters both of its reads: her own log, which holds her registration,
+    // and the entries done to her.
+    for (query, expected) in [
+        (
+            "action=user.registered,member.removed".to_owned(),
+            vec!["user.registered", "member.removed"],
+        ),
+        ("to=2026-11-02T00:00:00Z".to_owned(), vec!["member.removed"]),
+        (
+            format!("resource_type=workspace&actor_user_id={ada_id}"),
+            vec!["member.removed"],
+        ),
+        ("action=user.registered".to_owned(), vec!["user.registered"]),
+    ] {
+        let path = format!("{OWN}?{query}");
+        assert_eq!(actions(&api, &grace, &path).await, expected, "{query}");
+    }
+}
+
+#[tokio::test]
+async fn audit_009_the_values_a_list_refuses_are_named_together() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let acme = workspaces::arrange(api.database(), "Acme", &[(&ada.user_id, "owner")]).await;
+    let too_many = vec![ada.user_id.as_str(); 51].join(",");
+    let query = format!(
+        "action=Member.Removed&resource_type=file,&resource_id=nope&actor_user_id={too_many}\
+         &target_user_id={}&from=2026-11-01&to=2026-11-01T00:00:00Z",
+        ada.user_id
+    );
+
+    for path in [log_of(&acme), OWN.to_owned()] {
+        let response = api
+            .get(&format!("{path}?{query}"))
+            .bearer(&ada.access)
+            .send()
+            .await;
+
+        assert_eq!(response.status, 400);
+        let body = response.json();
+        assert_eq!(body["code"], "request.invalid_query");
+        let refused: Vec<String> = body["errors"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|error| format!("{} {}", error["field"], error["code"]))
+            .collect();
+        assert_eq!(
+            refused,
+            [
+                r#""/action" "invalid""#,
+                r#""/resource_type" "invalid""#,
+                r#""/resource_id" "invalid""#,
+                r#""/actor_user_id" "too_many""#,
+                r#""/from" "invalid""#,
+            ],
+            "{path}"
+        );
+    }
+}
+
+/// An API whose clients' addresses come from `X-Forwarded-For`, as the tests' proxy sends it
+/// (SEC-13).
+async fn behind_a_proxy() -> Api {
+    Api::with(Options::default().set("TRUSTED_PROXIES", "198.51.100.0/24")).await
+}
+
+// With the template's roles, every role that reads a workspace's log holds `audit.read_clients`
+// (D166), so no reader of the template's is shown the log without its clients.
+#[tokio::test]
+async fn audit_010_the_owner_and_an_admin_see_the_clients_of_the_workspace_s_log() {
+    let api = behind_a_proxy().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let db = api.database();
+    let acme = workspaces::arrange(
+        db,
+        "Acme",
+        &[(&ada.user_id, "owner"), (&grace.user_id, "admin")],
+    )
+    .await;
+    let client = [
+        ("user-agent", "Desktop/1.2"),
+        ("x-forwarded-for", "203.0.113.9"),
+    ];
+    rename(&api, &grace, &acme, &client).await;
+    // An entry that no request recorded has no client.
+    Logged::new(&acme, &grace.user_id, "thing.done")
+        .record(db)
+        .await;
+
+    for reader in [&ada, &grace] {
+        let body = listed(&api, reader, &log_of(&acme)).await;
+
+        assert_eq!(column(&body, "action"), ["thing.done", "workspace.renamed"]);
+        assert_eq!(body["items"][0]["client"], Value::Null);
+        assert_eq!(
+            body["items"][1]["client"],
+            json!({ "ip": "203.0.113.9", "user_agent": "Desktop/1.2" })
+        );
+    }
+}
+
+#[tokio::test]
+async fn audit_010_a_user_s_own_read_shows_only_the_clients_that_were_theirs() {
+    let api = behind_a_proxy().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let carol = users::register(&api, "carol@example.com").await;
+    let db = api.database();
+    let acme = workspaces::arrange(
+        db,
+        "Acme",
+        &[
+            (&ada.user_id, "owner"),
+            (&grace.user_id, "admin"),
+            (&carol.user_id, "member"),
+        ],
+    )
+    .await;
+    let removal = format!("/v1/workspaces/{acme}/members/{}", grace.user_id);
+    let ada_client = [("user-agent", "Ada/1"), ("x-forwarded-for", "203.0.113.1")];
+    act(&api, &ada, (Method::DELETE, &removal), &ada_client, 204).await;
+    let leaving = format!("/v1/workspaces/{acme}/leave");
+    let carol_client = [
+        ("user-agent", "Carol/1"),
+        ("x-forwarded-for", "203.0.113.3"),
+    ];
+    act(&api, &carol, (Method::POST, &leaving), &carol_client, 204).await;
+    // Grace signs in with a wrong password: the attempt has no actor, and its client is hers to
+    // see, as the user's whose log holds it (AUDIT-006).
+    let attempt = api
+        .post(
+            "/v1/sessions",
+            &json!({ "email": "grace@example.com", "password": "wrong-password-123" }),
+        )
+        .header("user-agent", "Someone/9")
+        .header("x-forwarded-for", "203.0.113.7")
+        .send()
+        .await;
+    assert_eq!(attempt.status, 401);
+
+    let graces = listed(&api, &grace, OWN).await;
+    let carols = listed(&api, &carol, OWN).await;
+
+    // What Ada did to Grace shows no client: it is Ada's.
+    assert_eq!(graces["items"][1]["action"], "member.removed");
+    assert_eq!(graces["items"][1]["client"], Value::Null);
+    assert_eq!(graces["items"][0]["action"], "sign_in.failed");
+    assert_eq!(
+        graces["items"][0]["client"],
+        json!({ "ip": "203.0.113.7", "user_agent": "Someone/9" })
+    );
+    // Carol did her leaving, so its client is hers.
+    assert_eq!(carols["items"][0]["action"], "member.left");
+    assert_eq!(
+        carols["items"][0]["client"],
+        json!({ "ip": "203.0.113.3", "user_agent": "Carol/1" })
+    );
+}

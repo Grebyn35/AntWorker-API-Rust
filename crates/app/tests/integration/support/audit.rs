@@ -48,6 +48,54 @@ pub async fn in_workspace_log(
     .remove(0)
 }
 
+/// An entry of a workspace's log, which [`Logged::record`] records through the `owner`
+/// connection, as `audit::record` records one, for the tests of what reads a log (TEST-09).
+pub struct Logged<'a> {
+    pub workspace: &'a str,
+    pub actor: &'a str,
+    pub action: &'a str,
+    /// The kind of resource it happened to, and the resource's ID.
+    pub resource: (&'a str, &'a str),
+    pub target: Option<&'a str>,
+    /// The permission that reading it takes beside `audit.read`, if any.
+    pub permission: Option<&'a str>,
+}
+
+impl<'a> Logged<'a> {
+    /// `action` in `workspace`'s log, acted by `actor` on the workspace, done to no target, whose
+    /// reading takes no permission beside `audit.read`.
+    pub fn new(workspace: &'a str, actor: &'a str, action: &'a str) -> Self {
+        Self {
+            workspace,
+            actor,
+            action,
+            resource: ("workspace", workspace),
+            target: None,
+            permission: None,
+        }
+    }
+
+    /// Records the entry, and returns its ID.
+    pub async fn record(&self, db: &TestDatabase) -> String {
+        let text =
+            |value: Option<&str>| value.map_or("NULL".to_owned(), |value| format!("'{value}'"));
+        db.owner_reads(&format!(
+            "INSERT INTO audit_entries (scope, workspace_id, actor_user_id, target_user_id, \
+             action, resource_type, resource_id, permission) \
+             VALUES ('workspace', '{}', '{}', {}, '{}', '{}', '{}', {}) RETURNING id::text",
+            self.workspace,
+            self.actor,
+            text(self.target),
+            self.action,
+            self.resource.0,
+            self.resource.1,
+            text(self.permission),
+        ))
+        .await
+        .remove(0)
+    }
+}
+
 /// Records `count` entries of `action` in `user`'s own log, each with details of about 1,000
 /// characters of hexadecimal noise, which deflate to about half their size, in one statement.
 pub async fn noise(db: &TestDatabase, user: &str, action: &str, count: u32) {
@@ -62,7 +110,7 @@ pub async fn noise(db: &TestDatabase, user: &str, action: &str, count: u32) {
 }
 
 /// Records `client` as the client of the entry `entry`.
-async fn with_client(db: &TestDatabase, entry: &str, client: &Client<'_>) {
+pub async fn with_client(db: &TestDatabase, entry: &str, client: &Client<'_>) {
     let agent = client.agent.replace('\'', "''");
     db.owner_executes(&format!(
         "INSERT INTO audit_entry_clients (entry_id, user_id, client_ip, user_agent) \

@@ -37,6 +37,7 @@ The rules narrowed or completed these on purpose. The ADR states the rule's vers
 | D21 | The required checks are applied as branch protection by a script | OPS-10: `docs/operations/ci.md` lists the required checks, says how to require them, and leaves requiring them to the repository owner |
 | D20 | Runtime threads come from configuration | OPS-02: the async runtime sizes itself to the CPUs the container may use, so no two deployments would set it differently, and it isn't a setting |
 | D27 | Nothing outside `docs/inventory/` refers to the old API | DOC-13 extends the exception to `docs/MIGRATION.md`, to CLAUDE.md's pointer to the inventory, and to decision IDs and the links that architecture.md and the tracker make to the decisions' records |
+| D6 | IP addresses and user agents are visible only with the dedicated permission from D2 | SEC-18 (D166): in a workspace's log, only to a reader whose role holds `audit.read_clients`; a user sees those of the entries that were theirs, in their own read and their export (AUDIT-010, ACCOUNTS-024) |
 | D32 | A keyed hash only for verification codes and rate-limit keys | SEC-18 adds emails in audit entries, which D32's own principle covers: they are guessable |
 | D36 | A security failure recorded during sign-in answers with that failure | ARCH-11 covers every recorded security failure, such as refresh-token reuse (AUTH-012) |
 | D18 | The cookie transport, CSRF protection, a CORS allowlist for web origins, and signed URLs for private downloads are built later, as additions | D61: each is built with the part it belongs to: the cookie, CSRF protection and the allowlist with `auth`, a stream through the cookie with `realtime`, and signed URLs with `files` |
@@ -62,8 +63,8 @@ Modules carry their own; the build order step of each other area is in parenthes
 
 | Module or area | Commitments |
 |---|---|
-| `access` | the permission that reveals IP addresses in audit entries; the ADR on custom roles (D2) |
-| `audit` | reads filtered by permission (D2); the target filterable and visible to that user; bounded retention (D6) |
+| `access` | the ADR on custom roles (D2) |
+| `audit` | bounded retention (D6) |
 | `auth` | the ADR on accepted enumeration (D7) |
 | `accounts` | the ADR on immediate deletion (D16) |
 | Template (6) | a GitHub template repository (D29); the ADR on hard deletes (D24) |

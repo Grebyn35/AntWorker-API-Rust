@@ -5,12 +5,15 @@
     reason = "a module declares its audit actions and resources here (the audit spec)"
 )]
 
-use crate::modules::audit::{Action, Resource};
+use crate::modules::{
+    access::FilesRead,
+    audit::{Action, Resource},
+};
 
 /// A file was uploaded (FILES-001).
-pub(super) const FILE_UPLOADED: Action = Action::new("file.uploaded");
+pub(super) const FILE_UPLOADED: Action = Action::read_with::<FilesRead>("file.uploaded");
 /// A file was deleted (FILES-010).
-pub(super) const FILE_DELETED: Action = Action::new("file.deleted");
+pub(super) const FILE_DELETED: Action = Action::read_with::<FilesRead>("file.deleted");
 
 /// A file of the user's own was uploaded (FILES-016).
 pub(super) const USER_FILE_UPLOADED: Action = Action::new("user_file.uploaded");

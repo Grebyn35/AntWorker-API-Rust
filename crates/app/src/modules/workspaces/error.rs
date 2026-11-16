@@ -2,9 +2,7 @@
 
 use platform::errors::{Category, ErrorCode, FieldError, Internal, PlatformError, RequestError};
 
-use crate::modules::{
-    access::AccessError, accounts::AccountsError, audit::AuditError, auth::AuthError,
-};
+use crate::modules::{access::AccessError, accounts::AccountsError, auth::AuthError};
 // part: files
 use crate::modules::files::FilesError;
 // end part: files
@@ -79,14 +77,6 @@ impl From<AuthError> for WorkspacesError {
             AuthError::Request(error) => Self::Platform(error.into()),
             AuthError::Internal(error) => Self::Internal(error),
             other => Self::Internal(Internal::new(other)),
-        }
-    }
-}
-
-impl From<AuditError> for WorkspacesError {
-    fn from(error: AuditError) -> Self {
-        match error {
-            AuditError::Internal(error) => Self::Internal(error),
         }
     }
 }

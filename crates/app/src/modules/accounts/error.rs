@@ -5,7 +5,7 @@ use platform::{
     rate_limit::LimitError,
 };
 
-use crate::modules::{access::AccessError, audit::AuditError};
+use crate::modules::access::AccessError;
 // part: files
 use crate::modules::files::FilesError;
 // end part: files
@@ -54,14 +54,6 @@ impl From<AccessError> for AccountsError {
     fn from(error: AccessError) -> Self {
         match error {
             AccessError::Internal(error) => Self::Internal(error),
-        }
-    }
-}
-
-impl From<AuditError> for AccountsError {
-    fn from(error: AuditError) -> Self {
-        match error {
-            AuditError::Internal(error) => Self::Internal(error),
         }
     }
 }

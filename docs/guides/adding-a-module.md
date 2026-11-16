@@ -63,7 +63,7 @@ Editing a migration that no release contains (DATA-09) means recreating the deve
 | What the route does | `service.rs`, in the unit of work that `Authorized<P>` opened | ARCH-09, ARCH-11 |
 | Its SQL | `repo.rs`, filtered by the workspace from the proof | ARCH-06, ARCH-10, DATA-14 to DATA-16, DATA-20 |
 | Its errors, with their codes | `error.rs`, and the codes each route lists in `routes()` | ERR-01 to ERR-06, ERR-13 |
-| What it records about a change | `audit.rs`, recorded in the service's unit of work | DATA-22, SEC-18 |
+| What it records about a change | `audit.rs`, recorded in the service's unit of work: an action that a workspace's log records declares, with `Action::read_with`, the permission of the event that its change publishes, which reading it in the log then takes ([audit spec](../spec/audit.md#reading-a-workspaces-log)) | DATA-22, SEC-18, AUDIT-007 |
 | What it tells clients over the stream | `events.rs`, published in the service's unit of work | API-19, SEC-19 |
 | Work after the request, and email | `jobs.rs`, `emails.rs` and its templates ([platform spec](../spec/platform.md#sending-email)) | OPS-09 |
 | What it measures | `metrics.rs`, then `just metrics` | OBS-11 to OBS-14 |

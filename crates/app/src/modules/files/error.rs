@@ -5,8 +5,6 @@ use platform::{
     types::Invalid,
 };
 
-use crate::modules::audit::AuditError;
-
 /// A failure of `files`.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum FilesError {
@@ -47,14 +45,6 @@ pub(crate) enum FilesError {
 impl From<RequestError> for FilesError {
     fn from(error: RequestError) -> Self {
         Self::Platform(error.into())
-    }
-}
-
-impl From<AuditError> for FilesError {
-    fn from(error: AuditError) -> Self {
-        match error {
-            AuditError::Internal(error) => Self::Internal(error),
-        }
     }
 }
 

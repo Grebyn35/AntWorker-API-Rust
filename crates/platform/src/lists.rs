@@ -1,6 +1,7 @@
 //! Lists: a page's `limit` and `cursor` (API-06, PLATFORM-046), a list's `search` (API-20,
-//! PLATFORM-047), and the body of a page of items (API-05), which a route reads from the
-//! parameters of its `http::Query<T>` and hands its service.
+//! PLATFORM-047), its filters that take several values (PLATFORM-088), and the body of a page of
+//! items (API-05), which a route reads from the parameters of its `http::Query<T>` and hands its
+//! service.
 
 use std::borrow::Cow;
 
@@ -9,7 +10,7 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use utoipa::{
     PartialSchema, ToSchema,
-    openapi::{ObjectBuilder, RefOr, Schema, Type},
+    openapi::{ArrayBuilder, ObjectBuilder, RefOr, Schema, Type},
 };
 
 use crate::{
@@ -23,6 +24,8 @@ const DEFAULT_LIMIT: u16 = 50;
 const MAX_LIMIT: u16 = 100;
 /// The most characters a search holds (PLATFORM-047).
 const SEARCH_MAX_CHARS: usize = 100;
+/// The most values that a list's filter takes (PLATFORM-088).
+const MAX_VALUES: usize = 50;
 /// The bytes of a cursor: the tag of its route, the microseconds of its sort key, and its ID.
 const CURSOR_LEN: usize = 4 + 8 + 16;
 
@@ -109,6 +112,40 @@ pub fn parameter<T>(
             .check(&parameter_pointer(name), parse(value))
             .map(Some),
     }
+}
+
+/// The values of the query parameter `name`, a list's filter that takes several, separated by
+/// commas, each through `parse`, if it was sent, or `None`, recording why, when `errors` refuses
+/// it: as `too_many` with more than 50 values, as `invalid` with an empty one, and otherwise with
+/// the fault of the first value that `parse` refuses (PLATFORM-088).
+pub fn values<T>(
+    errors: &mut FieldErrors,
+    name: &str,
+    value: Option<&str>,
+    parse: impl Fn(&str) -> Result<T, Invalid>,
+) -> Option<Option<Vec<T>>> {
+    parameter(errors, name, value, |value| {
+        let values: Vec<&str> = value.split(',').collect();
+        if values.len() > MAX_VALUES {
+            return Err(Invalid::new(
+                "too_many",
+                "A filter takes at most 50 values.",
+            ));
+        }
+        values
+            .into_iter()
+            .map(|value| {
+                if value.is_empty() {
+                    Err(Invalid::new(
+                        "invalid",
+                        "Separate the values with single commas, and leave none empty.",
+                    ))
+                } else {
+                    parse(value)
+                }
+            })
+            .collect()
+    })
 }
 
 fn parse_limit(value: &str) -> Result<u16, Invalid> {
@@ -243,6 +280,41 @@ impl ToSchema for Search {
     }
 }
 
+/// The schema of a list's filter that takes several values, each of `T`'s schema: an array of 1
+/// to 50, which the parameter's style, `form` without `explode`, sends separated by commas
+/// (PLATFORM-088). [`filter_values!`](crate::filter_values) declares a type that gives it.
+pub fn values_schema<T: PartialSchema>() -> RefOr<Schema> {
+    ArrayBuilder::new()
+        .items(T::schema())
+        .min_items(Some(1))
+        .max_items(Some(MAX_VALUES))
+        .into()
+}
+
+/// Declares the type `$name`, whose schema is that of a list's filter that takes several values,
+/// each of `$item`'s schema, as [`values_schema`](crate::lists::values_schema) gives it, for a
+/// query's field that names it as its `value_type`, `inline`, beside the style `form` without
+/// `explode` (PLATFORM-088).
+#[macro_export]
+macro_rules! filter_values {
+    ($(#[$doc:meta])* $visibility:vis $name:ident($item:ty)) => {
+        $(#[$doc])*
+        $visibility struct $name;
+
+        impl ::utoipa::PartialSchema for $name {
+            fn schema() -> ::utoipa::openapi::RefOr<::utoipa::openapi::Schema> {
+                $crate::lists::values_schema::<$item>()
+            }
+        }
+
+        impl ::utoipa::ToSchema for $name {
+            fn name() -> ::std::borrow::Cow<'static, str> {
+                ::std::borrow::Cow::Borrowed(stringify!($name))
+            }
+        }
+    };
+}
+
 /// The characters of a cursor: its bytes in base64url, without padding.
 const CURSOR_CHARS: usize = (4 * CURSOR_LEN).div_ceil(3);
 
@@ -320,6 +392,60 @@ mod tests {
                 .chars()
                 .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'),
             "{encoded}"
+        );
+    }
+
+    use crate::errors::ErrorCode;
+
+    fn ids(value: &str) -> Result<Option<Vec<uuid::Uuid>>, Vec<(String, &'static str)>> {
+        let mut errors = FieldErrors::new();
+        let read = values(&mut errors, "resource_id", Some(value), |value| {
+            uuid::Uuid::parse_str(value).map_err(|_| Invalid::new("invalid", "Send UUIDs."))
+        });
+        errors.finish_query(read).map_err(|error| {
+            error
+                .errors()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|fault| (fault.field, fault.code))
+                .collect()
+        })
+    }
+
+    #[test]
+    fn platform_088_a_filter_takes_1_to_50_values_separated_by_commas() {
+        let one = uuid::Uuid::from_u128(1);
+        let two = uuid::Uuid::from_u128(2);
+        assert_eq!(ids(&one.to_string()), Ok(Some(vec![one])));
+        assert_eq!(
+            ids(&format!("{one},{two},{one}")),
+            Ok(Some(vec![one, two, one]))
+        );
+        let fifty = vec![one.to_string(); 50].join(",");
+        assert_eq!(
+            ids(&fifty).map(|ids| ids.map(|ids| ids.len())),
+            Ok(Some(50))
+        );
+        let refused = |value: &str| ids(value).unwrap_err();
+        assert_eq!(
+            refused(&format!("{fifty},{one}")),
+            [("/resource_id".to_owned(), "too_many")]
+        );
+        for value in ["", ",", &format!("{one},"), &format!("{one},,{two}")] {
+            assert_eq!(
+                refused(value),
+                [("/resource_id".to_owned(), "invalid")],
+                "{value}"
+            );
+        }
+        assert_eq!(
+            refused(&format!("{one}, {two}")),
+            [("/resource_id".to_owned(), "invalid")]
+        );
+        let mut errors = FieldErrors::new();
+        assert_eq!(
+            values(&mut errors, "resource_id", None, |_| Ok(())),
+            Some(None)
         );
     }
 

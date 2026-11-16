@@ -18,7 +18,7 @@ use crate::modules::{
         RoleChange, WorkspaceLeave,
     },
     accounts::{self, PublicProfile},
-    audit::{self as log, AuditError, Entry},
+    audit::{self as log, Entry},
     workspaces::{
         audit,
         error::WorkspacesError,
@@ -230,11 +230,7 @@ pub(in crate::modules::workspaces) async fn left(
 ) -> Result<(), Internal> {
     let mut entry = Entry::new(audit::MEMBER_LEFT, audit::WORKSPACE, workspace.uuid());
     entry.target = Some(user);
-    log::record(uow, scope, entry)
-        .await
-        .map_err(|error| match error {
-            AuditError::Internal(error) => error,
-        })?;
+    log::record(uow, scope, entry).await?;
     let payload = published::MemberLeft {
         workspace_id: workspace,
         user_id: user,
