@@ -339,6 +339,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | d6aebe5..c7bd808: as above, with pass 1's fixes | 2 | 8 (6, 4, 2 shared) | 1 | 1 | `stopped: no progress`: e6de2f9 |
 | c404b93..5433646: the first part of the full `invitations`: reading and listing a workspace's invitations, changing an invitation's role, sending it again, cancelling it, and its invitee's decline, with the owner's decision on a change, and the documents they changed | 1 | 12 (9, 7, 4 shared) | 6 | 0 | `next pass`: af29bf2 <!-- part: invitations --> |
 | c404b93..af29bf2: as above, with pass 1's fixes | 2 | 4 (3, 3, 2 shared) | 1 | 1 | `stopped: no progress`: bb97c51 <!-- part: invitations --> |
+| cdc55fc..3fcc5d1: the hub's load test, which renames each user's own workspace, publishing the core's `workspace.updated`, outside the optional parts, and the documents it changed | 1 | 1 (1, 0, 0 shared) | 1 | 0 | `next pass` |
 
 ## Decisions
 
