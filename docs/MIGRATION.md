@@ -343,6 +343,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | c404b93..af29bf2: as above, with pass 1's fixes | 2 | 4 (3, 3, 2 shared) | 1 | 1 | `stopped: no progress`: bb97c51 <!-- part: invitations --> |
 | cdc55fc..3fcc5d1: the hub's load test, which renames each user's own workspace, publishing the core's `workspace.updated`, outside the optional parts, and the documents it changed | 1 | 1 (1, 0, 0 shared) | 1 | 0 | `next pass`: 265c693 |
 | cdc55fc..265c693: as above, with pass 1's fixes | 2 | 1 (1, 0, 0 shared) | 0 | 0 | `clean`: 9accd3a |
+| a91afcd..c6c953c: the first part of the full `audit`: reading a workspace's log and one's own, with the owner's decision on who reads them and their clients, the permission that an entry of a workspace's log records from its action, the filters of several values and the moments that a filter takes, and the documents they changed | 1 | 11 (8, 3, 0 shared) | 8 | 0 | `next pass` |
 
 ## Decisions
 
