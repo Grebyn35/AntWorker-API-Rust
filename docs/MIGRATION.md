@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** the conformance review of step 5's full `invitations`, its second part: the hub's load test, which renames each user's own workspace, publishing the core's `workspace.updated`, so it stays in a fork that removes the module. Its first part, reading, listing, changing the role of, sending again and cancelling a workspace's invitations, and declining one, is built and reviewed. Step 5's other modules are the full `audit` and `realtime`, `client_telemetry`, and the schema endpoints of `system`. Nothing waits on the owner. The trial server runs 0.1.0-rc.11, and its Grafana Cloud alerts reach no contact point. Its next release needs a B2 files bucket with its own key pair and "Keep only the last version of the file", `--allow-restart`, and `just server-setup` first; its first deploy proves the scanner's first start and settles the platform spec's `UNSIGNED-PAYLOAD` question, and its first restore measures a restore's downtime. Dependabot's #22 to #30 are open; #22, #23, #24, #28 and #29 fail.
+**Next:** step 5's full `audit`: reading a workspace's log and a user's own log, filtered by the reader's permissions, with an entry's target filterable and visible to that user, the permission that reveals IP addresses, and bounded retention, the commitments that the decision trace lists for `audit` and `access`. Step 5's full `invitations` is built and reviewed, and the hub's load test, which publishes the core's `workspace.updated`, stays in every fork. Step 5's other modules are the full `realtime`, `client_telemetry`, and the schema endpoints of `system`. Nothing waits on the owner. The trial server runs 0.1.0-rc.11, and its Grafana Cloud alerts reach no contact point. Its next release needs a B2 files bucket with its own key pair and "Keep only the last version of the file", `--allow-restart`, and `just server-setup` first; its first deploy proves the scanner's first start and settles the platform spec's `UNSIGNED-PAYLOAD` question, and its first restore measures a restore's downtime. Dependabot's #22 to #30 are open; #22, #23, #24, #28 and #29 fail.
 
 ## Build order
 
@@ -342,7 +342,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | c404b93..5433646: the first part of the full `invitations`: reading and listing a workspace's invitations, changing an invitation's role, sending it again, cancelling it, and its invitee's decline, with the owner's decision on a change, and the documents they changed | 1 | 12 (9, 7, 4 shared) | 6 | 0 | `next pass`: af29bf2 <!-- part: invitations --> |
 | c404b93..af29bf2: as above, with pass 1's fixes | 2 | 4 (3, 3, 2 shared) | 1 | 1 | `stopped: no progress`: bb97c51 <!-- part: invitations --> |
 | cdc55fc..3fcc5d1: the hub's load test, which renames each user's own workspace, publishing the core's `workspace.updated`, outside the optional parts, and the documents it changed | 1 | 1 (1, 0, 0 shared) | 1 | 0 | `next pass`: 265c693 |
-| cdc55fc..265c693: as above, with pass 1's fixes | 2 | 1 (1, 0, 0 shared) | 0 | 0 | `clean` |
+| cdc55fc..265c693: as above, with pass 1's fixes | 2 | 1 (1, 0, 0 shared) | 0 | 0 | `clean`: 9accd3a |
 
 ## Decisions
 
