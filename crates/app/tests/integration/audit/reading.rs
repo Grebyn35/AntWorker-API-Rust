@@ -485,6 +485,74 @@ async fn audit_009_each_filter_of_one_s_own_list_keeps_the_entries_of_both_its_r
     assert_eq!(column(&both, "workspace_id"), [acme.as_str(), "-"]);
 }
 
+#[tokio::test]
+async fn audit_009_the_values_a_list_refuses_are_named_together() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let acme = workspaces::arrange(api.database(), "Acme", &[(&ada.user_id, "owner")]).await;
+    let too_many = vec![ada.user_id.as_str(); 51].join(",");
+    let ada_id = &ada.user_id;
+    // Two filters given as they should be, which no answer names, and then all seven refused.
+    let some = format!(
+        "action=Member.Removed&resource_type=file,&resource_id=nope&actor_user_id={too_many}\
+         &target_user_id={ada_id}&from=2026-11-01&to=2026-11-01T00:00:00Z"
+    );
+    let every = format!(
+        "action=member&resource_type=a.b&resource_id={ada_id},&actor_user_id=nope\
+         &target_user_id={ada_id}x&from=2026-11-01T00:00:00%2B00:00&to=2026-11-01T24:00:00Z"
+    );
+
+    for (query, expected) in [
+        (
+            some,
+            vec![
+                "/action invalid",
+                "/resource_type invalid",
+                "/resource_id invalid",
+                "/actor_user_id too_many",
+                "/from invalid",
+            ],
+        ),
+        (
+            every,
+            vec![
+                "/action invalid",
+                "/resource_type invalid",
+                "/resource_id invalid",
+                "/actor_user_id invalid",
+                "/target_user_id invalid",
+                "/from invalid",
+                "/to invalid",
+            ],
+        ),
+    ] {
+        for path in [log_of(&acme), OWN.to_owned()] {
+            let response = api
+                .get(&format!("{path}?{query}"))
+                .bearer(&ada.access)
+                .send()
+                .await;
+
+            assert_eq!(response.status, 400, "{path}?{query}");
+            let body = response.json();
+            assert_eq!(body["code"], "request.invalid_query");
+            let refused: Vec<String> = body["errors"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|error| {
+                    format!(
+                        "{} {}",
+                        error["field"].as_str().unwrap(),
+                        error["code"].as_str().unwrap()
+                    )
+                })
+                .collect();
+            assert_eq!(refused, expected, "{path}?{query}");
+        }
+    }
+}
+
 /// An API whose clients' addresses come from `X-Forwarded-For`, as the tests' proxy sends it
 /// (SEC-13).
 async fn behind_a_proxy() -> Api {

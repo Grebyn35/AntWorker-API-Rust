@@ -1763,7 +1763,7 @@
                   "oneOf": [
                     {
                       "$ref": "#/components/schemas/UserId",
-                      "description": "The user it was done to, when it isn't the actor, or null once their account is deleted\n(AUDIT-006)."
+                      "description": "The user it was done to, who may be its actor too, as a member who leaves a workspace is\n(WORKSPACES-014), or null for an entry done to no user, or once their account is deleted\n(AUDIT-006)."
                     },
                     {
                       "type": "null"
@@ -2290,7 +2290,7 @@
             "oneOf": [
               {
                 "$ref": "#/components/schemas/UserId",
-                "description": "The user it was done to, when it isn't the actor, or null once their account is deleted\n(AUDIT-006)."
+                "description": "The user it was done to, who may be its actor too, as a member who leaves a workspace is\n(WORKSPACES-014), or null for an entry done to no user, or once their account is deleted\n(AUDIT-006)."
               },
               {
                 "type": "null"

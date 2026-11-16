@@ -216,14 +216,16 @@ impl<'de> Deserialize<'de> for Timestamp {
 }
 
 impl Timestamp {
-    /// The moment in `text`, as a request gives one, such as a list's filter: RFC 3339 in UTC
-    /// with a `Z`, with 0 to 6 digits of a second's fraction (API-11, PLATFORM-088).
+    /// The moment in `text`, as a request gives one, such as a list's filter, or `invalid`:
+    /// `YYYY-MM-DDTHH:MM:SS`, with an uppercase `T`, then 0 to 6 digits of a second's fraction
+    /// after a `.`, then an uppercase `Z`, which names a day of the calendar and a second of 00
+    /// to 59 (API-11, PLATFORM-088).
     pub fn read(text: &str) -> Result<Self, Invalid> {
         Self::parse_with(text, 0).ok_or_else(|| {
             Invalid::new(
                 "invalid",
-                "A moment is RFC 3339 in UTC, such as 2026-11-16T09:30:00Z, to the microsecond at \
-                 most.",
+                "A moment is written YYYY-MM-DDTHH:MM:SSZ, in UTC, with up to 6 digits of a \
+                 second's fraction before the Z, such as 2026-11-16T09:30:00.250Z.",
             )
         })
     }

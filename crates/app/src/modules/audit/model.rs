@@ -79,7 +79,8 @@ pub(crate) struct Entry {
     pub(crate) resource_type: Resource,
     /// The resource's ID.
     pub(crate) resource_id: Option<uuid::Uuid>,
-    /// The user it happened to, when it isn't the actor.
+    /// The user it happened to, if any, who may be its actor too, as a member who leaves a
+    /// workspace is (WORKSPACES-014).
     pub(crate) target: Option<UserId>,
     /// IDs and non-personal fields only (SEC-18).
     pub(crate) details: serde_json::Value,
@@ -134,7 +135,8 @@ pub(crate) struct LoggedEntry {
     /// The user who did it, or null for an entry that no user's request made, such as a failed
     /// sign-in's, or once their account is deleted (AUDIT-006).
     pub(super) actor_user_id: Option<UserId>,
-    /// The user it was done to, when it isn't the actor, or null once their account is deleted
+    /// The user it was done to, who may be its actor too, as a member who leaves a workspace is
+    /// (WORKSPACES-014), or null for an entry done to no user, or once their account is deleted
     /// (AUDIT-006).
     pub(super) target_user_id: Option<UserId>,
     /// IDs and non-personal fields that the action records, such as a role (SEC-18), each action
