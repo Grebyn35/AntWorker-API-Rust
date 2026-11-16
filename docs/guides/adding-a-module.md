@@ -68,7 +68,7 @@ Editing a migration that no release contains (DATA-09) means recreating the deve
 | Work after the request, and email | `jobs.rs`, `emails.rs` and its templates ([platform spec](../spec/platform.md#sending-email)) | OPS-09 |
 | What it measures | `metrics.rs`, then `just metrics` | OBS-11 to OBS-14 |
 | What a user's export holds of its rows, what erasing a deleted user does to them, and which of its columns hold personal data | `personal_data.rs`, registered in `contracts()` of `composition/mod.rs`, and the column comments of its migration | DATA-23, D31 |
-| A setting | the composition root's `Config`, and `.env.example` | OPS-01, OPS-02 |
+| A setting | the composition root's `Config`, and `.env.example`; for one that a deployment chooses, also `deploy/settings.env.example` and the API's environment in `deploy/compose.yaml`, and, in the answers of the test in `crates/xtask/src/server/questions/mod.rs`, an empty answer at the setting's place in that file's order | OPS-01, OPS-02 |
 | Its tests | `tests/integration/<module>.rs`, through the test support's builders, and a fixture in TEST-08's test for each workspace route | TEST-01 to TEST-09 |
 
 The module's own files show each piece working: read its `routes.rs` from a route's handler down to its query.
