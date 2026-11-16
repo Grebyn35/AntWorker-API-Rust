@@ -294,7 +294,10 @@ pub fn values_schema<T: PartialSchema>() -> RefOr<Schema> {
 /// Declares the type `$name`, whose schema is that of a list's filter that takes several values,
 /// each of `$item`'s schema, as [`values_schema`](crate::lists::values_schema) gives it, for a
 /// query's field that names it as its `value_type`, `inline`, beside the style `form` without
-/// `explode` (PLATFORM-088).
+/// `explode` (PLATFORM-088). A type for each filter, rather than one generic type, since utoipa
+/// takes a generic `value_type` only through a trait of its own macros, and rather than the
+/// field's `schema_with`, with which utoipa leaves out the parameter's description, its
+/// `required` and its style.
 #[macro_export]
 macro_rules! filter_values {
     ($(#[$doc:meta])* $visibility:vis $name:ident($item:ty)) => {
