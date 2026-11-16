@@ -353,7 +353,8 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | cdc55fc..265c693: as above, with pass 1's fixes | 2 | 1 (1, 0, 0 shared) | 0 | 0 | `clean`: 9accd3a |
 | a91afcd..c6c953c: the first part of the full `audit`: reading a workspace's log and one's own, with the owner's decision on who reads them and their clients, the permission that an entry of a workspace's log records from its action, the filters of several values and the moments that a filter takes, and the documents they changed | 1 | 11 (8, 3, 0 shared) | 8 | 0 | `next pass`: 639c5f0 |
 | a91afcd..639c5f0: as above, with pass 1's fixes | 2 | 4 (4, 2, 2 shared) | 4 | 2 | `stopped: no progress`: c149c5d |
-| 2ae960f..ee65d82: the second part of the full `audit`: bounded retention, with the owner's decision on the view through which `app` deletes old entries, the checks' reading of views, and the documents they changed | 1 | 6 (6, 4, 4 shared) | 2 | 0 | `next pass` |
+| 2ae960f..ee65d82: the second part of the full `audit`: bounded retention, with the owner's decision on the view through which `app` deletes old entries, the checks' reading of views, and the documents they changed | 1 | 6 (6, 4, 4 shared) | 2 | 0 | `next pass`: e0b3db5 |
+| 2ae960f..e0b3db5: as above, with pass 1's fixes | 2 | 6 (6, 2, 2 shared) | 1 | 1 | `stopped: no progress` |
 
 ## Decisions
 
