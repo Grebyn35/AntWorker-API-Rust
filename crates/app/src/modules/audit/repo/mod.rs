@@ -11,6 +11,8 @@ use platform::{
     types::{Timestamp, UserId, WorkspaceId},
 };
 
+use serde::Serialize;
+
 use super::model::{Entry, ExportedEntry};
 
 /// What inserting an entry came to.
@@ -45,12 +47,13 @@ fn log_gone(error: &sqlx::Error) -> bool {
 /// client of the unit of work, if it has one, as the client of the entry's actor, or, for an
 /// entry without one, of the user whose log holds it (AUDIT-001, AUDIT-003, AUDIT-006,
 /// AUDIT-007).
-pub(super) async fn insert(
+pub(super) async fn insert<D: Serialize>(
     uow: &mut UnitOfWork,
     scope: AuditScope,
-    entry: &Entry,
+    entry: &Entry<D>,
     trace_id: &str,
 ) -> Result<Inserted, Internal> {
+    let details = serde_json::to_value(&entry.details).map_err(Internal::new)?;
     let (log, user, workspace, permission) = match scope.log() {
         Log::User(user) => ("user", Some(user.uuid()), None, None),
         Log::Workspace(workspace) => (
@@ -81,7 +84,7 @@ pub(super) async fn insert(
         entry.action.name(),
         entry.resource_type.name(),
         entry.resource_id,
-        &entry.details,
+        details,
         client_ip.map(ipnet::IpNet::from),
         user_agent,
         trace_id,

@@ -135,7 +135,7 @@ Cryptography comes from the RustCrypto crates (`aes-gcm`, `hmac`, `sha2`, `argon
 ### SEC-18 Audit entries hold no plain personal data, except IP address and user agent
 The values a module records in an audit entry are IDs and non-personal fields. An email appears only as a keyed hash. IP address and user agent are stored, but a workspace's log shows them only to a reader who holds the permission `access` defines for them, and a user reads them only of the entries that were theirs, in their own read and in their export (D2, D6, D166, AUDIT-010). Erasing an account anonymizes its entries (D31).
 - Why: the audit log is kept longer than most data and read by more people (D6, D7).
-- Check: `test` (each audit action's test asserts its stored values), plus `review`.
+- Check: `compiler` (an entry holds only the type of details that its action declares, in its module's `audit.rs`, AUDIT-014), `test` (each audit action's test asserts its stored values), plus `review` (what each type of details holds).
 
 ### SEC-19 Events reach only authorized streams
 A user event reaches only that user's streams. A workspace event reaches a stream only if its principal holds, in that workspace, the permission that the event requires. Replay delivers an event only to members whose membership already existed when the event was created.

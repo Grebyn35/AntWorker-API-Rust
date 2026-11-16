@@ -5,6 +5,20 @@ mod managing;
 
 use std::collections::HashMap;
 
+use super::{
+    audit::{self, OfferedRole},
+    emails,
+    error::InvitationsError,
+    events::{self as published, AddressedInvitation, InvitationChanged},
+    model::{Accepted, Invited, NewInvitation, ReceivedInvitation, Settings},
+    repo,
+};
+use crate::modules::{
+    access::{self, InvitationsCreate, InvitationsRead, Role},
+    accounts::{self, DisplayName, PublicProfile},
+    audit::{self as log, Entry},
+    workspaces::{self, WorkspaceName},
+};
 use platform::{
     authn::Principal,
     authz::{self, Authorize, Authorized},
@@ -16,21 +30,6 @@ use platform::{
     mail::Mail,
     rate_limit::RateLimits,
     types::{Client, EmailAddress, UserId, WorkspaceId},
-};
-use serde_json::json;
-
-use super::{
-    audit, emails,
-    error::InvitationsError,
-    events::{self as published, AddressedInvitation, InvitationChanged},
-    model::{Accepted, Invited, NewInvitation, ReceivedInvitation, Settings},
-    repo,
-};
-use crate::modules::{
-    access::{self, InvitationsCreate, InvitationsRead, Role},
-    accounts::{self, DisplayName, PublicProfile},
-    audit::{self as log, Entry},
-    workspaces::{self, WorkspaceName},
 };
 
 pub(crate) use managing::{cancel, change_role, invitation, invitations, resend};
@@ -107,9 +106,13 @@ pub(crate) async fn invite(
     } else {
         (audit::INVITATION_UPDATED, &published::INVITATION_UPDATED)
     };
-    let mut entry = Entry::new(action, audit::INVITATION, id);
-    entry.target = invitee;
-    entry.details = json!({ "role": input.role });
+    let entry = Entry::detailed(
+        action,
+        audit::INVITATION,
+        id,
+        OfferedRole { role: input.role },
+    )
+    .targeting(invitee);
     log::record(&mut uow, authorized.audit_scope(), entry).await?;
     announce(&mut uow, event, workspace, id).await?;
     send_email(&mut uow, invitations, authorized, input.email, input.role).await?;

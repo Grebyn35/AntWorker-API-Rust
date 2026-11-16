@@ -94,9 +94,10 @@ fn code(plan: &mut Plan<'_>, module: &str, inserts: &Inserts) {
         "crates/app/src/composition/mod.rs",
         &format!(
             "`{module},` among the imports of `crate::modules`, `.merge({module}::routes())` \
-             among the routes that `routes` mounts, `{module}::routes().openapi(service),` among the \
-             documents of `openapi`, and `Arc::new({module}::Contract),` among the contracts of \
-             `contracts`, before the contract of `accounts`"
+             among the routes that `routes` mounts, `{module}::AUDIT_ACTIONS,` among the lists of \
+             `catalog`, `{module}::routes().openapi(service),` among the documents of `openapi`, \
+             and `Arc::new({module}::Contract),` among the contracts of `contracts`, before the \
+             contract of `accounts`"
         ),
         &|text| composition(text, module),
     );
@@ -241,7 +242,8 @@ fn before(text: &str, at: usize, insert: &str) -> String {
 }
 
 /// The composition root with the module's import, its routes merged into those that `routes`
-/// mounts, before the last link of its chain, and its document among those `openapi` merges.
+/// mounts, before the last link of its chain, its actions among the lists of the action catalog,
+/// its document among those `openapi` merges, and its contract among those of `contracts`.
 fn composition(text: &str, module: &str) -> Option<String> {
     let lines: Vec<&str> = text.lines().collect();
     let imports = find(&lines, 0, |line| line.starts_with("use crate::modules::{"))?;
@@ -272,12 +274,22 @@ fn composition(text: &str, module: &str) -> Option<String> {
     let document = find(&lines, 0, |line| {
         line.contains("platform::http::document([")
     })?;
-    let document_end = find(&lines, document, |line| line.trim() == "])")?;
+    let document_end = find(&lines, document, |line| line.trim().starts_with("])"))?;
     let indent = format!("{}    ", indentation(lines[document_end]));
     let text = before(
         &text,
         document_end,
         &format!("{indent}{module}::routes().openapi(service),"),
+    );
+    // The module's actions, at the end of the action catalog's lists (AUDIT-012).
+    let lines: Vec<&str> = text.lines().collect();
+    let catalog = find(&lines, 0, |line| line.contains("audit::Catalog::new(&["))?;
+    let catalog_end = find(&lines, catalog, |line| line.trim().starts_with("])"))?;
+    let indent = format!("{}    ", indentation(lines[catalog_end]));
+    let text = before(
+        &text,
+        catalog_end,
+        &format!("{indent}{module}::AUDIT_ACTIONS,"),
     );
     // The module's personal data contract, which a deletion runs before the contract of
     // `accounts`, which stays last (DATA-23).
@@ -439,8 +451,10 @@ mod tests {
         let root = "use crate::modules::{\n    access,\n    realtime::{self, Realtime},\n    \
                     system,\n};\n\nfn routes() -> Routes {\n    system::routes()\n        \
                     .merge(access::routes())\n        .merge(realtime::routes())\n}\n\n\
-                    fn openapi() {\n    platform::http::document([\n        \
-                    system::routes().openapi(service),\n    ])\n}\n\nfn contracts() {\n    \
+                    fn catalog() {\n    audit::Catalog::new(&[\n        access::AUDIT_ACTIONS,\n    \
+                    ])\n}\n\nfn openapi() {\n    let mut document = platform::http::document([\n        \
+                    system::routes().openapi(service),\n    ]);\n    document\n}\n\n\
+                    fn contracts() {\n    \
                     vec![\n        Arc::new(access::Contract),\n        \
                     Arc::new(accounts::Contract::new(mail.clone())),\n    ]\n}\n";
 
@@ -449,9 +463,11 @@ mod tests {
             "use crate::modules::{\n    access,\n    items,\n    realtime::{self, Realtime},\n    \
              system,\n};\n\nfn routes() -> Routes {\n    system::routes()\n        \
              .merge(access::routes())\n        .merge(items::routes())\n        \
-             .merge(realtime::routes())\n}\n\nfn openapi() {\n    platform::http::document([\n        \
+             .merge(realtime::routes())\n}\n\nfn catalog() {\n    audit::Catalog::new(&[\n        \
+             access::AUDIT_ACTIONS,\n        items::AUDIT_ACTIONS,\n    ])\n}\n\nfn openapi() {\n    \
+             let mut document = platform::http::document([\n        \
              system::routes().openapi(service),\n        items::routes().openapi(service),\n    \
-             ])\n}\n\nfn contracts() {\n    vec![\n        Arc::new(access::Contract),\n        \
+             ]);\n    document\n}\n\nfn contracts() {\n    vec![\n        Arc::new(access::Contract),\n        \
              Arc::new(items::Contract),\n        \
              Arc::new(accounts::Contract::new(mail.clone())),\n    ]\n}\n"
         );

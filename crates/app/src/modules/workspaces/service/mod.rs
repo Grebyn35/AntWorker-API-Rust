@@ -84,10 +84,7 @@ where
     // part: workspace_setup
     // An entry whose scope names no actor names the owner as its target, so the log says whom
     // the workspace was created for (WORKSPACES-023).
-    let entry = Entry {
-        target: scope.actor().is_none().then_some(founder.owner),
-        ..entry
-    };
+    let entry = entry.targeting(scope.actor().is_none().then_some(founder.owner));
     // end part: workspace_setup
     log::record(uow, scope, entry).await?;
     Ok(Current {
@@ -254,12 +251,12 @@ pub(crate) async fn transfer(
         access::Transfer::Transferred => {}
     }
     let workspace = authorized.workspace_id();
-    let mut entry = Entry::new(
+    let entry = Entry::new(
         audit::WORKSPACE_TRANSFERRED,
         audit::WORKSPACE,
         workspace.uuid(),
-    );
-    entry.target = Some(transfer.to);
+    )
+    .targeting(Some(transfer.to));
     log::record(&mut uow, authorized.audit_scope(), entry).await?;
     let payload = published::WorkspaceTransferred {
         workspace_id: workspace,

@@ -15,10 +15,10 @@ use super::{Founder, erase, found};
 use crate::modules::{
     access::{self, Census},
     accounts::{self, PublicProfile},
-    audit::{self as log, Entry},
+    audit::{self as log, Access, Entry},
     auth,
     workspaces::{
-        audit,
+        audit::{self, Acted},
         error::WorkspacesError,
         events as published,
         model::{Current, WorkspaceName, WorkspaceOverview, WorkspaceOwner},
@@ -29,9 +29,9 @@ use crate::modules::{
 /// What an entry that a superadmin's route records says of how the caller acted: as a
 /// superadmin, as a refusal of such a route says too (SUPERADMINS-004), and not as a member of
 /// the workspace.
-fn as_superadmin() -> serde_json::Value {
-    serde_json::json!({ "access": "superadmin" })
-}
+const AS_SUPERADMIN: Acted = Acted {
+    access: Some(Access::Superadmin),
+};
 
 /// A page of every workspace of the deployment, each with its owner and how many members it
 /// has, the latest created first, kept to those whose name contains `search`, for a superadmin,
@@ -104,8 +104,12 @@ pub(in crate::modules::workspaces) async fn create(
     let created = found(&mut uow, &name, founder).await?;
     let workspace = created.workspace.id;
     // The superadmin's own log holds the creation too, since the workspace's goes with it.
-    let mut entry = Entry::new(audit::WORKSPACE_CREATED, audit::WORKSPACE, workspace.uuid());
-    entry.details = as_superadmin();
+    let entry = Entry::detailed(
+        audit::WORKSPACE_CREATED,
+        audit::WORKSPACE,
+        workspace.uuid(),
+        AS_SUPERADMIN,
+    );
     log::record(&mut uow, caller.audit_scope(), entry).await?;
     let payload = published::MembershipCreated {
         workspace_id: workspace,
@@ -134,8 +138,12 @@ pub(in crate::modules::workspaces) async fn delete(
     // The entry's foreign keys read the caller's row, so it is written before any row of the
     // workspace is locked (the workspaces spec's "Deleting a workspace"). It says that the
     // caller deleted the workspace as a superadmin, not as its owner.
-    let mut entry = Entry::new(audit::WORKSPACE_DELETED, audit::WORKSPACE, workspace.uuid());
-    entry.details = as_superadmin();
+    let entry = Entry::detailed(
+        audit::WORKSPACE_DELETED,
+        audit::WORKSPACE,
+        workspace.uuid(),
+        AS_SUPERADMIN,
+    );
     log::record(&mut uow, caller.audit_scope(), entry).await?;
     if !access::dissolve_any(&mut uow, superadmin, workspace).await? {
         // No workspace has the ID: the unit of work rolls back, and the entry with it.

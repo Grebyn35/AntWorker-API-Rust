@@ -18,7 +18,7 @@ use crate::modules::{
     accounts,
     audit::{self as audit_log, Entry},
     auth::{
-        audit,
+        audit::{self, ThroughProvider},
         error::AuthError,
         model::{DeviceToken, FactorProof, Session, Tokens},
         repo::{self, second_factors as factors},
@@ -69,11 +69,12 @@ impl Auth {
             CHALLENGE_MINUTES,
         )
         .await?;
-        let entry = Entry::new(audit::SIGN_IN_CHALLENGED, audit::USER, user_id.uuid());
-        let entry = match &device.provider {
-            Some(provider) => super::super::providers::through(entry, provider),
-            None => entry,
-        };
+        let entry = Entry::detailed(
+            audit::SIGN_IN_CHALLENGED,
+            audit::USER,
+            user_id.uuid(),
+            ThroughProvider::new(device.provider.as_deref()),
+        );
         audit_log::record(uow, AuditScope::attempt(user_id), entry).await?;
         Ok(Challenge { token, expires_at })
     }

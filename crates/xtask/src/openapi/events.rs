@@ -75,7 +75,7 @@ pub fn workspace_events(text: &str) -> Vec<&str> {
 
 /// The name of each event that `text` declares through one of `constructors`: the string that
 /// the constructor takes first.
-fn declared<'a>(text: &'a str, constructors: &[&str]) -> Vec<&'a str> {
+pub(super) fn declared<'a>(text: &'a str, constructors: &[&str]) -> Vec<&'a str> {
     let mut names = Vec::new();
     for constructor in constructors {
         for (at, _) in text.match_indices(constructor) {

@@ -14,7 +14,7 @@ use crate::modules::{
     accounts::{self, Address, Creation, DisplayName},
     audit::{self as audit_log, Entry},
     auth::{
-        audit,
+        audit::{self, LinkedProvider, ThroughProvider},
         error::AuthError,
         metrics,
         model::{FactorProof, Required, Session},
@@ -216,9 +216,11 @@ impl Auth {
         audit_log::record(
             &mut uow,
             principal.audit_scope(),
-            through(
-                Entry::new(audit::USER_REGISTERED, audit::USER, user_id.uuid()),
-                provider.key,
+            Entry::detailed(
+                audit::USER_REGISTERED,
+                audit::USER,
+                user_id.uuid(),
+                ThroughProvider::new(Some(provider.key)),
             ),
         )
         .await?;
@@ -270,9 +272,11 @@ impl Auth {
             audit_log::record(
                 &mut uow,
                 principal.audit_scope(),
-                through(
-                    Entry::new(audit::IDENTITY_CHECK_FAILED, audit::USER, user_id.uuid()),
-                    provider.key,
+                Entry::detailed(
+                    audit::IDENTITY_CHECK_FAILED,
+                    audit::USER,
+                    user_id.uuid(),
+                    LinkedProvider::new(provider.key),
                 ),
             )
             .await?;
@@ -289,13 +293,11 @@ impl Auth {
         audit_log::record(
             &mut uow,
             principal.audit_scope(),
-            through(
-                Entry::new(
-                    audit::SESSION_REAUTHENTICATED,
-                    audit::SESSION,
-                    session.id.uuid(),
-                ),
-                provider.key,
+            Entry::detailed(
+                audit::SESSION_REAUTHENTICATED,
+                audit::SESSION,
+                session.id.uuid(),
+                ThroughProvider::new(Some(provider.key)),
             ),
         )
         .await?;
@@ -397,12 +399,6 @@ impl Auth {
 #[derive(Debug, thiserror::Error)]
 #[error("the provider's token wasn't deleted: {0}")]
 struct TokenKept(String);
-
-/// `entry`, with the provider whose sign-in it records in its details (AUTH-073).
-pub(super) fn through(mut entry: Entry, provider: &str) -> Entry {
-    entry.details = serde_json::json!({ "provider": provider });
-    entry
-}
 
 /// The account whose provider identity holds `identity`'s subject, with its address, once the
 /// unit of work holds the user's turn, or none (AUTH-073).

@@ -195,7 +195,17 @@ fn formats(
     }
     for key in ["allOf", "anyOf", "oneOf"] {
         for part in schema[key].as_array().into_iter().flatten() {
-            formats(document, part, owner, needle, problems);
+            // An entry's action is an action's name, which the audit spec shapes, not a closed set
+            // of API-11; `actions` checks it.
+            if schema["x-audit-action"].is_null() {
+                formats(document, part, owner, needle, problems);
+            } else {
+                let mut part = part.clone();
+                if let Some(properties) = part["properties"].as_object_mut() {
+                    properties.remove("action");
+                }
+                formats(document, &part, owner, needle, problems);
+            }
         }
     }
 }
@@ -354,6 +364,29 @@ mod tests {
         assert_eq!(
             messages(&document(operation, json!({}))),
             Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn api_11_an_audit_entry_s_action_is_no_closed_set() {
+        let schemas = json!({
+            "ThingMadeEntry": {
+                "allOf": [{ "type": "object", "properties": {
+                    "action": { "type": "string", "enum": ["thing.made"] },
+                    "resource_type": { "type": "string", "enum": ["thing", "bigThing"] },
+                } }],
+                "x-audit-action": "thing.made",
+            },
+            "Other": { "allOf": [{ "type": "object", "properties": {
+                "action": { "type": "string", "enum": ["thing.made"] },
+            } }] },
+        });
+        assert_eq!(
+            messages(&document(json!({ "responses": {} }), schemas)),
+            [
+                "schema Other.action: the value thing.made of a closed set isn't snake_case (API-11)",
+                "schema ThingMadeEntry.resource_type: the value bigThing of a closed set isn't snake_case (API-11)",
+            ]
         );
     }
 

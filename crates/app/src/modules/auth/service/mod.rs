@@ -63,7 +63,7 @@ pub(crate) use sign_in::{SignIn, SignedIn};
 pub(crate) use verifier::Verifier;
 
 use super::{
-    audit,
+    audit::{self, ThroughProvider},
     error::AuthError,
     events::{SESSION_CREATED, SessionChanged},
     model::{
@@ -279,11 +279,12 @@ impl Auth {
         }
         let (principal, session, tokens) = self.start_session(uow, user_id, device).await?;
         sessions::end_sessions(uow, principal.audit_scope(), user_id, &ended).await?;
-        let entry = Entry::new(audit::SESSION_CREATED, audit::SESSION, session.id.uuid());
-        let entry = match &device.provider {
-            Some(provider) => providers::through(entry, provider),
-            None => entry,
-        };
+        let entry = Entry::detailed(
+            audit::SESSION_CREATED,
+            audit::SESSION,
+            session.id.uuid(),
+            ThroughProvider::new(device.provider.as_deref()),
+        );
         audit_log::record(uow, principal.audit_scope(), entry).await?;
         Ok((principal, session, tokens))
     }

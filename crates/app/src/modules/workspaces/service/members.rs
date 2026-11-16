@@ -20,7 +20,7 @@ use crate::modules::{
     accounts::{self, PublicProfile},
     audit::{self as log, Entry},
     workspaces::{
-        audit,
+        audit::{self, ChangedRole},
         error::WorkspacesError,
         events as published,
         model::{CurrentMember, Member, NewRole},
@@ -153,13 +153,13 @@ async fn announce_role(
     to: Role,
 ) -> Result<(), WorkspacesError> {
     let workspace = authorized.workspace_id();
-    let mut entry = Entry::new(
+    let entry = Entry::detailed(
         audit::MEMBER_ROLE_CHANGED,
         audit::WORKSPACE,
         workspace.uuid(),
-    );
-    entry.target = Some(user);
-    entry.details = serde_json::json!({ "from": from.name(), "to": to.name() });
+        ChangedRole { from, to },
+    )
+    .targeting(Some(user));
     log::record(uow, authorized.audit_scope(), entry).await?;
     let payload = published::MemberRoleChanged {
         workspace_id: workspace,
@@ -188,8 +188,8 @@ pub(crate) async fn remove_member(
         Removal::Removed => {}
     }
     let workspace = authorized.workspace_id();
-    let mut entry = Entry::new(audit::MEMBER_REMOVED, audit::WORKSPACE, workspace.uuid());
-    entry.target = Some(user);
+    let entry =
+        Entry::new(audit::MEMBER_REMOVED, audit::WORKSPACE, workspace.uuid()).targeting(Some(user));
     log::record(&mut uow, authorized.audit_scope(), entry).await?;
     let payload = published::MemberRemoved {
         workspace_id: workspace,
@@ -228,8 +228,8 @@ pub(in crate::modules::workspaces) async fn left(
     workspace: WorkspaceId,
     user: UserId,
 ) -> Result<(), Internal> {
-    let mut entry = Entry::new(audit::MEMBER_LEFT, audit::WORKSPACE, workspace.uuid());
-    entry.target = Some(user);
+    let entry =
+        Entry::new(audit::MEMBER_LEFT, audit::WORKSPACE, workspace.uuid()).targeting(Some(user));
     log::record(uow, scope, entry).await?;
     let payload = published::MemberLeft {
         workspace_id: workspace,

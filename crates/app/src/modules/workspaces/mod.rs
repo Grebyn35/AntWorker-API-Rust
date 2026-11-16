@@ -12,7 +12,9 @@ mod repo;
 mod routes;
 mod service;
 
+pub(crate) use audit::ACTIONS as AUDIT_ACTIONS;
 // part: invitations
+pub(crate) use audit::ChangedRole;
 pub(crate) use error::WorkspacesError;
 pub(crate) use events::{MEMBERSHIP_CREATED, MembershipCreated};
 pub(crate) use model::WorkspaceName;

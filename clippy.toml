@@ -140,9 +140,11 @@ disallowed-methods = [
     { path = "platform::mail::Mail::with_inbox", reason = "only the seed reads the API's emails in process (the system spec's Seed)" },
     { path = "platform::events::UserEvent::new", reason = "a module declares its user events in its events.rs (the platform spec's events)" },
     { path = "platform::events::WorkspaceEvent::new", reason = "a module declares its workspace events in its events.rs (the platform spec's events)" },
-    { path = "app::modules::audit::model::Action::new", reason = "a module declares its audit actions in its audit.rs (the audit spec)" },
-    { path = "app::modules::audit::model::Action::read_with", reason = "a module declares its audit actions in its audit.rs (the audit spec)" },
-    { path = "app::modules::audit::model::Resource::new", reason = "a module declares the kinds of resource its audit entries happen to in its audit.rs (the audit spec)" },
+    { path = "app::modules::audit::model::action::Action::new", reason = "a module declares its audit actions in its audit.rs, which lists them for the action catalog (the audit spec)" },
+    { path = "app::modules::audit::model::action::Action::in_own_log", reason = "a module declares the logs of its audit actions in its audit.rs, as the action catalog lists them (the audit spec)" },
+    { path = "app::modules::audit::model::action::Action::in_workspace_log", reason = "a module declares the logs of its audit actions in its audit.rs, as the action catalog lists them (the audit spec)" },
+    { path = "app::modules::audit::model::action::Action::in_workspace_log_for_every_reader", reason = "a module declares the logs of its audit actions in its audit.rs, as the action catalog lists them (the audit spec)" },
+    { path = "app::modules::audit::model::action::Resource::new", reason = "a module declares the kinds of resource its audit entries happen to in its audit.rs (the audit spec)" },
 ]
 
 disallowed-macros = [

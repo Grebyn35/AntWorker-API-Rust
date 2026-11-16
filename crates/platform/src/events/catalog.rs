@@ -136,17 +136,7 @@ impl<T: Serialize + ToSchema> Catalogued for StreamFrame<T> {
 /// The name of the component that holds the schema of the frame type `name`: `member.removed`'s
 /// is `MemberRemovedFrame`.
 fn component(name: &str) -> String {
-    let mut component: String = name
-        .split(['.', '_'])
-        .map(|word| {
-            let mut letters = word.chars();
-            letters.next().map_or_else(String::new, |first| {
-                first.to_uppercase().chain(letters).collect()
-            })
-        })
-        .collect();
-    component.push_str("Frame");
-    component
+    crate::http::component_name(name, "Frame")
 }
 
 /// The schema of a frame of `entry`'s type, once a client's parser has read it.

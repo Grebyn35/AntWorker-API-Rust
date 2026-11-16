@@ -14,14 +14,14 @@ use platform::{
 
 use super::{
     Auth, buckets, hash,
-    providers::{Grant, through},
+    providers::Grant,
     reauthentication::{require_recent_proof, take_turn},
     sessions::end_sessions,
 };
 use crate::modules::{
     audit::{self as audit_log, Entry},
     auth::{
-        audit,
+        audit::{self, LinkedProvider},
         emails::{IdentityChange, IdentityChangedEmail},
         error::AuthError,
         events::{IDENTITY_ADDED, IDENTITY_REMOVED, IdentityChanged},
@@ -116,9 +116,11 @@ impl Auth {
         let id = repo::insert_provider_identity(&mut uow, user_id, provider.key, &identity.subject)
             .await?
             .ok_or(AuthError::IdentityInUse)?;
-        let entry = through(
-            Entry::new(audit::PROVIDER_LINKED, audit::IDENTITY, id),
-            provider.key,
+        let entry = Entry::detailed(
+            audit::PROVIDER_LINKED,
+            audit::IDENTITY,
+            id,
+            LinkedProvider::new(provider.key),
         );
         audit_log::record(&mut uow, principal.audit_scope(), entry).await?;
         publish(&mut uow, &IDENTITY_ADDED, user_id, id).await?;
@@ -154,25 +156,16 @@ impl Auth {
         if usize::from(identities.password.is_some()) + identities.providers.len() == 1 {
             return Err(AuthError::LastIdentity);
         }
-        let (entry, change) = match &way {
+        let change = match &way {
             // The identity before any challenge or session, as a sign-in locks them (the auth
             // spec's "Taking turns").
             None => {
                 repo::delete_password_identity(&mut uow, user_id, id).await?;
-                (
-                    Entry::new(audit::PASSWORD_REMOVED, audit::IDENTITY, id),
-                    IdentityChange::PasswordRemoved,
-                )
+                IdentityChange::PasswordRemoved
             }
             Some(provider) => {
                 repo::delete_provider_identity(&mut uow, user_id, id).await?;
-                (
-                    through(
-                        Entry::new(audit::PROVIDER_UNLINKED, audit::IDENTITY, id),
-                        provider,
-                    ),
-                    IdentityChange::ProviderUnlinked(self.providers.name(provider)),
-                )
+                IdentityChange::ProviderUnlinked(self.providers.name(provider))
             }
         };
         // No challenge that a sign-in with it issued completes (AUTH-069).
@@ -185,7 +178,18 @@ impl Auth {
         )
         .await?;
         end_sessions(&mut uow, principal.audit_scope(), user_id, &ended).await?;
-        audit_log::record(&mut uow, principal.audit_scope(), entry).await?;
+        let scope = principal.audit_scope();
+        match &way {
+            None => {
+                let entry = Entry::new(audit::PASSWORD_REMOVED, audit::IDENTITY, id);
+                audit_log::record(&mut uow, scope, entry).await?;
+            }
+            Some(provider) => {
+                let details = LinkedProvider::new(provider);
+                let entry = Entry::detailed(audit::PROVIDER_UNLINKED, audit::IDENTITY, id, details);
+                audit_log::record(&mut uow, scope, entry).await?;
+            }
+        }
         publish(&mut uow, &IDENTITY_REMOVED, user_id, id).await?;
         self.tell_identities_changed(&mut uow, principal, address.email, change)
             .await?;

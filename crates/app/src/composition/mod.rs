@@ -271,6 +271,7 @@ fn routes(resources: &Resources, states: States) -> Routes {
         .merge(accounts::routes().with_state(database.clone()))
         .merge(accounts::export_routes().with_state(states.exports.clone()))
         .merge(audit::routes().with_state(database.clone()))
+        .merge(audit::catalog_routes().with_state(Arc::new(catalog().listing())))
         .merge(auth::routes().with_state(states.auth.clone()))
         .merge(
             auth::provider_routes().with_state(auth::ProviderRoutes::new(
@@ -361,14 +362,36 @@ pub fn pipeline(
     }
 }
 
+/// The action catalog: every action that the modules record (AUDIT-012). `just new-module` adds a
+/// module's actions before the list's end.
+fn catalog() -> audit::Catalog {
+    audit::Catalog::new(&[
+        accounts::AUDIT_ACTIONS,
+        audit::AUDIT_ACTIONS,
+        auth::AUDIT_ACTIONS,
+        workspaces::AUDIT_ACTIONS,
+        // part: invitations
+        invitations::AUDIT_ACTIONS,
+        // end part: invitations
+        // part: superadmins
+        superadmins::AUDIT_ACTIONS,
+        // end part: superadmins
+        // part: files
+        files::AUDIT_ACTIONS,
+        // end part: files
+    ])
+}
+
 /// The OpenAPI document of every module's routes, with the event catalog of every event they
-/// publish, which needs no database (API-17, REALTIME-008).
+/// publish, and the action catalog of every action they record, which needs no database
+/// (API-17, REALTIME-008, AUDIT-014).
 pub fn openapi(service: Service) -> OpenApi {
-    platform::http::document([
+    let mut document = platform::http::document([
         system::routes().openapi(service),
         accounts::routes().openapi(service),
         accounts::export_routes().openapi(service),
         audit::routes().openapi(service),
+        audit::catalog_routes().openapi(service),
         auth::routes().openapi(service),
         auth::export_routes().openapi(service),
         auth::provider_routes().openapi(service),
@@ -385,7 +408,9 @@ pub fn openapi(service: Service) -> OpenApi {
         files::routes().openapi(service),
         workspaces::picture_routes().openapi(service),
         // end part: files
-    ])
+    ]);
+    catalog().document(&mut document);
+    document
 }
 
 /// Every module's personal data contract, in the order an account's deletion runs them, the

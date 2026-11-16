@@ -13,8 +13,14 @@ mod repo;
 mod routes;
 mod service;
 
+pub(crate) use audit::ACTIONS as AUDIT_ACTIONS;
 pub(crate) use jobs::Retention;
-pub(crate) use model::{Action, Entry, RETENTION_FLOOR_DAYS, Resource, Settings};
+// part: superadmins
+pub(crate) use model::Access;
+// end part: superadmins
+pub(crate) use model::{
+    Action, Catalog, Catalogued, Entry, RETENTION_FLOOR_DAYS, Resource, Settings,
+};
 pub(crate) use personal_data::Contract;
-pub(crate) use routes::routes;
+pub(crate) use routes::{catalog_routes, routes};
 pub(crate) use service::{Sink, record};

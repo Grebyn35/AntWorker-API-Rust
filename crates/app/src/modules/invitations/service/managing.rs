@@ -10,7 +10,7 @@ use platform::{
     rate_limit::RateLimits,
     types::Version,
 };
-use serde_json::json;
+use serde::Serialize;
 
 use super::{Invitations, announce, send_email, tell};
 use crate::modules::{
@@ -26,6 +26,7 @@ use crate::modules::{
         model::{CurrentInvitation, Invitation, NewRole},
         repo::managing as repo,
     },
+    workspaces::ChangedRole,
 };
 
 /// The invitation `id` of the caller's workspace, expired or not, with its version
@@ -73,17 +74,16 @@ async fn hold<P: Permission>(
 /// Records `action` on the invitation `held` under the proof's scope, with `details`, and with
 /// the account that holds its address as the entry's target, which it returns: the user its
 /// event goes to (Who an invitation reaches).
-async fn record<P: Permission>(
+async fn record<P: Permission, D: Serialize>(
     uow: &mut UnitOfWork,
     authorized: &Authorized<P>,
-    action: log::Action,
+    action: log::Action<D>,
     held: &CurrentInvitation,
-    details: serde_json::Value,
+    details: D,
 ) -> Result<Option<platform::types::UserId>, InvitationsError> {
     let invitee = accounts::find_by_email(uow, &held.invitation.email).await?;
-    let mut entry = Entry::new(action, audit::INVITATION, held.invitation.id);
-    entry.target = invitee;
-    entry.details = details;
+    let entry =
+        Entry::detailed(action, audit::INVITATION, held.invitation.id, details).targeting(invitee);
     log::record(uow, authorized.audit_scope(), entry).await?;
     Ok(invitee)
 }
@@ -116,7 +116,10 @@ pub(crate) async fn change_role(
     let Some(current) = repo::set_role(&mut uow, workspace, id, new.role, versions).await? else {
         return Err(RequestError::PreconditionFailed.into());
     };
-    let details = json!({ "from": held.invitation.role, "to": new.role });
+    let details = ChangedRole {
+        from: held.invitation.role,
+        to: new.role,
+    };
     let action = audit::INVITATION_ROLE_CHANGED;
     let invitee = record(&mut uow, authorized, action, &held, details).await?;
     announce(&mut uow, &published::INVITATION_UPDATED, workspace, id).await?;
@@ -160,7 +163,7 @@ pub(crate) async fn resend(
     let days = invitations.settings.expiry_days;
     let current = repo::renew(&mut uow, workspace, id, inviter, days).await?;
     let action = audit::INVITATION_RESENT;
-    let invitee = record(&mut uow, authorized, action, &held, json!({})).await?;
+    let invitee = record(&mut uow, authorized, action, &held, Default::default()).await?;
     announce(&mut uow, &published::INVITATION_UPDATED, workspace, id).await?;
     let invitation = held.invitation;
     send_email(
@@ -198,7 +201,7 @@ pub(crate) async fn cancel(
     let workspace = authorized.workspace_id();
     repo::cancel(&mut uow, workspace, id).await?;
     let action = audit::INVITATION_CANCELLED;
-    let invitee = record(&mut uow, authorized, action, &held, json!({})).await?;
+    let invitee = record(&mut uow, authorized, action, &held, Default::default()).await?;
     announce(&mut uow, &published::INVITATION_CANCELLED, workspace, id).await?;
     if let Some(user) = invitee {
         tell(

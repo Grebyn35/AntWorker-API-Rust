@@ -1,73 +1,23 @@
-//! An audit entry, as a module records it, and as a list of a log shows it.
+//! An audit entry, as a module records it, and as a list of a log shows it. An action, as a
+//! module declares it, is in `action`, and the action catalog in `catalog`.
+
+mod action;
+mod catalog;
 
 use std::borrow::Cow;
 
-use platform::{
-    authz::Permission,
-    types::{Invalid, Timestamp, UserId, WorkspaceId},
-};
+use platform::types::{Invalid, Timestamp, UserId, WorkspaceId};
 use serde::Serialize;
 use utoipa::{
     PartialSchema, ToSchema,
     openapi::{ObjectBuilder, RefOr, Schema, Type},
 };
 
-/// What happened, as `<resource>.<past-tense verb>`, such as `user.registered`, with the
-/// permission that reading it in a workspace's log takes, if any. Each module declares its own in
-/// its `audit.rs` (the audit spec), the one place clippy lets build one.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Action {
-    name: &'static str,
-    permission: Option<&'static str>,
-}
-
-impl Action {
-    /// The action `name`, which a workspace's log shows to whoever reads it, such as a refusal,
-    /// or which only a user's own log records.
-    pub(crate) const fn new(name: &'static str) -> Self {
-        Self {
-            name,
-            permission: None,
-        }
-    }
-
-    /// The action `name`, which a workspace's log shows only to a reader whose role holds `P`:
-    /// the permission of the workspace event that its change publishes, or `workspace.read` for
-    /// a change that publishes none (the audit spec's "Reading a workspace's log").
-    pub(crate) const fn read_with<P: Permission>(name: &'static str) -> Self {
-        Self {
-            name,
-            permission: Some(P::NAME),
-        }
-    }
-
-    /// The action's name.
-    pub(crate) fn name(self) -> &'static str {
-        self.name
-    }
-
-    /// The permission that reading it in a workspace's log takes beside `audit.read`, if any.
-    pub(crate) fn permission(self) -> Option<&'static str> {
-        self.permission
-    }
-}
-
-/// A kind of resource that entries happen to, such as `user` or `session`. Each module declares
-/// its own in its `audit.rs` (the audit spec), the one place clippy lets build one.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Resource(&'static str);
-
-impl Resource {
-    /// The kind of resource `name`.
-    pub(crate) const fn new(name: &'static str) -> Self {
-        Self(name)
-    }
-
-    /// The kind's name.
-    pub(crate) fn name(self) -> &'static str {
-        self.0
-    }
-}
+// part: superadmins
+pub(crate) use action::Access;
+// end part: superadmins
+pub(crate) use action::{Action, NoDetails, Resource};
+pub(crate) use catalog::{AuditCatalog, Catalog, Catalogued};
 
 /// The fewest days that `AUDIT_RETENTION_DAYS` takes: the floor of `deletable_audit_entries`,
 /// through which retention deletes, and which shows no entry recorded more recently, as its
@@ -81,34 +31,53 @@ pub(crate) struct Settings {
     pub(crate) retention_days: u32,
 }
 
-/// What a module records about one change or security event (AUDIT-003). The log and the actor
-/// come from the `AuditScope` it is recorded with, never from here (AUDIT-002).
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct Entry {
+/// What a module records about one change or security event (AUDIT-003), with `D`, the details
+/// that its action declares, so an entry holds no other (AUDIT-014). The log and the actor come
+/// from the `AuditScope` it is recorded with, never from here (AUDIT-002).
+#[derive(Clone, Debug)]
+pub(crate) struct Entry<D = NoDetails> {
     /// What happened.
-    pub(crate) action: Action,
-    /// The kind of resource it happened to.
+    pub(crate) action: Action<D>,
+    /// The kind of resource it happened to, one that the action declares (AUDIT-013).
     pub(crate) resource_type: Resource,
     /// The resource's ID.
     pub(crate) resource_id: Option<uuid::Uuid>,
     /// The user it happened to, if any, who may be its actor too, as a member who leaves a
     /// workspace is (WORKSPACES-014).
     pub(crate) target: Option<UserId>,
-    /// IDs and non-personal fields only (SEC-18).
-    pub(crate) details: serde_json::Value,
+    /// IDs and non-personal fields only (SEC-18), of the type the action declares.
+    pub(super) details: D,
 }
 
-impl Entry {
+impl<D: Default> Entry<D> {
     /// An entry of `action` on the resource of the kind `resource_type` with the ID
-    /// `resource_id`, with no target and no details.
-    pub(crate) fn new(action: Action, resource_type: Resource, resource_id: uuid::Uuid) -> Self {
+    /// `resource_id`, with no target, and the details that `D` holds by default, such as none.
+    pub(crate) fn new(action: Action<D>, resource_type: Resource, resource_id: uuid::Uuid) -> Self {
+        Self::detailed(action, resource_type, resource_id, D::default())
+    }
+}
+
+impl<D> Entry<D> {
+    /// An entry of `action` on the resource of the kind `resource_type` with the ID
+    /// `resource_id`, with no target, and `details`.
+    pub(crate) fn detailed(
+        action: Action<D>,
+        resource_type: Resource,
+        resource_id: uuid::Uuid,
+        details: D,
+    ) -> Self {
         Self {
             action,
             resource_type,
             resource_id: Some(resource_id),
             target: None,
-            details: serde_json::Value::Object(serde_json::Map::new()),
+            details,
         }
+    }
+
+    /// The entry, with `target` as the user it happened to.
+    pub(crate) fn targeting(self, target: Option<UserId>) -> Self {
+        Self { target, ..self }
     }
 }
 
@@ -152,7 +121,7 @@ pub(crate) struct LoggedEntry {
     /// (AUDIT-006).
     pub(super) target_user_id: Option<UserId>,
     /// IDs and non-personal fields that the action records, such as a role (SEC-18), each action
-    /// its own.
+    /// its own, which the action catalog documents (AUDIT-014).
     #[schema(value_type = std::collections::HashMap<String, serde_json::Value>)]
     pub(super) details: serde_json::Value,
     /// The trace ID of the request or the job that recorded it (API-11), or null.

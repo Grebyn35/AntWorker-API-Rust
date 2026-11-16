@@ -1,6 +1,7 @@
-//! The audit writer (the audit spec). Reading the logs is in `reading`, and retention in
-//! `retention`.
+//! The audit writer (the audit spec). The action catalog is in `catalog`, reading the logs in
+//! `reading`, and retention in `retention`.
 
+mod catalog;
 mod reading;
 mod retention;
 

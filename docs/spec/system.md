@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`system` tells clients what the running deployment offers: the capabilities endpoint lists the features a deployment can turn off, and whether each one is on, and the optional parts that change what a client offers, which its fork keeps (D9, D118). It also fills a development database with demo accounts and workspaces, through the `seed` subcommand, so a developer has something to sign in to (D28). The schema endpoints, which list the permissions and the audit actions, arrive with the modules whose catalogs they list.
+`system` tells clients what the running deployment offers: the capabilities endpoint lists the features a deployment can turn off, and whether each one is on, and the optional parts that change what a client offers, which its fork keeps (D9, D118). It also fills a development database with demo accounts and workspaces, through the `seed` subcommand, so a developer has something to sign in to (D28). The schema endpoint that lists the permissions arrives with the catalog it lists; the action catalog is `audit`'s, which serves it ([audit spec](audit.md#the-action-catalog)).
 
 ## Owns
 

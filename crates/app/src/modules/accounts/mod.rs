@@ -11,6 +11,7 @@ mod repo;
 mod routes;
 mod service;
 
+pub(crate) use audit::ACTIONS as AUDIT_ACTIONS;
 pub(crate) use error::AccountsError;
 pub(crate) use model::{Address, DisplayName, Export, PublicProfile};
 pub(crate) use routes::{export_routes, routes};

@@ -348,6 +348,23 @@ pub fn document(parts: impl IntoIterator<Item = OpenApi>) -> OpenApi {
     document
 }
 
+/// The name of the component that a catalog of the document gives what `name` names, a dotted
+/// name in `snake_case`, such as an event's or an audit action's: its words, each starting with a
+/// capital, then `suffix`, so `member.removed` with `Frame` is `MemberRemovedFrame`.
+pub fn component_name(name: &str, suffix: &str) -> String {
+    let mut component: String = name
+        .split(['.', '_'])
+        .map(|word| {
+            let mut letters = word.chars();
+            letters.next().map_or_else(String::new, |first| {
+                first.to_uppercase().chain(letters).collect()
+            })
+        })
+        .collect();
+    component.push_str(suffix);
+    component
+}
+
 /// What the request pipeline takes from the deployment.
 pub struct Pipeline {
     /// The clock the request log measures durations with.

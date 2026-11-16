@@ -13,6 +13,7 @@ mod repo;
 mod routes;
 mod service;
 
+pub(crate) use audit::ACTIONS as AUDIT_ACTIONS;
 pub(crate) use error::AuthError;
 pub(crate) use jobs::register;
 pub(crate) use model::Lifetimes;

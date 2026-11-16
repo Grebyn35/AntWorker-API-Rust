@@ -12,8 +12,13 @@ use platform::{
     types::Client,
 };
 
+use serde::Serialize;
+
+// part: superadmins
+use super::model::Access;
+// end part: superadmins
 use super::{
-    audit,
+    audit::{self, Denial},
     error::AuditError,
     model::{Entry, EntryFilter, LoggedEntry},
     repo::{self, Inserted},
@@ -21,14 +26,16 @@ use super::{
 use crate::modules::access::{self, AuditRead, AuditReadClients};
 
 /// Records `entry` in the log that `scope` names, in `uow`, so it commits or rolls back with the
-/// change, which fails with it, as an internal error (AUDIT-001). The actor comes from the scope,
-/// the client from the unit of work, and the trace ID from the current span (AUDIT-002,
-/// AUDIT-003).
-pub(crate) async fn record(
+/// change, which fails with it, as an internal error (AUDIT-001), as it does when the entry's
+/// action declares neither that kind of log nor the entry's kind of resource (AUDIT-013). The
+/// actor comes from the scope, the client from the unit of work, and the trace ID from the
+/// current span (AUDIT-002, AUDIT-003).
+pub(crate) async fn record<D: Serialize>(
     uow: &mut UnitOfWork,
     scope: AuditScope,
-    entry: Entry,
+    entry: Entry<D>,
 ) -> Result<(), Internal> {
+    entry.action.admits(scope.log(), entry.resource_type)?;
     match repo::insert(uow, scope, &entry, &telemetry::trace_id()).await? {
         Inserted::Recorded => Ok(()),
         Inserted::LogGone => Err(Internal::new("the audit entry's log is gone")),
@@ -102,13 +109,19 @@ impl Sink {
     /// Records `refusal` in the log that `scope` names, in a unit of work of its own, and
     /// returns whether the log was there to hold it.
     async fn insert(&self, refusal: &Refusal, scope: AuditScope) -> Result<bool, Internal> {
-        let mut uow = self.database.begin(refusal.client()).await?;
-        let mut entry = Entry::new(
+        let entry = Entry::detailed(
             audit::ACCESS_DENIED,
             audit::WORKSPACE,
             refusal.workspace_id().uuid(),
+            Denial {
+                permission: Some(refusal.permission()),
+                // part: superadmins
+                access: None,
+                // end part: superadmins
+            },
         );
-        entry.details = serde_json::json!({ "permission": refusal.permission() });
+        entry.action.admits(scope.log(), entry.resource_type)?;
+        let mut uow = self.database.begin(refusal.client()).await?;
         match repo::insert(&mut uow, scope, &entry, &telemetry::trace_id()).await? {
             Inserted::Recorded => {
                 uow.commit().await?;
@@ -134,14 +147,18 @@ impl SecurityEventSink for Sink {
         client: &'a Client,
     ) -> BoxFuture<'a, Result<(), Internal>> {
         Box::pin(async move {
-            let mut uow = self.database.begin(client).await?;
             let entry = Entry {
                 action: audit::ACCESS_DENIED,
                 resource_type: audit::DEPLOYMENT,
                 resource_id: None,
                 target: None,
-                details: serde_json::json!({ "access": "superadmin" }),
+                details: Denial {
+                    permission: None,
+                    access: Some(Access::Superadmin),
+                },
             };
+            entry.action.admits(scope.log(), entry.resource_type)?;
+            let mut uow = self.database.begin(client).await?;
             match repo::insert(&mut uow, scope, &entry, &telemetry::trace_id()).await? {
                 Inserted::Recorded => uow.commit().await,
                 Inserted::LogGone => Ok(()),

@@ -13,6 +13,7 @@ mod repo;
 mod routes;
 mod service;
 
+pub(crate) use audit::ACTIONS as AUDIT_ACTIONS;
 pub(crate) use model::Settings;
 pub(crate) use personal_data::Contract;
 pub(crate) use routes::routes;

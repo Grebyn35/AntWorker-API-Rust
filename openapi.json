@@ -79,6 +79,65 @@
         ],
         "type": "object"
       },
+      "Access": {
+        "description": "How a caller acted, other than as a member of a workspace: as a superadmin, whose route a\nrefusal names, or whose creation or deletion of a workspace the superadmin's own log records\n(SUPERADMINS-004, WORKSPACES-030, WORKSPACES-031).",
+        "enum": [
+          "superadmin"
+        ],
+        "type": "string"
+      },
+      "AccessDeniedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "access.denied"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/Denial"
+              },
+              "resource_type": {
+                "enum": [
+                  "workspace",
+                  "deployment"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`access.denied`: A request was refused, since the caller may not do what it asks. It is recorded in a user's own log and a workspace's log. A workspace's log shows it to whoever reads the log.",
+        "x-audit-action": "access.denied"
+      },
+      "Acted": {
+        "description": "The details of `workspace.created` and `workspace.deleted`, which say how the caller acted,\nwhen they acted other than as a user of the workspace.",
+        "properties": {
+          "access": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Access",
+                "description": "`superadmin` for a superadmin's creation or deletion of the workspace (WORKSPACES-030,\nWORKSPACES-031)."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "ActionName": {
+        "maxLength": 100,
+        "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
+        "type": "string"
+      },
       "AddPasswordRequest": {
         "additionalProperties": false,
         "description": "What adding a password takes (AUTH-086).",
@@ -136,6 +195,158 @@
           "last_used_at"
         ],
         "type": "object"
+      },
+      "AuditAction": {
+        "description": "An action, as the catalog lists it (AUDIT-012).",
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/ActionName",
+            "description": "Its name, which an entry's `action` holds, such as `member.removed`."
+          },
+          "description": {
+            "description": "A sentence that tells what it means, which a client may show.",
+            "type": "string"
+          },
+          "logs": {
+            "description": "The logs that record it: `user`, a user's own, and `workspace`, a workspace's.",
+            "items": {
+              "$ref": "#/components/schemas/AuditLog"
+            },
+            "type": "array"
+          },
+          "permission": {
+            "description": "The permission that a reader of a workspace's log needs, beside `audit.read`, to read its\nentries there, or null for one that whoever reads the log reads, or that no workspace's\nlog records (AUDIT-007).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resource_types": {
+            "description": "The kinds of resource that its entries happen to, which an entry's `resource_type` holds.",
+            "items": {
+              "$ref": "#/components/schemas/ResourceName"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "action",
+          "description",
+          "logs",
+          "resource_types"
+        ],
+        "type": "object"
+      },
+      "AuditCatalog": {
+        "description": "The action catalog: every action that the API records (AUDIT-012).",
+        "properties": {
+          "actions": {
+            "description": "Each action, in the order of their names.",
+            "items": {
+              "$ref": "#/components/schemas/AuditAction"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "actions"
+        ],
+        "type": "object"
+      },
+      "AuditLog": {
+        "description": "A kind of log (AUDIT-012).",
+        "enum": [
+          "user",
+          "workspace"
+        ],
+        "type": "string"
+      },
+      "AvatarCopiedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "avatar.copied"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "avatar"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`avatar.copied`: The picture that a sign-in provider gave for the user became their avatar. It is recorded in a user's own log.",
+        "x-audit-action": "avatar.copied"
+      },
+      "AvatarDeletedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "avatar.deleted"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "avatar"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`avatar.deleted`: The user removed their avatar. It is recorded in a user's own log.",
+        "x-audit-action": "avatar.deleted"
+      },
+      "AvatarUploadedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "avatar.uploaded"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "avatar"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`avatar.uploaded`: The user set their avatar. It is recorded in a user's own log.",
+        "x-audit-action": "avatar.uploaded"
       },
       "Capabilities": {
         "description": "The features this deployment offers.",
@@ -243,6 +454,24 @@
         ],
         "type": "object"
       },
+      "ChangedRole": {
+        "description": "The details of a change of a role.",
+        "properties": {
+          "from": {
+            "$ref": "#/components/schemas/Role",
+            "description": "The role before the change."
+          },
+          "to": {
+            "$ref": "#/components/schemas/Role",
+            "description": "The role after it."
+          }
+        },
+        "required": [
+          "from",
+          "to"
+        ],
+        "type": "object"
+      },
       "CloseReason": {
         "description": "Why the hub closed a stream, which `stream.closed` names (REALTIME-005).",
         "enum": [
@@ -334,6 +563,30 @@
         ],
         "type": "object"
       },
+      "Denial": {
+        "description": "The details of `access.denied`: what the refused request needed.",
+        "properties": {
+          "access": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Access",
+                "description": "`superadmin` for a superadmin's route, which the caller, who is no superadmin, called."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "permission": {
+            "description": "The permission that the route asks of a member of the workspace, which the caller's role\ndoesn't hold, or which a non-member holds none of.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
       "DeviceId": {
         "maxLength": 64,
         "minLength": 1,
@@ -344,6 +597,35 @@
         "maxLength": 100,
         "minLength": 1,
         "type": "string"
+      },
+      "DeviceTokenIssuedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "device_token.issued"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "device_token"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`device_token.issued`: A sign-in gave its device a new device token, which its next sign-in from the device brings. It is recorded in a user's own log.",
+        "x-audit-action": "device_token.issued"
       },
       "DisplayName": {
         "maxLength": 100,
@@ -369,6 +651,64 @@
         ],
         "type": "object"
       },
+      "EmailChangeCodeIssuedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "email_change_code.issued"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "verification_code"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`email_change_code.issued`: A code that changes the account's email address to a new one was sent to the new one. It is recorded in a user's own log.",
+        "x-audit-action": "email_change_code.issued"
+      },
+      "EmailChangedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "email.changed"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "user"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`email.changed`: The user changed their account's email address to one they proved. It is recorded in a user's own log.",
+        "x-audit-action": "email.changed"
+      },
       "EmailVerification": {
         "description": "Where a code that proves the account's address goes (AUTH-028).",
         "properties": {
@@ -381,6 +721,35 @@
           "email"
         ],
         "type": "object"
+      },
+      "EmailVerifiedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "email.verified"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "user"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`email.verified`: The account's email address was proved. It is recorded in a user's own log.",
+        "x-audit-action": "email.verified"
       },
       "EntryClient": {
         "description": "The client of the request that recorded an entry: its IP address, and its user agent, which a\nrequest may not send (AUDIT-003, AUDIT-010).",
@@ -465,6 +834,35 @@
         ],
         "type": "object"
       },
+      "ExportCompletedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "export.completed"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "export"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`export.completed`: The archive of an export of the user's data was built, ready to download. It is recorded in a user's own log.",
+        "x-audit-action": "export.completed"
+      },
       "ExportCompletedFrame": {
         "description": "`export.completed`, a user event: it reaches its user's streams.",
         "properties": {
@@ -512,6 +910,64 @@
         "type": "object",
         "x-event": "export.completed"
       },
+      "ExportDownloadedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "export.downloaded"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "export"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`export.downloaded`: The user downloaded the archive of an export of their data, or part of it. It is recorded in a user's own log.",
+        "x-audit-action": "export.downloaded"
+      },
+      "ExportFailedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "export.failed"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "export"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`export.failed`: An export of the user's data failed, and holds no archive. It is recorded in a user's own log.",
+        "x-audit-action": "export.failed"
+      },
       "ExportFailedFrame": {
         "description": "`export.failed`, a user event: it reaches its user's streams.",
         "properties": {
@@ -558,6 +1014,35 @@
         ],
         "type": "object",
         "x-event": "export.failed"
+      },
+      "ExportRequestedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "export.requested"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "export"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`export.requested`: The user asked for an export of their data. It is recorded in a user's own log.",
+        "x-audit-action": "export.requested"
       },
       "ExportState": {
         "description": "Where an export stands (ACCOUNTS-022).",
@@ -721,6 +1206,35 @@
         ],
         "type": "object"
       },
+      "FileDeletedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "file.deleted"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "file"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`file.deleted`: A member deleted a file of the workspace. It is recorded in a workspace's log. A workspace's log shows it to a reader whose role holds `files.read`.",
+        "x-audit-action": "file.deleted"
+      },
       "FileDeletedFrame": {
         "description": "`file.deleted`, a workspace event: it reaches the streams of the workspace's members who hold `files.read` (SEC-19).",
         "properties": {
@@ -772,6 +1286,35 @@
         "maxLength": 255,
         "minLength": 1,
         "type": "string"
+      },
+      "FileUploadedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "file.uploaded"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "file"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`file.uploaded`: A member uploaded a file to the workspace. It is recorded in a workspace's log. A workspace's log shows it to a reader whose role holds `files.read`.",
+        "x-audit-action": "file.uploaded"
       },
       "FileUploadedFrame": {
         "description": "`file.uploaded`, a workspace event: it reaches the streams of the workspace's members who hold `files.read` (SEC-19).",
@@ -997,6 +1540,35 @@
         ],
         "type": "object"
       },
+      "IdentityCheckFailedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "identity.check_failed"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/LinkedProvider"
+              },
+              "resource_type": {
+                "enum": [
+                  "user"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`identity.check_failed`: A signed-in user's proof through a provider named another account than theirs. It is recorded in a user's own log.",
+        "x-audit-action": "identity.check_failed"
+      },
       "IdentityRemovedFrame": {
         "description": "`identity.removed`, a user event: it reaches its user's streams.",
         "properties": {
@@ -1094,6 +1666,64 @@
         ],
         "type": "object"
       },
+      "InvitationAcceptedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "invitation.accepted"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "invitation"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`invitation.accepted`: The invitee accepted an invitation, and joined the workspace. It is recorded in a workspace's log. A workspace's log shows it to a reader whose role holds `members.read`.",
+        "x-audit-action": "invitation.accepted"
+      },
+      "InvitationCancelledEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "invitation.cancelled"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "invitation"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`invitation.cancelled`: A member cancelled an invitation. It is recorded in a workspace's log. A workspace's log shows it to a reader whose role holds `invitations.read`.",
+        "x-audit-action": "invitation.cancelled"
+      },
       "InvitationCancelledFrame": {
         "description": "`invitation.cancelled`, a workspace event: it reaches the streams of the workspace's members who hold `invitations.read` (SEC-19).",
         "properties": {
@@ -1160,6 +1790,35 @@
         ],
         "type": "object"
       },
+      "InvitationCreatedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "invitation.created"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/OfferedRole"
+              },
+              "resource_type": {
+                "enum": [
+                  "invitation"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`invitation.created`: A member invited an address to join the workspace. It is recorded in a workspace's log. A workspace's log shows it to a reader whose role holds `invitations.read`.",
+        "x-audit-action": "invitation.created"
+      },
       "InvitationCreatedFrame": {
         "description": "`invitation.created`, a workspace event: it reaches the streams of the workspace's members who hold `invitations.read` (SEC-19).",
         "properties": {
@@ -1206,6 +1865,35 @@
         ],
         "type": "object",
         "x-event": "invitation.created"
+      },
+      "InvitationDeclinedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "invitation.declined"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "invitation"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`invitation.declined`: The invitee declined an invitation. It is recorded in a workspace's log. A workspace's log shows it to a reader whose role holds `invitations.read`.",
+        "x-audit-action": "invitation.declined"
       },
       "InvitationDeclinedFrame": {
         "description": "`invitation.declined`, a workspace event: it reaches the streams of the workspace's members who hold `invitations.read` (SEC-19).",
@@ -1301,6 +1989,35 @@
         "type": "object",
         "x-event": "invitation.received"
       },
+      "InvitationResentEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "invitation.resent"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "invitation"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`invitation.resent`: A member sent an invitation's email again. It is recorded in a workspace's log. A workspace's log shows it to a reader whose role holds `invitations.read`.",
+        "x-audit-action": "invitation.resent"
+      },
       "InvitationRevisedFrame": {
         "description": "`invitation.revised`, a user event: it reaches its user's streams.",
         "properties": {
@@ -1347,6 +2064,64 @@
         ],
         "type": "object",
         "x-event": "invitation.revised"
+      },
+      "InvitationRoleChangedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "invitation.role_changed"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/ChangedRole"
+              },
+              "resource_type": {
+                "enum": [
+                  "invitation"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`invitation.role_changed`: A member changed the role that an invitation offers. It is recorded in a workspace's log. A workspace's log shows it to a reader whose role holds `invitations.read`.",
+        "x-audit-action": "invitation.role_changed"
+      },
+      "InvitationUpdatedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "invitation.updated"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/OfferedRole"
+              },
+              "resource_type": {
+                "enum": [
+                  "invitation"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`invitation.updated`: A member invited again an address that an invitation of the workspace awaited, which renewed that invitation. It is recorded in a workspace's log. A workspace's log shows it to a reader whose role holds `invitations.read`.",
+        "x-audit-action": "invitation.updated"
       },
       "InvitationUpdatedFrame": {
         "description": "`invitation.updated`, a workspace event: it reaches the streams of the workspace's members who hold `invitations.read` (SEC-19).",
@@ -1458,6 +2233,19 @@
         "required": [
           "email",
           "role"
+        ],
+        "type": "object"
+      },
+      "LinkedProvider": {
+        "description": "The details of an action on the user's account at a provider: the provider.",
+        "properties": {
+          "provider": {
+            "description": "The provider's key, such as `google`, as the capabilities list it (AUTH-081).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider"
         ],
         "type": "object"
       },
@@ -1736,7 +2524,7 @@
                 },
                 "details": {
                   "additionalProperties": {},
-                  "description": "IDs and non-personal fields that the action records, such as a role (SEC-18), each action\nits own.",
+                  "description": "IDs and non-personal fields that the action records, such as a role (SEC-18), each action\nits own, which the action catalog documents (AUDIT-014).",
                   "propertyNames": {
                     "type": "string"
                   },
@@ -2263,7 +3051,7 @@
           },
           "details": {
             "additionalProperties": {},
-            "description": "IDs and non-personal fields that the action records, such as a role (SEC-18), each action\nits own.",
+            "description": "IDs and non-personal fields that the action records, such as a role (SEC-18), each action\nits own, which the action catalog documents (AUDIT-014).",
             "propertyNames": {
               "type": "string"
             },
@@ -2454,6 +3242,35 @@
         ],
         "type": "object"
       },
+      "MemberLeftEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "member.left"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "workspace"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`member.left`: A member left the workspace, themselves or as their account was deleted. It is recorded in a workspace's log. A workspace's log shows it to a reader whose role holds `members.read`.",
+        "x-audit-action": "member.left"
+      },
       "MemberLeftFrame": {
         "description": "`member.left`, a workspace event: it reaches the streams of the workspace's members who hold `members.read` (SEC-19).",
         "properties": {
@@ -2518,6 +3335,35 @@
           "user_id"
         ],
         "type": "object"
+      },
+      "MemberRemovedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "member.removed"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "workspace"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`member.removed`: A member removed another from the workspace. It is recorded in a workspace's log. A workspace's log shows it to a reader whose role holds `members.read`.",
+        "x-audit-action": "member.removed"
       },
       "MemberRemovedFrame": {
         "description": "`member.removed`, a workspace event: it reaches the streams of the workspace's members who hold `members.read` (SEC-19).",
@@ -2588,6 +3434,35 @@
           "role"
         ],
         "type": "object"
+      },
+      "MemberRoleChangedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "member.role_changed"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/ChangedRole"
+              },
+              "resource_type": {
+                "enum": [
+                  "workspace"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`member.role_changed`: A member changed the role of another. It is recorded in a workspace's log. A workspace's log shows it to a reader whose role holds `members.read`.",
+        "x-audit-action": "member.role_changed"
       },
       "MemberRoleChangedFrame": {
         "description": "`member.role_changed`, a workspace event: it reaches the streams of the workspace's members who hold `members.read` (SEC-19).",
@@ -2766,11 +3641,57 @@
         "type": "object",
         "x-event": "membership.created"
       },
+      "NoDetails": {
+        "description": "The details of an action that records none: an empty object.",
+        "type": "object"
+      },
+      "OfferedRole": {
+        "description": "The details of `invitation.created` and `invitation.updated`: the role that the invitation\noffers.",
+        "properties": {
+          "role": {
+            "$ref": "#/components/schemas/Role",
+            "description": "The role that the invitee would hold."
+          }
+        },
+        "required": [
+          "role"
+        ],
+        "type": "object"
+      },
       "Password": {
         "format": "password",
         "maxLength": 128,
         "minLength": 8,
         "type": "string"
+      },
+      "PasswordAddedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "password.added"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "identity"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`password.added`: The user added a password to their account, which had none. It is recorded in a user's own log.",
+        "x-audit-action": "password.added"
       },
       "PasswordChangeRequest": {
         "additionalProperties": false,
@@ -2816,6 +3737,64 @@
         ],
         "type": "object"
       },
+      "PasswordChangedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "password.changed"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "identity"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`password.changed`: The user changed their password. It is recorded in a user's own log.",
+        "x-audit-action": "password.changed"
+      },
+      "PasswordCheckFailedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "password.check_failed"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "user"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`password.check_failed`: A signed-in user gave a wrong password. It is recorded in a user's own log.",
+        "x-audit-action": "password.check_failed"
+      },
       "PasswordIdentity": {
         "description": "An account's password, as one of its identities. It holds no hash.",
         "properties": {
@@ -2834,6 +3813,209 @@
           "created_at"
         ],
         "type": "object"
+      },
+      "PasswordRehashedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "password.rehashed"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "identity"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`password.rehashed`: A sign-in stored the account's password again, hashed with newer parameters. It is recorded in a user's own log.",
+        "x-audit-action": "password.rehashed"
+      },
+      "PasswordRemovedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "password.removed"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "identity"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`password.removed`: The user removed their account's password. It is recorded in a user's own log.",
+        "x-audit-action": "password.removed"
+      },
+      "PasswordResetCodeIssuedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "password_reset_code.issued"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "verification_code"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`password_reset_code.issued`: A code that resets the account's password was sent to its email address. It is recorded in a user's own log.",
+        "x-audit-action": "password_reset_code.issued"
+      },
+      "PasswordResetEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "password.reset"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "identity"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`password.reset`: A reset set the account's password. It is recorded in a user's own log.",
+        "x-audit-action": "password.reset"
+      },
+      "PasswordResetFailedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "password_reset.failed"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "user"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`password_reset.failed`: A reset of the account's password gave a wrong code. It is recorded in a user's own log.",
+        "x-audit-action": "password_reset.failed"
+      },
+      "PictureDeletedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "picture.deleted"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "picture"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`picture.deleted`: A member removed the workspace's picture. It is recorded in a workspace's log. A workspace's log shows it to a reader whose role holds `workspace.read`.",
+        "x-audit-action": "picture.deleted"
+      },
+      "PictureUploadedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "picture.uploaded"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "picture"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`picture.uploaded`: A member set the workspace's picture. It is recorded in a workspace's log. A workspace's log shows it to a reader whose role holds `workspace.read`.",
+        "x-audit-action": "picture.uploaded"
       },
       "Problem": {
         "description": "An RFC 9457 problem, with the error's stable code and the request's trace ID.",
@@ -2979,6 +4161,35 @@
         ],
         "type": "object"
       },
+      "ProviderLinkedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "provider.linked"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/LinkedProvider"
+              },
+              "resource_type": {
+                "enum": [
+                  "identity"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`provider.linked`: The user linked their account at a provider, which then signs in to their account. It is recorded in a user's own log.",
+        "x-audit-action": "provider.linked"
+      },
       "ProviderReauthenticationRequest": {
         "additionalProperties": false,
         "description": "What re-authenticating through a provider takes (AUTH-080).",
@@ -3110,6 +4321,35 @@
         ],
         "type": "object"
       },
+      "ProviderUnlinkedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "provider.unlinked"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/LinkedProvider"
+              },
+              "resource_type": {
+                "enum": [
+                  "identity"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`provider.unlinked`: The user removed their account at a provider from the ways they sign in. It is recorded in a user's own log.",
+        "x-audit-action": "provider.unlinked"
+      },
       "ReauthenticationRequest": {
         "additionalProperties": false,
         "description": "What re-authenticating takes (AUTH-021, AUTH-065).",
@@ -3200,6 +4440,64 @@
         "minLength": 24,
         "pattern": "^[\\s-]*(?:[0-9A-TV-Za-tv-z][\\s-]*){24}$",
         "type": "string"
+      },
+      "RecoveryCodeUsedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "recovery_code.used"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "recovery_code"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`recovery_code.used`: A recovery code stood in for the authenticator app's code, and can't be used again. It is recorded in a user's own log.",
+        "x-audit-action": "recovery_code.used"
+      },
+      "RecoveryCodesIssuedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "recovery_codes.issued"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "user"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`recovery_codes.issued`: The user got new recovery codes, in place of their others. It is recorded in a user's own log.",
+        "x-audit-action": "recovery_codes.issued"
       },
       "RecoveryCodesResponse": {
         "description": "The recovery codes, shown once (AUTH-056, AUTH-063).",
@@ -3362,6 +4660,11 @@
         ],
         "type": "object"
       },
+      "ResourceName": {
+        "maxLength": 100,
+        "pattern": "^[a-z][a-z0-9_]*$",
+        "type": "string"
+      },
       "Role": {
         "description": "A member's role, from the highest rank to the lowest (ACCESS-001, SEC-09).",
         "enum": [
@@ -3370,6 +4673,122 @@
           "member"
         ],
         "type": "string"
+      },
+      "SecondFactorCheckFailedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "second_factor.check_failed"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "user"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`second_factor.check_failed`: A request gave a code of the account's authenticator app, or a recovery code, that isn't the account's. It is recorded in a user's own log.",
+        "x-audit-action": "second_factor.check_failed"
+      },
+      "SecondFactorEnabledEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "second_factor.enabled"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "second_factor"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`second_factor.enabled`: The user set up an authenticator app, which their sign-ins now ask the code of. It is recorded in a user's own log.",
+        "x-audit-action": "second_factor.enabled"
+      },
+      "SecondFactorRemovedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "second_factor.removed"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "second_factor"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`second_factor.removed`: The account's authenticator app was removed, by the user or by an operator. It is recorded in a user's own log.",
+        "x-audit-action": "second_factor.removed"
+      },
+      "SecondFactorSetupStartedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "second_factor.setup_started"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "second_factor"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`second_factor.setup_started`: The user began to set up an authenticator app. It is recorded in a user's own log.",
+        "x-audit-action": "second_factor.setup_started"
       },
       "SecondFactorsResponse": {
         "description": "A user's second factors (AUTH-054).",
@@ -3491,6 +4910,35 @@
         ],
         "type": "object"
       },
+      "SessionCreatedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "session.created"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/ThroughProvider"
+              },
+              "resource_type": {
+                "enum": [
+                  "session"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`session.created`: The user signed in, which began a session. It is recorded in a user's own log.",
+        "x-audit-action": "session.created"
+      },
       "SessionCreatedFrame": {
         "description": "`session.created`, a user event: it reaches its user's streams.",
         "properties": {
@@ -3537,6 +4985,35 @@
         ],
         "type": "object",
         "x-event": "session.created"
+      },
+      "SessionEndedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "session.ended"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "session"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`session.ended`: A session ended: its user signed out or ended it, or a change ended it, such as a new sign-in on its device, or a change of the account's password. It is recorded in a user's own log.",
+        "x-audit-action": "session.ended"
       },
       "SessionEndedFrame": {
         "description": "`session.ended`, a user event: it reaches its user's streams.",
@@ -3661,6 +5138,64 @@
         ],
         "type": "object"
       },
+      "SessionReauthenticatedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "session.reauthenticated"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/ThroughProvider"
+              },
+              "resource_type": {
+                "enum": [
+                  "session"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`session.reauthenticated`: The user proved who they are again in a session, for an action that asks for a recent proof. It is recorded in a user's own log.",
+        "x-audit-action": "session.reauthenticated"
+      },
+      "SessionRefreshedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "session.refreshed"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "session"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`session.refreshed`: A session's tokens were renewed. It is recorded in a user's own log.",
+        "x-audit-action": "session.refreshed"
+      },
       "SessionResponse": {
         "description": "A session, and its tokens when they go in the body.",
         "properties": {
@@ -3755,6 +5290,35 @@
         ],
         "type": "object"
       },
+      "SessionReuseDetectedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "session.reuse_detected"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "session"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`session.reuse_detected`: A session's refresh token that was already renewed was used again, which ended the session. It is recorded in a user's own log.",
+        "x-audit-action": "session.reuse_detected"
+      },
       "SetupConfirmationRequest": {
         "additionalProperties": false,
         "description": "What confirming a setup takes (AUTH-056).",
@@ -3792,6 +5356,35 @@
         ],
         "type": "object"
       },
+      "SignInChallengedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "sign_in.challenged"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/ThroughProvider"
+              },
+              "resource_type": {
+                "enum": [
+                  "user"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`sign_in.challenged`: A sign-in to an account with an authenticator app asked for the app's code. It is recorded in a user's own log.",
+        "x-audit-action": "sign_in.challenged"
+      },
       "SignInClient": {
         "description": "A client of a provider, as the capabilities list it (AUTH-081).",
         "properties": {
@@ -3812,6 +5405,35 @@
           "redirect_uris"
         ],
         "type": "object"
+      },
+      "SignInFailedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "sign_in.failed"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "user"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`sign_in.failed`: A sign-in to the account gave a wrong password. It is recorded in a user's own log.",
+        "x-audit-action": "sign_in.failed"
       },
       "SignInProvider": {
         "description": "An OAuth provider that a user signs in through, as the capabilities list it, with what a\nclient builds the authorization request from (AUTH-081).",
@@ -4018,6 +5640,64 @@
         "type": "object",
         "x-event": "stream.opened"
       },
+      "SuperadminAddedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "superadmin.added"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "user"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`superadmin.added`: An operator made the user a superadmin. It is recorded in a user's own log.",
+        "x-audit-action": "superadmin.added"
+      },
+      "SuperadminRemovedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "superadmin.removed"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "user"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`superadmin.removed`: An operator ended the user's being a superadmin. It is recorded in a user's own log.",
+        "x-audit-action": "superadmin.removed"
+      },
       "SuperadminStanding": {
         "description": "Whether the caller is a superadmin (SUPERADMINS-006).",
         "properties": {
@@ -4029,6 +5709,19 @@
         "required": [
           "superadmin"
         ],
+        "type": "object"
+      },
+      "ThroughProvider": {
+        "description": "The details of a sign-in's actions, and of a re-authentication's: the provider that it went\nthrough, absent for one with a password.",
+        "properties": {
+          "provider": {
+            "description": "The provider's key, such as `google`, as the capabilities list it (AUTH-081).",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
         "type": "object"
       },
       "Timestamp": {
@@ -4048,6 +5741,35 @@
           "user_id"
         ],
         "type": "object"
+      },
+      "UserCreatedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "user.created"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "user"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`user.created`: An operator's setup of a workspace created the user's account, as the workspace's owner. It is recorded in a user's own log.",
+        "x-audit-action": "user.created"
       },
       "UserFile": {
         "description": "A file of the caller's own, as its routes answer it (FILES-016, FILES-018).",
@@ -4125,6 +5847,35 @@
         ],
         "type": "object"
       },
+      "UserFileDeletedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "user_file.deleted"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "user_file"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`user_file.deleted`: The user deleted a file of their own. It is recorded in a user's own log.",
+        "x-audit-action": "user_file.deleted"
+      },
       "UserFileDeletedFrame": {
         "description": "`user_file.deleted`, a user event: it reaches its user's streams.",
         "properties": {
@@ -4171,6 +5922,35 @@
         ],
         "type": "object",
         "x-event": "user_file.deleted"
+      },
+      "UserFileUploadedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "user_file.uploaded"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "user_file"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`user_file.uploaded`: The user uploaded a file of their own. It is recorded in a user's own log.",
+        "x-audit-action": "user_file.uploaded"
       },
       "UserFileUploadedFrame": {
         "description": "`user_file.uploaded`, a user event: it reaches its user's streams.",
@@ -4223,6 +6003,35 @@
         "format": "uuid",
         "type": "string"
       },
+      "UserRegisteredEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "user.registered"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/ThroughProvider"
+              },
+              "resource_type": {
+                "enum": [
+                  "user"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`user.registered`: The user registered an account. It is recorded in a user's own log.",
+        "x-audit-action": "user.registered"
+      },
       "UserRenameRequest": {
         "additionalProperties": false,
         "description": "What renaming oneself takes: a JSON Merge Patch of the caller's record (ACCOUNTS-007).",
@@ -4236,6 +6045,35 @@
           "name"
         ],
         "type": "object"
+      },
+      "UserRenamedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "user.renamed"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "user"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`user.renamed`: The user changed their name. It is recorded in a user's own log.",
+        "x-audit-action": "user.renamed"
       },
       "UserUpdated": {
         "description": "The payload of `user.updated`: the user's record changed, which a client reads through\n`GET /v1/users/me`, since a name is personal data (API-19).",
@@ -4304,6 +6142,64 @@
         "pattern": "^\\s*[0-9]{6}\\s*$",
         "type": "string"
       },
+      "VerificationCodeCheckFailedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "verification_code.check_failed"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "verification_code"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`verification_code.check_failed`: A signed-in user gave a wrong code to prove an email address. It is recorded in a user's own log.",
+        "x-audit-action": "verification_code.check_failed"
+      },
+      "VerificationCodeIssuedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "verification_code.issued"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "verification_code"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`verification_code.issued`: A code that proves the account's email address was sent to it. It is recorded in a user's own log.",
+        "x-audit-action": "verification_code.issued"
+      },
       "Visibility": {
         "description": "Who may download a file: those who may read it, or anyone (FILES-020).",
         "enum": [
@@ -4346,6 +6242,64 @@
           "created_at"
         ],
         "type": "object"
+      },
+      "WorkspaceCreatedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "workspace.created"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/Acted"
+              },
+              "resource_type": {
+                "enum": [
+                  "workspace"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`workspace.created`: A workspace was created. It is recorded in a user's own log and a workspace's log. A workspace's log shows it to a reader whose role holds `workspace.read`.",
+        "x-audit-action": "workspace.created"
+      },
+      "WorkspaceDeletedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "workspace.deleted"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/Acted"
+              },
+              "resource_type": {
+                "enum": [
+                  "workspace"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`workspace.deleted`: The user deleted a workspace, with everything in it. It is recorded in a user's own log.",
+        "x-audit-action": "workspace.deleted"
       },
       "WorkspaceId": {
         "format": "uuid",
@@ -4448,6 +6402,35 @@
         ],
         "type": "object"
       },
+      "WorkspaceRenamedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "workspace.renamed"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "workspace"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`workspace.renamed`: A member renamed the workspace. It is recorded in a workspace's log. A workspace's log shows it to a reader whose role holds `workspace.read`.",
+        "x-audit-action": "workspace.renamed"
+      },
       "WorkspaceTransferred": {
         "description": "The payload of `workspace.transferred`: the workspace has another owner, and the owner before\nis an admin.",
         "properties": {
@@ -4470,6 +6453,35 @@
           "previous_owner_id"
         ],
         "type": "object"
+      },
+      "WorkspaceTransferredEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "workspace.transferred"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/NoDetails"
+              },
+              "resource_type": {
+                "enum": [
+                  "workspace"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`workspace.transferred`: The workspace's owner made an admin its owner, and became an admin. It is recorded in a workspace's log. A workspace's log shows it to a reader whose role holds `members.read`.",
+        "x-audit-action": "workspace.transferred"
       },
       "WorkspaceTransferredFrame": {
         "description": "`workspace.transferred`, a workspace event: it reaches the streams of the workspace's members who hold `members.read` (SEC-19).",
@@ -4586,6 +6598,225 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/v1/audit-catalog": {
+      "get": {
+        "operationId": "audit_catalog",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditCatalog"
+                }
+              }
+            },
+            "description": "The action catalog.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.invalid_query"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.invalid_query`: Invalid query.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.payload_too_large"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.payload_too_large`: Body too large.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.rate_limited"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.rate_limited`: Too many requests.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "retry-after": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.internal_error"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.internal_error`: Internal error."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.timed_out",
+                            "request.overloaded",
+                            "request.unavailable"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.timed_out`: Request timed out. `request.overloaded`: Too many requests in progress. `request.unavailable`: No replica can answer.",
+            "headers": {
+              "retry-after": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Lists every action that the API records, with what each means, the logs that record it, the\nkinds of resource it happens to, and the permission that reading it in a workspace's log\ntakes.",
+        "tags": [
+          "audit"
+        ],
+        "x-access": "public"
+      }
+    },
     "/v1/capabilities": {
       "get": {
         "operationId": "capabilities",

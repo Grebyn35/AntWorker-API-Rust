@@ -12,6 +12,7 @@ mod repo;
 mod routes;
 mod service;
 
+pub(crate) use audit::ACTIONS as AUDIT_ACTIONS;
 pub(crate) use error::FilesError;
 pub(crate) use model::{ExportedFile, Settings};
 pub(crate) use personal_data::Contract;
