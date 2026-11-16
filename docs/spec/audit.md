@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`audit` records who did what. Every module writes entries through it, inside the unit of work of the change (D1, D6). It also implements the `SecurityEventSink` that records refused requests. Deleting a user anonymizes the entries that name them (AUDIT-006). Reading the logs, the action catalog and retention arrive with the full module: a workspace's log is read by its owner and its admins, and the IP address and user agent of each of its entries by its owner alone, while a user reads their own log, with its IP addresses and user agents, and the entries of every log whose target they are (D166).
+`audit` records who did what. Every module writes entries through it, inside the unit of work of the change (D1, D6). It also implements the `SecurityEventSink` that records refused requests. Deleting a user anonymizes the entries that name them (AUDIT-006). Reading the logs, the action catalog and retention arrive with the full module: a workspace's log, with the IP address and user agent of each of its entries, is read by its owner and its admins, while a user reads their own log, with its IP addresses and user agents, and the entries of every log whose target they are (D166).
 
 ## Owns
 
