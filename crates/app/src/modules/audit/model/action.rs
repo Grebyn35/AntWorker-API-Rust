@@ -113,7 +113,7 @@ impl<D> Action<D> {
 
     /// Nothing, when the action declares `log`'s kind of log and `resource`; otherwise the
     /// internal error that keeps an entry it doesn't declare out of every log (AUDIT-013).
-    pub(crate) fn admits(&self, log: Log, resource: Resource) -> Result<(), Internal> {
+    pub(super) fn admits(&self, log: Log, resource: Resource) -> Result<(), Internal> {
         let in_log = match log {
             Log::User(_) => self.own_log,
             Log::Workspace(_) => self.workspace_log.is_some(),

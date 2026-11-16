@@ -4,7 +4,7 @@
 pub(super) mod reading;
 
 use platform::{
-    authn::{AuditScope, Log},
+    authn::Log,
     db::UnitOfWork,
     errors::Internal,
     personal_data::PAGE,
@@ -13,7 +13,7 @@ use platform::{
 
 use serde::Serialize;
 
-use super::model::{Entry, ExportedEntry};
+use super::model::{Admitted, ExportedEntry};
 
 /// What inserting an entry came to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -42,17 +42,17 @@ fn log_gone(error: &sqlx::Error) -> bool {
         .is_some_and(|constraint| constraint == USER_LOG || constraint == WORKSPACE_LOG)
 }
 
-/// Inserts `entry` in the log `scope` names, with the trace ID `trace_id`, and the permission
-/// that its action declares when the log is a workspace's, and, in the same statement, the
-/// client of the unit of work, if it has one, as the client of the entry's actor, or, for an
-/// entry without one, of the user whose log holds it (AUDIT-001, AUDIT-003, AUDIT-006,
-/// AUDIT-007).
+/// Inserts `admitted`'s entry in the log its scope names, with the trace ID `trace_id`, and the
+/// permission that its action declares when the log is a workspace's, and, in the same
+/// statement, the client of the unit of work, if it has one, as the client of the entry's actor,
+/// or, for an entry without one, of the user whose log holds it (AUDIT-001, AUDIT-003,
+/// AUDIT-006, AUDIT-007, AUDIT-013).
 pub(super) async fn insert<D: Serialize>(
     uow: &mut UnitOfWork,
-    scope: AuditScope,
-    entry: &Entry<D>,
+    admitted: Admitted<'_, D>,
     trace_id: &str,
 ) -> Result<Inserted, Internal> {
+    let (scope, entry) = (admitted.scope(), admitted.entry());
     let details = serde_json::to_value(&entry.details).map_err(Internal::new)?;
     let (log, user, workspace, permission) = match scope.log() {
         Log::User(user) => ("user", Some(user.uuid()), None, None),

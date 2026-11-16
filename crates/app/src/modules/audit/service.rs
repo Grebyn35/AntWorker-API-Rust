@@ -26,17 +26,17 @@ use super::{
 use crate::modules::access::{self, AuditRead, AuditReadClients};
 
 /// Records `entry` in the log that `scope` names, in `uow`, so it commits or rolls back with the
-/// change, which fails with it, as an internal error (AUDIT-001), as it does when the entry's
-/// action declares neither that kind of log nor the entry's kind of resource (AUDIT-013). The
-/// actor comes from the scope, the client from the unit of work, and the trace ID from the
-/// current span (AUDIT-002, AUDIT-003).
+/// change, which fails with it, as an internal error (AUDIT-001). It refuses, as an internal
+/// error, an entry unless its action declares both that kind of log and the entry's kind of
+/// resource (AUDIT-013). The actor comes from the scope, the client from the unit of work, and
+/// the trace ID from the current span (AUDIT-002, AUDIT-003).
 pub(crate) async fn record<D: Serialize>(
     uow: &mut UnitOfWork,
     scope: AuditScope,
     entry: Entry<D>,
 ) -> Result<(), Internal> {
-    entry.action.admits(scope.log(), entry.resource_type)?;
-    match repo::insert(uow, scope, &entry, &telemetry::trace_id()).await? {
+    let admitted = entry.admitted(scope)?;
+    match repo::insert(uow, admitted, &telemetry::trace_id()).await? {
         Inserted::Recorded => Ok(()),
         Inserted::LogGone => Err(Internal::new("the audit entry's log is gone")),
     }
@@ -120,9 +120,9 @@ impl Sink {
                 // end part: superadmins
             },
         );
-        entry.action.admits(scope.log(), entry.resource_type)?;
+        let admitted = entry.admitted(scope)?;
         let mut uow = self.database.begin(refusal.client()).await?;
-        match repo::insert(&mut uow, scope, &entry, &telemetry::trace_id()).await? {
+        match repo::insert(&mut uow, admitted, &telemetry::trace_id()).await? {
             Inserted::Recorded => {
                 uow.commit().await?;
                 Ok(true)
@@ -157,9 +157,9 @@ impl SecurityEventSink for Sink {
                     access: Some(Access::Superadmin),
                 },
             };
-            entry.action.admits(scope.log(), entry.resource_type)?;
+            let admitted = entry.admitted(scope)?;
             let mut uow = self.database.begin(client).await?;
-            match repo::insert(&mut uow, scope, &entry, &telemetry::trace_id()).await? {
+            match repo::insert(&mut uow, admitted, &telemetry::trace_id()).await? {
                 Inserted::Recorded => uow.commit().await,
                 Inserted::LogGone => Ok(()),
             }

@@ -279,14 +279,25 @@ async fn audit_014_the_document_documents_each_action_of_the_catalog_with_its_de
         );
         assert_eq!(details(schema)["type"], "object", "{name}");
     }
-    let role_changed = entry("member.role_changed");
-    assert!(
-        role_changed["description"]
-            .as_str()
-            .unwrap()
-            .contains("shows it to a reader whose role holds `members.read`")
+    // Each description holds the action's, the logs that record it, and who in a workspace's
+    // log reads it.
+    let described = |name: &str| entry(name)["description"].as_str().unwrap().to_owned();
+    assert_eq!(
+        described("member.role_changed"),
+        "`member.role_changed`: A member changed the role of another. It is recorded in a \
+         workspace's log. A workspace's log shows it to a reader whose role holds `members.read`."
     );
-    let changed = details(role_changed);
+    assert_eq!(
+        described("user.registered"),
+        "`user.registered`: The user registered an account. It is recorded in a user's own log."
+    );
+    assert_eq!(
+        described("access.denied"),
+        "`access.denied`: A request was refused, since the caller may not do what it asks. It is \
+         recorded in a user's own log and a workspace's log. A workspace's log shows it to \
+         whoever reads the log."
+    );
+    let changed = details(entry("member.role_changed"));
     assert_eq!(changed["required"], json!(["from", "to"]));
     assert_eq!(
         changed["properties"]["from"]["$ref"],

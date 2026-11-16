@@ -262,8 +262,9 @@ struct States {
     // end part: files
 }
 
-/// Every module's routes, each with its state from `states`, or the pool or the workers of
-/// `resources`. `just new-module` adds a module's routes before the chain's last link.
+/// Every module's routes, each with its state from `states`, the pool or the workers of
+/// `resources`, or the action catalog's listing. `just new-module` adds a module's routes before
+/// the chain's last link.
 fn routes(resources: &Resources, states: States) -> Routes {
     let database = &resources.database;
     system::routes()

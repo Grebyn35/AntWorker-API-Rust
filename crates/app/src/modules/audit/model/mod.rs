@@ -6,7 +6,11 @@ mod catalog;
 
 use std::borrow::Cow;
 
-use platform::types::{Invalid, Timestamp, UserId, WorkspaceId};
+use platform::{
+    authn::AuditScope,
+    errors::Internal,
+    types::{Invalid, Timestamp, UserId, WorkspaceId},
+};
 use serde::Serialize;
 use utoipa::{
     PartialSchema, ToSchema,
@@ -78,6 +82,34 @@ impl<D> Entry<D> {
     /// The entry, with `target` as the user it happened to.
     pub(crate) fn targeting(self, target: Option<UserId>) -> Self {
         Self { target, ..self }
+    }
+
+    /// The entry, admitted to the log that `scope` names, when its action declares that kind of
+    /// log and the entry's kind of resource; otherwise the internal error that keeps it out of
+    /// every log (AUDIT-013).
+    pub(super) fn admitted(&self, scope: AuditScope) -> Result<Admitted<'_, D>, Internal> {
+        self.action.admits(scope.log(), self.resource_type)?;
+        Ok(Admitted { entry: self, scope })
+    }
+}
+
+/// An entry that its action admits to the log of `scope`, which only [`Entry::admitted`]
+/// builds: what the statement that writes an entry takes, so no code writes one that its action
+/// doesn't declare (AUDIT-013).
+pub(super) struct Admitted<'a, D> {
+    entry: &'a Entry<D>,
+    scope: AuditScope,
+}
+
+impl<'a, D> Admitted<'a, D> {
+    /// The entry.
+    pub(super) fn entry(&self) -> &'a Entry<D> {
+        self.entry
+    }
+
+    /// The scope that names its log and its actor.
+    pub(super) fn scope(&self) -> AuditScope {
+        self.scope
     }
 }
 
@@ -263,6 +295,28 @@ impl ToSchema for ResourceName {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test declares an action and resources of its own, as an audit.rs does"
+    )]
+    fn audit_013_an_entry_is_admitted_only_to_a_log_and_of_a_resource_its_action_declares() {
+        const THING: Resource = Resource::new("thing");
+        const OTHER: Resource = Resource::new("other");
+        let id = uuid::Uuid::nil();
+        let scope = AuditScope::attempt(UserId::from_uuid(id));
+        let own: Action = Action::new("thing.done", "Done.", &[THING]).in_own_log();
+        let shared: Action =
+            Action::new("thing.shared", "Shared.", &[THING]).in_workspace_log_for_every_reader();
+
+        let admitted = Entry::new(own, THING, id);
+        let admitted = admitted.admitted(scope).unwrap();
+        assert_eq!(admitted.entry().action.name(), "thing.done");
+        assert_eq!(admitted.scope(), scope);
+        assert!(Entry::new(own, OTHER, id).admitted(scope).is_err());
+        assert!(Entry::new(shared, THING, id).admitted(scope).is_err());
+    }
 
     #[test]
     fn audit_009_an_action_and_a_resource_type_are_words_of_lowercase_ascii() {
