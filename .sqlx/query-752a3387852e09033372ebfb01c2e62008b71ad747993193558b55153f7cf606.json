@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM deletable_audit_entries WHERE id = ANY(ARRAY(\n                SELECT id FROM deletable_audit_entries\n                WHERE created_at < now() - make_interval(hours => $1 * 24)\n                ORDER BY created_at LIMIT $2\n            ))",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "752a3387852e09033372ebfb01c2e62008b71ad747993193558b55153f7cf606"
+}

@@ -70,11 +70,12 @@ async fn expire(database: &Database, days: u32, context: &JobContext) -> Result<
         uow.wait_for_locks_at_most(Duration::from_millis(1)).await?;
         // The batch's IDs come first, as an array, so the deletion finds each by its key: with
         // `IN`, Postgres may join the batch with every entry that the view shows, and read them
-        // all again for each batch.
+        // all again for each batch. The days are counted as hours, which no session's time zone
+        // moves, as the view counts its own (AUDIT-005).
         let deleted = sqlx::query!(
             "DELETE FROM deletable_audit_entries WHERE id = ANY(ARRAY(
                 SELECT id FROM deletable_audit_entries
-                WHERE created_at < now() - make_interval(days => $1)
+                WHERE created_at < now() - make_interval(hours => $1 * 24)
                 ORDER BY created_at LIMIT $2
             ))",
             days,

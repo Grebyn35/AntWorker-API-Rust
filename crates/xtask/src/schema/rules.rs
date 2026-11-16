@@ -17,8 +17,9 @@ pub(super) const MIGRATIONS_TABLE: &str = "_sqlx_migrations";
 const SOFT_DELETES: [&str; 3] = ["deleted_at", "is_deleted", "deleted"];
 
 /// Every problem the catalog has. `bookkeeping` lists the tables of `platform`'s bookkeeping,
-/// which architecture.md §5 gives `platform`. A view's name and columns follow the tables' rules,
-/// but it stores no rows, so it has neither keys, defaults nor triggers of its own (DATA-02).
+/// which architecture.md §5 gives `platform`. A view's name and columns follow DATA-01 and DATA-06,
+/// as a table's do, but it stores no rows, so it has neither key nor defaults of its own (DATA-02),
+/// nor the trigger of a table whose rows are edited.
 pub fn check(catalog: &Value, bookkeeping: &[String]) -> Vec<Problem> {
     let mut problems = Vec::new();
     let (views, tables): (Vec<&Value>, Vec<&Value>) = list(catalog, "tables")
@@ -553,10 +554,30 @@ mod tests {
     }
 
     #[test]
-    fn data_02_a_view_follows_the_name_and_column_rules_and_has_no_keys_or_defaults() {
-        let mut catalog = catalog();
+    fn data_02_a_view_has_neither_key_nor_defaults_of_its_own() {
+        let catalog = catalog();
+        let view = &catalog["tables"][5];
+        assert_eq!(view["view"], true);
+        assert!(list(view, "columns").all(|column| column["default"].is_null()));
+        assert!(
+            !list(&catalog, "constraints").any(|constraint| constraint["table"] == view["name"])
+        );
         assert!(messages(&catalog).is_empty());
+    }
+
+    #[test]
+    fn data_01_a_view_s_name_is_plural_snake_case() {
+        let mut catalog = catalog();
         catalog["tables"][5]["name"] = json!("deletable_audit_entry");
+        assert_eq!(
+            messages(&catalog),
+            ["the table deletable_audit_entry isn't a plural snake_case name (DATA-01)"]
+        );
+    }
+
+    #[test]
+    fn data_06_a_view_has_no_soft_delete_column() {
+        let mut catalog = catalog();
         catalog["tables"][5]["columns"]
             .as_array_mut()
             .unwrap()
@@ -566,8 +587,7 @@ mod tests {
         assert_eq!(
             messages(&catalog),
             [
-                "the table deletable_audit_entry isn't a plural snake_case name (DATA-01)",
-                "deletable_audit_entry.deleted marks rows deleted: rows are deleted, not flagged (DATA-06)",
+                "deletable_audit_entries.deleted marks rows deleted: rows are deleted, not flagged (DATA-06)"
             ]
         );
     }

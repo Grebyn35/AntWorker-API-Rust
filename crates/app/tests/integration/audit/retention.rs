@@ -63,6 +63,40 @@ async fn audit_005_app_deletes_through_the_view_only_the_entries_recorded_more_t
 }
 
 #[tokio::test]
+async fn audit_005_the_view_s_floor_holds_whatever_time_zone_the_session_sets() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    for age in ["77 days", "85 days", "89 days 23 hours"] {
+        arrange(&api, &ada.user_id, "user.renamed", age, 1).await;
+    }
+    // A zone that `app` may set, whose offset changes by 334 hours once between 90 days ago and
+    // now: its daylight time starts 45 days ago and ends 180 days later, one way round and the
+    // other. Subtracting 90 days in it, rather than 2,160 hours, moves the floor by as much.
+    let start: u32 = db
+        .owner_reads(
+            "SELECT (mod(extract(doy FROM now() - interval '45 days')::int - 1, 365) + 1)::text",
+        )
+        .await[0]
+        .parse()
+        .unwrap();
+    let end = (start - 1 + 180) % 365 + 1;
+    for zone in [
+        format!("AAA+167BBB-167,J{start},J{end}"),
+        format!("AAA-167BBB+167,J{start},J{end}"),
+    ] {
+        db.try_execute(
+            &db.app_url(),
+            &format!("SET TimeZone = '{zone}'; DELETE FROM deletable_audit_entries"),
+        )
+        .await
+        .unwrap();
+    }
+
+    assert_eq!(ages(&api, "user.renamed").await, ["89", "85", "77"]);
+}
+
+#[tokio::test]
 async fn audit_011_the_hourly_job_deletes_each_log_s_entries_older_than_the_retention_with_their_clients()
  {
     let api = Api::with(Options::default().set("AUDIT_RETENTION_DAYS", 100)).await;
