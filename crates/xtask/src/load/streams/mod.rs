@@ -15,16 +15,15 @@
 //! measured replica's hub delivered, which k6 reads from Prometheus, is within the latency
 //! objective.
 
+mod arrange;
 mod client;
 mod readers;
 
-use std::{collections::BTreeMap, path::Path, process::ExitCode};
+use std::{path::Path, process::ExitCode};
 
-use serde_json::{Value, json};
+use serde_json::Value;
 
-use super::{
-    LABEL, PORT, compose_id, docker, fail, healthy, next_rate, replica::database_url, report,
-};
+use super::{LABEL, PORT, docker, fail, healthy, next_rate, report};
 use readers::{Streams, delivered, open_streams};
 
 /// What a replica of the image under test runs with: the image, the network of Compose's
@@ -267,7 +266,7 @@ fn prepare(
     // The measured replica's container is new on each run, and so are the addresses named after
     // it, so a run needs no empty database.
     let run = hub.get(..12).unwrap_or(hub);
-    let users = arrange(root, &publisher_address, run)?;
+    let users = arrange::arrange(root, &publisher_address, run)?;
     Ok((hub_address, inside, users))
 }
 
@@ -303,96 +302,6 @@ fn host_address(root: &Path, id: &str) -> Result<String, String> {
         .find(|line| line.starts_with("127.0.0.1:"))
         .map(str::to_owned)
         .ok_or_else(|| format!("the replica {id} publishes no port on 127.0.0.1: {ports}"))
-}
-
-/// The users whose streams the hub holds, each with an access token, and the data k6 publishes
-/// with: each user's workspace, of which they are the owner and the only member, with their token.
-/// Their addresses hold `run`. The workspaces are arranged in the database, as a test arranges
-/// its state, rather than through one of the parts that create workspaces, so the test runs
-/// whichever of them a fork keeps.
-fn arrange(root: &Path, publisher: &str, run: &str) -> Result<Vec<String>, String> {
-    let mut tokens = BTreeMap::new();
-    for n in 0..USERS {
-        let email = format!("load-{run}-{n}@example.com");
-        let body =
-            json!({ "email": email, "password": "plum-tractor-41-quiet", "name": "Load Test" });
-        let token = match client::request(publisher, "POST", "/v1/users", None, Some(&body))? {
-            (201, answer) => answer["access_token"]
-                .as_str()
-                .map(str::to_owned)
-                .ok_or_else(|| format!("registering {email} answered no access token"))?,
-            (status, answer) => {
-                return Err(format!("registering {email} answered {status}: {answer}"));
-            }
-        };
-        tokens.insert(email, token);
-    }
-    let owned = owned_workspaces(root, run)?;
-    let mut workspaces = Vec::new();
-    for (email, workspace) in owned {
-        let token = tokens.get(&email).ok_or_else(|| {
-            format!("{email} owns a workspace, though the task registered no such user")
-        })?;
-        workspaces.push(json!({ "id": workspace, "token": token }));
-    }
-    if workspaces.len() != USERS {
-        return Err(format!(
-            "{} of the {USERS} users own a workspace",
-            workspaces.len()
-        ));
-    }
-    let data = json!({ "workspaces": workspaces });
-    let directory = root.join("target/load");
-    write(&directory, &data).map_err(|error| format!("can't write the data k6 reads: {error}"))?;
-    Ok(tokens.into_values().collect())
-}
-
-/// Arranges a workspace in the development Postgres for each account whose address holds `run`,
-/// owned by that account alone, as the role that owns the schema, and returns each account's
-/// address with its workspace's ID.
-fn owned_workspaces(root: &Path, run: &str) -> Result<Vec<(String, String)>, String> {
-    let url = database_url("DATABASE_OWNER_URL")?;
-    let statement = format!(
-        "WITH owners AS MATERIALIZED (SELECT id AS user_id, email, uuidv7() AS workspace_id \
-         FROM users WHERE email LIKE 'load-{run}-%'), \
-         created AS (INSERT INTO workspaces (id, name) \
-         SELECT workspace_id, 'Load Test' FROM owners RETURNING id), \
-         joined AS (INSERT INTO workspace_memberships (workspace_id, user_id, role) \
-         SELECT created.id, owners.user_id, 'owner' FROM created \
-         JOIN owners ON owners.workspace_id = created.id RETURNING workspace_id, user_id) \
-         SELECT owners.email, joined.workspace_id FROM joined JOIN owners USING (user_id)"
-    );
-    let rows = docker(
-        root,
-        &[
-            "exec",
-            &compose_id(root, "postgres"),
-            "psql",
-            &url,
-            "-qAt",
-            "-v",
-            "ON_ERROR_STOP=1",
-            "--command",
-            &statement,
-        ],
-    )
-    .map_err(|error| format!("arranging the workspaces failed: {error}"))?;
-    rows.lines()
-        .map(|row| {
-            row.split_once('|')
-                .map(|(email, workspace)| (email.to_owned(), workspace.to_owned()))
-                .ok_or_else(|| format!("arranging the workspaces answered {row:?}"))
-        })
-        .collect()
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the task runs as a synchronous program, with no async runtime to stall"
-)]
-fn write(directory: &Path, data: &Value) -> std::io::Result<()> {
-    std::fs::create_dir_all(directory)?;
-    std::fs::write(directory.join("streams.json"), data.to_string())
 }
 
 /// Runs one step at `rate` through the publishing replica at `publisher`, and reads what the
