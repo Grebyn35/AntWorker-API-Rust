@@ -372,6 +372,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 9fd1f5f..57cb801: as above, with pass 2's fixes | 3 | 3 (2, 1, 0 shared) | 0 | 0 | `clean` |
 | 225513e..b130651: the first part of `client_telemetry`: each user's consent to the telemetry of their clients, its two routes, its table, its audit action and its event, the part's registration in the shared files, and the documents it changed | 1 | 4 (2, 2, 0 shared) | 2 | 0 | `next pass`: 2157677 <!-- part: client_telemetry --> |
 | 225513e..2157677: as above, with pass 1's fixes | 2 | 4 (3, 1, 0 shared) | 1 | 1 | `stopped: no progress`: c6b1e3a <!-- part: client_telemetry --> |
+| 0ddc1c6..4629c5b: the second part of `client_telemetry`: the telemetry proxy for spans and log records, its two routes, the platform's batch extractor, budgets of bytes and relay, the collector's pipelines of clients' telemetry, its settings, its tests and the documents it changed, with the move of the request pipeline's construction to `composition/pipeline.rs` | 1 | 8 (8, 5, 5 shared) | 6 | 0 | `next pass` <!-- part: client_telemetry --> |
 
 ## Decisions
 
