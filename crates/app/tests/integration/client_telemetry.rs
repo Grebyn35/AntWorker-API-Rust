@@ -273,6 +273,37 @@ async fn client_telemetry_002_a_choice_whose_row_a_deletion_took_meanwhile_answe
 }
 
 #[tokio::test]
+async fn client_telemetry_002_a_choice_whose_row_an_erasure_deletes_meanwhile_answers_401() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    assert_eq!(choose(&api, &ada, false, None).await.status, 200);
+    let db = api.database();
+    // A deletion of the account whose erasure deleted the consent's row first, so the choice's
+    // insert waits for it at the row's unique key.
+    let mut deletion = db
+        .holding(&format!(
+            "DELETE FROM telemetry_consents WHERE user_id = '{}'",
+            ada.user_id
+        ))
+        .await;
+
+    let chosen = spawn_choice(&api, &ada);
+    query_waits_on_a_lock(db, "INSERT INTO telemetry_consents").await;
+    execute_on(
+        &mut deletion,
+        &format!("DELETE FROM users WHERE id = '{}'", ada.user_id),
+    )
+    .await;
+    execute_on(&mut deletion, "COMMIT").await;
+    let (status, body) = chosen.await.unwrap();
+
+    // The row's foreign key refused it once the user was gone.
+    assert_eq!(status, 401);
+    assert_eq!(body["code"], "request.unauthenticated");
+    assert!(rows(&api).await.is_empty());
+}
+
+#[tokio::test]
 async fn client_telemetry_003_deleting_an_account_deletes_its_consent() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;

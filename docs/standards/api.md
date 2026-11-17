@@ -104,7 +104,7 @@ IDs are UUID strings, which the database generates (DATA-08), with three excepti
 - Check: `test` (PLATFORM-036).
 
 ### API-13 Editable resources support optimistic concurrency
-A resource a client can edit returns an `ETag` built from its `version`. An update carrying `If-Match` with a stale ETag fails with 412. An update without `If-Match` applies as sent.
+A resource a client can edit returns an `ETag` built from its version (PLATFORM-071). An update carrying `If-Match` with a stale ETag fails with 412. An update without `If-Match` applies as sent.
 - Why: concurrent edits can't silently overwrite each other (D24).
 - Check: `test`.
 

@@ -293,18 +293,21 @@ impl ToSchema for Timestamp {
     }
 }
 
-/// The `version` of an editable row, which the shared trigger raises on every update (DATA-02),
-/// and which its resource's `ETag` names (PLATFORM-071), or one that a request's `If-Match`
-/// names, which may be no row's. It serializes as its number, as a stored result holds it
-/// (PLATFORM-036).
+/// A version of an editable resource, which its `ETag` names (PLATFORM-071), such as the
+/// `version` of its row, which the shared trigger raises on every update (DATA-02), or one that
+/// a request's `If-Match` names, which may be no row's. It serializes as its number, as a stored
+/// result holds it (PLATFORM-036).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Version(i64);
 
 impl Version {
+    // part: client_telemetry
     /// Version 0: the version of a resource that has no row until its first change, which its
-    /// module's spec gives it until that change commits (the platform spec's Preconditions).
+    /// module's spec gives it until that change commits, as a user's consent to the telemetry of
+    /// their clients has (the platform spec's Preconditions).
     pub const UNWRITTEN: Self = Self(0);
+    // end part: client_telemetry
 
     /// The version `value`, as the database returned it.
     pub fn from_database(value: i64) -> Self {
