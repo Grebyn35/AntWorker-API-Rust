@@ -154,6 +154,30 @@ async fn realtime_001_a_request_without_a_session_opens_no_stream() {
 }
 
 #[tokio::test]
+async fn realtime_001_the_first_frame_is_stream_opened_though_a_heartbeat_is_due() {
+    let api = api().await;
+    let clock = api.clock();
+    let ada = users::register(&api, "ada@example.com").await;
+
+    // Each stream is read only once its first heartbeat is due. Eight of them, since a stream
+    // that took whichever of the two came to hand would send the heartbeat first in some.
+    let mut firsts = Vec::new();
+    for _ in 0..8 {
+        let mut stream = streams::connect(&api, &ada.access, None).await;
+        clock.sleeping(HEARTBEAT).await;
+        clock.advance(HEARTBEAT);
+        let first = stream.frame().await.unwrap();
+        let second = stream.frame().await.unwrap();
+        firsts.push((first.event, second.event));
+    }
+
+    for (first, second) in firsts {
+        assert_eq!(first.as_deref(), Some("stream.opened"));
+        assert_eq!(second.as_deref(), Some(streams::BEAT));
+    }
+}
+
+#[tokio::test]
 async fn realtime_002_an_event_s_frame_carries_its_id_its_name_and_the_trace_of_its_publisher() {
     let api = api().await;
     let ada = users::register(&api, "ada@example.com").await;

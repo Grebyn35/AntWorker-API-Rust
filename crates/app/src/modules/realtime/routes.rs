@@ -136,6 +136,7 @@ async fn events(
                 clock: realtime.clock,
                 heartbeat: realtime.heartbeat,
                 trace_id: telemetry::trace_id(),
+                opened: false,
                 ended: false,
             };
             Sse::new(frames.into_stream()).into_response()
@@ -165,6 +166,8 @@ struct Frames {
     /// The trace ID of the request that opened the stream, which the frames of the stream's own
     /// carry (REALTIME-002).
     trace_id: String,
+    /// Whether the stream has sent its first frame.
+    opened: bool,
     ended: bool,
 }
 
@@ -180,6 +183,13 @@ impl Frames {
     async fn next(&mut self) -> Option<Frame> {
         if self.ended {
             return None;
+        }
+        if !self.opened {
+            // The first frame is the subscription's, `stream.opened`, though a heartbeat be due
+            // by the time the response is read (REALTIME-001).
+            self.opened = true;
+            let delivery = self.subscription.next().await;
+            return delivery.map(|delivery| self.frame(delivery));
         }
         tokio::select! {
             delivery = self.subscription.next() => delivery.map(|delivery| self.frame(delivery)),

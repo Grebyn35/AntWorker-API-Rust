@@ -9,12 +9,14 @@
 //!   own making, and would keep one schema of the two.
 //!
 //! It reads the committed document for the first and for the catalogs' components. The schema
-//! names it reads in the code are those of the Rust files of `platform` and `app`, before each
-//! file's test module: the identifier after each `struct` or `enum` that a `#[derive(…)]`
-//! holding `ToSchema` stands before, or the last segment of what its `#[schema(as = …)]` gives,
-//! and the identifier after each `ToSchema for`. A schema that takes its name another way, as
-//! one whose hand-written `name()` returns a name that isn't its type's, is review's to read
-//! (API-17).
+//! names it reads in the code are those of the Rust files under `crates/platform/src/` and
+//! `crates/app/src/`, on the lines that [`text::lines_before_tests`] counts, those before the
+//! first `#[cfg(test)]` line that a line starting with `mod`, `pub mod` or `pub(crate) mod`
+//! follows directly, or every line of a file without one: the identifier after each `struct`
+//! or `enum` that a `#[derive(…)]` holding `ToSchema` stands before, or the last segment of
+//! what its `#[schema(as = …)]` gives, and the identifier after each `ToSchema for`. A schema
+//! that takes its name another way, as one whose hand-written `name()` returns a name that
+//! isn't its type's, is review's to read (API-17).
 
 use std::collections::BTreeMap;
 
@@ -151,11 +153,11 @@ pub fn taken(repo: &Repo) -> Vec<String> {
         .collect()
 }
 
-/// The schema names that the check reads in `file`'s code, before its test module, each with the
-/// type it read it for and the line: the identifier after each `struct` or `enum` that a
-/// `#[derive(…)]` holding `ToSchema` stands before, or the last segment of what its
-/// `#[schema(as = …)]` gives, and the identifier after each `ToSchema for`, whatever the impl's
-/// `name()` returns.
+/// The schema names that the check reads in `file`'s code, on the lines that
+/// [`text::lines_before_tests`] counts, each with the type it read it for and the line: the
+/// identifier after each `struct` or `enum` that a `#[derive(…)]` holding `ToSchema` stands
+/// before, or the last segment of what its `#[schema(as = …)]` gives, and the identifier after
+/// each `ToSchema for`, whatever the impl's `name()` returns.
 pub fn schemas_of(file: &File) -> Vec<(String, String, usize)> {
     // A file that isn't Rust is check-layers' and the compiler's to report.
     let Ok(source) = Source::read(file) else {

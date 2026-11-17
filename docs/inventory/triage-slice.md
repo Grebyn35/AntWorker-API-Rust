@@ -46,7 +46,7 @@ Verdicts:
 | MAIL-028 Invitation email | changed | INVITATIONS-010 | Sent by a job with retry (D1); not personalized with the invitee's account name |
 | RT-001 Open the event stream | changed | REALTIME-001 | Filtered by permission (SEC-19); closed on loss of access (SEC-06) |
 | RT-003 Event frame | kept | REALTIME-002 | |
-| RT-004 Heartbeats | changed | REALTIME-003 | The frame `stream.beat`, whose payload holds nothing, and whose interval `stream.opened` gives (D172); `stream.opened` is the stream's first frame, where a heartbeat was |
+| RT-004 Heartbeats | changed | REALTIME-003 | The frame `stream.beat`, whose payload holds nothing, and whose interval `stream.opened` gives (D172) |
 | RT-008 Replay after reconnect | changed | REALTIME-004 | Membership at the time of the event (SEC-19); truncation is signalled |
 | AUDIT-010 Actor binding | kept | AUDIT-002 | |
 | AUDIT-012 Client IP and user agent | changed | AUDIT-003 | Readable only with a dedicated permission (SEC-18); the IP comes only from trusted proxies (SEC-13) |

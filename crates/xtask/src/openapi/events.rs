@@ -3,11 +3,12 @@
 //! `UserEvent::new(` or `WorkspaceEvent::new(` in a module's `events.rs`, and each
 //! `StreamFrame::new(` in a Rust file under `crates/app/src/` or `crates/platform/src/`. One
 //! that no such name follows, as a constant or a raw string would stand there, fails, since the
-//! check couldn't read it. A name that no component of the catalog is marked with fails, so a
-//! module that declares an event and forgets to register it with its routes, or a document
-//! written before the event existed, fails; so does a component that the document marks as a
-//! frame type's and that `Frame` doesn't refer to; and so does a name that two of them give,
-//! since the catalog keeps one frame type of each name.
+//! check couldn't read it. A name that it read and that no component of the catalog is marked
+//! with fails, as the name of an event that its module doesn't register with its routes does;
+//! so does a component that the document marks as a frame type's and that `Frame` doesn't refer
+//! to; and so does a name that it read twice, since the catalog keeps one frame type of each
+//! name. A declaration that holds none of those texts, as one that writes its type's parameters
+//! before `::new`, isn't read, and review keeps the declarations to the form the check reads.
 //! API-19: each frame type that the document marks is named `<resource>.<verb>`, each part
 //! `snake_case`; review checks that the verb is in the past tense.
 
@@ -54,7 +55,8 @@ pub(super) fn referred<'a>(document: &'a Value, catalog: &str) -> BTreeSet<&'a s
 /// A finding for each constructor of a frame type that no name in double quotes follows, for
 /// each name that follows one and that no component of `document`'s catalog is marked with or
 /// that an earlier one gives, and for each component of `document` marked as a frame type's
-/// that the catalog doesn't refer to, or whose frame type isn't named as API-19 names one.
+/// that the catalog doesn't refer to, or whose frame type isn't named `<resource>.<verb>`, each
+/// part `snake_case`.
 pub fn check(repo: &Repo, document: &Value) -> Vec<Finding> {
     let catalog = referred(document, CATALOG);
     let schemas = &document["components"]["schemas"];

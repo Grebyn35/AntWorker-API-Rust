@@ -1,10 +1,11 @@
 //! AUDIT-012: the document's action catalog is the components that `AuditEntry` refers to. The
 //! check reads the code's actions as text: the name in double quotes that follows each
 //! `Action::new(` in a module's `audit.rs`. One that no such name follows fails, since the check
-//! couldn't read it. A name that no component of the catalog is marked with fails, so a module
-//! that declares an action and leaves it out of its list, a list that the composition root's
-//! catalog leaves out, or a document written before the action existed, fails; and so does a
-//! component that the document marks as an action's and that `AuditEntry` doesn't refer to.
+//! couldn't read it. A name that it read and that no component of the catalog is marked with
+//! fails, as the name of an action that its module leaves out of its list does; and so does a
+//! component that the document marks as an action's and that `AuditEntry` doesn't refer to. A
+//! declaration that doesn't hold that text, as one that writes its type's parameters before
+//! `::new`, isn't read, and review keeps the declarations to the form the check reads.
 //! AUDIT-014: each action's component gives its entries' `action` as the action's name alone.
 //! AUDIT-009: each action is named `<resource>.<verb>`, each part `snake_case`, in at most 100
 //! characters, as a log's filter takes it.
