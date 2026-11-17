@@ -362,7 +362,8 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 2ae960f..e0b3db5: as above, with pass 1's fixes | 2 | 6 (6, 2, 2 shared) | 1 | 1 | `stopped: no progress` |
 | ece7d73..887c202: the third and last part of the full `audit`: the action catalog, with each action's declaration of its description, logs, kinds of resource and type of details, its route, its components in `openapi.json`, `check-openapi`'s reading of them, and the documents they changed | 1 | 9 (8, 4, 3 shared) | 2 | 0 | `next pass`: 82978bc |
 | ece7d73..82978bc: as above, with pass 1's fixes | 2 | 5 (4, 2, 1 shared) | 0 | 0 | `clean` |
-| 30846b1..56d537a: the action catalog given in `openapi.json` alone, with its component `AuditEntry` and without its route (D170), and the permissions that a workspace shows its caller (D171), with the tests and the documents they changed | 1 | 6 (5, 1, 0 shared) | 2 | 0 | `next pass` |
+| 30846b1..56d537a: the action catalog given in `openapi.json` alone, with its component `AuditEntry` and without its route (D170), and the permissions that a workspace shows its caller (D171), with the tests and the documents they changed | 1 | 6 (5, 1, 0 shared) | 2 | 0 | `next pass`: e967dc8 |
+| 30846b1..e967dc8: as above, with pass 1's fixes | 2 | 4 (3, 1, 0 shared) | 1 | 1 | `stopped: no progress` |
 
 ## Decisions
 
