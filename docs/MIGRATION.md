@@ -368,7 +368,8 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 9fd1f5f..b5c7c54: the last part of the full `realtime`: the heartbeat as the frame `stream.beat`, with its interval in `stream.opened` (D172), what a frame's `trace_id` tells a client of its own requests, `check-openapi`'s reading of the event catalog and of the names of both catalogs' components, with the tests and the documents they changed, and the two advisories that the dependency check ignores | 1 | 6 (5, 1, 0 shared) | 5 | 0 | `next pass`: 282f120 |
 | 9fd1f5f..282f120: as above, with pass 1's fixes | 2 | 5 (4, 3, 2 shared) | 1 | 0 | `next pass`: 57cb801 |
 | 9fd1f5f..57cb801: as above, with pass 2's fixes | 3 | 3 (2, 1, 0 shared) | 0 | 0 | `clean` |
-| 225513e..b130651: the first part of `client_telemetry`: each user's consent to the telemetry of their clients, its two routes, its table, its audit action and its event, the part's registration in the shared files, and the documents it changed | 1 | 4 (2, 2, 0 shared) | 2 | 0 | `next pass` <!-- part: client_telemetry --> |
+| 225513e..b130651: the first part of `client_telemetry`: each user's consent to the telemetry of their clients, its two routes, its table, its audit action and its event, the part's registration in the shared files, and the documents it changed | 1 | 4 (2, 2, 0 shared) | 2 | 0 | `next pass`: 2157677 <!-- part: client_telemetry --> |
+| 225513e..2157677: as above, with pass 1's fixes | 2 | 4 (3, 1, 0 shared) | 1 | 1 | `stopped: no progress` <!-- part: client_telemetry --> |
 
 ## Decisions
 
