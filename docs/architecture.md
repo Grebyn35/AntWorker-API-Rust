@@ -121,7 +121,7 @@ crates/app/
 | Module | Owns (tables) | Responsible for |
 |---|---|---|
 | `access` | `workspace_memberships` | Roles, the permission matrix, the permission types used with `Authorized<P>`, and the `AccessPolicy` implementation (D2). It has no routes of its own. |
-| `audit` | `audit_entries`, `audit_entry_clients`, and the view `deletable_audit_entries` | Recording entries inside a unit of work, with each one's client beside it, which deleting the client's user deletes, the read endpoints, the action catalog and its endpoint, retention, and the `SecurityEventSink` implementation that records refused requests (D6, D124). |
+| `audit` | `audit_entries`, `audit_entry_clients`, and the view `deletable_audit_entries` | Recording entries inside a unit of work, with each one's client beside it, which deleting the client's user deletes, the read endpoints, the action catalog, retention, and the `SecurityEventSink` implementation that records refused requests (D6, D124). |
 | `realtime` | none | The endpoint of server-sent events (SSE), the frames it sends, and the event catalog. Delivery, replay and stream closing are handled by `platform::events` (D5). |
 | `files` | `workspace_files`, `user_files`, `avatars`, `workspace_pictures`, `exported_files`, `object_deletions` | Upload, list, download and delete of user and workspace files, the types each upload accepts and its scan for malware, public files, signed download URLs, and the deletion of the bytes that no row names, with the images of the avatars that `accounts` sets, and of the workspace pictures that `workspaces` sets (D117, D120, D149). <!-- part: files --> |
 | `accounts` | `users`, `exports`, `export_entries`, `export_chunks` | The profile, and account deletion and export, which it orchestrates across modules through the personal data contract (D16, D31). |
@@ -131,7 +131,7 @@ crates/app/
 | `invitations` | `invitations` | Invite, list, change an invitation's role, resend, cancel, accept, decline, and expiry. <!-- part: invitations --> |
 | `superadmins` | `superadmins` | The deployment's superadmins (D62): who is one, which its subcommand decides, since no route makes a superadmin, and none ends one but the deletion of their own account, and what authorizes a superadmin's routes: the caller being a superadmin, with a second factor (D63), never a membership. A superadmin sees every workspace's name, creation time, member count and owner, but not its content, through routes that `workspaces` serves, since it owns what they read; they delete any workspace, and create workspaces, which they then own ([workspace shapes](#workspace-shapes)), each recorded in the superadmin's own log, since deleting a workspace deletes the workspace's log. <!-- part: superadmins --> |
 | `client_telemetry` | `telemetry_consents` | The telemetry proxy for clients, and each user's consent to it, which it enforces on the server (D7, D122). |
-| `system` | none | The capabilities endpoint (D9), the schema endpoint that lists the permissions, and `seed`, which fills a development database with demo accounts and workspaces, as a client of the API's own routes (D28). The health probes belong to `platform` (§4). |
+| `system` | none | The capabilities endpoint (D9), and `seed`, which fills a development database with demo accounts and workspaces, as a client of the API's own routes (D28). The health probes belong to `platform` (§4). |
 | `platform` | `events`, `jobs`, `job_schedules`, `rate_limit_buckets`, `idempotency_records` | The mechanisms in §4. |
 
 Table naming follows the data standard.
@@ -339,7 +339,7 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
   Every user may add a second factor, an authenticator app with recovery codes; a deployment may require one of every user.
   Every superadmin must have one. <!-- part: superadmins -->
   Revoking a session closes its streams.
-- **Authorization (D2).** One permission matrix, in `access/permissions.rs`, maps roles to permissions. Every workspace route declares its permission in its type. Role rank limits who may change whom.
+- **Authorization (D2).** One permission matrix, in `access/permissions.rs`, maps roles to permissions. Every workspace route declares its permission in its type. Role rank limits who may change whom. A workspace tells its caller the permissions that their role holds in it, and `openapi.json` names each workspace route's, so no client holds the matrix (D171).
   A superadmin's route is authorized by the caller being a superadmin instead, and reads no workspace's content (D62). <!-- part: superadmins -->
 - **Observability (D10, D19).** Every response except the health probes carries a trace ID that leads to its logs, and to its trace whenever the request ended in an error. Metrics are declared in code. The metric catalog is generated from the declarations, and CI checks the dashboards and alerts against it.
 - **Configuration (D9).** Strict and typed, with no defaults that are unsafe in production. A disabled feature answers 503 and is advertised by the capabilities endpoint.

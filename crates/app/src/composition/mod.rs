@@ -262,9 +262,8 @@ struct States {
     // end part: files
 }
 
-/// Every module's routes, each with its state from `states`, the pool or the workers of
-/// `resources`, or the action catalog's listing. `just new-module` adds a module's routes before
-/// the chain's last link.
+/// Every module's routes, each with its state from `states`, or the pool or the workers of
+/// `resources`. `just new-module` adds a module's routes before the chain's last link.
 fn routes(resources: &Resources, states: States) -> Routes {
     let database = &resources.database;
     system::routes()
@@ -272,7 +271,6 @@ fn routes(resources: &Resources, states: States) -> Routes {
         .merge(accounts::routes().with_state(database.clone()))
         .merge(accounts::export_routes().with_state(states.exports.clone()))
         .merge(audit::routes().with_state(database.clone()))
-        .merge(audit::catalog_routes().with_state(Arc::new(catalog().listing())))
         .merge(auth::routes().with_state(states.auth.clone()))
         .merge(
             auth::provider_routes().with_state(auth::ProviderRoutes::new(
@@ -385,14 +383,13 @@ fn catalog() -> audit::Catalog {
 
 /// The OpenAPI document of every module's routes, with the event catalog of every event they
 /// publish, and the action catalog of every action they record, which needs no database
-/// (API-17, REALTIME-008, AUDIT-014).
+/// (API-17, REALTIME-008, AUDIT-012).
 pub fn openapi(service: Service) -> OpenApi {
     let mut document = platform::http::document([
         system::routes().openapi(service),
         accounts::routes().openapi(service),
         accounts::export_routes().openapi(service),
         audit::routes().openapi(service),
-        audit::catalog_routes().openapi(service),
         auth::routes().openapi(service),
         auth::export_routes().openapi(service),
         auth::provider_routes().openapi(service),

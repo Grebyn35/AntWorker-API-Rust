@@ -22,5 +22,5 @@ pub(crate) use model::{
     Action, Catalog, Catalogued, Entry, RETENTION_FLOOR_DAYS, Resource, Settings,
 };
 pub(crate) use personal_data::Contract;
-pub(crate) use routes::{catalog_routes, routes};
+pub(crate) use routes::routes;
 pub(crate) use service::{Sink, record};

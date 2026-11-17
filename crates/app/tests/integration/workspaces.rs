@@ -12,6 +12,15 @@ use crate::support::{
     workspaces,
 };
 
+/// The names of the permissions that the matrix gives `role`, in its order (ACCESS-002).
+fn held(role: &str) -> Vec<&'static str> {
+    app::permissions()
+        .into_iter()
+        .filter(|(_, roles)| roles.contains(&role))
+        .map(|(name, _)| name)
+        .collect()
+}
+
 #[tokio::test]
 async fn workspaces_003_lists_the_caller_s_workspaces_the_latest_joined_first() {
     let api = Api::new().await;
@@ -37,6 +46,9 @@ async fn workspaces_003_lists_the_caller_s_workspaces_the_latest_joined_first() 
     assert_eq!(field(&body, "id"), [second.clone(), first]);
     assert_eq!(field(&body, "name"), ["Second", "First"]);
     assert_eq!(field(&body, "role"), ["member", "owner"]);
+    // Each with the permissions that the caller's role holds in it (WORKSPACES-007).
+    assert_eq!(body["items"][0]["permissions"], json!(held("member")));
+    assert_eq!(body["items"][1]["permissions"], json!(held("owner")));
     assert_eq!(
         field(&body, "joined_at"),
         ["2026-11-01T11:00:00.500000Z", "2026-11-01T10:00:00.000000Z"]
@@ -566,6 +578,48 @@ async fn workspaces_007_reading_a_workspace_gives_it_with_the_caller_s_role_and_
     assert_eq!(member.status, 200);
     assert_eq!(member.json()["role"], "member");
     assert_eq!(member.header("etag"), "\"1\"");
+}
+
+#[tokio::test]
+async fn workspaces_007_a_workspace_shows_its_caller_the_permissions_their_role_holds() {
+    let api = Api::new().await;
+    let db = api.database();
+    let workspace = workspaces::arrange(db, "Acme", &[]).await;
+    let path = format!("/v1/workspaces/{workspace}");
+    let mut callers = Vec::new();
+    for role in ["owner", "admin", "member"] {
+        let caller = users::register(&api, &format!("{role}@example.com")).await;
+        workspaces::join(db, &workspace, &caller.user_id, role).await;
+        callers.push((role, caller));
+    }
+
+    let mut shown = Vec::new();
+    for (role, caller) in &callers {
+        let read = api.get(&path).bearer(&caller.access).send().await;
+        assert_eq!(read.status, 200, "{role}");
+        let body = read.json();
+        // Exactly those that the matrix gives the role, in its order (ACCESS-002).
+        assert_eq!(body["permissions"], json!(held(role)), "{role}");
+        shown.push(body["permissions"].clone());
+    }
+
+    let holds = |role: usize, permission: &str| {
+        shown[role].as_array().unwrap().contains(&json!(permission))
+    };
+    let (owner, admin, member) = (0, 1, 2);
+    assert!(holds(owner, "workspace.delete") && holds(owner, "workspace.transfer"));
+    assert!(!holds(owner, "workspace.leave"));
+    assert!(holds(admin, "workspace.leave") && holds(admin, "members.remove"));
+    assert!(!holds(admin, "workspace.transfer") && !holds(admin, "workspace.delete"));
+    assert!(holds(member, "workspace.read") && holds(member, "members.read"));
+    assert!(!holds(member, "workspace.update") && !holds(member, "members.remove"));
+    // A member whose role changed reads the permissions of the role they now hold.
+    let (owner, member) = (&callers[0].1, &callers[2].1);
+    let changed = change_role(&api, owner, (&workspace, &member.user_id), "admin", None).await;
+    assert_eq!(changed.status, 200);
+    let read = api.get(&path).bearer(&member.access).send().await;
+    assert_eq!(read.json()["role"], "admin");
+    assert_eq!(read.json()["permissions"], json!(held("admin")));
 }
 
 #[tokio::test]

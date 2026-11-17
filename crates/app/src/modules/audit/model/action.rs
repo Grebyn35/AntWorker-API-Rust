@@ -8,11 +8,11 @@ use serde::Serialize;
 use utoipa::ToSchema;
 
 /// What happened, as `<resource>.<past-tense verb>`, such as `user.registered`, as the action
-/// catalog lists it: a sentence that tells a client what it means, the kinds of resource it
-/// happens to, the logs that record it, with the permission that reading it in a workspace's log
-/// takes, if any, and `D`, the type of the details each of its entries holds. Each module
-/// declares its own in its `audit.rs`, the one place clippy lets build one, and lists them there
-/// for the catalog (AUDIT-012, AUDIT-014).
+/// catalog documents it: a sentence that tells what it means, the kinds of resource it happens
+/// to, the logs that record it, with the permission that reading it in a workspace's log takes,
+/// if any, and `D`, the type of the details each of its entries holds. Each module declares its
+/// own in its `audit.rs`, the one place clippy lets build one, and lists them there for the
+/// catalog (AUDIT-012, AUDIT-014).
 pub(crate) struct Action<D = NoDetails> {
     name: &'static str,
     description: &'static str,
@@ -32,9 +32,9 @@ enum Readers {
 }
 
 impl<D> Action<D> {
-    /// The action `name`, which `description`, a sentence, tells a client the meaning of, and
-    /// which happens to a resource of one of the kinds `resources`. It is recorded in no log
-    /// until one of the methods below names one.
+    /// The action `name`, which `description`, a sentence, tells the meaning of, and which
+    /// happens to a resource of one of the kinds `resources`. It is recorded in no log until one
+    /// of the methods below names one.
     pub(crate) const fn new(
         name: &'static str,
         description: &'static str,
@@ -83,7 +83,7 @@ impl<D> Action<D> {
         self.name
     }
 
-    /// The sentence that tells a client what the action means.
+    /// The sentence that tells what the action means.
     pub(crate) fn description(&self) -> &'static str {
         self.description
     }

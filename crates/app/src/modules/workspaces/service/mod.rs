@@ -46,7 +46,7 @@ use super::{
     audit,
     error::WorkspacesError,
     events as published,
-    model::{Current, Rename, Transfer, Workspace, WorkspaceItem, WorkspaceName},
+    model::{Current, Rename, Transfer, Workspace, WorkspaceItem, WorkspaceName, held},
     repo,
 };
 use crate::modules::{
@@ -92,6 +92,7 @@ where
             id,
             name: name.clone(),
             role: Role::Owner,
+            permissions: held(Role::Owner),
             created_at,
             // part: files
             picture_url: None,
@@ -136,6 +137,7 @@ pub(crate) async fn list(
                     id: membership.workspace_id,
                     name,
                     role: membership.role,
+                    permissions: held(membership.role),
                     joined_at: membership.joined_at,
                     // part: files
                     picture_url: pictures.remove(&membership.workspace_id),
@@ -166,11 +168,13 @@ pub(super) async fn current<P: Permission>(
 ) -> Result<Current, WorkspacesError> {
     let id = authorized.workspace_id();
     let (name, created_at, version) = repo::read(uow, id).await?;
+    let role = Role::from_name(authorized.role())?;
     Ok(Current {
         workspace: Workspace {
             id,
             name,
-            role: Role::from_name(authorized.role())?,
+            role,
+            permissions: held(role),
             created_at,
             // part: files
             picture_url: picture::url(uow, id).await?,

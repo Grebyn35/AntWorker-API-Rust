@@ -133,11 +133,6 @@
         },
         "type": "object"
       },
-      "ActionName": {
-        "maxLength": 100,
-        "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
-        "type": "string"
-      },
       "AddPasswordRequest": {
         "additionalProperties": false,
         "description": "What adding a password takes (AUTH-086).",
@@ -196,70 +191,199 @@
         ],
         "type": "object"
       },
-      "AuditAction": {
-        "description": "An action, as the catalog lists it (AUDIT-012).",
-        "properties": {
-          "action": {
-            "$ref": "#/components/schemas/ActionName",
-            "description": "Its name, which an entry's `action` holds, such as `member.removed`."
+      "AuditEntry": {
+        "description": "An entry of an audit log, one schema for each action, which its `action` names (AUDIT-012).",
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/AccessDeniedEntry"
           },
-          "description": {
-            "description": "A sentence that tells what it means, which a client may show.",
-            "type": "string"
+          {
+            "$ref": "#/components/schemas/AvatarCopiedEntry"
           },
-          "logs": {
-            "description": "The logs that record it: `user`, a user's own, and `workspace`, a workspace's.",
-            "items": {
-              "$ref": "#/components/schemas/AuditLog"
-            },
-            "type": "array"
+          {
+            "$ref": "#/components/schemas/AvatarDeletedEntry"
           },
-          "permission": {
-            "description": "The permission that a reader of a workspace's log needs, beside `audit.read`, to read its\nentries there, or null for one that whoever reads the log reads, or that no workspace's\nlog records (AUDIT-007).",
-            "type": [
-              "string",
-              "null"
-            ]
+          {
+            "$ref": "#/components/schemas/AvatarUploadedEntry"
           },
-          "resource_types": {
-            "description": "The kinds of resource that its entries happen to, which an entry's `resource_type` holds.",
-            "items": {
-              "$ref": "#/components/schemas/ResourceName"
-            },
-            "type": "array"
+          {
+            "$ref": "#/components/schemas/DeviceTokenIssuedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/EmailChangedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/EmailVerifiedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/EmailChangeCodeIssuedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/ExportCompletedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/ExportDownloadedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/ExportFailedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/ExportRequestedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/FileDeletedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/FileUploadedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/IdentityCheckFailedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/InvitationAcceptedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/InvitationCancelledEntry"
+          },
+          {
+            "$ref": "#/components/schemas/InvitationCreatedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/InvitationDeclinedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/InvitationResentEntry"
+          },
+          {
+            "$ref": "#/components/schemas/InvitationRoleChangedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/InvitationUpdatedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/MemberLeftEntry"
+          },
+          {
+            "$ref": "#/components/schemas/MemberRemovedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/MemberRoleChangedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/PasswordAddedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/PasswordChangedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/PasswordCheckFailedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/PasswordRehashedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/PasswordRemovedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/PasswordResetEntry"
+          },
+          {
+            "$ref": "#/components/schemas/PasswordResetFailedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/PasswordResetCodeIssuedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/PictureDeletedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/PictureUploadedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/ProviderLinkedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/ProviderUnlinkedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/RecoveryCodeUsedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/RecoveryCodesIssuedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/SecondFactorCheckFailedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/SecondFactorEnabledEntry"
+          },
+          {
+            "$ref": "#/components/schemas/SecondFactorRemovedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/SecondFactorSetupStartedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/SessionCreatedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/SessionEndedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/SessionReauthenticatedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/SessionRefreshedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/SessionReuseDetectedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/SignInChallengedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/SignInFailedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/SuperadminAddedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/SuperadminRemovedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/UserCreatedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/UserRegisteredEntry"
+          },
+          {
+            "$ref": "#/components/schemas/UserRenamedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/UserFileDeletedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/UserFileUploadedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/VerificationCodeCheckFailedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/VerificationCodeIssuedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/WorkspaceCreatedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/WorkspaceDeletedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/WorkspaceRenamedEntry"
+          },
+          {
+            "$ref": "#/components/schemas/WorkspaceTransferredEntry"
           }
-        },
-        "required": [
-          "action",
-          "description",
-          "logs",
-          "resource_types"
-        ],
-        "type": "object"
-      },
-      "AuditCatalog": {
-        "description": "The action catalog: every action that the API records (AUDIT-012).",
-        "properties": {
-          "actions": {
-            "description": "Each action, in the order of their names.",
-            "items": {
-              "$ref": "#/components/schemas/AuditAction"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "actions"
-        ],
-        "type": "object"
-      },
-      "AuditLog": {
-        "description": "A kind of log (AUDIT-012).",
-        "enum": [
-          "user",
-          "workspace"
-        ],
-        "type": "string"
+        ]
       },
       "AvatarCopiedEntry": {
         "allOf": [
@@ -2925,6 +3049,13 @@
                   "$ref": "#/components/schemas/WorkspaceName",
                   "description": "Its name."
                 },
+                "permissions": {
+                  "description": "The names of the permissions that the caller's role holds in it, as a read of the\nworkspace gives them (WORKSPACES-007).",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
                 "picture_url": {
                   "description": "The path of the public download of its picture, or null when it has none\n(WORKSPACES-022).",
                   "type": [
@@ -2941,6 +3072,7 @@
                 "id",
                 "name",
                 "role",
+                "permissions",
                 "joined_at"
               ],
               "type": "object"
@@ -4660,11 +4792,6 @@
         ],
         "type": "object"
       },
-      "ResourceName": {
-        "maxLength": 100,
-        "pattern": "^[a-z][a-z0-9_]*$",
-        "type": "string"
-      },
       "Role": {
         "description": "A member's role, from the highest rank to the lowest (ACCESS-001, SEC-09).",
         "enum": [
@@ -6209,7 +6336,7 @@
         "type": "string"
       },
       "Workspace": {
-        "description": "A workspace, as one of its members reads it, with their role (WORKSPACES-007).",
+        "description": "A workspace, as one of its members reads it, with their role and the permissions it holds\n(WORKSPACES-007).",
         "properties": {
           "created_at": {
             "$ref": "#/components/schemas/Timestamp",
@@ -6222,6 +6349,13 @@
           "name": {
             "$ref": "#/components/schemas/WorkspaceName",
             "description": "Its name."
+          },
+          "permissions": {
+            "description": "The names of the permissions that the caller's role holds in it, such as `members.read`,\nin the order of the permission matrix. Each operation whose `x-access` is `workspace`\nnames the permission it takes as its `x-permission`, and the roles' rank limits who may\nchange or remove whom (SEC-09).",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "picture_url": {
             "description": "The path of the public download of its picture, or null when it has none\n(WORKSPACES-022).",
@@ -6239,6 +6373,7 @@
           "id",
           "name",
           "role",
+          "permissions",
           "created_at"
         ],
         "type": "object"
@@ -6320,6 +6455,13 @@
             "$ref": "#/components/schemas/WorkspaceName",
             "description": "Its name."
           },
+          "permissions": {
+            "description": "The names of the permissions that the caller's role holds in it, as a read of the\nworkspace gives them (WORKSPACES-007).",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "picture_url": {
             "description": "The path of the public download of its picture, or null when it has none\n(WORKSPACES-022).",
             "type": [
@@ -6336,6 +6478,7 @@
           "id",
           "name",
           "role",
+          "permissions",
           "joined_at"
         ],
         "type": "object"
@@ -6598,225 +6741,6 @@
   },
   "openapi": "3.1.0",
   "paths": {
-    "/v1/audit-catalog": {
-      "get": {
-        "operationId": "audit_catalog",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AuditCatalog"
-                }
-              }
-            },
-            "description": "The action catalog.",
-            "headers": {
-              "ratelimit": {
-                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
-                "schema": {
-                  "type": "string"
-                }
-              },
-              "ratelimit-policy": {
-                "description": "That bucket's quota, and its window in seconds.",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "400": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "allOf": [
-                    {
-                      "$ref": "#/components/schemas/Problem"
-                    },
-                    {
-                      "properties": {
-                        "code": {
-                          "enum": [
-                            "request.invalid_query"
-                          ],
-                          "type": "string"
-                        }
-                      },
-                      "type": "object"
-                    }
-                  ]
-                }
-              }
-            },
-            "description": "`request.invalid_query`: Invalid query.",
-            "headers": {
-              "ratelimit": {
-                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
-                "schema": {
-                  "type": "string"
-                }
-              },
-              "ratelimit-policy": {
-                "description": "That bucket's quota, and its window in seconds.",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "413": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "allOf": [
-                    {
-                      "$ref": "#/components/schemas/Problem"
-                    },
-                    {
-                      "properties": {
-                        "code": {
-                          "enum": [
-                            "request.payload_too_large"
-                          ],
-                          "type": "string"
-                        }
-                      },
-                      "type": "object"
-                    }
-                  ]
-                }
-              }
-            },
-            "description": "`request.payload_too_large`: Body too large.",
-            "headers": {
-              "ratelimit": {
-                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
-                "schema": {
-                  "type": "string"
-                }
-              },
-              "ratelimit-policy": {
-                "description": "That bucket's quota, and its window in seconds.",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "429": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "allOf": [
-                    {
-                      "$ref": "#/components/schemas/Problem"
-                    },
-                    {
-                      "properties": {
-                        "code": {
-                          "enum": [
-                            "request.rate_limited"
-                          ],
-                          "type": "string"
-                        }
-                      },
-                      "type": "object"
-                    }
-                  ]
-                }
-              }
-            },
-            "description": "`request.rate_limited`: Too many requests.",
-            "headers": {
-              "ratelimit": {
-                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
-                "schema": {
-                  "type": "string"
-                }
-              },
-              "ratelimit-policy": {
-                "description": "That bucket's quota, and its window in seconds.",
-                "schema": {
-                  "type": "string"
-                }
-              },
-              "retry-after": {
-                "description": "How many seconds to wait before trying again.",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "500": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "allOf": [
-                    {
-                      "$ref": "#/components/schemas/Problem"
-                    },
-                    {
-                      "properties": {
-                        "code": {
-                          "enum": [
-                            "request.internal_error"
-                          ],
-                          "type": "string"
-                        }
-                      },
-                      "type": "object"
-                    }
-                  ]
-                }
-              }
-            },
-            "description": "`request.internal_error`: Internal error."
-          },
-          "503": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "allOf": [
-                    {
-                      "$ref": "#/components/schemas/Problem"
-                    },
-                    {
-                      "properties": {
-                        "code": {
-                          "enum": [
-                            "request.timed_out",
-                            "request.overloaded",
-                            "request.unavailable"
-                          ],
-                          "type": "string"
-                        }
-                      },
-                      "type": "object"
-                    }
-                  ]
-                }
-              }
-            },
-            "description": "`request.timed_out`: Request timed out. `request.overloaded`: Too many requests in progress. `request.unavailable`: No replica can answer.",
-            "headers": {
-              "retry-after": {
-                "description": "How many seconds to wait before trying again.",
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        },
-        "summary": "Lists every action that the API records, with what each means, the logs that record it, the\nkinds of resource it happens to, and the permission that reading it in a workspace's log\ntakes.",
-        "tags": [
-          "audit"
-        ],
-        "x-access": "public"
-      }
-    },
     "/v1/capabilities": {
       "get": {
         "operationId": "capabilities",

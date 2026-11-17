@@ -79,10 +79,12 @@ pub(crate) struct NewWorkspace {
 }
 // end part: workspace_creation
 
-/// A workspace, as one of its members reads it, with their role (WORKSPACES-007).
+/// A workspace, as one of its members reads it, with their role and the permissions it holds
+/// (WORKSPACES-007).
 // `Deserialize` only reads back the stored result of a creation of one, which an idempotency
-// key replays (PLATFORM-036).
+// key replays (PLATFORM-036), through `Stored`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, serde::Deserialize, ToSchema)]
+#[serde(from = "Stored")]
 pub(crate) struct Workspace {
     /// The workspace's ID.
     pub(crate) id: WorkspaceId,
@@ -90,6 +92,11 @@ pub(crate) struct Workspace {
     pub(crate) name: WorkspaceName,
     /// The caller's role in it.
     pub(crate) role: Role,
+    /// The names of the permissions that the caller's role holds in it, such as `members.read`,
+    /// in the order of the permission matrix. Each operation whose `x-access` is `workspace`
+    /// names the permission it takes as its `x-permission`, and the roles' rank limits who may
+    /// change or remove whom (SEC-09).
+    pub(crate) permissions: Vec<String>,
     /// When it was created.
     pub(crate) created_at: Timestamp,
     // part: files
@@ -97,6 +104,42 @@ pub(crate) struct Workspace {
     /// (WORKSPACES-022).
     pub(crate) picture_url: Option<String>,
     // end part: files
+}
+
+/// A workspace as the result of a keyed creation stored it, which a replay reads back
+/// (PLATFORM-036). It reads no permissions, whatever the result holds: a replay answers those
+/// that the stored role holds, as a read of the workspace does, whichever release stored the
+/// result (DATA-10).
+#[derive(serde::Deserialize)]
+struct Stored {
+    id: WorkspaceId,
+    name: WorkspaceName,
+    role: Role,
+    created_at: Timestamp,
+    // part: files
+    picture_url: Option<String>,
+    // end part: files
+}
+
+impl From<Stored> for Workspace {
+    fn from(stored: Stored) -> Self {
+        Self {
+            id: stored.id,
+            name: stored.name,
+            role: stored.role,
+            permissions: held(stored.role),
+            created_at: stored.created_at,
+            // part: files
+            picture_url: stored.picture_url,
+            // end part: files
+        }
+    }
+}
+
+/// The names of the permissions that `role` holds, which a workspace shows the member whose role
+/// it is: `access` gives them, as it decides what a role may do (WORKSPACES-007, SEC-08).
+pub(crate) fn held(role: Role) -> Vec<String> {
+    role.permissions().into_iter().map(str::to_owned).collect()
 }
 
 /// A workspace as it now stands, with the version its `ETag` names (PLATFORM-071). A creation of
@@ -126,6 +169,9 @@ pub(crate) struct WorkspaceItem {
     pub(crate) name: WorkspaceName,
     /// The caller's role in it.
     pub(crate) role: Role,
+    /// The names of the permissions that the caller's role holds in it, as a read of the
+    /// workspace gives them (WORKSPACES-007).
+    pub(crate) permissions: Vec<String>,
     /// When the caller joined it.
     pub(crate) joined_at: Timestamp,
     // part: files
@@ -289,6 +335,27 @@ mod tests {
         for refused in ["", "nobody", "018f4e2a7b1c7def8a3b5c6d7e8f9a0b"] {
             assert_eq!(MemberId::parse(refused).unwrap_err().code, "invalid");
         }
+    }
+
+    #[test]
+    fn data_10_a_stored_workspace_without_permissions_reads_back_with_those_its_role_holds() {
+        // A creation's result that holds no permissions, as a release without the field stores it.
+        let stored = serde_json::json!({
+            "id": "01900000-0000-7000-8000-000000000000",
+            "name": "Acme",
+            "role": "admin",
+            "created_at": "2026-11-01T10:00:00.000000Z",
+        });
+
+        let workspace: Workspace = serde_json::from_value(stored).unwrap();
+
+        assert_eq!(workspace.role, Role::Admin);
+        assert_eq!(workspace.permissions, held(Role::Admin));
+        assert!(workspace.permissions.contains(&"members.read".to_owned()));
+        // A result that stored its permissions reads back with its role's too.
+        let read_back: Workspace =
+            serde_json::from_value(serde_json::to_value(&workspace).unwrap()).unwrap();
+        assert_eq!(read_back, workspace);
     }
 
     #[test]

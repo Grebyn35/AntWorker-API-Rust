@@ -7,6 +7,8 @@ use platform::{
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use super::permissions;
+
 /// A member's role, from the highest rank to the lowest (ACCESS-001, SEC-09).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -46,6 +48,12 @@ impl Role {
     pub(crate) fn parse(value: &str) -> Result<Self, Invalid> {
         Self::from_name(value)
             .map_err(|_| Invalid::new("invalid", "A role is owner, admin or member."))
+    }
+
+    /// The names of the permissions the role holds, in the matrix's order, which a workspace
+    /// shows the member whose role it is (ACCESS-002, WORKSPACES-007).
+    pub(crate) fn permissions(self) -> Vec<&'static str> {
+        permissions::held(self)
     }
 
     /// The role's rank: the higher, the more it may do.

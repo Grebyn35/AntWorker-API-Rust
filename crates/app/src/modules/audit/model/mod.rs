@@ -21,7 +21,7 @@ use utoipa::{
 pub(crate) use action::Access;
 // end part: superadmins
 pub(crate) use action::{Action, NoDetails, Resource};
-pub(crate) use catalog::{AuditCatalog, Catalog, Catalogued};
+pub(crate) use catalog::{Catalog, Catalogued};
 
 /// The fewest days that `AUDIT_RETENTION_DAYS` takes: the floor of `deletable_audit_entries`,
 /// through which retention deletes, and which shows no entry recorded more recently, as its

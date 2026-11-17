@@ -7,31 +7,110 @@ use serde_json::{Value, json};
 
 use crate::support::{Api, users, workspaces};
 
-/// The catalog's actions, as `GET /v1/audit-catalog` answers them to `api`'s caller, who sends
-/// no credential.
-async fn catalog(api: &Api) -> Vec<Value> {
-    let response = api.get("/v1/audit-catalog").send().await;
-    assert_eq!(response.status, StatusCode::OK);
-    assert_eq!(response.header("content-type"), "application/json");
-    response.json()["actions"].as_array().unwrap().clone()
+/// What the catalog states of one action, as its schema in the document gives it.
+struct Stated {
+    /// The action's name.
+    action: String,
+    /// The sentence that tells what it means.
+    meaning: String,
+    /// The logs that record it: `user`, a user's own, and `workspace`, a workspace's.
+    logs: Vec<&'static str>,
+    /// The kinds of resource that its entries happen to.
+    resource_types: Vec<String>,
+    /// The permission that reading it in a workspace's log takes beside `audit.read`, if any.
+    permission: Option<String>,
+    /// Its schema.
+    schema: Value,
+}
+
+/// The document's schema of the component that `reference` names.
+fn referred<'a>(document: &'a Value, reference: &Value) -> &'a Value {
+    let name = reference.as_str().unwrap().rsplit('/').next().unwrap();
+    &document["components"]["schemas"][name]
+}
+
+/// What `schema`, an action's, states of it. Its description is the action's name, the sentence
+/// that tells what it means, the logs that record it, and who in a workspace's log reads it
+/// (AUDIT-014).
+fn stated(schema: &Value) -> Stated {
+    let action = schema["x-audit-action"].as_str().unwrap().to_owned();
+    let description = schema["description"].as_str().unwrap();
+    let told = description.strip_prefix(&format!("`{action}`: "));
+    assert!(told.is_some(), "{description}");
+    let parts = told.unwrap().rsplit_once(" It is recorded in ");
+    assert!(parts.is_some(), "{description}");
+    let (meaning, rest) = parts.unwrap();
+    let (recorded, readers) = rest.split_once('.').unwrap();
+    let logs: Vec<&'static str> = recorded
+        .split(" and ")
+        .map(|log| match log {
+            "a user's own log" => "user",
+            "a workspace's log" => "workspace",
+            _ => "",
+        })
+        .collect();
+    assert!(!logs.contains(&""), "{description}");
+    let permission = match readers.trim() {
+        "" | "A workspace's log shows it to whoever reads the log." => None,
+        shown => {
+            let held = shown
+                .strip_prefix("A workspace's log shows it to a reader whose role holds `")
+                .and_then(|rest| rest.strip_suffix("`."));
+            assert!(held.is_some(), "{description}");
+            held.map(str::to_owned)
+        }
+    };
+    // Only an action that a workspace's log records says who reads it there.
+    assert_eq!(
+        readers.is_empty(),
+        !logs.contains(&"workspace"),
+        "{description}"
+    );
+    let resource_types = schema["allOf"][1]["properties"]["resource_type"]["enum"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|kind| kind.as_str().unwrap().to_owned())
+        .collect();
+    Stated {
+        action,
+        meaning: meaning.to_owned(),
+        logs,
+        resource_types,
+        permission,
+        schema: schema.clone(),
+    }
+}
+
+/// The catalog of `api`'s document: each action that the component `AuditEntry` holds, in its
+/// order, as its schema states it (AUDIT-012).
+fn catalog(api: &Api) -> Vec<Stated> {
+    let document = api.document();
+    document["components"]["schemas"]["AuditEntry"]["oneOf"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| stated(referred(document, &entry["$ref"])))
+        .collect()
 }
 
 /// The catalog's action named `name`.
-fn named<'a>(actions: &'a [Value], name: &str) -> &'a Value {
-    let found = actions.iter().find(|action| action["action"] == name);
+fn named<'a>(actions: &'a [Stated], name: &str) -> &'a Stated {
+    let found = actions.iter().find(|stated| stated.action == name);
     assert!(found.is_some(), "{name} isn't in the catalog");
     found.unwrap()
 }
 
 #[tokio::test]
-async fn audit_012_the_catalog_lists_each_action_with_its_meaning_logs_resources_and_permission() {
+async fn audit_012_the_catalog_holds_each_action_once_in_the_order_of_their_names() {
     let api = Api::new().await;
+    let document = api.document();
 
-    let actions = catalog(&api).await;
+    let actions = catalog(&api);
 
     let names: Vec<&str> = actions
         .iter()
-        .map(|action| action["action"].as_str().unwrap())
+        .map(|stated| stated.action.as_str())
         .collect();
     let ordered: Vec<&str> = names
         .iter()
@@ -43,52 +122,21 @@ async fn audit_012_the_catalog_lists_each_action_with_its_meaning_logs_resources
         names, ordered,
         "the actions are in the order of their names, each once"
     );
-    for action in &actions {
-        let description = action["description"].as_str().unwrap();
-        assert!(description.ends_with('.'), "{action}");
-        let logs = action["logs"].as_array().unwrap();
-        assert!(!logs.is_empty(), "{action}");
-        assert!(
-            logs.iter().all(|log| log == "user" || log == "workspace"),
-            "{action}"
-        );
-        assert!(
-            !action["resource_types"].as_array().unwrap().is_empty(),
-            "{action}"
-        );
-        if !logs.contains(&json!("workspace")) {
-            assert_eq!(action["permission"], Value::Null, "{action}");
-        }
+    // Every schema that the document marks as an action's is in the catalog.
+    let marked: BTreeSet<&str> = document["components"]["schemas"]
+        .as_object()
+        .unwrap()
+        .values()
+        .filter_map(|schema| schema["x-audit-action"].as_str())
+        .collect();
+    assert_eq!(marked, names.iter().copied().collect::<BTreeSet<_>>());
+    for name in ["access.denied", "member.role_changed", "user.registered"] {
+        assert!(names.contains(&name), "{name}");
     }
     assert_eq!(
-        named(&actions, "member.role_changed"),
-        &json!({
-            "action": "member.role_changed",
-            "description": "A member changed the role of another.",
-            "logs": ["workspace"],
-            "resource_types": ["workspace"],
-            "permission": "members.read",
-        })
-    );
-    assert_eq!(
-        named(&actions, "user.registered"),
-        &json!({
-            "action": "user.registered",
-            "description": "The user registered an account.",
-            "logs": ["user"],
-            "resource_types": ["user"],
-            "permission": null,
-        })
-    );
-    // A refusal is in both logs, and every reader of a workspace's log reads it (AUDIT-004).
-    let denied = named(&actions, "access.denied");
-    assert_eq!(denied["logs"], json!(["user", "workspace"]));
-    assert_eq!(denied["permission"], Value::Null);
-    assert!(
-        denied["resource_types"]
-            .as_array()
-            .unwrap()
-            .contains(&json!("workspace"))
+        document["components"]["schemas"]["AuditEntry"]["description"],
+        "An entry of an audit log, one schema for each action, which its `action` names \
+         (AUDIT-012)."
     );
 }
 
@@ -96,23 +144,19 @@ async fn audit_012_the_catalog_lists_each_action_with_its_meaning_logs_resources
 async fn audit_012_each_name_in_the_catalog_is_one_a_log_s_filter_takes() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
-    let actions = catalog(&api).await;
+    let actions = catalog(&api);
     let mut resources = BTreeSet::new();
-    for action in &actions {
-        for resource in action["resource_types"].as_array().unwrap() {
-            resources.insert(resource.as_str().unwrap().to_owned());
-        }
+    for stated in &actions {
+        resources.extend(stated.resource_types.iter().cloned());
     }
-    let names: Vec<String> = actions
-        .iter()
-        .map(|action| action["action"].as_str().unwrap().to_owned())
-        .collect();
+    let names: Vec<String> = actions.iter().map(|stated| stated.action.clone()).collect();
 
     // A filter takes at most 50 values (AUDIT-009).
     for (parameter, values) in [
         ("action", names),
         ("resource_type", resources.into_iter().collect()),
     ] {
+        assert!(!values.is_empty(), "{parameter}");
         for chunk in values.chunks(50) {
             let path = format!("/v1/users/me/audit-entries?{parameter}={}", chunk.join(","));
             let response = api.get(&path).bearer(&ada.access).send().await;
@@ -188,7 +232,7 @@ async fn audit_013_each_entry_that_changes_record_is_in_a_log_and_of_a_resource_
  {
     let api = Api::new().await;
     change(&api).await;
-    let actions = catalog(&api).await;
+    let actions = catalog(&api);
 
     let entries = api
         .database()
@@ -204,12 +248,13 @@ async fn audit_013_each_entry_that_changes_record_is_in_a_log_and_of_a_resource_
         assert_eq!(words.len(), 4, "{entry}");
         let (action, log, resource, permission) = (words[0], words[1], words[2], words[3]);
         let declared = named(&actions, action);
-        let listed =
-            |field: &str, value: &str| declared[field].as_array().unwrap().contains(&json!(value));
-        assert!(listed("logs", log), "{entry}");
-        assert!(listed("resource_types", resource), "{entry}");
+        assert!(declared.logs.contains(&log), "{entry}");
+        assert!(
+            declared.resource_types.iter().any(|kind| kind == resource),
+            "{entry}"
+        );
         if log == "workspace" {
-            let expected = declared["permission"].as_str().unwrap_or("-");
+            let expected = declared.permission.as_deref().unwrap_or("-");
             assert_eq!(expected, permission, "{entry}");
         }
         recorded.insert(format!("{action} {log}"));
@@ -230,58 +275,41 @@ async fn audit_013_each_entry_that_changes_record_is_in_a_log_and_of_a_resource_
 #[tokio::test]
 async fn audit_014_the_document_documents_each_action_of_the_catalog_with_its_details() {
     let api = Api::new().await;
-    let actions = catalog(&api).await;
+    let actions = catalog(&api);
     let document = api.document();
-    let schemas = document["components"]["schemas"].as_object().unwrap();
-    let documented: BTreeSet<&str> = schemas
-        .values()
-        .filter_map(|schema| schema["x-audit-action"].as_str())
-        .collect();
-    let details = |entry: &Value| {
-        let reference = entry["allOf"][1]["properties"]["details"]["$ref"]
-            .as_str()
-            .unwrap();
-        schemas[reference.rsplit('/').next().unwrap()].clone()
-    };
-    let entry = |name: &str| {
-        let found = schemas
-            .values()
-            .find(|schema| schema["x-audit-action"] == name);
-        assert!(found.is_some(), "{name} isn't documented");
-        found.unwrap()
+    let details = |stated: &Stated| {
+        referred(
+            document,
+            &stated.schema["allOf"][1]["properties"]["details"]["$ref"],
+        )
     };
 
-    let listed: BTreeSet<&str> = actions
-        .iter()
-        .map(|action| action["action"].as_str().unwrap())
-        .collect();
-    assert_eq!(documented, listed);
-    for action in &actions {
-        let name = action["action"].as_str().unwrap();
-        let schema = entry(name);
+    assert!(!actions.is_empty());
+    for stated in &actions {
+        let name = stated.action.as_str();
         assert_eq!(
-            schema["allOf"][0],
+            stated.schema["allOf"][0],
             json!({ "$ref": "#/components/schemas/LoggedEntry" }),
             "{name}"
         );
-        let properties = &schema["allOf"][1]["properties"];
+        let properties = &stated.schema["allOf"][1]["properties"];
         assert_eq!(properties["action"]["enum"], json!([name]));
-        assert_eq!(
-            properties["resource_type"]["enum"],
-            action["resource_types"]
-        );
-        assert!(
-            schema["description"]
-                .as_str()
-                .unwrap()
-                .contains(action["description"].as_str().unwrap()),
-            "{name}"
-        );
-        assert_eq!(details(schema)["type"], "object", "{name}");
+        assert!(stated.meaning.ends_with('.'), "{name}");
+        assert!(!stated.logs.is_empty(), "{name}");
+        assert!(!stated.resource_types.is_empty(), "{name}");
+        if !stated.logs.contains(&"workspace") {
+            assert_eq!(stated.permission, None, "{name}");
+        }
+        assert_eq!(details(stated)["type"], "object", "{name}");
     }
     // Each description holds the action's, the logs that record it, and who in a workspace's
     // log reads it.
-    let described = |name: &str| entry(name)["description"].as_str().unwrap().to_owned();
+    let described = |name: &str| {
+        named(&actions, name).schema["description"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
     assert_eq!(
         described("member.role_changed"),
         "`member.role_changed`: A member changed the role of another. It is recorded in a \
@@ -297,13 +325,28 @@ async fn audit_014_the_document_documents_each_action_of_the_catalog_with_its_de
          recorded in a user's own log and a workspace's log. A workspace's log shows it to \
          whoever reads the log."
     );
-    let changed = details(entry("member.role_changed"));
-    assert_eq!(changed["required"], json!(["from", "to"]));
+    let changed = named(&actions, "member.role_changed");
+    assert_eq!(changed.logs, ["workspace"]);
+    assert_eq!(changed.resource_types, ["workspace"]);
+    assert_eq!(changed.permission.as_deref(), Some("members.read"));
+    let registered = named(&actions, "user.registered");
+    assert_eq!(registered.logs, ["user"]);
+    assert_eq!(registered.resource_types, ["user"]);
+    assert_eq!(registered.permission, None);
+    // A refusal is in both logs, and every reader of a workspace's log reads it (AUDIT-004).
+    let denied = named(&actions, "access.denied");
+    assert_eq!(denied.logs, ["user", "workspace"]);
+    assert_eq!(denied.permission, None);
+    assert!(denied.resource_types.iter().any(|kind| kind == "workspace"));
+    let role_change = details(changed);
+    assert_eq!(role_change["required"], json!(["from", "to"]));
     assert_eq!(
-        changed["properties"]["from"]["$ref"],
+        role_change["properties"]["from"]["$ref"],
         "#/components/schemas/Role"
     );
-    let denied = details(entry("access.denied"));
-    assert!(denied["properties"].get("permission").is_some());
-    assert_eq!(details(entry("user.renamed"))["properties"], Value::Null);
+    assert!(details(denied)["properties"].get("permission").is_some());
+    assert_eq!(
+        details(named(&actions, "user.renamed"))["properties"],
+        Value::Null
+    );
 }

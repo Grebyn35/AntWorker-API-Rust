@@ -1,6 +1,4 @@
-//! Reading a workspace's log and one's own, and the action catalog (the audit spec's Routes).
-
-use std::sync::Arc;
+//! Reading a workspace's log and one's own (the audit spec's Routes).
 
 use axum::extract::State;
 use platform::{
@@ -18,7 +16,7 @@ use utoipa_axum::routes;
 
 use super::{
     error::AuditError,
-    model::{ActionName, AuditCatalog, EntryFilter, LoggedEntry, ResourceName},
+    model::{ActionName, EntryFilter, LoggedEntry, ResourceName},
     service,
 };
 use crate::modules::access::AuditRead;
@@ -28,11 +26,6 @@ pub(crate) fn routes() -> Routes<Database> {
     Routes::new()
         .workspace::<AuditRead>(routes!(workspace_entries), &[])
         .user(routes!(own_entries), &[])
-}
-
-/// The route of the action catalog, which takes the catalog's listing (AUDIT-012).
-pub(crate) fn catalog_routes() -> Routes<Arc<AuditCatalog>> {
-    Routes::new().public(routes!(audit_catalog), &[])
 }
 
 platform::filter_values!(
@@ -198,19 +191,4 @@ async fn own_entries(
     let (page, filter) = read(&query)?;
     let list = service::own_entries(&database, &client, &principal, &filter, &page).await?;
     Ok(axum::Json(list))
-}
-
-/// Lists every action that the API records, with what each means, the logs that record it, the
-/// kinds of resource it happens to, and the permission that reading it in a workspace's log
-/// takes.
-#[utoipa::path(
-    get,
-    path = "/v1/audit-catalog",
-    tag = "audit",
-    responses(
-        (status = 200, description = "The action catalog.", body = AuditCatalog),
-    )
-)]
-async fn audit_catalog(State(catalog): State<Arc<AuditCatalog>>) -> axum::Json<AuditCatalog> {
-    axum::Json(AuditCatalog::clone(&catalog))
 }
