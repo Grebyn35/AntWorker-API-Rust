@@ -5,9 +5,17 @@ all-features = true
 version = 2
 yanked = "deny"
 # Every advisory fails the check, whether it affects a direct dependency or a transitive one
-# (SEC-15).
+# (SEC-15), but the notices that `ignore` lists by their IDs, each with its reason. A
+# vulnerability in a crate whose notice is ignored is an advisory of its own, which fails the
+# check.
 unmaintained = "all"
 unsound = "all"
+ignore = [
+    # part: files
+    { id = "RUSTSEC-2026-0543", reason = "chrono is unmaintained, and object_store, the client of the files bucket, requires it in its newest release (D173)" },
+    { id = "RUSTSEC-2026-0542", reason = "humantime is unmaintained, and object_store, the client of the files bucket, requires it in its newest release (D173)" },
+    # end part: files
+]
 
 # `just deny` checks licenses for each target the API is built for (CODE-13), and advisories,
 # bans and sources for every target (SEC-15).
