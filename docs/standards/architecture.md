@@ -43,7 +43,7 @@ SQL in a module references only the tables that module owns: those its own migra
 ### ARCH-07 Optional parts are removable
 These parts are optional:
 - Each OAuth provider is one file in `auth/providers/` plus its lines in that directory's registry.
-- The `client_telemetry` module is registered only in the composition root, `composition/`.
+- The `client_telemetry` module, with each user's consent to the telemetry of their clients. <!-- part: client_telemetry -->
 - The `files` module, with the avatars and workspace pictures, whose images it keeps. <!-- part: files -->
 - Each part that gives a product its workspace shape ([architecture.md §5](../architecture.md#workspace-shapes)):
   - users creating workspaces through `POST /v1/workspaces` <!-- part: workspace_creation -->

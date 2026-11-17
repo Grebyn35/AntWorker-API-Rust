@@ -187,6 +187,22 @@ parts:
     words:
       - openid_connect
   # end part: openid_connect
+  # part: client_telemetry
+  - name: client_telemetry
+    module: client_telemetry
+    paths:
+      - crates/app/src/modules/client_telemetry
+      - crates/app/tests/integration/client_telemetry.rs
+      - docs/spec/client_telemetry.md
+    words:
+      - client_telemetry
+      - client telemetry
+      - telemetry_consent
+      - telemetry-consent
+      - telemetryconsent
+      - telemetry of their clients
+      - clients' telemetry
+  # end part: client_telemetry
 
 # Each run removes its parts from a copy of the repository of its own, then runs `just checks` on
 # the copy: one for each workspace shape (architecture §5), one for each part that no shape's run
@@ -260,6 +276,12 @@ runs:
     parts:
       - openid_connect
   # end part: openid_connect
+  # part: client_telemetry
+  # A product whose clients send no telemetry.
+  - name: client_telemetry
+    parts:
+      - client_telemetry
+  # end part: client_telemetry
   # The fewest parts a fork keeps: every part that one fork can remove, so the lines that several
   # parts mark are removed together too. It keeps one part that creates workspaces, since every
   # shape keeps one.
@@ -284,3 +306,6 @@ runs:
       # part: openid_connect
       - openid_connect
       # end part: openid_connect
+      # part: client_telemetry
+      - client_telemetry
+      # end part: client_telemetry

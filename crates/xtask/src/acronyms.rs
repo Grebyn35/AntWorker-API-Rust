@@ -145,7 +145,7 @@ fn words(prose: &str) -> Vec<(usize, usize)> {
 
 /// Two or more characters, a capital letter first, and nothing but capitals, digits and the
 /// underscores that join the words of a module's name in its behaviors' prefix, such as
-/// `CLIENT_TELEMETRY`.
+/// `ORDER_ITEMS`.
 fn is_capitals(word: &str) -> bool {
     word.len() >= 2
         && word.starts_with(|c: char| c.is_ascii_uppercase())
@@ -197,10 +197,9 @@ mod tests {
     fn doc_06_the_prefix_of_a_module_named_in_two_words_is_no_acronym() {
         let glossary = format!(
             "### What each module owns\n\n| Module | Owns |\n|---|---|\n\
-             | `client_telemetry` | none |\n\n{GLOSSARY_TEXT}"
+             | `order_items` | none |\n\n{GLOSSARY_TEXT}"
         );
-        let document =
-            "CLIENT_TELEMETRY-001 holds, as CLIENT_TELEMETRY-002 does. NEW_THING waits.\n";
+        let document = "ORDER_ITEMS-001 holds, as ORDER_ITEMS-002 does. NEW_THING waits.\n";
         let repo = Repo::of(&[(GLOSSARY, &glossary), ("docs/coverage.md", document)]);
         let catalog = Catalog::read(&repo);
 

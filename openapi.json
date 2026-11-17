@@ -351,6 +351,9 @@
             "$ref": "#/components/schemas/SuperadminRemovedEntry"
           },
           {
+            "$ref": "#/components/schemas/TelemetryConsentUpdatedEntry"
+          },
+          {
             "$ref": "#/components/schemas/UserCreatedEntry"
           },
           {
@@ -1180,6 +1183,10 @@
       "Features": {
         "description": "Each feature a deployment can turn off, and whether it is on, and each optional part that the\nfork keeps and that changes what a client offers (D118).",
         "properties": {
+          "client_telemetry": {
+            "description": "The fork keeps `client_telemetry`, so a client asks its user whether it may send their\ntelemetry.",
+            "type": "boolean"
+          },
           "email": {
             "description": "Whether the deployment sends email (PLATFORM-022). While it is off, a client hides what\nneeds email, such as a way to reset a password.",
             "type": "boolean"
@@ -1206,7 +1213,8 @@
           "workspace_creation",
           "invitations",
           "files",
-          "superadmins"
+          "superadmins",
+          "client_telemetry"
         ],
         "type": "object"
       },
@@ -1561,6 +1569,9 @@
           },
           {
             "$ref": "#/components/schemas/StreamOpenedFrame"
+          },
+          {
+            "$ref": "#/components/schemas/TelemetryConsentUpdatedFrame"
           },
           {
             "$ref": "#/components/schemas/UserUpdatedFrame"
@@ -5892,6 +5903,135 @@
           "superadmin"
         ],
         "type": "object"
+      },
+      "TelemetryConsent": {
+        "description": "A user's consent to the telemetry of their clients, as `GET /v1/users/me/telemetry-consent`\nanswers it (CLIENT_TELEMETRY-001).",
+        "properties": {
+          "consented": {
+            "description": "Whether the user consents to their clients' sending their telemetry: `false` until they\nchoose to.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "consented"
+        ],
+        "type": "object"
+      },
+      "TelemetryConsentChoice": {
+        "description": "The details of `telemetry_consent.updated`: what the user chose.",
+        "properties": {
+          "consented": {
+            "description": "Whether the user consents to their clients' sending their telemetry.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "consented"
+        ],
+        "type": "object"
+      },
+      "TelemetryConsentRequest": {
+        "additionalProperties": false,
+        "description": "What choosing the consent takes: the whole consent (CLIENT_TELEMETRY-002).",
+        "properties": {
+          "consented": {
+            "description": "Whether the caller consents to their clients' sending their telemetry.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "consented"
+        ],
+        "type": "object"
+      },
+      "TelemetryConsentUpdated": {
+        "description": "The payload of `telemetry_consent.updated`: the consent as the user chose it, which reaches\nonly their own streams (API-19).",
+        "properties": {
+          "consented": {
+            "description": "Whether the user consents to their clients' sending their telemetry.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "consented"
+        ],
+        "type": "object"
+      },
+      "TelemetryConsentUpdatedEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LoggedEntry"
+          },
+          {
+            "properties": {
+              "action": {
+                "enum": [
+                  "telemetry_consent.updated"
+                ],
+                "type": "string"
+              },
+              "details": {
+                "$ref": "#/components/schemas/TelemetryConsentChoice"
+              },
+              "resource_type": {
+                "enum": [
+                  "user"
+                ],
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "`telemetry_consent.updated`: The user chose whether their clients send their telemetry. It is recorded in a user's own log.",
+        "x-audit-action": "telemetry_consent.updated"
+      },
+      "TelemetryConsentUpdatedFrame": {
+        "description": "`telemetry_consent.updated`, a user event: it reaches its user's streams.",
+        "properties": {
+          "data": {
+            "contentMediaType": "application/json",
+            "contentSchema": {
+              "properties": {
+                "data": {
+                  "$ref": "#/components/schemas/TelemetryConsentUpdated"
+                },
+                "trace_id": {
+                  "description": "The trace ID of the request or job that published the event, or of the request that opened the stream, for a frame of the stream's own; null for an event published outside a trace (REALTIME-002).",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "data",
+                "trace_id"
+              ],
+              "type": "object"
+            },
+            "description": "JSON: the payload, and the trace ID of what sent it (REALTIME-002).",
+            "type": "string"
+          },
+          "event": {
+            "enum": [
+              "telemetry_consent.updated"
+            ],
+            "type": "string"
+          },
+          "id": {
+            "description": "What a client that reconnects names in `Last-Event-ID` (REALTIME-004).",
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "event",
+          "data",
+          "id"
+        ],
+        "type": "object",
+        "x-event": "telemetry_consent.updated"
       },
       "ThroughProvider": {
         "description": "The details of a sign-in's actions, and of a re-authentication's: the provider that it went\nthrough, absent for one with a password.",
@@ -27094,6 +27234,680 @@
         "summary": "Tells whether the caller is one of the deployment's superadmins, so a client offers a\nsuperadmin's pages to them alone.",
         "tags": [
           "superadmins"
+        ],
+        "x-access": "user"
+      }
+    },
+    "/v1/users/me/telemetry-consent": {
+      "get": {
+        "operationId": "consent",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelemetryConsent"
+                }
+              }
+            },
+            "description": "The caller's consent.",
+            "headers": {
+              "etag": {
+                "description": "The consent's version, which a choice's `If-Match` names (API-13).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.invalid_query"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.invalid_query`: Invalid query.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.unauthenticated",
+                            "request.access_token_expired"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.unauthenticated`: Not authenticated. `request.access_token_expired`: Access token expired.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.email_unverified",
+                            "request.second_factor_setup_required"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.email_unverified`: Email address not verified. `request.second_factor_setup_required`: Second factor required.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.payload_too_large"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.payload_too_large`: Body too large.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.rate_limited"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.rate_limited`: Too many requests.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "retry-after": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.internal_error"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.internal_error`: Internal error."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.timed_out",
+                            "request.overloaded",
+                            "request.unavailable"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.timed_out`: Request timed out. `request.overloaded`: Too many requests in progress. `request.unavailable`: No replica can answer.",
+            "headers": {
+              "retry-after": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Reads whether the caller consents to their clients' sending their telemetry.",
+        "tags": [
+          "client_telemetry"
+        ],
+        "x-access": "user"
+      },
+      "put": {
+        "operationId": "choose_consent",
+        "parameters": [
+          {
+            "description": "The `ETag` of the version the client replaces, so that a choice made since it read the consent fails rather than being overwritten (API-13).",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TelemetryConsentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelemetryConsent"
+                }
+              }
+            },
+            "description": "The caller's consent, as they chose it.",
+            "headers": {
+              "etag": {
+                "description": "The consent's new version (API-13).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.invalid_query",
+                            "request.invalid_body",
+                            "request.invalid_fields"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.invalid_query`: Invalid query. `request.invalid_body`: Invalid body. `request.invalid_fields`: Invalid fields.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.unauthenticated",
+                            "request.access_token_expired"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.unauthenticated`: Not authenticated. `request.access_token_expired`: Access token expired.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.email_unverified",
+                            "request.second_factor_setup_required",
+                            "request.origin_not_allowed"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.email_unverified`: Email address not verified. `request.second_factor_setup_required`: Second factor required. `request.origin_not_allowed`: Origin not allowed.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.precondition_failed"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.precondition_failed`: Precondition failed.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.payload_too_large"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.payload_too_large`: Body too large.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.rate_limited"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.rate_limited`: Too many requests.",
+            "headers": {
+              "ratelimit": {
+                "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "retry-after": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.internal_error"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.internal_error`: Internal error."
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.timed_out",
+                            "request.overloaded",
+                            "request.unavailable"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.timed_out`: Request timed out. `request.overloaded`: Too many requests in progress. `request.unavailable`: No replica can answer.",
+            "headers": {
+              "retry-after": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Stores whether the caller consents to their clients' sending their telemetry.",
+        "tags": [
+          "client_telemetry"
         ],
         "x-access": "user"
       }

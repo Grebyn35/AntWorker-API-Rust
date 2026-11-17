@@ -448,6 +448,19 @@ impl Api {
             .body(body.to_string())
     }
 
+    // part: client_telemetry
+    /// A `PUT` of `path`, with `body` as JSON, which is checked against the operation's
+    /// documented request body when sent (API-03).
+    pub fn put(&self, path: &str, body: &Value) -> Call<'_> {
+        let mut call = self
+            .request(Method::PUT, path)
+            .header("content-type", "application/json")
+            .body(body.to_string());
+        call.typed = true;
+        call
+    }
+    // end part: client_telemetry
+
     /// A `PATCH` of `path`, with `body` as a JSON Merge Patch, which is checked against the
     /// operation's documented request body when sent (API-03).
     pub fn patch(&self, path: &str, body: &Value) -> Call<'_> {

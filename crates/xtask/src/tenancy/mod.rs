@@ -64,6 +64,10 @@ const ACCOUNT_DATA: &[&str] = &[
     // Who is a superadmin, each row a user's own.
     "superadmins",
     // end part: superadmins
+    // part: client_telemetry
+    // Each user's consent to the telemetry of their clients, each row a user's own.
+    "telemetry_consents",
+    // end part: client_telemetry
 ];
 
 /// Tables of `platform`'s own bookkeeping (DATA-16). A job records the workspace and the user it
@@ -420,6 +424,9 @@ CREATE TABLE notes (id uuid PRIMARY KEY, body text);
         // part: superadmins
         let migrations = migrations + "CREATE TABLE superadmins (id uuid, user_id uuid);\n";
         // end part: superadmins
+        // part: client_telemetry
+        let migrations = migrations + "CREATE TABLE telemetry_consents (id uuid, user_id uuid);\n";
+        // end part: client_telemetry
         let repo = Repo::of(&[
             ("migrations/1_things.sql", &migrations),
             ("crates/app/src/modules/things/repo.rs", code),

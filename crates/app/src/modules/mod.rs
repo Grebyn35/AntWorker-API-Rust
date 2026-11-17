@@ -4,6 +4,9 @@ pub(crate) mod access;
 pub(crate) mod accounts;
 pub(crate) mod audit;
 pub(crate) mod auth;
+// part: client_telemetry
+pub(crate) mod client_telemetry;
+// end part: client_telemetry
 // part: files
 pub(crate) mod files;
 // end part: files

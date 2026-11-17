@@ -78,6 +78,11 @@ pub(crate) struct Features {
     /// The fork keeps `superadmins`, so a client offers a superadmin the deployment's workspaces.
     superadmins: bool,
     // end part: superadmins
+    // part: client_telemetry
+    /// The fork keeps `client_telemetry`, so a client asks its user whether it may send their
+    /// telemetry.
+    client_telemetry: bool,
+    // end part: client_telemetry
 }
 
 impl Features {
@@ -98,6 +103,9 @@ impl Features {
             // part: superadmins
             superadmins: true,
             // end part: superadmins
+            // part: client_telemetry
+            client_telemetry: true,
+            // end part: client_telemetry
         }
     }
 }

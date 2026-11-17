@@ -57,6 +57,9 @@ fn features(email: bool) -> Value {
     // part: files
     features.insert("files".to_owned(), json!(true));
     // end part: files
+    // part: client_telemetry
+    features.insert("client_telemetry".to_owned(), json!(true));
+    // end part: client_telemetry
     Value::Object(features)
 }
 

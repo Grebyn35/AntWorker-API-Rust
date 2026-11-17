@@ -596,17 +596,14 @@ mod tests {
 
     #[test]
     fn arch_07_a_test_s_module_is_the_words_before_its_behavior_s_number() {
-        let names = ["client_telemetry_002_x()", "ops_15_a_restore()"];
+        let names = ["order_items_002_x()", "ops_15_a_restore()"];
 
         let behaviors: Vec<Option<(String, String)>> =
             names.iter().map(|name| validate::behavior(name)).collect();
 
         assert_eq!(
             behaviors,
-            [
-                Some(("client_telemetry".to_owned(), "002".to_owned())),
-                None
-            ]
+            [Some(("order_items".to_owned(), "002".to_owned())), None]
         );
     }
 

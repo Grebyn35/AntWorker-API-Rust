@@ -130,7 +130,7 @@ crates/app/
 | `workspaces`, for the setup subcommand | `workspace_setups` | The workspaces that an operator's runs of `setup-workspace` created, each with the name its run was given, which no later run may use (D65). <!-- part: workspace_setup --> |
 | `invitations` | `invitations` | Invite, list, change an invitation's role, resend, cancel, accept, decline, and expiry. <!-- part: invitations --> |
 | `superadmins` | `superadmins` | The deployment's superadmins (D62): who is one, which its subcommand decides, since no route makes a superadmin, and none ends one but the deletion of their own account, and what authorizes a superadmin's routes: the caller being a superadmin, with a second factor (D63), never a membership. A superadmin sees every workspace's name, creation time, member count and owner, but not its content, through routes that `workspaces` serves, since it owns what they read; they delete any workspace, and create workspaces, which they then own ([workspace shapes](#workspace-shapes)), each recorded in the superadmin's own log, since deleting a workspace deletes the workspace's log. <!-- part: superadmins --> |
-| `client_telemetry` | `telemetry_consents` | The telemetry proxy for clients, and each user's consent to it, which it enforces on the server (D7, D122). |
+| `client_telemetry` | `telemetry_consents` | The telemetry proxy for clients, and each user's consent to it, which it enforces on the server (D7, D122). <!-- part: client_telemetry --> |
 | `system` | none | The capabilities endpoint (D9), and `seed`, which fills a development database with demo accounts and workspaces, as a client of the API's own routes (D28). The health probes belong to `platform` (§4). |
 | `platform` | `events`, `jobs`, `job_schedules`, `rate_limit_buckets`, `idempotency_records` | The mechanisms in §4. |
 
@@ -200,9 +200,12 @@ flowchart TD
   %% part: superadmins
   superadmins --> accounts & auth & audit
   %% end part: superadmins
+  %% part: client_telemetry
+  client_telemetry --> audit
+  %% end part: client_telemetry
 ```
 
-`access`, `realtime`, `system` and `client_telemetry` depend on no other module.
+`access`, `realtime` and `system` depend on no other module.
 
 The edges above are the only ones allowed, and the graph stays acyclic (ARCH-05). A module is used only through what its `mod.rs` exports (ARCH-04), and its SQL reads and writes only the tables it owns (ARCH-06). When a module needs another module's data, it calls a batch read in that module's API, such as `accounts::profiles(ids)`. An operation that spans modules passes one `&mut UnitOfWork` through every call, so all of it commits or none of it does (ARCH-11).
 

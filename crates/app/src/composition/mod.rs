@@ -49,6 +49,9 @@ use crate::modules::{
     accounts,
     audit,
     auth,
+    // part: client_telemetry
+    client_telemetry,
+    // end part: client_telemetry
     // part: files
     files::{self, Files},
     // end part: files
@@ -293,6 +296,9 @@ fn routes(resources: &Resources, states: States) -> Routes {
         // part: superadmins
         .merge(superadmins::routes().with_state(database.clone()))
         // end part: superadmins
+        // part: client_telemetry
+        .merge(client_telemetry::routes().with_state(database.clone()))
+        // end part: client_telemetry
         .merge(workspaces::routes().with_state(database.clone()))
         .merge(realtime::routes().with_state(states.realtime))
 }
@@ -375,6 +381,9 @@ fn catalog() -> audit::Catalog {
         // part: superadmins
         superadmins::AUDIT_ACTIONS,
         // end part: superadmins
+        // part: client_telemetry
+        client_telemetry::AUDIT_ACTIONS,
+        // end part: client_telemetry
         // part: files
         files::AUDIT_ACTIONS,
         // end part: files
@@ -401,6 +410,9 @@ pub fn openapi(service: Service) -> OpenApi {
         // part: superadmins
         superadmins::routes().openapi(service),
         // end part: superadmins
+        // part: client_telemetry
+        client_telemetry::routes().openapi(service),
+        // end part: client_telemetry
         // part: files
         accounts::avatar_routes().openapi(service),
         files::routes().openapi(service),
@@ -427,6 +439,9 @@ fn contracts(mail: &Mail) -> Vec<Arc<dyn PersonalData>> {
         // part: superadmins
         Arc::new(superadmins::Contract),
         // end part: superadmins
+        // part: client_telemetry
+        Arc::new(client_telemetry::Contract),
+        // end part: client_telemetry
         Arc::new(auth::Contract),
         Arc::new(audit::Contract),
         Arc::new(personal_data::Contract),

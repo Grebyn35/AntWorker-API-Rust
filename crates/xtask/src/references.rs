@@ -188,8 +188,8 @@ mod tests {
             ]
         );
         assert_eq!(
-            test_prefixes("client_telemetry_004_reports"),
-            [("client_telemetry".to_owned(), "004".to_owned())]
+            test_prefixes("order_items_004_reports"),
+            [("order_items".to_owned(), "004".to_owned())]
         );
     }
 

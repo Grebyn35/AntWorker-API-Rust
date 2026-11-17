@@ -41,3 +41,4 @@ A behavior's ID is the module name in capitals plus a three-digit number, such a
 | `audit` | [audit.md](audit.md) |
 | `realtime` | [realtime.md](realtime.md) |
 | `files` | [files.md](files.md) <!-- part: files --> |
+| `client_telemetry` | [client_telemetry.md](client_telemetry.md) <!-- part: client_telemetry --> |

@@ -190,9 +190,9 @@ mod tests {
     #[test]
     fn data_09_a_migration_names_its_module() {
         let repo = Repo::of(&[
-            ("crates/app/src/modules/client_telemetry/mod.rs", ""),
+            ("crates/app/src/modules/order_items/mod.rs", ""),
             ("migrations/20260101000000_platform_jobs.sql", ""),
-            ("migrations/20260101000100_client_telemetry_reports.sql", ""),
+            ("migrations/20260101000100_order_items_reports.sql", ""),
             ("migrations/20260101000200_billing_plans.sql", ""),
             ("migrations/2026_platform_x.sql", ""),
             ("migrations/20260101000300_platform_Jobs.sql", ""),

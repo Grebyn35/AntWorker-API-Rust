@@ -12,6 +12,10 @@ mod accounts;
 mod audit;
 #[cfg(test)]
 mod auth;
+// part: client_telemetry
+#[cfg(test)]
+mod client_telemetry;
+// end part: client_telemetry
 // part: files
 #[cfg(test)]
 mod files;
