@@ -54,7 +54,7 @@ Editing a migration that no release contains (DATA-09) means recreating the deve
 | A list's paging and search | `routes.rs`: `Page` and `Search`; `repo.rs`: the keyset query | API-05, API-06, API-09, API-20, DATA-17 |
 | A row's ID in the path | `routes.rs`: `path_id`, whose `None` answers the module's not-found once the caller is authorized | PLATFORM-072 |
 | The response, with its status, `Location` and `ETag` | `routes.rs`: `ResourceResponse`, `ok` or `created`, `tagged` for an editable resource | API-04, API-13 |
-| A retry that creates nothing twice | `routes.rs`: `Idempotent<T>`; `service.rs`: `uow.claim`, then `commit_with` | API-12 |
+| A retry that creates nothing twice | `routes.rs`: `Idempotent<T>`; `service.rs`: `uow.claim`, then `commit_with`, whose result a replay reads back, the next release's replay too, so a field that the result's type gains later is one that a stored result may lack, as `Stored` in `workspaces/model.rs` reads a workspace without its permissions | API-12, DATA-10 |
 | An update that a concurrent one can't overwrite | `routes.rs`: `IfMatch`; `repo.rs`: the version in the `WHERE` | API-13, DATA-18 |
 | A second member that a `PATCH` edits | `routes.rs`: each member of the patch's request type becomes optional; `service.rs`: a patch that names none changes nothing, and answers the resource as it stands | API-03, API-18, D88, D151 |
 | A value's limits and normalization | `model.rs`: a domain type, such as one built on `platform::types::one_line` | API-10, DATA-04, OBS-04 |
