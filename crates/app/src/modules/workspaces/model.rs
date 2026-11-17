@@ -106,15 +106,17 @@ pub(crate) struct Workspace {
     // end part: files
 }
 
-/// A workspace as the result of a keyed creation stored it, which a replay reads back
-/// (PLATFORM-036). It reads no permissions, whatever the result holds: a replay answers those
-/// that the stored role holds, as a read of the workspace does, whichever release stored the
-/// result (DATA-10).
+/// A workspace as the result of a keyed creation stored it, which a replay reads back, with the
+/// permissions that the creation answered (PLATFORM-036). A result that holds none reads back
+/// with those that its stored role holds, as a read of the workspace gives them: a deploy's two
+/// releases read each other's results, and one whose workspaces carry no permissions stores
+/// such a result (DATA-10).
 #[derive(serde::Deserialize)]
 struct Stored {
     id: WorkspaceId,
     name: WorkspaceName,
     role: Role,
+    permissions: Option<Vec<String>>,
     created_at: Timestamp,
     // part: files
     picture_url: Option<String>,
@@ -127,7 +129,7 @@ impl From<Stored> for Workspace {
             id: stored.id,
             name: stored.name,
             role: stored.role,
-            permissions: held(stored.role),
+            permissions: stored.permissions.unwrap_or_else(|| held(stored.role)),
             created_at: stored.created_at,
             // part: files
             picture_url: stored.picture_url,
@@ -338,24 +340,26 @@ mod tests {
     }
 
     #[test]
-    fn data_10_a_stored_workspace_without_permissions_reads_back_with_those_its_role_holds() {
+    fn data_10_a_stored_workspace_keeps_its_permissions_and_one_without_any_reads_its_role_s() {
         // A creation's result that holds no permissions, as a release without the field stores it.
-        let stored = serde_json::json!({
+        let mut stored = serde_json::json!({
             "id": "01900000-0000-7000-8000-000000000000",
             "name": "Acme",
             "role": "admin",
             "created_at": "2026-11-01T10:00:00.000000Z",
         });
 
-        let workspace: Workspace = serde_json::from_value(stored).unwrap();
+        let workspace: Workspace = serde_json::from_value(stored.clone()).unwrap();
 
         assert_eq!(workspace.role, Role::Admin);
         assert_eq!(workspace.permissions, held(Role::Admin));
         assert!(workspace.permissions.contains(&"members.read".to_owned()));
-        // A result that stored its permissions reads back with its role's too.
-        let read_back: Workspace =
-            serde_json::from_value(serde_json::to_value(&workspace).unwrap()).unwrap();
-        assert_eq!(read_back, workspace);
+        // A result that holds its permissions reads back with those, the first request's answer,
+        // whatever its role holds in the matrix of the release that reads it (PLATFORM-036).
+        stored["permissions"] = serde_json::json!(["workspace.read"]);
+        let replayed: Workspace = serde_json::from_value(stored).unwrap();
+        assert_eq!(replayed.permissions, ["workspace.read"]);
+        assert_ne!(replayed.permissions, held(Role::Admin));
     }
 
     #[test]

@@ -45,7 +45,7 @@
 
 | ID | Behavior | Rules | Test prefix |
 |---|---|---|---|
-| ACCESS-001 | Each membership holds exactly one role: `owner`, `admin` or `member`. Each workspace has exactly one owner. | D2 | `access_001_` |
+| ACCESS-001 | Each membership holds exactly one role: `owner`, `admin` or `member`, which `openapi.json` lists in that order, from the highest rank to the lowest. Each workspace has exactly one owner. | D2, D171 | `access_001_` |
 | ACCESS-002 | A role grants exactly the permissions the matrix gives it, and nothing else. | D2 | `access_002_` |
 | ACCESS-003 | A caller who isn't a member of the workspace in the path gets 404 `request.not_found`. A member without the route's permission gets 403 `request.permission_denied`. Both refusals are reported to the `SecurityEventSink`. A workspace ID that isn't a UUID names no workspace, and answers 404 `request.not_found` unrecorded. | API-14, SEC-08, DATA-22 | `access_003_` |
 | ACCESS-004 | A member acts only on members whose role ranks below their own, and assigns only roles below their own, but for the three exceptions that SEC-09 names: a transfer, by which the owner and an admin swap their roles; leaving, by which a member who isn't the owner ends their own membership; and a workspace's deletion, by which the owner ends every membership, their own among them. A refusal goes through `authz::refuse`, and answers 403 `request.permission_denied`. | SEC-09, DATA-22, PLATFORM-010 | `access_004_` |

@@ -111,6 +111,8 @@ pub(super) struct ExportedMembership {
 
 #[cfg(test)]
 mod tests {
+    use utoipa::PartialSchema;
+
     use super::*;
 
     #[test]
@@ -121,5 +123,20 @@ mod tests {
         assert!(Role::from_name("guest").is_err());
         assert!(Role::Owner.outranks(Role::Admin) && Role::Admin.outranks(Role::Member));
         assert!(!Role::Admin.outranks(Role::Admin) && !Role::Member.outranks(Role::Owner));
+    }
+
+    #[test]
+    fn access_001_the_document_lists_the_roles_from_the_highest_rank_to_the_lowest() {
+        let schema = serde_json::to_value(Role::schema()).unwrap();
+
+        let listed: Vec<Role> = schema["enum"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|name| Role::from_name(name.as_str().unwrap()).unwrap())
+            .collect();
+
+        assert_eq!(listed, Role::ALL);
+        assert!(listed.windows(2).all(|pair| pair[0].outranks(pair[1])));
     }
 }

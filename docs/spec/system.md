@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`system` tells clients what the running deployment offers: the capabilities endpoint lists the features a deployment can turn off, and whether each one is on, and the optional parts that change what a client offers, which its fork keeps (D9, D118). It also fills a development database with demo accounts and workspaces, through the `seed` subcommand, so a developer has something to sign in to (D28). What the fork's code alone decides, such as its events, its audit actions and the permission that each workspace route takes, a client learns from `openapi.json`, and no route of `system` lists it (D170, D171).
+`system` tells clients what the running deployment offers: the capabilities endpoint lists the features a deployment can turn off, and whether each one is on, and the optional parts that change what a client offers, which its fork keeps (D9, D118). It also fills a development database with demo accounts and workspaces, through the `seed` subcommand, so a developer has something to sign in to (D28). The optional parts are all that the capabilities tell of what the fork's code decides: the rest, such as its events, its audit actions and the permission that each workspace route takes, a client learns from `openapi.json`, and no route lists it (D170, D171).
 
 ## Owns
 

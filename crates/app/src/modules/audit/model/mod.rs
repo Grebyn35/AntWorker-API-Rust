@@ -4,8 +4,6 @@
 mod action;
 mod catalog;
 
-use std::borrow::Cow;
-
 use platform::{
     authn::AuditScope,
     errors::Internal,
@@ -270,12 +268,6 @@ impl PartialSchema for ActionName {
     }
 }
 
-impl ToSchema for ActionName {
-    fn name() -> Cow<'static, str> {
-        Cow::Borrowed("ActionName")
-    }
-}
-
 impl PartialSchema for ResourceName {
     fn schema() -> RefOr<Schema> {
         ObjectBuilder::new()
@@ -283,12 +275,6 @@ impl PartialSchema for ResourceName {
             .max_length(Some(NAME_MAX_CHARS))
             .pattern(Some("^[a-z][a-z0-9_]*$"))
             .into()
-    }
-}
-
-impl ToSchema for ResourceName {
-    fn name() -> Cow<'static, str> {
-        Cow::Borrowed("ResourceName")
     }
 }
 
