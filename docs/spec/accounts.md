@@ -135,7 +135,7 @@ ACCOUNTS-009's limit is fixed, beside `FILE_MAX_BYTES`, whose default is ten tim
 | `files` | The user's files and avatar, whose bytes FILES-011 deletes. A file they uploaded to a workspace that stays keeps its row, and its foreign key sets its `uploader_id` to null as the user's row goes (ACCOUNTS-017). <!-- part: files --> |
 | `invitations` | Nothing of its own: an invitation the user sent stays, the workspace's, and its foreign key sets its `inviter_id` to null as the user's row goes. An invitation addressed to their email is the workspace's too, and stays (ACCOUNTS-018, D31). <!-- part: invitations --> |
 | `superadmins` | Nothing of its own: the foreign key deletes the user's row of `superadmins` as the user's row goes (SUPERADMINS-007). <!-- part: superadmins --> |
-| `client_telemetry` | Nothing of its own: the foreign key deletes the user's row of `telemetry_consents` as the user's row goes (CLIENT_TELEMETRY-003). <!-- part: client_telemetry --> |
+| `client_telemetry` | The user's row of `telemetry_consents`, which a choice of their consent locks before it names them, so the erasure waits for a choice that holds it (CLIENT_TELEMETRY-003). <!-- part: client_telemetry --> |
 | `auth` | The user's identities, their authenticator app, its setup, their recovery codes and their sign-in challenges, their sessions, each with its access-change signal, which closes its streams (SEC-06), their device tokens, and their verification codes. |
 | `audit` | Nothing of its own: the foreign keys delete the user's own log, and anonymize the entries of other logs that name them, as the user's row goes (AUDIT-006). |
 | `platform` | The jobs enqueued for the user. Their events and idempotency records go with the user's row, through their foreign keys. |

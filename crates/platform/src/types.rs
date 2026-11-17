@@ -302,6 +302,10 @@ impl ToSchema for Timestamp {
 pub struct Version(i64);
 
 impl Version {
+    /// Version 0: the version of a resource that has no row until its first change, which its
+    /// module's spec gives it until that change commits (the platform spec's Preconditions).
+    pub const UNWRITTEN: Self = Self(0);
+
     /// The version `value`, as the database returned it.
     pub fn from_database(value: i64) -> Self {
         Self(value)

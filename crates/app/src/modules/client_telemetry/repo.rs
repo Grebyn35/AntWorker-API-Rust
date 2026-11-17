@@ -1,5 +1,6 @@
-//! The SQL of `client_telemetry` (ARCH-10). Every query reads or writes the row of one user, the
-//! caller (DATA-16).
+//! The SQL of `client_telemetry` (ARCH-10). Every query reads or writes the row of one user, by
+//! their ID: the caller, or the user whose account a deletion erases, or whose export a job
+//! builds (DATA-16).
 
 use platform::{
     db::UnitOfWork,
@@ -94,6 +95,18 @@ pub(super) async fn set(
         },
         version: Version::from_database(row.version),
     }))
+}
+
+/// Deletes the row of `user`, waiting for a choice that holds it, as the erasure of their
+/// account (CLIENT_TELEMETRY-003).
+pub(super) async fn delete(uow: &mut UnitOfWork, user: UserId) -> Result<(), Internal> {
+    sqlx::query!(
+        "DELETE FROM telemetry_consents WHERE user_id = $1",
+        user.uuid()
+    )
+    .execute(uow.executor())
+    .await?;
+    Ok(())
 }
 
 /// The row of `user`, if they ever chose, as their export holds it (CLIENT_TELEMETRY-003).

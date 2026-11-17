@@ -28,7 +28,7 @@ pub(super) async fn consent(
     let current = repo::current(&mut uow, principal.user_id()).await?;
     Ok(current.unwrap_or(Current {
         consent: TelemetryConsent { consented: false },
-        version: Version::from_database(0),
+        version: Version::UNWRITTEN,
     }))
 }
 

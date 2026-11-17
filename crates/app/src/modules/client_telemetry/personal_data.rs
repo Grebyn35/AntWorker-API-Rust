@@ -1,6 +1,7 @@
 //! The personal data contract of `client_telemetry` (D31): it exports the user's consent, if they
-//! ever chose (the accounts spec's "What an export holds"). Its erasure changes nothing: the
-//! foreign key deletes the user's row as their account goes (CLIENT_TELEMETRY-003).
+//! ever chose (the accounts spec's "What an export holds"). Its erasure deletes the user's row,
+//! waiting for a choice that holds it, since a choice locks the row before its entry and its
+//! event name the user (the accounts spec's "Deleting an account", CLIENT_TELEMETRY-003).
 
 use platform::{
     authn::{BoxFuture, Principal},
@@ -36,9 +37,12 @@ impl PersonalData for Contract {
 
     fn erase<'a>(
         &'a self,
-        _uow: &'a mut UnitOfWork,
-        _principal: &'a Principal,
+        uow: &'a mut UnitOfWork,
+        principal: &'a Principal,
     ) -> BoxFuture<'a, Result<(), ErasureError>> {
-        Box::pin(async { Ok(()) })
+        Box::pin(async move {
+            repo::delete(uow, principal.user_id()).await?;
+            Ok(())
+        })
     }
 }

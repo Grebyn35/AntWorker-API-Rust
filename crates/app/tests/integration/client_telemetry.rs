@@ -204,6 +204,7 @@ async fn client_telemetry_002_a_body_that_isn_t_the_whole_consent_is_refused() {
     }
     assert!(rows(&api).await.is_empty());
     assert!(entries(&api).await.is_empty());
+    assert!(events(&api).await.is_empty());
 }
 
 /// Has `user` choose to consent, in a task of its own: a request that the test holds at a lock.
@@ -287,6 +288,33 @@ async fn client_telemetry_003_deleting_an_account_deletes_its_consent() {
 
     assert_eq!(deleted.status, 204);
     assert_eq!(rows(&api).await, [format!("{} true 1", grace.user_id)]);
+}
+
+#[tokio::test]
+async fn client_telemetry_003_a_deletion_waits_for_a_choice_that_holds_the_consent_s_row() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    assert_eq!(choose(&api, &ada, true, None).await.status, 200);
+    let db = api.database();
+    // A choice that holds the consent's row, which it locks before it names the user.
+    let mut choice = db
+        .holding(&format!(
+            "SELECT 1 FROM telemetry_consents WHERE user_id = '{}' FOR UPDATE",
+            ada.user_id
+        ))
+        .await;
+
+    let mut deletion = api.spawn(Method::DELETE, "/v1/users/me", &ada.access, None);
+    // The erasure waits for the row, before the deletion's last step, which waits for no lock.
+    tokio::select! {
+        () = query_waits_on_a_lock(db, "DELETE FROM telemetry_consents") => {}
+        ended = &mut deletion => panic!("the deletion ended without waiting for the row: {ended:?}"),
+    }
+    execute_on(&mut choice, "COMMIT").await;
+    let (status, body) = deletion.await.unwrap();
+
+    assert_eq!(status, 204, "{body}");
+    assert!(rows(&api).await.is_empty());
 }
 
 #[tokio::test]
