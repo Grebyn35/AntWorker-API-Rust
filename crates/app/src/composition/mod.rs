@@ -1,14 +1,17 @@
 //! The composition root: builds every service once and mounts every module's routes (ARCH-12).
 //! `main.rs` opens the process's resources, such as the database, and hands them here. The
-//! modules' settings are in `config.rs`, and the other subcommands that run the modules' logic
-//! in `tasks.rs`, those that an operator runs, and in `seed.rs`, the entry points of `seed`.
+//! modules' settings are in `config.rs`, the request pipeline that serves the routes in
+//! `pipeline.rs`, and the other subcommands that run the modules' logic in `tasks.rs`, those that
+//! an operator runs, and in `seed.rs`, the entry points of `seed`.
 
 mod config;
+mod pipeline;
 mod providers;
 mod seed;
 mod tasks;
 
 pub use config::Config;
+pub use pipeline::pipeline;
 pub use seed::{SeedError, SeedReport, seed, seed_allowed};
 pub use tasks::{Done, Operation, Refused, RemovalRefused};
 // part: superadmins
@@ -25,17 +28,16 @@ use platform::{
     authz::Authorizer,
     blocking::Workers,
     clock::SharedClock,
-    config::{Environment, ServerConfig},
+    config::ServerConfig,
     db::Database,
-    errors::{self, Internal},
+    errors::Internal,
     events::{Hub, Listener},
-    http::{Origins, Pipeline, Routes},
+    http::Routes,
     jobs::Jobs,
     lifecycle::Readiness,
     mail::Mail,
     outbound::Configured,
     personal_data::{self, PersonalData},
-    rate_limit::RateLimiter,
     telemetry::Service,
 };
 // part: files
@@ -325,45 +327,6 @@ fn realtime(
         ),
         clock: resources.clock.clone(),
         heartbeat,
-    }
-}
-
-/// The request pipeline that `config` describes, which counts its rate limits in the database of
-/// `resources` and verifies access tokens through `services`, and which serves the API reference
-/// of `service`'s document in development (PLATFORM-052).
-pub fn pipeline(
-    resources: &Resources,
-    config: &ServerConfig,
-    services: &Services,
-    service: Service,
-) -> Pipeline {
-    let reference = if config.environment == Environment::Development {
-        match serde_json::to_string(&openapi(service)) {
-            Ok(document) => Some(Arc::from(document)),
-            // Development goes without the reference, which serves no client (ERR-11).
-            Err(error) => {
-                errors::ignore(&error, "api_reference_not_written");
-                None
-            }
-        }
-    } else {
-        None
-    };
-    Pipeline {
-        clock: resources.clock.clone(),
-        max_concurrent_requests: usize::try_from(config.max_concurrent_requests)
-            .unwrap_or(usize::MAX),
-        readiness: resources.readiness.clone(),
-        trusted_proxies: config.trusted_proxies.clone(),
-        origins: Origins::new(&config.cors_allowed_origins),
-        limiter: RateLimiter::new(resources.database.clone(), config.hmac_key.clone()),
-        rate_limits: config.rate_limits,
-        verifier: services.verifier.clone(),
-        // part: files
-        signed_urls: SignedUrls::new(config.hmac_key.clone()),
-        // end part: files
-        authorizer: services.authorizer.clone(),
-        reference,
     }
 }
 
