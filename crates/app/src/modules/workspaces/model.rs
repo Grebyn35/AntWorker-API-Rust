@@ -341,25 +341,34 @@ mod tests {
 
     #[test]
     fn data_10_a_stored_workspace_keeps_its_permissions_and_one_without_any_reads_its_role_s() {
-        // A creation's result that holds no permissions, as a release without the field stores it.
+        // A creation's result, as `commit_with` stores it, that holds no permissions, as a
+        // release without the field stores it.
         let mut stored = serde_json::json!({
-            "id": "01900000-0000-7000-8000-000000000000",
-            "name": "Acme",
-            "role": "admin",
-            "created_at": "2026-11-01T10:00:00.000000Z",
+            "workspace": {
+                "id": "01900000-0000-7000-8000-000000000000",
+                "name": "Acme",
+                "role": "admin",
+                "created_at": "2026-11-01T10:00:00.000000Z",
+            },
+            "version": 1,
         });
 
-        let workspace: Workspace = serde_json::from_value(stored.clone()).unwrap();
+        let current: Current = serde_json::from_value(stored.clone()).unwrap();
 
-        assert_eq!(workspace.role, Role::Admin);
-        assert_eq!(workspace.permissions, held(Role::Admin));
-        assert!(workspace.permissions.contains(&"members.read".to_owned()));
+        assert_eq!(current.workspace.role, Role::Admin);
+        assert_eq!(current.workspace.permissions, held(Role::Admin));
+        assert!(
+            current
+                .workspace
+                .permissions
+                .contains(&"members.read".to_owned())
+        );
         // A result that holds its permissions reads back with those, the first request's answer,
         // whatever its role holds in the matrix of the release that reads it (PLATFORM-036).
-        stored["permissions"] = serde_json::json!(["workspace.read"]);
-        let replayed: Workspace = serde_json::from_value(stored).unwrap();
-        assert_eq!(replayed.permissions, ["workspace.read"]);
-        assert_ne!(replayed.permissions, held(Role::Admin));
+        stored["workspace"]["permissions"] = serde_json::json!(["workspace.read"]);
+        let replayed: Current = serde_json::from_value(stored).unwrap();
+        assert_eq!(replayed.workspace.permissions, ["workspace.read"]);
+        assert_ne!(replayed.workspace.permissions, held(Role::Admin));
     }
 
     #[test]

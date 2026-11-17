@@ -28166,7 +28166,7 @@
                 }
               }
             },
-            "description": "The workspace, with the caller's role.",
+            "description": "The workspace, with the caller's role and its permissions.",
             "headers": {
               "etag": {
                 "description": "The workspace's version, which a rename's `If-Match` names (API-13).",

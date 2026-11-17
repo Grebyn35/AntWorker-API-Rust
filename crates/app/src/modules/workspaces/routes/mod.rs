@@ -143,7 +143,7 @@ async fn list(
         ("workspace_id" = WorkspaceId, Path, description = "The workspace."),
     ),
     responses(
-        (status = 200, description = "The workspace, with the caller's role.", body = Workspace,
+        (status = 200, description = "The workspace, with the caller's role and its permissions.", body = Workspace,
             headers(("etag" = String, description = "The workspace's version, which a rename's `If-Match` names (API-13)."))),
     )
 )]

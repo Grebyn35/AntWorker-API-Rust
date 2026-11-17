@@ -151,7 +151,8 @@ pub(crate) async fn list(
     })
 }
 
-/// The caller's workspace as it now stands, with their role (WORKSPACES-007).
+/// The caller's workspace as it now stands, with their role and its permissions
+/// (WORKSPACES-007).
 pub(crate) async fn read(
     uow: &mut UnitOfWork,
     authorized: &Authorized<WorkspaceRead>,
@@ -160,8 +161,8 @@ pub(crate) async fn read(
 }
 
 /// The workspace that `authorized` names, as it now stands, with the role of the member it
-/// proves, and its version, which an operation that changed the workspace answers too
-/// (WORKSPACES-007).
+/// proves, that role's permissions, and its version, which an operation that changed the
+/// workspace answers too (WORKSPACES-007).
 pub(super) async fn current<P: Permission>(
     uow: &mut UnitOfWork,
     authorized: &Authorized<P>,

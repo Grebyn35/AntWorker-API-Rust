@@ -1,7 +1,8 @@
 //! AUDIT-012: every audit action that a module's `audit.rs` declares is in the document's action
-//! catalog, the component `AuditEntry`, so a module that declares an action and leaves it out of
-//! its list, a list that the composition root's catalog leaves out, or a document written before
-//! the action existed, fails; and so does a component of an action that the catalog lacks.
+//! catalog, the components that `AuditEntry` refers to, so a module that declares an action and
+//! leaves it out of its list, a list that the composition root's catalog leaves out, or a
+//! document written before the action existed, fails; and so does a component that the document
+//! marks as an action's and that `AuditEntry` doesn't refer to.
 //! AUDIT-014: each action's component gives its entries' `action` as the action's name alone.
 //! AUDIT-009: each action is named `<resource>.<verb>`, each part `snake_case`, in at most 100
 //! characters, as a log's filter takes it.
@@ -22,30 +23,33 @@ const ACTION: &str = "Action::new(";
 /// The component of the action catalog, which holds every action's (AUDIT-012).
 const CATALOG: &str = "AuditEntry";
 
-/// The actions of `document`'s catalog: the name of each action whose component the catalog's
+/// The components of `document`'s catalog: the name of each component that the catalog's
 /// `oneOf` refers to.
 fn catalog(document: &Value) -> BTreeSet<&str> {
-    let schemas = &document["components"]["schemas"];
-    schemas[CATALOG]["oneOf"]
+    document["components"]["schemas"][CATALOG]["oneOf"]
         .as_array()
         .into_iter()
         .flatten()
         .filter_map(|entry| entry["$ref"].as_str())
         .filter_map(|reference| reference.rsplit('/').next())
-        .filter_map(|component| schemas[component]["x-audit-action"].as_str())
         .collect()
 }
 
-/// A finding for each action that a module's `audit.rs` declares and `document`'s catalog lacks,
-/// and for each action's component of `document` that the catalog lacks, whose action isn't
-/// named as a log's filter takes it, or that gives its entries' `action` as anything but the
-/// action's name.
+/// A finding for each action that a module's `audit.rs` declares and that no component of
+/// `document`'s catalog is marked with, and for each component of `document` marked as an
+/// action's that the catalog doesn't refer to, whose action isn't named as a log's filter takes
+/// it, or that gives its entries' `action` as anything but the action's name.
 pub fn check(repo: &Repo, document: &Value) -> Vec<Finding> {
     let catalog = catalog(document);
+    let schemas = &document["components"]["schemas"];
+    let actions: BTreeSet<&str> = catalog
+        .iter()
+        .filter_map(|component| schemas[*component]["x-audit-action"].as_str())
+        .collect();
     let mut findings = components(repo, document, &catalog);
     for file in repo.files().filter(|file| is_audit_file(&file.path)) {
         for name in declared(&file.text, &[ACTION]) {
-            if !catalog.contains(name) {
+            if !actions.contains(name) {
                 findings.push(Finding::new(
                     &file.path,
                     line_of(&file.text, &format!("\"{name}\"")),
@@ -61,9 +65,9 @@ pub fn check(repo: &Repo, document: &Value) -> Vec<Finding> {
     findings
 }
 
-/// A finding for each action's component in `document` that `catalog`, the actions of the
-/// document's catalog, lacks, whose action isn't named as a log's filter takes it, or that gives
-/// its entries' `action` as anything but the action's name.
+/// A finding for each component in `document` marked as an action's that `catalog`, the
+/// components that the document's catalog refers to, lacks, whose action isn't named as a log's
+/// filter takes it, or that gives its entries' `action` as anything but the action's name.
 fn components(repo: &Repo, document: &Value, catalog: &BTreeSet<&str>) -> Vec<Finding> {
     let Some(file) = repo.file(super::DOCUMENT) else {
         return Vec::new();
@@ -78,7 +82,7 @@ fn components(repo: &Repo, document: &Value, catalog: &BTreeSet<&str>) -> Vec<Fi
             continue;
         };
         let line = line_of(&file.text, &format!("\"x-audit-action\": \"{name}\""));
-        if !catalog.contains(name) {
+        if !catalog.contains(component.as_str()) {
             findings.push(Finding::new(
                 super::DOCUMENT,
                 line,
@@ -221,6 +225,70 @@ mod tests {
                 .iter()
                 .all(|message| message.ends_with("(AUDIT-012)"))
         );
+    }
+
+    #[test]
+    fn audit_012_a_component_that_the_catalog_lacks_fails_though_the_catalog_holds_its_action() {
+        let audit = "const A: Action = Action::new(\"thing.made\", \"Made.\", &[THING]);\n";
+        let document = json!({ "components": { "schemas": {
+            "ThingMadeEntry": component("thing.made", "thing.made"),
+            "ThingMadeAgainEntry": component("thing.made", "thing.made"),
+            "AuditEntry": catalog_of(&["ThingMadeEntry"]),
+        } } });
+        let repo = Repo::of(&[
+            ("crates/app/src/modules/things/audit.rs", audit),
+            ("openapi.json", &document.to_string()),
+        ]);
+
+        let messages: Vec<String> = check(&repo, &document)
+            .into_iter()
+            .map(|finding| format!("{}: {}", finding.path, finding.message))
+            .collect();
+
+        assert_eq!(messages.len(), 1, "{messages:?}");
+        assert!(
+            messages[0].starts_with(
+                "openapi.json: the component ThingMadeAgainEntry of the action thing.made isn't \
+                 in the action catalog"
+            ),
+            "{messages:?}"
+        );
+    }
+
+    #[test]
+    fn audit_012_a_document_without_the_catalog_fails_on_each_action_and_each_component() {
+        let audit = "const A: Action = Action::new(\"thing.made\", \"Made.\", &[THING]);\n";
+        let document = json!({ "components": { "schemas": {
+            "ThingMadeEntry": component("thing.made", "thing.made"),
+        } } });
+        let repo = Repo::of(&[
+            ("crates/app/src/modules/things/audit.rs", audit),
+            ("openapi.json", &document.to_string()),
+        ]);
+
+        let messages: Vec<String> = check(&repo, &document)
+            .into_iter()
+            .map(|finding| format!("{}: {}", finding.path, finding.message))
+            .collect();
+
+        assert_eq!(messages.len(), 2, "{messages:?}");
+        assert!(messages[0].starts_with("openapi.json: the component ThingMadeEntry"));
+        assert!(messages[1].starts_with("crates/app/src/modules/things/audit.rs: `thing.made`"));
+        // A component of the catalog that another action marks leaves the action out of it.
+        let document = json!({ "components": { "schemas": {
+            "ThingMadeEntry": component("thing.gone", "thing.gone"),
+            "AuditEntry": catalog_of(&["ThingMadeEntry"]),
+        } } });
+        let repo = Repo::of(&[
+            ("crates/app/src/modules/things/audit.rs", audit),
+            ("openapi.json", &document.to_string()),
+        ]);
+        let messages: Vec<String> = check(&repo, &document)
+            .into_iter()
+            .map(|finding| format!("{}: {}", finding.path, finding.message))
+            .collect();
+        assert_eq!(messages.len(), 1, "{messages:?}");
+        assert!(messages[0].starts_with("crates/app/src/modules/things/audit.rs: `thing.made`"));
     }
 
     #[test]
