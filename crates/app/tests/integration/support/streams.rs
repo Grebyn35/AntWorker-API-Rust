@@ -256,9 +256,12 @@ impl Stream {
         frame
     }
 
-    /// The next frame, which must be `stream.opened`.
+    /// The next frame, which must be `stream.opened`. It skips no heartbeat, so a stream that
+    /// sent one before its `stream.opened` fails here (REALTIME-001).
     pub async fn opened(&mut self) -> Frame {
-        let frame = self.event().await;
+        let frame = self.frame().await;
+        assert!(frame.is_some(), "the stream ended before stream.opened");
+        let frame = frame.unwrap();
         assert_eq!(frame.event.as_deref(), Some("stream.opened"), "{frame:?}");
         frame
     }

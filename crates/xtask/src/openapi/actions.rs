@@ -1,8 +1,10 @@
-//! AUDIT-012: every audit action that a module's `audit.rs` declares is in the document's action
-//! catalog, the components that `AuditEntry` refers to, so a module that declares an action and
-//! leaves it out of its list, a list that the composition root's catalog leaves out, or a
-//! document written before the action existed, fails; and so does a component that the document
-//! marks as an action's and that `AuditEntry` doesn't refer to.
+//! AUDIT-012: the document's action catalog is the components that `AuditEntry` refers to. The
+//! check reads the code's actions as text: the name in double quotes that follows each
+//! `Action::new(` in a module's `audit.rs`. One that no such name follows fails, since the check
+//! couldn't read it. A name that no component of the catalog is marked with fails, so a module
+//! that declares an action and leaves it out of its list, a list that the composition root's
+//! catalog leaves out, or a document written before the action existed, fails; and so does a
+//! component that the document marks as an action's and that `AuditEntry` doesn't refer to.
 //! AUDIT-014: each action's component gives its entries' `action` as the action's name alone.
 //! AUDIT-009: each action is named `<resource>.<verb>`, each part `snake_case`, in at most 100
 //! characters, as a log's filter takes it.
@@ -29,10 +31,11 @@ pub(super) const CATALOG: &str = "AuditEntry";
 /// The extension that marks an action's component with the action's name.
 pub(super) const MARK: &str = "x-audit-action";
 
-/// A finding for each action that a module's `audit.rs` declares and that no component of
-/// `document`'s catalog is marked with, and for each component of `document` marked as an
-/// action's that the catalog doesn't refer to, whose action isn't named as a log's filter takes
-/// it, or that gives its entries' `action` as anything but the action's name.
+/// A finding for each `Action::new(` of a module's `audit.rs` that no name in double quotes
+/// follows, for each name that follows one and that no component of `document`'s catalog is
+/// marked with, and for each component of `document` marked as an action's that the catalog
+/// doesn't refer to, whose action isn't named as a log's filter takes it, or that gives its
+/// entries' `action` as anything but the action's name.
 pub fn check(repo: &Repo, document: &Value) -> Vec<Finding> {
     let catalog = referred(document, CATALOG);
     let schemas = &document["components"]["schemas"];
@@ -43,6 +46,16 @@ pub fn check(repo: &Repo, document: &Value) -> Vec<Finding> {
     let mut findings = components(repo, document, &catalog);
     for file in repo.files().filter(|file| is_audit_file(&file.path)) {
         for (name, line) in declared(&file.text, &[ACTION]) {
+            let Some(name) = name else {
+                findings.push(Finding::new(
+                    &file.path,
+                    line,
+                    "the action's name isn't a string in double quotes right after \
+                     `Action::new(`, which is how `check-openapi` reads it: write it there \
+                     (AUDIT-012)",
+                ));
+                continue;
+            };
             if !actions.contains(name) {
                 findings.push(Finding::new(
                     &file.path,
@@ -283,6 +296,36 @@ mod tests {
             .collect();
         assert_eq!(messages.len(), 1, "{messages:?}");
         assert!(messages[0].starts_with("crates/app/src/modules/things/audit.rs: `thing.made`"));
+    }
+
+    #[test]
+    fn audit_012_an_action_s_constructor_that_no_quoted_name_follows_fails() {
+        // A raw string and a constant, with a name the check reads after them.
+        let audit = "const A: Action = Action::new(r\"thing.made\", \"Made.\", &[THING]);\n\
+                     const B: Action = Action::new(NAME, \"Kept.\", &[THING]);\n\
+                     const C: Action = Action::new(\"thing.gone\", \"Gone.\", &[THING]);\n";
+        let repo = Repo::of(&[("crates/app/src/modules/things/audit.rs", audit)]);
+        let document = json!({ "components": { "schemas": {
+            "ThingGoneEntry": { "x-audit-action": "thing.gone" },
+            "AuditEntry": catalog_of(&["ThingGoneEntry"]),
+        } } });
+
+        let messages: Vec<String> = check(&repo, &document)
+            .into_iter()
+            .map(|finding| format!("{}:{}: {}", finding.path, finding.line, finding.message))
+            .collect();
+
+        assert_eq!(messages.len(), 2, "{messages:?}");
+        for (message, line) in messages.iter().zip([1, 2]) {
+            assert!(
+                message.starts_with(&format!(
+                    "crates/app/src/modules/things/audit.rs:{line}: the action's name isn't a \
+                     string in double quotes"
+                )),
+                "{messages:?}"
+            );
+            assert!(message.ends_with("(AUDIT-012)"), "{messages:?}");
+        }
     }
 
     #[test]

@@ -1,11 +1,13 @@
-//! REALTIME-008: the document's event catalog is the components that `Frame` refers to. A frame
-//! type that the code declares and that no component of the catalog is marked with fails, so a
+//! REALTIME-008: the document's event catalog is the components that `Frame` refers to. The
+//! check reads the code's frame types as text: the name in double quotes that follows each
+//! `UserEvent::new(` or `WorkspaceEvent::new(` in a module's `events.rs`, and each
+//! `StreamFrame::new(` in a Rust file under `crates/app/src/` or `crates/platform/src/`. One
+//! that no such name follows, as a constant or a raw string would stand there, fails, since the
+//! check couldn't read it. A name that no component of the catalog is marked with fails, so a
 //! module that declares an event and forgets to register it with its routes, or a document
 //! written before the event existed, fails; so does a component that the document marks as a
-//! frame type's and that `Frame` doesn't refer to; and so does a name that two declarations give,
-//! since the catalog keeps one frame type of each name. The declarations it reads are each
-//! string that follows `UserEvent::new(` or `WorkspaceEvent::new(` in a module's `events.rs`, or
-//! `StreamFrame::new(` in a file of a module.
+//! frame type's and that `Frame` doesn't refer to; and so does a name that two of them give,
+//! since the catalog keeps one frame type of each name.
 //! API-19: each frame type that the document marks is named `<resource>.<verb>`, each part
 //! `snake_case`; review checks that the verb is in the past tense.
 
@@ -24,6 +26,9 @@ pub(super) const MARK: &str = "x-event";
 
 /// The directory of the modules' code.
 const MODULES: &str = "crates/app/src/modules/";
+
+/// The code that may declare a frame of the stream's own.
+const CODE: [&str; 2] = ["crates/app/src/", "crates/platform/src/"];
 
 /// The constructor of a module's user events, which clippy allows only in its `events.rs`.
 const USER_EVENT: &str = "UserEvent::new(";
@@ -46,10 +51,10 @@ pub(super) fn referred<'a>(document: &'a Value, catalog: &str) -> BTreeSet<&'a s
         .collect()
 }
 
-/// A finding for each frame type that a module declares and that no component of `document`'s
-/// catalog is marked with, for each declaration that gives a name an earlier one gives, and for
-/// each component of `document` marked as a frame type's that the catalog doesn't refer to, or
-/// whose frame type isn't named as API-19 names one.
+/// A finding for each constructor of a frame type that no name in double quotes follows, for
+/// each name that follows one and that no component of `document`'s catalog is marked with or
+/// that an earlier one gives, and for each component of `document` marked as a frame type's
+/// that the catalog doesn't refer to, or whose frame type isn't named as API-19 names one.
 pub fn check(repo: &Repo, document: &Value) -> Vec<Finding> {
     let catalog = referred(document, CATALOG);
     let schemas = &document["components"]["schemas"];
@@ -59,16 +64,26 @@ pub fn check(repo: &Repo, document: &Value) -> Vec<Finding> {
         .collect();
     let mut findings = components(repo, document, &catalog);
     let mut first: BTreeMap<&str, (&str, usize)> = BTreeMap::new();
-    let modules = repo
-        .files()
-        .filter(|file| file.path.starts_with(MODULES) && file.path.ends_with(".rs"));
-    for file in modules {
+    let code = repo.files().filter(|file| {
+        file.path.ends_with(".rs") && CODE.iter().any(|code| file.path.starts_with(code))
+    });
+    for file in code {
         let constructors: &[&str] = if is_events_file(&file.path) {
             &[USER_EVENT, WORKSPACE_EVENT, STREAM_FRAME]
         } else {
             &[STREAM_FRAME]
         };
         for (name, line) in declared(&file.text, constructors) {
+            let Some(name) = name else {
+                findings.push(Finding::new(
+                    &file.path,
+                    line,
+                    "the frame type's name isn't a string in double quotes right after its \
+                     constructor, which is how `check-openapi` reads it: write it there \
+                     (REALTIME-008)",
+                ));
+                continue;
+            };
             if !frames.contains(name) {
                 findings.push(Finding::new(
                     &file.path,
@@ -151,28 +166,30 @@ pub fn is_events_file(path: &str) -> bool {
         .is_some_and(|module| !module.contains('/'))
 }
 
-/// The name of each workspace event that `text`, a module's `events.rs`, declares.
+/// The name in double quotes that follows each `WorkspaceEvent::new(` in `text`, a module's
+/// `events.rs`.
 pub fn workspace_events(text: &str) -> Vec<&str> {
     declared(text, &[WORKSPACE_EVENT])
         .into_iter()
-        .map(|(name, _)| name)
+        .filter_map(|(name, _)| name)
         .collect()
 }
 
-/// The name of each event, frame of the stream's own or audit action that `text` declares
-/// through one of `constructors`: each string that follows one of them, with the string's line,
-/// in the order of the lines.
-pub(super) fn declared<'a>(text: &'a str, constructors: &[&str]) -> Vec<(&'a str, usize)> {
+/// What follows each of `constructors` in `text`, in the order of the lines: the name in double
+/// quotes, after any whitespace, with its line, or `None`, with the constructor's line, where no
+/// such name follows.
+pub(super) fn declared<'a>(text: &'a str, constructors: &[&str]) -> Vec<(Option<&'a str>, usize)> {
     let mut found = Vec::new();
     for constructor in constructors {
         for (at, _) in text.match_indices(constructor) {
             let arguments = &text[at + constructor.len()..];
             let first = arguments.trim_start();
-            if let Some((name, _)) = first
+            match first
                 .strip_prefix('"')
                 .and_then(|quoted| quoted.split_once('"'))
             {
-                found.push((text.len() - first.len(), name));
+                Some((name, _)) => found.push((text.len() - first.len(), Some(name))),
+                None => found.push((at, None)),
             }
         }
     }
@@ -250,6 +267,56 @@ mod tests {
             messages[0].starts_with("crates/app/src/modules/realtime/routes.rs:7: `stream.closed`"),
             "{messages:?}"
         );
+    }
+
+    #[test]
+    fn realtime_008_a_constructor_that_no_quoted_name_follows_fails() {
+        // A raw string and a constant in a module's `events.rs`, with a name the check reads
+        // after them; a constant for a frame of the stream's own in `platform`; and such a frame
+        // that the composition root declares, which the check reads there.
+        let events = "const A: UserEvent<A> = UserEvent::new(r\"thing.made\");\n\
+                      const B: WorkspaceEvent<P, B> = WorkspaceEvent::new(NAME);\n\
+                      const C: UserEvent<C> = UserEvent::new(\n    \"thing.kept\",\n);\n";
+        let hub = "const PAUSED: StreamFrame<Paused> =\n    \
+                   StreamFrame::new(PAUSED_NAME, FrameId::Never, \"Paused.\");\n";
+        let composition = "const RESUMED: StreamFrame<Resumed> =\n    \
+                           StreamFrame::new(\"stream.resumed\", FrameId::Never, \"Resumed.\");\n";
+        let repo = Repo::of(&[
+            ("crates/app/src/composition/mod.rs", composition),
+            ("crates/app/src/modules/things/events.rs", events),
+            ("crates/platform/src/events/hub.rs", hub),
+            (
+                "crates/xtask/src/openapi/events.rs",
+                "const STREAM_FRAME: &str = \"StreamFrame::new(\";",
+            ),
+        ]);
+        let document = json!({ "components": { "schemas": {
+            "ThingKeptFrame": { "x-event": "thing.kept" },
+            "Frame": catalog_of(&["ThingKeptFrame"]),
+        } } });
+
+        let messages = found(&repo, &document);
+
+        assert_eq!(messages.len(), 4, "{messages:?}");
+        assert!(
+            messages[0].starts_with(
+                "crates/app/src/composition/mod.rs:2: `stream.resumed` isn't in openapi.json's \
+                 event catalog"
+            ),
+            "{messages:?}"
+        );
+        for (message, place) in messages[1..].iter().zip([
+            "crates/app/src/modules/things/events.rs:1: ",
+            "crates/app/src/modules/things/events.rs:2: ",
+            "crates/platform/src/events/hub.rs:2: ",
+        ]) {
+            assert!(
+                message.starts_with(&format!(
+                    "{place}the frame type's name isn't a string in double quotes"
+                )),
+                "{messages:?}"
+            );
+        }
     }
 
     #[test]

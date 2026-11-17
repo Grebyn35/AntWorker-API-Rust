@@ -1,17 +1,20 @@
 //! `check-openapi`, the names the document keys its parts by (API-17):
 //! - no two operations share an `operationId`, which OpenAPI requires to be unique, and which a
 //!   client generated from the document names its methods by;
-//! - no two types of the code take one schema name, by deriving `ToSchema` under their own name or
-//!   under the one `#[schema(as = …)]` gives, or by a hand-written `impl ToSchema`: utoipa keeps
-//!   one schema of each name, so every operation that names the other type would document the
-//!   first's;
-//! - no such type takes the schema name of the event catalog or of the action catalog, `Frame`
-//!   or `AuditEntry`, or of a component of either: one that the catalog refers to, or that the
-//!   document marks as a frame type's or an action's. The document builds each of those under a
-//!   name of its own making, and would keep one schema of the two.
+//! - no two of the schema names that it reads in the code are the same: utoipa keeps one schema
+//!   of each name, so every operation that names the other type would document the first's;
+//! - none of those names is that of the event catalog or of the action catalog, `Frame` or
+//!   `AuditEntry`, of a component that one of them refers to, or of one that the document marks
+//!   as a frame type's or an action's. The document builds each of those under a name of its
+//!   own making, and would keep one schema of the two.
 //!
-//! It reads the committed document for the first and for the catalogs' components, and the code
-//! of `platform` and `app`, before each file's tests, for the types.
+//! It reads the committed document for the first and for the catalogs' components. The schema
+//! names it reads in the code are those of the Rust files of `platform` and `app`, before each
+//! file's test module: the identifier after each `struct` or `enum` that a `#[derive(…)]`
+//! holding `ToSchema` stands before, or the last segment of what its `#[schema(as = …)]` gives,
+//! and the identifier after each `ToSchema for`. A schema that takes its name another way, as
+//! one whose hand-written `name()` returns a name that isn't its type's, is review's to read
+//! (API-17).
 
 use std::collections::BTreeMap;
 
@@ -61,7 +64,7 @@ pub fn operation_ids(document: &Value) -> Vec<Problem> {
     problems
 }
 
-/// Each type of the code that takes a schema name an earlier type takes.
+/// Each schema name that the check reads in the code and that it read earlier for another type.
 pub fn schema_names(repo: &Repo) -> Vec<Finding> {
     let mut first: BTreeMap<String, (String, usize)> = BTreeMap::new();
     let mut findings = Vec::new();
@@ -91,9 +94,9 @@ pub fn schema_names(repo: &Repo) -> Vec<Finding> {
     findings
 }
 
-/// Each type of the code that takes the schema name of a component of one of `document`'s two
-/// catalogs: the catalog's own, one that the catalog refers to, or one that the document marks
-/// as a frame type's or an action's.
+/// Each schema name that the check reads in the code and that is the name of one of
+/// `document`'s two catalogs, of a component that one of them refers to, or of one that the
+/// document marks as a frame type's or an action's.
 pub fn catalog_names(repo: &Repo, document: &Value) -> Vec<Finding> {
     let empty = Map::new();
     let schemas = document["components"]["schemas"]
@@ -138,7 +141,7 @@ pub fn catalog_names(repo: &Repo, document: &Value) -> Vec<Finding> {
     findings
 }
 
-/// The schema names that the code of `platform` and `app` in `repo` takes.
+/// The schema names that the check reads in the code of `platform` and `app` in `repo`.
 pub fn taken(repo: &Repo) -> Vec<String> {
     repo.files()
         .filter(|file| {
@@ -148,9 +151,11 @@ pub fn taken(repo: &Repo) -> Vec<String> {
         .collect()
 }
 
-/// Each type of `file`'s code, before its tests, that takes a schema name, with that name and its
-/// line: a type that derives `ToSchema` takes its own name, or the one `#[schema(as = …)]` gives,
-/// and a hand-written `impl ToSchema for` a type takes the type's, as every such impl names it.
+/// The schema names that the check reads in `file`'s code, before its test module, each with the
+/// type it read it for and the line: the identifier after each `struct` or `enum` that a
+/// `#[derive(…)]` holding `ToSchema` stands before, or the last segment of what its
+/// `#[schema(as = …)]` gives, and the identifier after each `ToSchema for`, whatever the impl's
+/// `name()` returns.
 pub fn schemas_of(file: &File) -> Vec<(String, String, usize)> {
     // A file that isn't Rust is check-layers' and the compiler's to report.
     let Ok(source) = Source::read(file) else {
@@ -174,7 +179,7 @@ pub fn schemas_of(file: &File) -> Vec<(String, String, usize)> {
     found
 }
 
-/// Each type that `tokens` implement `ToSchema` for by hand, at any depth, with its line.
+/// Each identifier that follows `ToSchema for` among `tokens`, at any depth, with its line.
 fn implemented(tokens: &[TokenTree]) -> Vec<(String, usize)> {
     let mut found = Vec::new();
     for (at, token) in tokens.iter().enumerate() {

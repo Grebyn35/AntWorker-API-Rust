@@ -54,8 +54,8 @@ const STREAM_BEAT: StreamFrame<StreamBeat> = StreamFrame::new(
     "stream.beat",
     FrameId::Never,
     "`stream.beat`, the stream's heartbeat, which comes at every interval that `stream.opened` \
-     gives, whether or not events come: a client that receives no frame for longer knows that \
-     its connection is dead, and reconnects (REALTIME-003).",
+     gives as `heartbeat_seconds`, whether or not events come, so that a client can tell a dead \
+     connection from a quiet one (REALTIME-003).",
 );
 
 /// The stream's last frame (REALTIME-005).
