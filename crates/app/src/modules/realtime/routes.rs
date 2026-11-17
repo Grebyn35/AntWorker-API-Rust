@@ -1,5 +1,5 @@
 //! The stream of server-sent events (REALTIME-001 to REALTIME-006): the hub's deliveries, turned
-//! into frames, with a comment at every heartbeat.
+//! into frames, with `stream.beat` at every heartbeat.
 
 use std::{convert::Infallible, time::Duration};
 
@@ -37,7 +37,7 @@ pub(crate) struct Realtime {
     pub(crate) hub: Hub,
     /// The clock of the heartbeats (CODE-06).
     pub(crate) clock: SharedClock,
-    /// How often a stream sends a comment (REALTIME-003).
+    /// How often a stream sends its heartbeat (REALTIME-003).
     pub(crate) heartbeat: Duration,
 }
 
@@ -47,6 +47,15 @@ const STREAM_OPENED: StreamFrame<StreamOpened> = StreamFrame::new(
     FrameId::Sometimes,
     "`stream.opened`, the stream's first frame. Its `id`, when it has one, is where a reconnect \
      resumes a stream that started with what commits next (REALTIME-001, REALTIME-004).",
+);
+
+/// The stream's heartbeat (REALTIME-003).
+const STREAM_BEAT: StreamFrame<StreamBeat> = StreamFrame::new(
+    "stream.beat",
+    FrameId::Never,
+    "`stream.beat`, the stream's heartbeat, which comes at every interval that `stream.opened` \
+     gives, whether or not events come: a client that receives no frame for longer knows that \
+     its connection is dead, and reconnects (REALTIME-003).",
 );
 
 /// The stream's last frame (REALTIME-005).
@@ -62,7 +71,13 @@ const STREAM_CLOSED: StreamFrame<StreamClosed> = StreamFrame::new(
 struct StreamOpened {
     /// Whether the replay was truncated, so the client reloads its state (REALTIME-004).
     truncated: bool,
+    /// How often the stream sends `stream.beat`, in seconds (REALTIME-003).
+    heartbeat_seconds: u64,
 }
+
+/// The payload of `stream.beat`, which holds nothing.
+#[derive(Serialize, ToSchema)]
+struct StreamBeat {}
 
 /// The payload of `stream.closed`.
 #[derive(Serialize, ToSchema)]
@@ -74,7 +89,7 @@ struct StreamClosed {
 /// The module's routes, which take the hub, and the stream's own frames.
 pub(crate) fn routes() -> Routes<Realtime> {
     Routes::new()
-        .events(&[&STREAM_OPENED, &STREAM_CLOSED])
+        .events(&[&STREAM_OPENED, &STREAM_BEAT, &STREAM_CLOSED])
         .user(
             routes!(events),
             &[&RealtimeError::TooManyStreams, &RealtimeError::Unavailable],
@@ -96,7 +111,7 @@ pub(crate) fn routes() -> Routes<Realtime> {
         (status = 200, content_type = "text/event-stream", body = String,
             description = "Server-sent events, each a frame that `Frame`, the event catalog, \
             describes, which `x-itemSchema` names. The first is `stream.opened`, and \
-            `stream.closed` ends the stream. A comment comes at every heartbeat."),
+            `stream.closed` ends the stream. `stream.beat` comes at every heartbeat."),
     )
 )]
 async fn events(
@@ -141,7 +156,7 @@ async fn events(
     }
 }
 
-/// A stream's frames: what the subscription delivers, and a comment at every heartbeat.
+/// A stream's frames: what the subscription delivers, and `stream.beat` at every heartbeat.
 struct Frames {
     subscription: Subscription,
     clock: SharedClock,
@@ -170,8 +185,11 @@ impl Frames {
             delivery = self.subscription.next() => delivery.map(|delivery| self.frame(delivery)),
             () = &mut self.beat => {
                 self.beat = self.clock.sleep(self.heartbeat);
-                // A comment carries no `id`, so the client's `Last-Event-ID` stays (REALTIME-003).
-                Some(Frame::default().comment(""))
+                // The frame carries no `id`, so the client's `Last-Event-ID` stays (REALTIME-003).
+                Some(Frame::default().event(STREAM_BEAT.name()).data(envelope(
+                    json!(StreamBeat {}),
+                    Some(&self.trace_id),
+                )))
             }
         }
     }
@@ -183,10 +201,13 @@ impl Frames {
                 .event(event.name())
                 .data(envelope(event.payload().clone(), event.trace_id())),
             Delivery::Opened { truncated, resume } => {
-                let frame = Frame::default().event(STREAM_OPENED.name()).data(envelope(
-                    json!(StreamOpened { truncated }),
-                    Some(&self.trace_id),
-                ));
+                let opened = StreamOpened {
+                    truncated,
+                    heartbeat_seconds: self.heartbeat.as_secs(),
+                };
+                let frame = Frame::default()
+                    .event(STREAM_OPENED.name())
+                    .data(envelope(json!(opened), Some(&self.trace_id)));
                 match resume {
                     Some(resume) => frame.id(resume.to_string()),
                     None => frame,

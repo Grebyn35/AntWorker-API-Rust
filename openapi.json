@@ -1554,6 +1554,9 @@
             "$ref": "#/components/schemas/SessionEndedFrame"
           },
           {
+            "$ref": "#/components/schemas/StreamBeatFrame"
+          },
+          {
             "$ref": "#/components/schemas/StreamClosedFrame"
           },
           {
@@ -5654,6 +5657,51 @@
         ],
         "type": "object"
       },
+      "StreamBeat": {
+        "description": "The payload of `stream.beat`, which holds nothing.",
+        "type": "object"
+      },
+      "StreamBeatFrame": {
+        "description": "`stream.beat`, the stream's heartbeat, which comes at every interval that `stream.opened` gives, whether or not events come: a client that receives no frame for longer knows that its connection is dead, and reconnects (REALTIME-003).",
+        "properties": {
+          "data": {
+            "contentMediaType": "application/json",
+            "contentSchema": {
+              "properties": {
+                "data": {
+                  "$ref": "#/components/schemas/StreamBeat"
+                },
+                "trace_id": {
+                  "description": "The trace ID of the request or job that published the event, or of the request that opened the stream, for a frame of the stream's own; null for an event published outside a trace (REALTIME-002).",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "data",
+                "trace_id"
+              ],
+              "type": "object"
+            },
+            "description": "JSON: the payload, and the trace ID of what sent it (REALTIME-002).",
+            "type": "string"
+          },
+          "event": {
+            "enum": [
+              "stream.beat"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "event",
+          "data"
+        ],
+        "type": "object",
+        "x-event": "stream.beat"
+      },
       "StreamClosed": {
         "description": "The payload of `stream.closed`.",
         "properties": {
@@ -5711,13 +5759,20 @@
       "StreamOpened": {
         "description": "The payload of `stream.opened`.",
         "properties": {
+          "heartbeat_seconds": {
+            "description": "How often the stream sends `stream.beat`, in seconds (REALTIME-003).",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
           "truncated": {
             "description": "Whether the replay was truncated, so the client reloads its state (REALTIME-004).",
             "type": "boolean"
           }
         },
         "required": [
-          "truncated"
+          "truncated",
+          "heartbeat_seconds"
         ],
         "type": "object"
       },
@@ -16124,7 +16179,7 @@
                 }
               }
             },
-            "description": "Server-sent events, each a frame that `Frame`, the event catalog, describes, which `x-itemSchema` names. The first is `stream.opened`, and `stream.closed` ends the stream. A comment comes at every heartbeat.",
+            "description": "Server-sent events, each a frame that `Frame`, the event catalog, describes, which `x-itemSchema` names. The first is `stream.opened`, and `stream.closed` ends the stream. `stream.beat` comes at every heartbeat.",
             "headers": {
               "ratelimit": {
                 "description": "The requests left in the bucket that decided the response, and the seconds until its window ends.",

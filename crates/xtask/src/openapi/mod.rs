@@ -99,6 +99,7 @@ pub fn check(repo: &Repo) -> Outcome {
     findings.extend(actions::check(repo, &document));
     findings.extend(codes::check(repo, &document));
     findings.extend(names::schema_names(repo));
+    findings.extend(names::catalog_names(repo, &document));
     Outcome {
         report: Vec::new(),
         findings,

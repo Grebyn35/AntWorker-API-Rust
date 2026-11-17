@@ -109,7 +109,8 @@ impl Stream<TcpStream> {
 }
 
 impl<R: Read> Stream<R> {
-    /// The next frame that isn't a comment, or `None` once the response has ended.
+    /// The next frame, or `None` once the response has ended. A block without an `event`, such
+    /// as a comment, which a stream of server-sent events may hold, is no frame of the API's.
     pub(super) fn next(&mut self) -> Result<Option<Frame>, String> {
         loop {
             if let Some(end) = self.buffer.find("\n\n") {
@@ -194,9 +195,11 @@ mod tests {
 
     #[test]
     fn ops_16_a_chunked_stream_s_frames_are_read_as_a_client_s_parser_reads_them() {
-        // Chunks that split frames anywhere, as a server's writes may, with a heartbeat between.
+        // Chunks that split frames anywhere, as a server's writes may, with a heartbeat and a
+        // comment between.
         let chunks = [
             "event: stream.opened\ndata: {}\n\n",
+            "event: stream.beat\ndata: {}\n\n",
             ": \n\n",
             "id: 1\nevent: workspace.upd",
             "ated\ndata: {}\n",
@@ -220,6 +223,7 @@ mod tests {
             frames,
             [
                 ("stream.opened".to_owned(), None),
+                ("stream.beat".to_owned(), None),
                 ("workspace.updated".to_owned(), Some("1".to_owned()))
             ]
         );

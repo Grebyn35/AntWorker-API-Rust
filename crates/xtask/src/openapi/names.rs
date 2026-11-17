@@ -4,17 +4,21 @@
 //! - no two types of the code take one schema name, by deriving `ToSchema` under their own name or
 //!   under the one `#[schema(as = …)]` gives, or by a hand-written `impl ToSchema`: utoipa keeps
 //!   one schema of each name, so every operation that names the other type would document the
-//!   first's.
+//!   first's;
+//! - no such type takes the schema name of the event catalog or of the action catalog, `Frame`
+//!   or `AuditEntry`, or of a component of either: one that the catalog refers to, or that the
+//!   document marks as a frame type's or an action's. The document builds each of those under a
+//!   name of its own making, and would keep one schema of the two.
 //!
-//! It reads the committed document for the first, and the code of `platform` and `app`, before
-//! each file's tests, for the second.
+//! It reads the committed document for the first and for the catalogs' components, and the code
+//! of `platform` and `app`, before each file's tests, for the types.
 
 use std::collections::BTreeMap;
 
 use proc_macro2::TokenTree;
 use serde_json::{Map, Value};
 
-use super::{METHODS, Problem};
+use super::{METHODS, Problem, actions, events};
 use crate::{
     Finding,
     repo::{File, Repo},
@@ -81,6 +85,53 @@ pub fn schema_names(repo: &Repo) -> Vec<Finding> {
                 None => {
                     first.insert(schema, (file.path.clone(), line));
                 }
+            }
+        }
+    }
+    findings
+}
+
+/// Each type of the code that takes the schema name of a component of one of `document`'s two
+/// catalogs: the catalog's own, one that the catalog refers to, or one that the document marks
+/// as a frame type's or an action's.
+pub fn catalog_names(repo: &Repo, document: &Value) -> Vec<Finding> {
+    let empty = Map::new();
+    let schemas = document["components"]["schemas"]
+        .as_object()
+        .unwrap_or(&empty);
+    let mut components: BTreeMap<&str, &str> = BTreeMap::new();
+    for (catalog, mark, of) in [
+        (events::CATALOG, events::MARK, "event"),
+        (actions::CATALOG, actions::MARK, "action"),
+    ] {
+        components.insert(catalog, of);
+        for component in events::referred(document, catalog) {
+            components.insert(component, of);
+        }
+        for (component, schema) in schemas {
+            if schema[mark].is_string() {
+                components.insert(component, of);
+            }
+        }
+    }
+    let mut findings = Vec::new();
+    for file in repo.files() {
+        let in_code = CODE.iter().any(|code| file.path.starts_with(code));
+        if !in_code || !file.path.ends_with(".rs") {
+            continue;
+        }
+        for (name, schema, line) in schemas_of(file) {
+            if let Some(of) = components.get(schema.as_str()) {
+                findings.push(Finding::new(
+                    &file.path,
+                    line,
+                    format!(
+                        "`{name}` takes the schema name `{schema}`, which a component of the \
+                         {of} catalog takes too: the document keeps one schema of each name, so \
+                         it would document one of the two under it; give the type another name \
+                         (API-17)"
+                    ),
+                ));
             }
         }
     }
@@ -235,6 +286,63 @@ mod tests {
                 "crates/app/src/modules/orders/routes.rs:3",
                 "crates/platform/src/errors/mod.rs:3",
                 "crates/platform/src/errors/mod.rs:4"
+            ]
+        );
+    }
+
+    #[test]
+    fn api_17_a_type_that_takes_the_name_of_a_catalog_s_component_is_reported() {
+        // The catalogs' own names, a frame type's component and an action's that their catalogs
+        // refer to, and one of each that the document only marks.
+        let pictures = "#[derive(Serialize, ToSchema)]\npub(crate) struct Frame {}\n\
+                        #[derive(Serialize, ToSchema)]\nstruct ThingMadeFrame {}\n\
+                        #[derive(Serialize, ToSchema)]\nstruct ThingKeptFrame {}\n\
+                        #[derive(Serialize, ToSchema)]\nstruct ThingMade {}\n";
+        let ledgers = "#[derive(Serialize, ToSchema)]\n#[schema(as = AuditEntry)]\nstruct Line {}\n\
+                       impl ToSchema for ThingMadeEntry {}\n\
+                       impl ToSchema for ThingKeptEntry {}\n\
+                       #[derive(Serialize, ToSchema)]\nstruct LoggedEntry {}\n\
+                       #[cfg(test)]\nmod tests {\n    #[derive(ToSchema)]\n    struct Frame {}\n}\n";
+        let repo = Repo::of(&[
+            ("crates/app/src/modules/pictures/model.rs", pictures),
+            ("crates/app/src/modules/ledgers/model.rs", ledgers),
+            (
+                "crates/app/tests/integration/support/streams.rs",
+                "#[derive(ToSchema)]\npub struct Frame {}\n",
+            ),
+        ]);
+        let document = json!({ "components": { "schemas": {
+            "ThingMadeFrame": { "x-event": "thing.made" },
+            "ThingKeptFrame": { "x-event": "thing.kept" },
+            "ThingMade": {},
+            "Frame": { "oneOf": [{ "$ref": "#/components/schemas/ThingMadeFrame" }] },
+            "ThingMadeEntry": { "x-audit-action": "thing.made" },
+            "ThingKeptEntry": { "x-audit-action": "thing.kept" },
+            "LoggedEntry": {},
+            "AuditEntry": { "oneOf": [{ "$ref": "#/components/schemas/ThingMadeEntry" }] },
+        } } });
+
+        let found: Vec<String> = catalog_names(&repo, &document)
+            .into_iter()
+            .map(|finding| {
+                let of = if finding.message.contains("the event catalog") {
+                    "event"
+                } else {
+                    "action"
+                };
+                format!("{}:{}: {of}", finding.path, finding.line)
+            })
+            .collect();
+
+        assert_eq!(
+            found,
+            [
+                "crates/app/src/modules/pictures/model.rs:2: event",
+                "crates/app/src/modules/pictures/model.rs:4: event",
+                "crates/app/src/modules/pictures/model.rs:6: event",
+                "crates/app/src/modules/ledgers/model.rs:3: action",
+                "crates/app/src/modules/ledgers/model.rs:4: action",
+                "crates/app/src/modules/ledgers/model.rs:5: action",
             ]
         );
     }

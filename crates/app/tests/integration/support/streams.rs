@@ -12,7 +12,10 @@ use super::{Api, api::Response, contract::Contract, users::SignedIn};
 /// The stream's path.
 pub const PATH: &str = "/v1/users/me/events";
 
-/// One frame of a stream: an event, or a comment.
+/// The type of the stream's heartbeat (REALTIME-003).
+pub const BEAT: &str = "stream.beat";
+
+/// One frame of a stream.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Frame {
     /// Its `id`, if it has one.
@@ -21,8 +24,6 @@ pub struct Frame {
     pub event: Option<String>,
     /// Its `data`, as JSON, if it has some.
     pub data: Option<Value>,
-    /// Whether it is a comment.
-    pub comment: bool,
 }
 
 impl Frame {
@@ -208,7 +209,7 @@ impl Stream {
         timing.split('-').nth(1).unwrap().to_owned()
     }
 
-    /// The next frame, comments included, or `None` once the response has ended.
+    /// The next frame, heartbeats included, or `None` once the response has ended.
     pub async fn frame(&mut self) -> Option<Frame> {
         loop {
             if let Some(end) = self.buffer.find("\n\n") {
@@ -222,7 +223,7 @@ impl Stream {
         }
     }
 
-    /// The next frame that isn't a comment, which must come. A response that ends first fails
+    /// The next frame that isn't a heartbeat, which must come. A response that ends first fails
     /// the test with what the stream held of a frame it never finished, and the `id` of the
     /// last event it sent.
     async fn next(&mut self) -> Frame {
@@ -235,14 +236,14 @@ impl Stream {
                 self.last_event_id
             );
             let frame = frame.unwrap();
-            if !frame.comment {
+            if frame.event.as_deref() != Some(BEAT) {
                 return frame;
             }
         }
     }
 
-    /// The next frame that isn't a comment, which must come, and isn't `stream.closed`: a stream
-    /// that closes first fails the test with the reason it gave.
+    /// The next frame that isn't a heartbeat, which must come, and isn't `stream.closed`: a
+    /// stream that closes first fails the test with the reason it gave.
     pub async fn event(&mut self) -> Frame {
         let frame = self.next().await;
         assert_ne!(
@@ -289,10 +290,6 @@ impl Stream {
         let mut frame = Frame::default();
         let mut data = Vec::new();
         for line in block.lines() {
-            if line.starts_with(':') {
-                frame.comment = true;
-                continue;
-            }
             let (field, value) = line.split_once(':').unwrap_or((line, ""));
             let value = value.strip_prefix(' ').unwrap_or(value);
             match field {
@@ -303,10 +300,8 @@ impl Stream {
             }
         }
         let data = (!data.is_empty()).then(|| data.join("\n"));
-        if !frame.comment {
-            self.contract
-                .check_frame(frame.event.as_deref(), frame.id.as_deref(), data.as_deref());
-        }
+        self.contract
+            .check_frame(frame.event.as_deref(), frame.id.as_deref(), data.as_deref());
         if let Some(data) = data {
             frame.data = Some(serde_json::from_str(&data).unwrap());
         }

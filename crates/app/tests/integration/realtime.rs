@@ -14,7 +14,7 @@ use crate::support::{
     workspaces,
 };
 
-/// How often a stream sends a comment, by default (REALTIME-003).
+/// How often a stream sends its heartbeat, by default (REALTIME-003).
 const HEARTBEAT: Duration = Duration::from_secs(15);
 
 /// How often the hub checks the listener (PLATFORM-061).
@@ -106,7 +106,10 @@ async fn realtime_001_a_stream_delivers_its_caller_s_events_and_their_workspaces
     post(&api, &ada, &workspace, 1).await;
     announce(&api, &ada, 1).await;
 
-    assert_eq!(opened.payload(), &json!({ "truncated": false }));
+    assert_eq!(
+        opened.payload(),
+        &json!({ "truncated": false, "heartbeat_seconds": 15 })
+    );
     // No event of hers lies before the stream, so a reconnect resumes from none.
     assert_eq!(
         opened.id.as_deref(),
@@ -189,7 +192,31 @@ async fn realtime_002_an_event_s_frame_carries_its_id_its_name_and_the_trace_of_
 }
 
 #[tokio::test]
-async fn realtime_003_a_stream_sends_a_comment_at_every_heartbeat() {
+async fn realtime_002_an_event_carries_the_trace_id_of_the_traceparent_its_request_sent() {
+    let api = api().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let mut stream = streams::connect(&api, &ada.access, None).await;
+    stream.opened().await;
+    // The trace ID that the client chose, so it knows it before any frame arrives.
+    let own = "0af7651916cd43dd8448eb211c80319c";
+
+    let published = api
+        .post("/v1/announcements", &json!({ "count": 1 }))
+        .bearer(&ada.access)
+        .header("traceparent", &format!("00-{own}-b7ad6b7169203331-01"))
+        .send()
+        .await;
+    announce(&api, &ada, 1).await;
+    let caused = stream.event().await;
+    let other = stream.event().await;
+
+    assert_eq!(published.status, StatusCode::NO_CONTENT);
+    assert_eq!(caused.data.unwrap()["trace_id"], own);
+    assert_ne!(other.data.unwrap()["trace_id"], own);
+}
+
+#[tokio::test]
+async fn realtime_003_a_stream_sends_stream_beat_at_every_heartbeat() {
     let api = api().await;
     let clock = api.clock();
     let ada = users::register(&api, "ada@example.com").await;
@@ -203,11 +230,36 @@ async fn realtime_003_a_stream_sends_a_comment_at_every_heartbeat() {
         beats.push(stream.frame().await.unwrap());
     }
 
+    assert_eq!(opened.payload()["heartbeat_seconds"], HEARTBEAT.as_secs());
+    let own = stream.trace_id();
     for beat in beats {
-        assert!(beat.comment, "{beat:?}");
+        assert_eq!(beat.event.as_deref(), Some(streams::BEAT));
         assert_eq!(beat.id, None);
+        assert_eq!(beat.data, Some(json!({ "data": {}, "trace_id": own })));
     }
     assert_eq!(stream.last_event_id, opened.id);
+}
+
+#[tokio::test]
+async fn realtime_003_the_heartbeat_comes_while_events_come_too() {
+    let api = api().await;
+    let clock = api.clock();
+    let ada = users::register(&api, "ada@example.com").await;
+    let mut stream = streams::connect(&api, &ada.access, None).await;
+    stream.opened().await;
+
+    clock.sleeping(HEARTBEAT).await;
+    // An event 5 seconds before the heartbeat is due doesn't put the heartbeat off.
+    clock.advance(HEARTBEAT - Duration::from_secs(5));
+    announce(&api, &ada, 1).await;
+    let event = stream.frame().await.unwrap();
+    clock.advance(Duration::from_secs(5));
+    let beat = stream.frame().await.unwrap();
+
+    assert_eq!(event.event.as_deref(), Some("announcement.made"));
+    assert_eq!(beat.event.as_deref(), Some(streams::BEAT));
+    // The heartbeat has no `id`, so a reconnect still resumes after the event.
+    assert_eq!(stream.last_event_id, event.id);
 }
 
 #[tokio::test]
@@ -228,7 +280,7 @@ async fn realtime_004_a_reconnect_replays_what_the_client_missed_then_goes_on_li
     announce(&api, &ada, 1).await;
     let live = again.event().await;
 
-    assert_eq!(opened.payload(), &json!({ "truncated": false }));
+    assert_eq!(opened.payload()["truncated"], false);
     assert_eq!(opened.id, None);
     assert_eq!(
         numbered(&replayed),
@@ -262,7 +314,7 @@ async fn realtime_004_more_than_1000_waiting_events_truncate_the_replay() {
         .database()
         .owner_reads("SELECT id::text FROM events ORDER BY position DESC LIMIT 1 OFFSET 1")
         .await;
-    assert_eq!(opened.payload(), &json!({ "truncated": true }));
+    assert_eq!(opened.payload()["truncated"], true);
     // The reconnect resumes after the newest event the replay skipped.
     assert_eq!(opened.id.as_deref(), Some(newest[0].as_str()));
     assert_eq!(live.payload()["n"], 1);
@@ -288,7 +340,7 @@ async fn realtime_004_an_id_the_api_doesn_t_hold_truncates_the_replay() {
     truncated.push(unreadable.opened().await);
 
     for opened in truncated {
-        assert_eq!(opened.payload(), &json!({ "truncated": true }));
+        assert_eq!(opened.payload()["truncated"], true);
         // No event of hers exists, so a reconnect names none.
         assert_eq!(
             opened.id.as_deref(),
@@ -447,6 +499,7 @@ async fn realtime_006_a_user_holds_at_most_10_streams_on_a_replica() {
 async fn realtime_002_an_event_published_outside_a_trace_has_no_trace_id_and_the_stream_s_frames_its_request_s()
  {
     let api = api().await;
+    let clock = api.clock();
     let ada = users::register(&api, "ada@example.com").await;
     let user = platform::types::UserId::from_uuid(ada.user_id.parse().unwrap());
     let mut stream = streams::connect(&api, &ada.access, None).await;
@@ -458,12 +511,17 @@ async fn realtime_002_an_event_published_outside_a_trace_has_no_trace_id_and_the
         .unwrap();
     uow.commit().await.unwrap();
     let untraced = stream.event().await;
+    clock.sleeping(HEARTBEAT).await;
+    clock.advance(HEARTBEAT);
+    let beat = stream.frame().await.unwrap();
     api.readiness().stop();
     let closing = stream.closing().await;
 
     assert_eq!(untraced.data, Some(json!({ "data": {}, "trace_id": null })));
     let own = stream.trace_id();
     assert_eq!(opened.data.unwrap()["trace_id"], own.as_str());
+    assert_eq!(beat.event.as_deref(), Some(streams::BEAT));
+    assert_eq!(beat.data.unwrap()["trace_id"], own.as_str());
     assert_eq!(closing.data.unwrap()["trace_id"], own.as_str());
 }
 
@@ -481,13 +539,14 @@ async fn realtime_003_the_heartbeat_is_a_setting_of_5_to_300_seconds() {
     let clock = api.clock();
     let ada = users::register(&api, "ada@example.com").await;
     let mut stream = streams::connect(&api, &ada.access, None).await;
-    stream.opened().await;
+    let opened = stream.opened().await;
 
     clock.sleeping(every).await;
     clock.advance(every);
     let beat = stream.frame().await.unwrap();
 
-    assert!(beat.comment, "{beat:?}");
+    assert_eq!(opened.payload()["heartbeat_seconds"], every.as_secs());
+    assert_eq!(beat.event.as_deref(), Some(streams::BEAT));
 }
 
 #[tokio::test]
@@ -609,7 +668,7 @@ async fn realtime_004_a_stream_resumes_after_an_event_its_caller_may_not_receive
     let replayed = again.event().await;
 
     assert_eq!(removed.status, StatusCode::NO_CONTENT);
-    assert_eq!(opened.payload(), &json!({ "truncated": false }));
+    assert_eq!(opened.payload()["truncated"], false);
     assert_eq!(replayed.event.as_deref(), Some("announcement.made"));
 }
 
@@ -684,6 +743,14 @@ async fn realtime_008_the_catalog_lists_each_frame_type_with_its_scope_permissio
     let opened = entry(&api, "stream.opened");
     assert_eq!(opened["required"], json!(["event", "data"]));
     assert!(opened["properties"]["id"].is_object());
+    assert_eq!(
+        payload(opened)["required"],
+        json!(["truncated", "heartbeat_seconds"])
+    );
+    let beat = entry(&api, "stream.beat");
+    assert!(beat["properties"]["id"].is_null());
+    assert_eq!(payload(beat)["type"], "object");
+    assert!(payload(beat)["properties"].is_null());
     let closed = entry(&api, "stream.closed");
     assert!(closed["properties"]["id"].is_null());
     let reason = &payload(closed)["properties"]["reason"]["$ref"];

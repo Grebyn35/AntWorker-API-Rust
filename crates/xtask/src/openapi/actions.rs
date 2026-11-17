@@ -11,7 +11,10 @@ use std::collections::BTreeSet;
 
 use serde_json::{Value, json};
 
-use super::{events::declared, is_snake_case};
+use super::{
+    events::{declared, referred},
+    is_snake_case,
+};
 use crate::{Finding, repo::Repo, text::line_of};
 
 /// The most characters of an action's name that a log's filter takes (AUDIT-009).
@@ -21,38 +24,29 @@ const NAME_MAX_CHARS: usize = 100;
 const ACTION: &str = "Action::new(";
 
 /// The component of the action catalog, which holds every action's (AUDIT-012).
-const CATALOG: &str = "AuditEntry";
+pub(super) const CATALOG: &str = "AuditEntry";
 
-/// The components of `document`'s catalog: the name of each component that the catalog's
-/// `oneOf` refers to.
-fn catalog(document: &Value) -> BTreeSet<&str> {
-    document["components"]["schemas"][CATALOG]["oneOf"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|entry| entry["$ref"].as_str())
-        .filter_map(|reference| reference.rsplit('/').next())
-        .collect()
-}
+/// The extension that marks an action's component with the action's name.
+pub(super) const MARK: &str = "x-audit-action";
 
 /// A finding for each action that a module's `audit.rs` declares and that no component of
 /// `document`'s catalog is marked with, and for each component of `document` marked as an
 /// action's that the catalog doesn't refer to, whose action isn't named as a log's filter takes
 /// it, or that gives its entries' `action` as anything but the action's name.
 pub fn check(repo: &Repo, document: &Value) -> Vec<Finding> {
-    let catalog = catalog(document);
+    let catalog = referred(document, CATALOG);
     let schemas = &document["components"]["schemas"];
     let actions: BTreeSet<&str> = catalog
         .iter()
-        .filter_map(|component| schemas[*component]["x-audit-action"].as_str())
+        .filter_map(|component| schemas[*component][MARK].as_str())
         .collect();
     let mut findings = components(repo, document, &catalog);
     for file in repo.files().filter(|file| is_audit_file(&file.path)) {
-        for name in declared(&file.text, &[ACTION]) {
+        for (name, line) in declared(&file.text, &[ACTION]) {
             if !actions.contains(name) {
                 findings.push(Finding::new(
                     &file.path,
-                    line_of(&file.text, &format!("\"{name}\"")),
+                    line,
                     format!(
                         "`{name}` isn't in openapi.json's action catalog: list it in the \
                          module's `ACTIONS`, which `catalog()` in the composition root lists, \
@@ -78,10 +72,10 @@ fn components(repo: &Repo, document: &Value, catalog: &BTreeSet<&str>) -> Vec<Fi
         .into_iter()
         .flatten()
     {
-        let Some(name) = schema["x-audit-action"].as_str() else {
+        let Some(name) = schema[MARK].as_str() else {
             continue;
         };
-        let line = line_of(&file.text, &format!("\"x-audit-action\": \"{name}\""));
+        let line = line_of(&file.text, &format!("\"{MARK}\": \"{name}\""));
         if !catalog.contains(component.as_str()) {
             findings.push(Finding::new(
                 super::DOCUMENT,
