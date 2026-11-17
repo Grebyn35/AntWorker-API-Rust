@@ -367,7 +367,8 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | 30846b1..56d537a: the action catalog given in `openapi.json` alone, with its component `AuditEntry` and without its route (D170), and the permissions that a workspace shows its caller (D171), with the tests and the documents they changed | 1 | 6 (5, 1, 0 shared) | 2 | 0 | `next pass`: e967dc8 |
 | 30846b1..e967dc8: as above, with pass 1's fixes | 2 | 4 (3, 1, 0 shared) | 1 | 1 | `stopped: no progress`: e86740e |
 | 9fd1f5f..b5c7c54: the last part of the full `realtime`: the heartbeat as the frame `stream.beat`, with its interval in `stream.opened` (D172), what a frame's `trace_id` tells a client of its own requests, `check-openapi`'s reading of the event catalog and of the names of both catalogs' components, with the tests and the documents they changed, and the two advisories that the dependency check ignores | 1 | 6 (5, 1, 0 shared) | 5 | 0 | `next pass`: 282f120 |
-| 9fd1f5f..282f120: as above, with pass 1's fixes | 2 | 5 (4, 3, 2 shared) | 1 | 0 | `next pass` |
+| 9fd1f5f..282f120: as above, with pass 1's fixes | 2 | 5 (4, 3, 2 shared) | 1 | 0 | `next pass`: 57cb801 |
+| 9fd1f5f..57cb801: as above, with pass 2's fixes | 3 | 3 (2, 1, 0 shared) | 0 | 0 | `clean` |
 
 ## Decisions
 
