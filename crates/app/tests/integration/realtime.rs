@@ -811,8 +811,14 @@ async fn realtime_008_a_frame_whose_payload_or_type_the_catalog_doesn_t_hold_fai
         payload(json!({ "workspace_id": id, "session": id })),
     );
     let unlisted = check("membership.renamed", payload(json!({})));
+    // What a comment in the stream parses to: a block with no `event`.
+    let unnamed = {
+        let contract = contract.clone();
+        std::panic::catch_unwind(move || contract.check_frame(None, None, None))
+    };
 
     assert!(matching.is_ok());
     assert!(drifted.is_err());
     assert!(unlisted.is_err());
+    assert!(unnamed.is_err());
 }

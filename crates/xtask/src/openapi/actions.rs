@@ -36,7 +36,9 @@ pub(super) const MARK: &str = "x-audit-action";
 /// follows, for each name that follows one and that no component of `document`'s catalog is
 /// marked with, and for each component of `document` marked as an action's that the catalog
 /// doesn't refer to, whose action isn't named as a log's filter takes it, or that gives its
-/// entries' `action` as anything but the action's name.
+/// entries' `action` as anything but the action's name. `document` is the JSON of `repo`'s
+/// `openapi.json`, whose lines the findings about components name: a `repo` without that file
+/// gets none of them.
 pub fn check(repo: &Repo, document: &Value) -> Vec<Finding> {
     let catalog = referred(document, CATALOG);
     let schemas = &document["components"]["schemas"];

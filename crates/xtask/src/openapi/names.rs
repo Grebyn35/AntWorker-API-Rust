@@ -10,13 +10,11 @@
 //!
 //! It reads the committed document for the first and for the catalogs' components. The schema
 //! names it reads in the code are those of the Rust files under `crates/platform/src/` and
-//! `crates/app/src/`, on the lines that [`text::lines_before_tests`] counts, those before the
-//! first `#[cfg(test)]` line that a line starting with `mod`, `pub mod` or `pub(crate) mod`
-//! follows directly, or every line of a file without one: the identifier after each `struct`
-//! or `enum` that a `#[derive(…)]` holding `ToSchema` stands before, or the last segment of
-//! what its `#[schema(as = …)]` gives, and the identifier after each `ToSchema for`. A schema
-//! that takes its name another way, as one whose hand-written `name()` returns a name that
-//! isn't its type's, is review's to read (API-17).
+//! `crates/app/src/`, on the lines that [`text::lines_before_tests`] counts: the identifier
+//! after each `struct` or `enum` that a `#[derive(…)]` holding `ToSchema` stands before, or the
+//! last segment of what its `#[schema(as = …)]` gives, and the identifier after each
+//! `ToSchema for`. A schema that takes its name another way, as one whose hand-written `name()`
+//! returns a name that isn't its type's, is review's to read (API-17).
 
 use std::collections::BTreeMap;
 

@@ -28,7 +28,7 @@ pub(super) const MARK: &str = "x-event";
 /// The directory of the modules' code.
 const MODULES: &str = "crates/app/src/modules/";
 
-/// The code that may declare a frame of the stream's own.
+/// The code that the check reads for a frame of the stream's own.
 const CODE: [&str; 2] = ["crates/app/src/", "crates/platform/src/"];
 
 /// The constructor of a module's user events, which clippy allows only in its `events.rs`.
@@ -56,7 +56,8 @@ pub(super) fn referred<'a>(document: &'a Value, catalog: &str) -> BTreeSet<&'a s
 /// each name that follows one and that no component of `document`'s catalog is marked with or
 /// that an earlier one gives, and for each component of `document` marked as a frame type's
 /// that the catalog doesn't refer to, or whose frame type isn't named `<resource>.<verb>`, each
-/// part `snake_case`.
+/// part `snake_case`. `document` is the JSON of `repo`'s `openapi.json`, whose lines the
+/// findings about components name: a `repo` without that file gets none of them.
 pub fn check(repo: &Repo, document: &Value) -> Vec<Finding> {
     let catalog = referred(document, CATALOG);
     let schemas = &document["components"]["schemas"];
