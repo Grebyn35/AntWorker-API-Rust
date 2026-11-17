@@ -1,11 +1,19 @@
 //! Rate limits: buckets that count requests in windows, in the database that every replica shares
 //! (PLATFORM-011, PLATFORM-054 to PLATFORM-057).
 
+// part: client_telemetry
+mod bytes;
+// end part: client_telemetry
+
 use std::{
     net::IpAddr,
     sync::{Arc, Mutex},
     time::Duration,
 };
+
+// part: client_telemetry
+pub use bytes::ReplicaBudget;
+// end part: client_telemetry
 
 use crate::{
     db::Database,
@@ -53,6 +61,11 @@ pub struct Count {
     pub count: u32,
     /// How long until its window ends.
     pub resets_in: Duration,
+    // part: client_telemetry
+    /// Whether the bucket is a budget, which counts bytes where another bucket counts requests
+    /// (PLATFORM-089).
+    pub bytes: bool,
+    // end part: client_telemetry
 }
 
 impl Count {
@@ -90,6 +103,9 @@ impl RateLimiter {
             bucket,
             count,
             resets_in,
+            // part: client_telemetry
+            bytes: false,
+            // end part: client_telemetry
         };
         if count.refused() {
             REFUSALS.add(1, [bucket.name.into()]);
@@ -205,6 +221,9 @@ mod tests {
             bucket,
             count,
             resets_in: Duration::from_secs(resets_in),
+            // part: client_telemetry
+            bytes: false,
+            // end part: client_telemetry
         }
     }
 

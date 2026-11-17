@@ -1,6 +1,11 @@
 //! The domain types of `client_telemetry`.
 
-use platform::types::{Timestamp, Version};
+use bytes::Bytes;
+use platform::{
+    rate_limit::Bucket,
+    telemetry::{OtlpEndpoint, Signal},
+    types::{Timestamp, Version},
+};
 use serde::Serialize;
 use utoipa::ToSchema;
 
@@ -31,4 +36,32 @@ pub(super) struct Exported {
     pub(super) created_at: Timestamp,
     /// When the user last chose.
     pub(super) updated_at: Timestamp,
+}
+
+/// The proxy's settings: where it forwards a batch, and the budgets of what it forwards (the
+/// client_telemetry spec's "The proxy" and "The budgets").
+#[derive(Clone, Debug)]
+pub(crate) struct Settings {
+    /// The collector's receiver of clients' batches, or `None` while the deployment forwards
+    /// none (CLIENT_TELEMETRY-010).
+    pub(crate) endpoint: Option<OtlpEndpoint>,
+    /// How many bytes of batches each user's clients may send in each window
+    /// (CLIENT_TELEMETRY-007).
+    pub(crate) user_budget: Bucket,
+    /// How many bytes of batches each replica forwards in each window (CLIENT_TELEMETRY-008).
+    pub(crate) replica_budget: Bucket,
+}
+
+/// The most bytes of a batch, as sent and once inflated (CLIENT_TELEMETRY-006).
+pub(super) const MAX_BATCH_BYTES: usize = 1 << 20;
+
+/// A batch that a client sent the proxy, as its route read it (CLIENT_TELEMETRY-004).
+#[derive(Clone, Debug)]
+pub(super) struct Sent {
+    /// The signal that the batch holds, which its route says.
+    pub(super) signal: Signal,
+    /// The media type of the bytes, one of the protocol's two.
+    pub(super) media_type: &'static str,
+    /// The batch's bytes, inflated if they came as gzip.
+    pub(super) bytes: Bytes,
 }

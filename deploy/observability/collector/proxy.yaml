@@ -2,7 +2,7 @@
 # the API's, and the log lines of the requests it answers itself come from the file it writes
 # (deploy/caddy/sites/api.caddy). deploy/compose.yaml merges this file into each of the
 # deployment's collectors, after config.yaml and before managed.yaml, whose lists replace these;
-# development's collector, which no Caddy runs beside, reads config.yaml alone.
+# development's collector, which no Caddy runs beside, doesn't read it.
 
 extensions:
   # Where the collector keeps how far it read Caddy's log, so a restart neither repeats a line

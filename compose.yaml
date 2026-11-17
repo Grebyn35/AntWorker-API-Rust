@@ -129,6 +129,11 @@ services:
     profiles: [observability]
     ports:
       - "127.0.0.1:4318:4318"
+      # part: client_telemetry
+      # The receiver of the batches of telemetry that the API forwards for users' clients, which
+      # CLIENT_TELEMETRY_ENDPOINT names.
+      - "127.0.0.1:4319:4319"
+      # end part: client_telemetry
     depends_on: [prometheus, loki, tempo]
 
   prometheus:

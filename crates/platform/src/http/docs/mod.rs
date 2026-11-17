@@ -217,7 +217,7 @@ fn rate_limit_headers(operation: &mut Operation) {
             response.headers.insert(
                 "ratelimit".to_owned(),
                 header(
-                    "The requests left in the bucket that decided the response, and the seconds until its window ends.",
+                    "The quota left in the bucket that decided the response, and the seconds until its window ends.",
                 )
                 .into(),
             );

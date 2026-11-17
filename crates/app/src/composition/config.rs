@@ -9,6 +9,9 @@ use platform::{
 };
 
 use crate::modules::{audit, auth};
+// part: client_telemetry
+use crate::modules::client_telemetry;
+// end part: client_telemetry
 // part: files
 use crate::modules::files;
 // end part: files
@@ -22,6 +25,9 @@ pub struct Config {
     pub(super) auth: auth::Settings,
     /// The OAuth providers that the deployment configures (AUTH-081).
     pub(super) providers: auth::Providers,
+    // part: client_telemetry
+    pub(super) client_telemetry: client_telemetry::Settings,
+    // end part: client_telemetry
     // part: files
     pub(super) files: files::Settings,
     // end part: files
@@ -40,10 +46,76 @@ const SIGN_IN_EMAIL_BUCKET: &str = "sign_in_email";
 /// The name of the bucket of the sign-in limit of a device token (AUTH-006).
 const SIGN_IN_DEVICE_BUCKET: &str = "sign_in_device";
 
+// part: client_telemetry
+/// The setting that names the collector's receiver of clients' batches, and what it must be
+/// (CLIENT_TELEMETRY-010).
+const TELEMETRY_ENDPOINT: &str = "CLIENT_TELEMETRY_ENDPOINT";
+const TELEMETRY_ENDPOINT_EXPECTED: &str =
+    "an http or https URL with a host, and no user, password, query or fragment";
+
+/// The name of the budget of the batches of telemetry that one user's clients send
+/// (CLIENT_TELEMETRY-007).
+const TELEMETRY_USER_BUDGET: &str = "telemetry_user";
+
+/// The name of the budget of the batches of telemetry that one replica forwards
+/// (CLIENT_TELEMETRY-008).
+const TELEMETRY_REPLICA_BUDGET: &str = "telemetry_replica";
+
+/// The window of both budgets.
+const TELEMETRY_WINDOW: Duration = Duration::from_secs(60);
+
+/// The least of both budgets: the bytes of the largest batch (CLIENT_TELEMETRY-006), so that a
+/// window holds any batch.
+const TELEMETRY_LEAST_BYTES: u32 = 1 << 20;
+// end part: client_telemetry
+
 // part: invitations
 /// The name of the per-member limit's bucket on inviting and sending again (INVITATIONS-009).
 const INVITATION_BUCKET: &str = "invitation";
 // end part: invitations
+
+// part: client_telemetry
+/// The telemetry proxy's settings, from `settings`: the collector's receiver that it forwards
+/// to, if the deployment names one, and its two budgets (CLIENT_TELEMETRY-007,
+/// CLIENT_TELEMETRY-008, CLIENT_TELEMETRY-010).
+fn client_telemetry<E, F>(
+    settings: &Settings<E, F>,
+) -> Result<client_telemetry::Settings, ConfigError>
+where
+    E: Fn(&str) -> Option<OsString>,
+    F: Fn(&Path) -> io::Result<String>,
+{
+    let endpoint = settings
+        .text_setting(TELEMETRY_ENDPOINT)?
+        .map(|endpoint| {
+            endpoint
+                .parse()
+                .map_err(|()| ConfigError::invalid(TELEMETRY_ENDPOINT, TELEMETRY_ENDPOINT_EXPECTED))
+        })
+        .transpose()?;
+    let budget = |name: &'static str, setting: &str| {
+        let most = 1 << 30;
+        let limit =
+            settings.number(setting, TELEMETRY_LEAST_BYTES, TELEMETRY_LEAST_BYTES..=most)?;
+        Ok(Bucket {
+            name,
+            limit,
+            window: TELEMETRY_WINDOW,
+        })
+    };
+    Ok(client_telemetry::Settings {
+        endpoint,
+        user_budget: budget(
+            TELEMETRY_USER_BUDGET,
+            "CLIENT_TELEMETRY_USER_BYTES_PER_MINUTE",
+        )?,
+        replica_budget: budget(
+            TELEMETRY_REPLICA_BUDGET,
+            "CLIENT_TELEMETRY_REPLICA_BYTES_PER_MINUTE",
+        )?,
+    })
+}
+// end part: client_telemetry
 
 impl Config {
     /// The settings that `seed` builds the API with: these, but with `SECOND_FACTOR_REQUIRED`
@@ -112,6 +184,9 @@ impl Config {
                 )?,
                 second_factor_required: settings.flag("SECOND_FACTOR_REQUIRED", false)?,
             },
+            // part: client_telemetry
+            client_telemetry: client_telemetry(settings)?,
+            // end part: client_telemetry
             // part: files
             files: files::Settings {
                 max_bytes: usize::try_from(settings.number(

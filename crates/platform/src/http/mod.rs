@@ -1,6 +1,9 @@
 //! The request pipeline: the route builders, the OpenAPI document they produce, and the
 //! middleware stack ([architecture §6](../../../../docs/architecture.md#6-request-lifecycle)).
 
+// part: client_telemetry
+mod batch;
+// end part: client_telemetry
 mod body;
 mod browsers;
 mod client;
@@ -31,6 +34,9 @@ use axum::{
 use utoipa::openapi::{Info, OpenApi};
 use utoipa_axum::router::{OpenApiRouter, UtoipaMethodRouter};
 
+// part: client_telemetry
+pub use batch::{Batch, BatchEncoding, BatchJson, BatchTaken, BatchTakenJson, ReadBatch};
+// end part: client_telemetry
 pub use body::{FieldErrors, Idempotent, Json, MergePatch};
 pub use browsers::{Cookies, Origins, expired_cookie, session_cookie};
 pub use download::{Download, FileBytes};

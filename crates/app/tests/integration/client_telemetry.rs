@@ -1,6 +1,8 @@
 //! Each user's consent to the telemetry of their clients: reading it, choosing it, and what
 //! becomes of it with the account (the client_telemetry spec, CLIENT_TELEMETRY-001 to
-//! CLIENT_TELEMETRY-003).
+//! CLIENT_TELEMETRY-003). The telemetry proxy's tests are in `proxy`.
+
+mod proxy;
 
 use http::Method;
 use serde_json::{Value, json};

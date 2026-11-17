@@ -90,6 +90,26 @@ impl OtlpEndpoint {
     }
 }
 
+// part: client_telemetry
+/// What the relay of clients' batches reads of the endpoint.
+impl OtlpEndpoint {
+    /// The URL of `path` under the endpoint.
+    pub(super) fn url(&self, path: &str) -> String {
+        self.signal(path)
+    }
+
+    /// Whether the endpoint is `https`.
+    pub(super) fn is_https(&self) -> bool {
+        self.0.scheme() == "https"
+    }
+
+    /// The endpoint's host.
+    pub(super) fn host(&self) -> String {
+        self.0.host_str().unwrap_or_default().to_owned()
+    }
+}
+// end part: client_telemetry
+
 impl FromStr for OtlpEndpoint {
     type Err = ();
 

@@ -108,6 +108,15 @@ pub enum BodyFault {
     /// The body is JSON, but not of the route's request type, such as with an unknown field. The
     /// field's JSON Pointer, when the parser names one.
     Shape(Option<String>),
+    // part: client_telemetry
+    /// The request's `Content-Encoding` is neither `gzip` nor `identity`, the codings that a
+    /// batch of telemetry takes (PLATFORM-090).
+    ContentEncoding,
+    /// The body came as gzip, and doesn't inflate (PLATFORM-090).
+    Gzip,
+    /// The body of a batch of telemetry stopped before its end (PLATFORM-090).
+    Incomplete,
+    // end part: client_telemetry
 }
 
 impl ErrorCode for RequestError {
@@ -240,6 +249,15 @@ impl ErrorCode for RequestError {
                 "If-Match names no current version of the resource: read it again, and send its ETag."
                     .to_owned(),
             ),
+            // part: client_telemetry
+            Self::InvalidBody(BodyFault::ContentEncoding) => {
+                Some("The body must be sent as gzip, or with no Content-Encoding.".to_owned())
+            }
+            Self::InvalidBody(BodyFault::Gzip) => Some("The body isn't valid gzip.".to_owned()),
+            Self::InvalidBody(BodyFault::Incomplete) => {
+                Some("The body stopped before its end.".to_owned())
+            }
+            // end part: client_telemetry
             Self::InvalidBody(BodyFault::ContentType(media_type)) => {
                 Some(format!("The body must be sent as {media_type}."))
             }

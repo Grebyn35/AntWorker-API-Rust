@@ -1,0 +1,62 @@
+# The telemetry of users' clients, which the API's telemetry proxy forwards (D177). The collector
+# merges this file over config.yaml: it adds a receiver, two pipelines and two exporters of the
+# clients' own, so nothing that the clients send passes through a pipeline or waits in a queue of
+# the API's telemetry. docs/operations/observability.md describes the pipelines.
+
+receivers:
+  # Where the API forwards each batch: a port of its own, which a deployment publishes nowhere.
+  otlp/clients:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4319
+
+processors:
+  # A lower limit than config.yaml's limiter has for the API's own telemetry, so as the
+  # collector's memory fills, it refuses the clients' telemetry before the API's.
+  memory_limiter/clients:
+    check_interval: 1s
+    limit_percentage: 70
+    spike_limit_percentage: 25
+  # Drops the spans and the log records of every resource whose service.name isn't a client's
+  # that the deployment admits: a fork lists each of its clients here, in both lists. So no
+  # client's telemetry passes for the API's or the proxy's own, and the names that Loki labels
+  # its streams by are these alone.
+  filter/clients:
+    error_mode: propagate
+    trace_conditions:
+      - resource.attributes["service.name"] != "app-desktop"
+    log_conditions:
+      - resource.attributes["service.name"] != "app-desktop"
+  # Keeps of each resource what names the client and its version, and, on spans, its
+  # installation: an SDK adds more, such as the name of the user's machine and of their account
+  # on it (OBS-04, D7). A log record keeps no service.instance.id, which Loki would label a
+  # stream by, one for each installation.
+  transform/clients:
+    error_mode: propagate
+    trace_statements:
+      - context: resource
+        statements:
+          - keep_keys(resource.attributes, ["service.name", "service.version", "service.instance.id"])
+    log_statements:
+      - context: resource
+        statements:
+          - keep_keys(resource.attributes, ["service.name", "service.version"])
+
+exporters:
+  otlp_http/tempo_clients:
+    endpoint: http://tempo:4318
+  otlp_http/loki_clients:
+    endpoint: http://loki:3100/otlp
+
+service:
+  pipelines:
+    # Every span that passes is kept: the tail sampling is the API's traces' alone (OBS-08), and
+    # the proxy's budgets bound what the clients send.
+    traces/clients:
+      receivers: [otlp/clients]
+      processors: [memory_limiter/clients, filter/clients, transform/clients, batch]
+      exporters: [otlp_http/tempo_clients]
+    logs/clients:
+      receivers: [otlp/clients]
+      processors: [memory_limiter/clients, filter/clients, transform/clients, batch]
+      exporters: [otlp_http/loki_clients]

@@ -9,6 +9,10 @@
 
 #[cfg(test)]
 mod backups;
+// part: client_telemetry
+#[cfg(test)]
+mod client_telemetry;
+// end part: client_telemetry
 #[cfg(test)]
 mod deploy;
 #[cfg(test)]

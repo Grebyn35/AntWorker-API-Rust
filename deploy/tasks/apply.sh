@@ -144,6 +144,10 @@ write_deploy_env() {
         printf '%s\n' "POSTGRES_IMAGE=$postgres_image"
         if [ "$telemetry" = off ]; then echo "API_TELEMETRY_ENDPOINT="; else echo "API_TELEMETRY_ENDPOINT=http://collector:4318"; fi
         if [ "$telemetry" = off ]; then echo "PROXY_TRACES_EXPORTER=none"; else echo "PROXY_TRACES_EXPORTER=otlp"; fi
+        # part: client_telemetry
+        # The collector's receiver of the batches that users' clients send the API.
+        if [ "$telemetry" = off ]; then echo "API_CLIENT_TELEMETRY_ENDPOINT="; else echo "API_CLIENT_TELEMETRY_ENDPOINT=http://collector:4319"; fi
+        # end part: client_telemetry
         if [ -f "$deployment/certs/backup-ca.crt" ]; then echo "BACKUP_CA_FILE=/etc/deployment-certs/backup-ca.crt"; fi
         # part: files
         if [ -f "$deployment/certs/files-ca.crt" ]; then echo "FILES_CA_FILE=/etc/deployment-certs/files-ca.crt"; fi

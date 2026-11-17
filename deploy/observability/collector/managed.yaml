@@ -41,6 +41,16 @@ exporters:
     # Empty, the operating system's certificate authorities (OPS-17).
     tls:
       ca_file: ${env:MANAGED_OTLP_CA_FILE}
+  # part: client_telemetry
+  # The telemetry of users' clients leaves through an exporter of its own, as clients.yaml's
+  # does, so nothing of theirs waits in the queue of the API's telemetry.
+  otlp_http/managed_clients:
+    endpoint: ${env:MANAGED_OTLP_ENDPOINT}
+    auth:
+      authenticator: basicauth/managed
+    tls:
+      ca_file: ${env:MANAGED_OTLP_CA_FILE}
+  # end part: client_telemetry
 
 service:
   # A list replaces an earlier file's, so this one names proxy.yaml's extension too.
@@ -61,3 +71,9 @@ service:
         - prometheus/collector
       processors: [memory_limiter, transform/labels, batch]
       exporters: [otlp_http/managed]
+    # part: client_telemetry
+    traces/clients:
+      exporters: [otlp_http/managed_clients]
+    logs/clients:
+      exporters: [otlp_http/managed_clients]
+    # end part: client_telemetry

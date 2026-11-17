@@ -27,6 +27,7 @@ clap ={ version = "4.6.7", default-features = false, features = ["std", "derive"
 data-encoding = { version = "2.11.1", default-features = false, features = ["alloc"] }
 dotenvy = "0.15.7"
 # Deflates the documents of an export's archive, in Rust alone (D126).
+# It also inflates a batch of telemetry that a client sends as gzip (PLATFORM-090). # part: client_telemetry
 flate2 = { version = "1.1.11", default-features = false, features = ["rust_backend"] }
 # The stream of server-sent events, which axum's `Sse` takes as a `Stream`.
 futures-util = { version = "0.3.34", default-features = false, features = ["std"] }

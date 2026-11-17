@@ -44,6 +44,7 @@ No header selects a workspace.
 
 ### API-05 Responses are the resource itself
 A success body is the resource object, with no envelope. A list is `{"items": [...], "next_cursor": "..." | null}`. Fields are `snake_case`. Clients ignore fields they don't recognize.
+The telemetry proxy's routes answer what the OpenTelemetry Protocol asks of an endpoint, its full success in the media type of the request, since an exporter built for the protocol reads it (CLIENT_TELEMETRY-004). <!-- part: client_telemetry -->
 - Why: one shape for every resource and every list (D8).
 - Check: `ci: check-openapi`.
 
@@ -67,6 +68,7 @@ An error response, except from the health probes (OPS-05), has `Content-Type: ap
 ### API-08 Request bodies are strict
 JSON bodies reject unknown fields. Each route group has a body size limit, and an oversized body gets the 413 problem before it is buffered.
 Uploads are the only non-JSON bodies: an upload route's group has no body limit of its own, since its handler refuses a caller before it reads the body, which it reads through `Upload` with the limit its module sets, such as a setting's, refusing an oversized body as a group's limit would (PLATFORM-074). <!-- part: files -->
+A batch of telemetry is the body that the OpenTelemetry Protocol defines, Protobuf or JSON, which the API forwards without parsing it: its route's group has no body limit of its own either, and its handler reads it through `Batch`, with the limit its module sets, refusing an oversized body as a group's limit would (PLATFORM-090). <!-- part: client_telemetry -->
 - Why: a mistyped field fails loudly instead of being silently ignored (D8, D12).
 - Check: `ci: check-layers` (every type in a module's routes that derives `Deserialize` carries `#[serde(deny_unknown_fields)]`), plus `test`.
 
@@ -118,6 +120,7 @@ Every route except the health probes (OPS-05) and the API reference that develop
 - `superadmin`: requires `Superadmin`, the proof that the caller is one of the deployment's superadmins, with a second factor (SUPERADMINS-004, SUPERADMINS-005). <!-- part: superadmins -->
 - `workspace_upload::<P>` and `user_upload`: as `workspace::<P>` and `user`, for a route whose body is a file's bytes, an avatar's or a workspace's picture's, which its handler reads through `Upload` in a group of its own: once `Authorize::check` has authorized a member, on a workspace's, and once `Principal` has authenticated the caller, on a user's (PLATFORM-073, PLATFORM-074). <!-- part: files -->
 - `user_download`: as `user`, for a route that serves bytes that never change, such as an export's archive, or a range of them (PLATFORM-081).
+- `user_batch`: as `user`, for a route whose body is a batch of telemetry, which its handler reads through `Batch`, in a group of its own (PLATFORM-090). <!-- part: client_telemetry -->
 - `workspace_signed_download::<P>`, `user_signed_download` and `public_download`: as `workspace::<P>`, `user` and `public`, for a route that serves a file's bytes, an avatar's or a workspace's picture's, or a range of them (PLATFORM-081). On the first two, a signed URL may also prove the `Principal` (PLATFORM-080), and the last serves under `/v1/public/`. <!-- part: files -->
 
 A caller who isn't a member of the workspace gets 404. A member without permission `P` gets 403. Each workspace builder gives its routes the access level `workspace`, each user builder the access level `user`, and each public builder the access level `public`.
@@ -127,6 +130,7 @@ A caller who is no superadmin gets 403 from a superadmin's route, whose access l
 
 ### API-15 Rate limits are visible
 Rate-limited responses carry the `RateLimit` and `RateLimit-Policy` headers of the IETF's draft-ietf-httpapi-ratelimit-headers-11, which isn't an RFC yet. Each holds one item, for the bucket that decided the response, named by the bucket's kind: `RateLimit-Policy: "ip";q=600;w=60` gives its quota and window in seconds, and `RateLimit: "ip";r=598;t=41` the requests left and the seconds until the window ends. A 429 also carries `Retry-After`.
+A budget, which counts bytes, says so with the draft's quota unit, as `RateLimit-Policy: "telemetry_user";q=1048576;qu="content-bytes";w=60`, and its `RateLimit` gives the bytes left (PLATFORM-089). <!-- part: client_telemetry -->
 - Why: clients can back off correctly (D11).
 - Check: `test`.
 
@@ -138,6 +142,7 @@ Every response except the health probes (OBS-15), including streams, carries its
 ### API-17 The OpenAPI document is generated and committed
 `openapi.json` is generated from code and committed, and a test fails if the document the binary writes differs from it. Every route under `/v1` documents its requests, responses, error codes and access level, and a response header the document lists is one the API always sends with that response. Each operation's `operationId` is its own, and each schema is one type's, so no operation documents another's request or response. The stream of server-sent events documents every frame it sends, in its event catalog (REALTIME-008), and its action catalog documents every action that an audit entry holds (AUDIT-012, AUDIT-014). Every field and every parameter typed with a domain type, a header's among them, such as `Idempotency-Key`, carries that type's limits in the schema (D25), and every string of a JSON request body has a `maxLength`.
 An upload's body, a binary string, states its limit in its description, with the setting that gives it, if one does. <!-- part: files -->
+A batch of telemetry is documented as the OpenTelemetry Protocol defines it and no further: as a binary string, or, as JSON, an object whose members the document doesn't list, with its limit in its description. <!-- part: client_telemetry -->
 - Why: the contract is reviewed in pull requests, and clients are built against it (D8).
 - Check: `clippy` (only the builders of API-14 register routes, each at a path its documentation names), `test` (every documented path serves, of the methods OpenAPI can document, exactly those it documents, the committed document is the one the code writes, and every request an integration test sends through the test support's typed calls, every response the in-process API gives it, and every frame of a stream it reads are checked against the document of the routes that answered it; a test of malformed input sends its body raw, unchecked), plus `ci: check-openapi` (each operation's access level and response descriptions, each `operationId` its own, every reference in the document resolves, every string of a request body has a `maxLength`; of the schema names that it reads in the code, which the comment of [its `names.rs`](../../crates/xtask/src/openapi/names.rs) lists, no two are the same, and none is `Frame` or `AuditEntry`, the two catalogs, a component that one of them refers to, or one that the document marks as a frame type's or an action's; and the event catalog and the action catalog, as the realtime spec and the audit spec say the check reads them), plus `review` (fields and parameters of domain types carry their limits, the name of a schema that the check doesn't read, such as one that a hand-written `name()` returns, and that a module declares its events and its audit actions in the form the check reads, which the two specs give).
 

@@ -170,11 +170,12 @@ pub async fn compose(
     );
     #[cfg(feature = "test-support")]
     let hub = realtime.hub.clone();
+    let features = system::Features::new(mail.is_on());
+    // part: client_telemetry
+    let features = features.client_telemetry(config.client_telemetry.endpoint.is_some());
+    // end part: client_telemetry
     let states = States {
-        capabilities: system::Capabilities::new(
-            system::Features::new(mail.is_on()),
-            providers::sign_in_providers(&providers),
-        ),
+        capabilities: system::Capabilities::new(features, providers::sign_in_providers(&providers)),
         auth,
         providers,
         exports,
@@ -187,6 +188,9 @@ pub async fn compose(
         avatars,
         pictures,
         // end part: files
+        // part: client_telemetry
+        client_telemetry: client_telemetry_state(resources, &config.client_telemetry)?,
+        // end part: client_telemetry
     };
     Ok(Services {
         routes: routes(resources, states),
@@ -250,6 +254,23 @@ async fn auth_service(
     ))
 }
 
+// part: client_telemetry
+/// The state of `client_telemetry`, on `resources`, whose proxy forwards to the collector's
+/// receiver that `settings` names, if it names one, within its budgets.
+fn client_telemetry_state(
+    resources: &Resources,
+    settings: &client_telemetry::Settings,
+) -> Result<client_telemetry::ClientTelemetry, Internal> {
+    client_telemetry::ClientTelemetry::new(
+        resources.database.clone(),
+        resources.workers.clone(),
+        resources.clock.clone(),
+        settings,
+    )
+    .map_err(Internal::new)
+}
+// end part: client_telemetry
+
 /// The states of the modules' routes that `compose` builds, which [`routes`] mounts.
 struct States {
     capabilities: system::Capabilities,
@@ -265,6 +286,9 @@ struct States {
     avatars: accounts::Avatars,
     pictures: workspaces::Pictures,
     // end part: files
+    // part: client_telemetry
+    client_telemetry: client_telemetry::ClientTelemetry,
+    // end part: client_telemetry
 }
 
 /// Every module's routes, each with its state from `states`, or the pool or the workers of
@@ -299,7 +323,7 @@ fn routes(resources: &Resources, states: States) -> Routes {
         .merge(superadmins::routes().with_state(database.clone()))
         // end part: superadmins
         // part: client_telemetry
-        .merge(client_telemetry::routes().with_state(database.clone()))
+        .merge(client_telemetry::routes().with_state(states.client_telemetry))
         // end part: client_telemetry
         .merge(workspaces::routes().with_state(database.clone()))
         .merge(realtime::routes().with_state(states.realtime))

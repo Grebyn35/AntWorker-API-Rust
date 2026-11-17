@@ -32,6 +32,9 @@ use super::{
     limits::{IpLimit, ip_limit},
     query::parameter_pointer,
 };
+// part: client_telemetry
+use super::batch::BatchTurns;
+// end part: client_telemetry
 // part: files
 use super::{signed::TakesSignedUrl, upload::UploadTurns};
 // end part: files
@@ -140,6 +143,9 @@ pub(super) fn request(router: Router, stack: Stack) -> Router {
     // part: files
     let layers = layers.layer(Extension(UploadTurns::new()));
     // end part: files
+    // part: client_telemetry
+    let layers = layers.layer(Extension(BatchTurns::new()));
+    // end part: client_telemetry
     router.layer(layers)
 }
 
@@ -174,6 +180,23 @@ where
     )
 }
 // end part: files
+
+// part: client_telemetry
+/// The layers of a route that takes a batch of telemetry: a route group's timeout, and the check
+/// of its query parameters against its documentation. It sets no body limit: the handler reads
+/// the body through `Batch`, with the limit its module sets (PLATFORM-090).
+pub(super) fn batch_group<S>(route: MethodRouter<S>, queries: QueryNames) -> MethodRouter<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    route.layer(
+        ServiceBuilder::new()
+            .layer(HandleErrorLayer::new(timed_out))
+            .layer(TimeoutLayer::new(GROUP_TIMEOUT))
+            .layer(middleware::from_fn_with_state(Arc::new(queries), query)),
+    )
+}
+// end part: client_telemetry
 
 /// The layers of a route that proving the caller's email address needs: a route group's, and the
 /// marker that lets `Principal` prove a caller whose account hasn't proved it (AUTH-025).

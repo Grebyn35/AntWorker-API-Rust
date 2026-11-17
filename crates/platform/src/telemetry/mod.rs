@@ -6,6 +6,9 @@ mod export;
 pub mod metrics;
 pub mod names;
 pub mod process;
+// part: client_telemetry
+mod relay;
+// end part: client_telemetry
 
 use std::{io, panic::PanicHookInfo};
 
@@ -31,6 +34,9 @@ use tracing_subscriber::{
 };
 
 pub use export::{ExportError, OtlpEndpoint};
+// part: client_telemetry
+pub use relay::{Relay, RelayBuildError, RelayError, Signal};
+// end part: client_telemetry
 
 use self::metrics::Counter;
 use crate::config::{Environment, LogLevel, TelemetryConfig};

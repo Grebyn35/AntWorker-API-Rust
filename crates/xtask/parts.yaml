@@ -192,7 +192,14 @@ parts:
     module: client_telemetry
     paths:
       - crates/app/src/modules/client_telemetry
+      - crates/app/tests/e2e/client_telemetry.rs
+      - crates/app/tests/integration/client_telemetry
       - crates/app/tests/integration/client_telemetry.rs
+      - crates/platform/src/db/budgets.rs
+      - crates/platform/src/http/batch.rs
+      - crates/platform/src/rate_limit
+      - crates/platform/src/telemetry/relay.rs
+      - deploy/observability/collector/clients.yaml
       - docs/spec/client_telemetry.md
     words:
       - client_telemetry
@@ -202,6 +209,15 @@ parts:
       - telemetryconsent
       - telemetry of their clients
       - clients' telemetry
+      - telemetry proxy
+      - batch of telemetry
+      - batches of telemetry
+      - clients' batches
+      - users' clients
+      - clients.yaml
+      - content-bytes
+      - replicabudget
+      - user_batch
   # end part: client_telemetry
 
 # Each run removes its parts from a copy of the repository of its own, then runs `just checks` on

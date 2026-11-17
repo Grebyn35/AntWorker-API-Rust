@@ -29,6 +29,10 @@ flowchart LR
   caddy[Caddy] -- spans, OTLP/HTTP --> collector[OpenTelemetry Collector]
   caddy -- its log file --> collector
   api[API instances] -- OTLP/HTTP --> collector
+  %% part: client_telemetry
+  clients[Users' clients] -- batches, OTLP/HTTP --> api
+  api -- the batches it forwards --> collector
+  %% end part: client_telemetry
   collector -- traces it keeps --> tempo[Tempo]
   collector -- log records --> loki[Loki]
   collector -- metrics --> prometheus[Prometheus]
@@ -44,18 +48,30 @@ flowchart LR
   - every trace with an error status, or a response of 400 or above
   - every trace slower than the [latency objective](#service-level-objectives)
   - 10% of the rest
+<!-- part: client_telemetry -->
+- **Users' clients** send their spans and their log records to the API, whose telemetry proxy forwards each batch of a user who consents to the collector ([client_telemetry spec](../spec/client_telemetry.md#the-proxy)). The collector takes these batches on a receiver of their own, on port 4319, and passes them through pipelines and exporters of their own ([clients.yaml](../../deploy/observability/collector/clients.yaml)), so nothing that a client sends passes through a pipeline, or waits in a queue, of the API's telemetry:
+  - Its memory limiter for them has a lower limit than the one for the API's own, 70% of the collector's memory against 80%, each less a spike of 25%, so as its memory fills, the collector refuses the clients' telemetry before the API's.
+  - It drops the spans and the log records of every resource whose `service.name` the file doesn't list, and answers the batch as taken. The template lists `app-desktop`, and a fork lists each of its clients. So no client's telemetry passes for the API's or the proxy's, and Loki labels its streams by the listed names alone.
+  - It keeps of each resource its `service.name`, its `service.version` and, on spans, its `service.instance.id`, and nothing else that an SDK adds, such as the name of the user's machine (OBS-04).
+  - It samples none of their traces: it keeps each span that it admits, and the proxy's budgets bound what the clients send (CLIENT_TELEMETRY-007, CLIENT_TELEMETRY-008).
+
+  Tempo and Loki store them beside the API's own. A request that a client sends with a `traceparent` of its own trace continues that trace (PLATFORM-041), so the trace holds the client's spans, and the API's when the tail sampling kept them, and the query of [Following a request](#following-a-request-from-its-trace-id) shows the client's log lines of the trace beside the API's.
+<!-- end part: client_telemetry -->
 - **Prometheus** ([config](../../deploy/observability/prometheus/prometheus.yaml)) receives the metrics through its OTLP receiver, and scrapes the collector, Loki, Tempo and Alertmanager for their own. It evaluates the [rules](../../deploy/observability/prometheus/rules.yaml) and sends firing alerts to Alertmanager. [metrics.md](metrics.md) lists every metric under its name in Prometheus.
 - **Loki** ([config](../../deploy/observability/loki/config.yaml)) keeps every log record the API exports, and the proxy's: logs are never sampled. The API's queue of records drops a record that arrives while it is full, as the [platform spec](../spec/platform.md#telemetry-export) says, and stdout drops no line while the API runs. A record's line is its message, such as `request completed`. The service's name, instance and environment are labels, such as `service_name`, and every other field, `trace_id` and `span_id` among them, is structured metadata that a query filters with `| trace_id="…"`.
 - **Tempo** ([config](../../deploy/observability/tempo/config.yaml)) keeps the traces the collector passes on, and answers searches in its query language, TraceQL.
 - **Grafana** reads all three, through the [data sources](../../deploy/observability/grafana/provisioning/datasources/datasources.yaml) it provisions. A log line links to its trace, and a span links to its trace's log lines.
 
 Prometheus keeps metrics for 15 days, and Loki and Tempo keep logs and traces for 14 days.
+They keep the clients' spans and log records as long. <!-- part: client_telemetry -->
 
 ## A managed backend
 
 A deployment may send its telemetry to a managed backend that accepts the OpenTelemetry Protocol (OTLP), such as Grafana Cloud, instead of running Prometheus, Loki, Tempo, Grafana and Alertmanager itself (D42). With `TELEMETRY=managed`, the reference deployment runs only the collector, with [managed.yaml](../../deploy/observability/collector/managed.yaml) merged over its configuration: the same receivers and processors, tail sampling among them (OBS-08), with what the self-hosted stack does elsewhere, below, and one exporter, to the backend. The API exports to the collector as before, so its settings don't change, and the backend's tokens stay in the deployment's `secrets/`: the collector sends the telemetry with one, the deploy's import signs in to the backend's Grafana with the other, and `just server-check` tries both.
 
 The deployment's settings name the backend's OTLP endpoint, which is HTTPS (OPS-17), and the user the collector signs in as: `MANAGED_OTLP_ENDPOINT` and `MANAGED_OTLP_USER`, which [deploy/settings.env.example](../../deploy/settings.env.example) describes. The token goes in the secret file `secrets/managed_otlp_token`. A backend whose certificate a private authority signed is trusted through that authority's certificate in `certs/managed-otlp-ca.crt`.
+
+The clients' spans and log records, which the telemetry proxy forwards, go to the backend too, through an exporter of their own. <!-- part: client_telemetry -->
 
 The managed configuration adds what the self-hosted stack does elsewhere: the collector scrapes its own metrics, which Prometheus scrapes in the stack, for the alerts on telemetry that is lost, and it copies `deployment.environment.name` and the `file.name` of each file whose time it reads from each metric's resource into its labels, which the self-hosted Prometheus promotes.
 
@@ -83,6 +99,9 @@ CI sends to a stand-in backend, a collector that admits only the deployment's cr
 | Loki | <http://127.0.0.1:3100> |
 | Tempo | <http://127.0.0.1:3200> |
 | The collector's OTLP receiver | <http://127.0.0.1:4318> |
+| The collector's receiver of clients' batches | <http://127.0.0.1:4319> <!-- part: client_telemetry --> |
+
+The API forwards its clients' telemetry to that receiver once `.env` sets `CLIENT_TELEMETRY_ENDPOINT=http://127.0.0.1:4319`; `.env.example` leaves it unset, so `just dev` without the stack forwards none, and tells its clients so (CLIENT_TELEMETRY-010). <!-- part: client_telemetry -->
 
 Grafana opens without signing in, as a viewer who can explore. On a server, it answers on an address of its own behind Caddy, where every viewer signs in ([deploy.md](deploy.md#grafana)). Its dashboards are read-only: each is a file in [deploy/observability/grafana/dashboards](../../deploy/observability/grafana/dashboards), and changing one means changing its file. `docker compose stop collector prometheus alertmanager loki tempo grafana` stops the stack and leaves Postgres running. `docker compose --profile observability down` stops every service, Postgres among them, and adding `--volumes` deletes what each stored, the development database included.
 

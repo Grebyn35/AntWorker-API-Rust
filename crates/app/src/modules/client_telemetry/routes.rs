@@ -1,11 +1,16 @@
-//! The caller's consent to the telemetry of their clients (the client_telemetry spec's Routes).
+//! The caller's consent to the telemetry of their clients, and the proxy's two routes, which
+//! take a consenting caller's batches (the client_telemetry spec's Routes).
 
 use axum::extract::State;
 use platform::{
     authn::Principal,
-    db::Database,
-    errors::Problem,
-    http::{IfMatch, Json, ResourceResponse, Routes},
+    errors::{Problem, RequestError},
+    http::{
+        Batch, BatchJson, BatchTaken, BatchTakenJson, FileBytes, IfMatch, Json, ReadBatch,
+        ResourceResponse, Routes,
+    },
+    rate_limit::{LimitError, RateLimits},
+    telemetry::Signal,
     types::Client,
 };
 use serde::Deserialize;
@@ -13,15 +18,27 @@ use utoipa::ToSchema;
 use utoipa_axum::routes;
 
 use super::{
-    error::ClientTelemetryError, events::TELEMETRY_CONSENT_UPDATED, model::TelemetryConsent,
-    service,
+    error::ClientTelemetryError,
+    events::TELEMETRY_CONSENT_UPDATED,
+    model::{MAX_BATCH_BYTES, Sent, TelemetryConsent},
+    service::{self, ClientTelemetry},
 };
 
-/// The module's routes, which take the database as their state, and the event they publish.
-pub(crate) fn routes() -> Routes<Database> {
+/// The module's routes, which take [`ClientTelemetry`] as their state, and the event they
+/// publish.
+pub(crate) fn routes() -> Routes<ClientTelemetry> {
+    let proxy_errors: [&dyn platform::errors::ErrorCode; 5] = [
+        &ClientTelemetryError::ConsentRequired,
+        &ClientTelemetryError::BatchRefused,
+        &ClientTelemetryError::CollectorUnavailable(None),
+        &LimitError::RateLimited,
+        &RequestError::FeatureDisabled,
+    ];
     Routes::new()
         .events(&[&TELEMETRY_CONSENT_UPDATED])
         .user(routes!(consent, choose_consent), &[])
+        .user_batch(routes!(send_traces), &proxy_errors)
+        .user_batch(routes!(send_logs), &proxy_errors)
 }
 
 /// Reads whether the caller consents to their clients' sending their telemetry.
@@ -35,11 +52,11 @@ pub(crate) fn routes() -> Routes<Database> {
     )
 )]
 async fn consent(
-    State(database): State<Database>,
+    State(telemetry): State<ClientTelemetry>,
     client: Client,
     principal: Principal,
 ) -> Result<ResourceResponse<TelemetryConsent>, Problem<ClientTelemetryError>> {
-    let current = service::consent(&database, &client, &principal).await?;
+    let current = service::consent(&telemetry.database, &client, &principal).await?;
     Ok(ResourceResponse::ok(current.consent).tagged(current.version))
 }
 
@@ -67,14 +84,14 @@ pub(crate) struct TelemetryConsentRequest {
     )
 )]
 async fn choose_consent(
-    State(database): State<Database>,
+    State(telemetry): State<ClientTelemetry>,
     client: Client,
     principal: Principal,
     if_match: IfMatch,
     Json(request): Json<TelemetryConsentRequest>,
 ) -> Result<ResourceResponse<TelemetryConsent>, Problem<ClientTelemetryError>> {
     let current = service::choose(
-        &database,
+        &telemetry.database,
         &client,
         &principal,
         request.consented,
@@ -82,4 +99,92 @@ async fn choose_consent(
     )
     .await?;
     Ok(ResourceResponse::ok(current.consent).tagged(current.version))
+}
+
+/// Takes a batch of the spans of one of the caller's clients, and forwards it to the collector.
+#[utoipa::path(
+    post,
+    path = "/v1/telemetry/traces",
+    tag = "client_telemetry",
+    request_body(
+        description = "A batch of spans, as the request of the OpenTelemetry Protocol over HTTP (OTLP/HTTP): an `ExportTraceServiceRequest`, sent as `application/x-protobuf` or as `application/json`, with `Content-Encoding: gzip` or without one, of at most 1,048,576 bytes, as sent and once inflated (CLIENT_TELEMETRY-004, CLIENT_TELEMETRY-006).",
+        content(
+            (FileBytes = "application/x-protobuf"),
+            (BatchJson = "application/json"),
+        ),
+    ),
+    responses(
+        (status = 200, description = "The collector took the batch: the protocol's full success, in the media type of the request, which holds no bytes as `application/x-protobuf`.",
+            content(
+                (FileBytes = "application/x-protobuf"),
+                (BatchTakenJson = "application/json"),
+            )),
+    )
+)]
+async fn send_traces(
+    State(telemetry): State<ClientTelemetry>,
+    client: Client,
+    principal: Principal,
+    limits: RateLimits,
+    batch: Batch,
+) -> Result<BatchTaken, Problem<ClientTelemetryError>> {
+    // The turn the bytes hold lasts until `batch` is dropped, once the collector has answered
+    // (PLATFORM-090).
+    let batch = read(batch, &telemetry).await?;
+    let sent = Sent {
+        signal: Signal::Traces,
+        media_type: batch.encoding.media_type(),
+        bytes: batch.bytes.clone(),
+    };
+    service::forward(&telemetry, &client, &principal, &limits, sent).await?;
+    Ok(BatchTaken(batch.encoding))
+}
+
+/// Takes a batch of the log records of one of the caller's clients, and forwards it to the
+/// collector.
+#[utoipa::path(
+    post,
+    path = "/v1/telemetry/logs",
+    tag = "client_telemetry",
+    request_body(
+        description = "A batch of log records, as the request of the OpenTelemetry Protocol over HTTP (OTLP/HTTP): an `ExportLogsServiceRequest`, sent as `application/x-protobuf` or as `application/json`, with `Content-Encoding: gzip` or without one, of at most 1,048,576 bytes, as sent and once inflated (CLIENT_TELEMETRY-004, CLIENT_TELEMETRY-006).",
+        content(
+            (FileBytes = "application/x-protobuf"),
+            (BatchJson = "application/json"),
+        ),
+    ),
+    responses(
+        (status = 200, description = "The collector took the batch: the protocol's full success, in the media type of the request, which holds no bytes as `application/x-protobuf`.",
+            content(
+                (FileBytes = "application/x-protobuf"),
+                (BatchTakenJson = "application/json"),
+            )),
+    )
+)]
+async fn send_logs(
+    State(telemetry): State<ClientTelemetry>,
+    client: Client,
+    principal: Principal,
+    limits: RateLimits,
+    batch: Batch,
+) -> Result<BatchTaken, Problem<ClientTelemetryError>> {
+    // The turn the bytes hold lasts until `batch` is dropped, once the collector has answered
+    // (PLATFORM-090).
+    let batch = read(batch, &telemetry).await?;
+    let sent = Sent {
+        signal: Signal::Logs,
+        media_type: batch.encoding.media_type(),
+        bytes: batch.bytes.clone(),
+    };
+    service::forward(&telemetry, &client, &principal, &limits, sent).await?;
+    Ok(BatchTaken(batch.encoding))
+}
+
+/// Reads `batch`, up to the largest batch's bytes, inflating it in one of `telemetry`'s turns of
+/// CPU-heavy work if it came as gzip (CLIENT_TELEMETRY-006).
+async fn read(
+    batch: Batch,
+    telemetry: &ClientTelemetry,
+) -> Result<ReadBatch, ClientTelemetryError> {
+    Ok(batch.read(MAX_BATCH_BYTES, &telemetry.workers).await?)
 }

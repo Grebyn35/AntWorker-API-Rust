@@ -79,8 +79,8 @@ pub(crate) struct Features {
     superadmins: bool,
     // end part: superadmins
     // part: client_telemetry
-    /// The fork keeps `client_telemetry`, so a client asks its user whether it may send their
-    /// telemetry.
+    /// Whether the deployment forwards its clients' telemetry (CLIENT_TELEMETRY-010). While it
+    /// is on, a client asks its user whether it may send their telemetry.
     client_telemetry: bool,
     // end part: client_telemetry
 }
@@ -104,10 +104,20 @@ impl Features {
             superadmins: true,
             // end part: superadmins
             // part: client_telemetry
-            client_telemetry: true,
+            client_telemetry: false,
             // end part: client_telemetry
         }
     }
+
+    // part: client_telemetry
+    /// These features, of a deployment that forwards its clients' telemetry while `forwards` is
+    /// on (CLIENT_TELEMETRY-010).
+    #[must_use]
+    pub(crate) fn client_telemetry(mut self, forwards: bool) -> Self {
+        self.client_telemetry = forwards;
+        self
+    }
+    // end part: client_telemetry
 }
 
 /// The module's routes, which take the deployment's capabilities.

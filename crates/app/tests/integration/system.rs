@@ -58,7 +58,9 @@ fn features(email: bool) -> Value {
     features.insert("files".to_owned(), json!(true));
     // end part: files
     // part: client_telemetry
-    features.insert("client_telemetry".to_owned(), json!(true));
+    // Off without `CLIENT_TELEMETRY_ENDPOINT`, which the tests' API doesn't set
+    // (CLIENT_TELEMETRY-010).
+    features.insert("client_telemetry".to_owned(), json!(false));
     // end part: client_telemetry
     Value::Object(features)
 }

@@ -5,6 +5,10 @@
 //! The untrusted client accepts that origin too, so the stand-in also serves what a provider
 //! names by an address, such as a user's picture.
 // end part: files
+// part: client_telemetry
+//! It also stands in for the collector's receiver of clients' batches, which the telemetry proxy
+//! reaches through `CLIENT_TELEMETRY_ENDPOINT`.
+// end part: client_telemetry
 
 use std::{
     collections::HashMap,
@@ -29,6 +33,12 @@ pub struct Received {
     pub path: String,
     pub authorization: Option<String>,
     pub body: String,
+    // part: client_telemetry
+    /// Each header of the request, its name in lowercase, and the body's bytes as they came,
+    /// which the tests of a forwarded batch read.
+    pub headers: Vec<(String, String)>,
+    pub bytes: Vec<u8>,
+    // end part: client_telemetry
 }
 
 impl Received {
@@ -81,6 +91,14 @@ impl Upstream {
     pub fn options(&self) -> Options {
         Options::default().set("OUTBOUND_TEST_ORIGIN", &self.origin)
     }
+
+    // part: client_telemetry
+    /// The options of an API whose telemetry proxy forwards here, as to the collector's receiver
+    /// of clients' batches.
+    pub fn collector_options(&self) -> Options {
+        Options::default().set("CLIENT_TELEMETRY_ENDPOINT", &self.origin)
+    }
+    // end part: client_telemetry
 
     /// Makes `method` of `path` answer `status`, with `body` as JSON.
     pub fn set(&self, method: &str, path: &str, status: u16, body: Value) {
@@ -170,6 +188,18 @@ fn record(
             .and_then(|value| value.to_str().ok())
             .map(str::to_owned),
         body: String::from_utf8_lossy(body).into_owned(),
+        // part: client_telemetry
+        headers: headers
+            .iter()
+            .map(|(name, value)| {
+                (
+                    name.as_str().to_owned(),
+                    String::from_utf8_lossy(value.as_bytes()).into_owned(),
+                )
+            })
+            .collect(),
+        bytes: body.to_vec(),
+        // end part: client_telemetry
     });
     match answers
         .by_route

@@ -28,6 +28,7 @@ Module code writes events only at `DEBUG`. Every `INFO`, `WARN` and `ERROR` even
 
 ### OBS-04 No personal data or secrets in telemetry
 Logs, spans and metric labels never contain personal data or secrets. `EmailAddress` redacts itself when formatted, as `Secret` does (SEC-01). Every `#[instrument]` uses `skip_all` and lists its fields explicitly. The reference deployment's proxy writes no field of a log line that holds personal data, and the collector keeps only the attributes of its spans whose names `platform::telemetry` lists (D53).
+Of the telemetry that a user's client sends through the telemetry proxy, the collector keeps of each resource only what names the client, its version and, on spans, its installation (CLIENT_TELEMETRY-011); what its spans and its log records hold besides is the client's to keep free of personal data, and its user's to consent to (D7). <!-- part: client_telemetry -->
 - Why: telemetry is copied widely and kept for a long time (D7).
 - Check: `compiler` (the redacting types), `ci: check-instrument` (every `#[instrument]` has `skip_all`), plus `ci: e2e` (the proxy's span and log line hold no client address or user agent), plus `review`.
 
@@ -54,6 +55,7 @@ Inbound W3C `traceparent` from clients is accepted. Every job and event row stor
 
 ### OBS-08 Errors and slow requests are always kept
 The SDK samples every trace except the health probes (OBS-15). The collector's tail sampling keeps every trace with `http.response.status_code >= 400` or an error status, every trace slower than the latency objective, and a configured share of the rest. Logs are never sampled. The dashboard of request latency lists kept traces slower than the objective in the time range it shows, as many as its limit holds, each leading to its trace.
+The spans that users' clients send through the telemetry proxy pass no tail sampling: the collector keeps each one that it admits (CLIENT_TELEMETRY-011). <!-- part: client_telemetry -->
 - Why: every trace ID a user can report as a problem resolves to a trace, a latency spike leads to the requests behind it, and every request's logs are kept (D10).
 - Check: `ci: check-telemetry-config` (the sampling policies in the collector's configuration, and the same objective in them, the alerts and the dashboard), plus `test` (end to end).
 

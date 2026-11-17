@@ -492,6 +492,11 @@ mod tests {
         "",
         "",
         // end part: openid_connect
+        // part: client_telemetry
+        // Enter for the two budgets of the telemetry that users' clients send.
+        "",
+        "",
+        // end part: client_telemetry
         // Enter generates the key ring.
         "",
         // part: files

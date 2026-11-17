@@ -29,6 +29,7 @@ flowchart LR
 - Object storage holds file bytes. Uploads and downloads use it during the request, and deletions go through background jobs. <!-- part: files -->
 - ClamAV's daemon scans each upload for malware during its request, before the upload is stored. <!-- part: files -->
 - The Simple Mail Transfer Protocol (SMTP) delivers email, and only background jobs reach it. No request waits for an email to send (D1).
+- A client's telemetry reaches the collector through the API: its telemetry proxy forwards the spans and the log records of a user who consents, on a receiver and through pipelines of their own (D7, D175, D177). <!-- part: client_telemetry -->
 - The observability stack is always part of the codebase, and turning it on at runtime is optional.
 
 ## 2. Principles
@@ -85,6 +86,7 @@ The API has two crates. Cargo forbids `platform` from depending on `app`, so the
 | `authz`, for a superadmin's routes | The `Superadmin` proof, which opening a superadmin's route produces: it opens the request's unit of work and asks, inside it, the `SuperadminPolicy` that `superadmins` implements. A refusal is reported to the same sink. | D62, D63 <!-- part: superadmins --> |
 | `errors` | Error categories, the `ErrorCode` trait, and the single conversion to an HTTP response. | D17 |
 | `telemetry` | The logging and tracing setup, the export of spans, logs and metrics over the OpenTelemetry Protocol (OTLP), the list of telemetry names, and the metric declarations. | D10, D19 |
+| `http::batch`, `rate_limit::bytes` and `telemetry::relay` | The extractor of a batch of telemetry, which a replica reads 8 at a time; the budgets that count a request's bytes, one subject's in the database and a replica's in its own memory; and the relay that forwards a batch to the collector's receiver of clients' batches. | D175, D176 <!-- part: client_telemetry --> |
 | `storage` | The client of the S3-compatible bucket that holds files' bytes, which reads an object, or a range of its bytes, as a stream. | D1, D14, D106, D112 <!-- part: files --> |
 | `signed_urls` | The signed URLs of downloads: a path, the session it acts for and when it stops working, signed with a hash-based message authentication code (HMAC) under `HMAC_KEY`, which a client that can't send a credential with a request, such as an `<img>`, sends in its place. | D61, D113 <!-- part: files --> |
 | `scanner` | The client of ClamAV's daemon, which scans an upload's bytes for malware. | D26, D63, D107 <!-- part: files --> |

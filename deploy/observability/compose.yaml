@@ -9,7 +9,11 @@
 services:
   collector:
     image: otel/opentelemetry-collector-contrib:0.164.0@sha256:340c9ca6a36617084c6661bdc4f0fe92b7cda5a805d61673ec8db375fddc522b
-    command: ["--config=/etc/collector/config.yaml"]
+    command:
+      - --config=/etc/collector/config.yaml
+      # part: client_telemetry
+      - --config=/etc/collector/clients.yaml
+      # end part: client_telemetry
     volumes:
       - ./collector:/etc/collector:ro
       # The host's filesystem, read-only, from which the collector reads the host's CPU, memory and

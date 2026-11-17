@@ -91,6 +91,14 @@ x-api: &api
     # Empty, as deploy.sh writes it when no answer gave one, it counts as unset (PLATFORM-064).
     SMTP_PASSWORD_FILE: /run/secrets/smtp_password
     EMAIL_FROM: ${EMAIL_FROM:-}
+    # part: client_telemetry
+    # The collector's receiver of the batches of telemetry that users' clients send the API, or
+    # empty, as deploy.sh writes it without telemetry, and the API forwards none
+    # (CLIENT_TELEMETRY-010).
+    CLIENT_TELEMETRY_ENDPOINT: ${API_CLIENT_TELEMETRY_ENDPOINT:-}
+    CLIENT_TELEMETRY_USER_BYTES_PER_MINUTE: ${CLIENT_TELEMETRY_USER_BYTES_PER_MINUTE:-1048576}
+    CLIENT_TELEMETRY_REPLICA_BYTES_PER_MINUTE: ${CLIENT_TELEMETRY_REPLICA_BYTES_PER_MINUTE:-1048576}
+    # end part: client_telemetry
     # part: invitations
     INVITATION_EXPIRY_DAYS: ${INVITATION_EXPIRY_DAYS:-7}
     INVITATION_LIMIT: ${INVITATION_LIMIT:-100}
@@ -439,7 +447,12 @@ services:
     extends: { file: observability/compose.yaml, service: collector }
     logging: *logging
     profiles: [telemetry]
-    command: ["--config=/etc/collector/config.yaml", "--config=/etc/collector/proxy.yaml"]
+    command:
+      - --config=/etc/collector/config.yaml
+      - --config=/etc/collector/proxy.yaml
+      # part: client_telemetry
+      - --config=/etc/collector/clients.yaml
+      # end part: client_telemetry
     volumes:
       - backup-status:/var/lib/backup-status:ro
       # part: files
@@ -460,6 +473,9 @@ services:
     command:
       - --config=/etc/collector/config.yaml
       - --config=/etc/collector/proxy.yaml
+      # part: client_telemetry
+      - --config=/etc/collector/clients.yaml
+      # end part: client_telemetry
       - --config=/etc/collector/managed.yaml
     environment:
       MANAGED_OTLP_ENDPOINT: ${MANAGED_OTLP_ENDPOINT:-}

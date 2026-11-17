@@ -1,10 +1,15 @@
 //! Each user's consent to the telemetry of their clients: reading it, and choosing it (the
-//! client_telemetry spec's "The consent").
+//! client_telemetry spec's "The consent"); and the proxy, which forwards a consenting user's
+//! batches to the collector (the spec's "The proxy").
 
 use platform::{
     authn::Principal,
+    blocking::Workers,
+    clock::SharedClock,
     db::Database,
     errors::RequestError,
+    rate_limit::{Bucket, RateLimits, ReplicaBudget},
+    telemetry::{Relay, RelayBuildError, RelayError},
     types::{Client, Version},
 };
 
@@ -12,10 +17,56 @@ use super::{
     audit::{self, TelemetryConsentChoice},
     error::ClientTelemetryError,
     events::{TELEMETRY_CONSENT_UPDATED, TelemetryConsentUpdated},
-    model::{Current, TelemetryConsent},
+    model::{Current, Sent, Settings, TelemetryConsent},
     repo,
 };
 use crate::modules::audit::{self as log, Entry};
+
+/// What the routes of `client_telemetry` share: the database that holds each consent, the turns
+/// of the work that inflates a batch, and the proxy.
+#[derive(Clone)]
+pub(crate) struct ClientTelemetry {
+    pub(super) database: Database,
+    pub(super) workers: Workers,
+    /// The proxy, or `None` while the deployment forwards no client's telemetry
+    /// (CLIENT_TELEMETRY-010).
+    proxy: Option<Proxy>,
+}
+
+/// What the proxy forwards a batch with: the relay to the collector, and the two budgets that
+/// count the batch's bytes first.
+#[derive(Clone)]
+struct Proxy {
+    relay: Relay,
+    user_budget: Bucket,
+    replica_budget: ReplicaBudget,
+}
+
+impl ClientTelemetry {
+    /// The module's state, on `database`, whose proxy forwards to the collector's receiver that
+    /// `settings` names, if it names one, within its budgets, the replica's on `clock`.
+    pub(crate) fn new(
+        database: Database,
+        workers: Workers,
+        clock: SharedClock,
+        settings: &Settings,
+    ) -> Result<Self, RelayBuildError> {
+        let relay = settings
+            .endpoint
+            .as_ref()
+            .map(|endpoint| Relay::new(endpoint, clock.clone()))
+            .transpose()?;
+        Ok(Self {
+            database,
+            workers,
+            proxy: relay.map(|relay| Proxy {
+                relay,
+                user_budget: settings.user_budget,
+                replica_budget: ReplicaBudget::new(settings.replica_budget, clock),
+            }),
+        })
+    }
+}
 
 /// The caller's consent, read by their own ID: `false` at version 0 for a caller who never chose
 /// (CLIENT_TELEMETRY-001).
@@ -69,4 +120,42 @@ pub(super) async fn choose(
     .await?;
     uow.commit().await?;
     Ok(current)
+}
+
+/// Forwards `batch`, which one of the caller's clients sent, to the collector, and says how the
+/// collector took it (CLIENT_TELEMETRY-004, CLIENT_TELEMETRY-009): once the deployment forwards
+/// clients' telemetry at all (CLIENT_TELEMETRY-010), the caller consents, as their consent reads
+/// now (CLIENT_TELEMETRY-005), and the caller's budget, then the replica's, have counted the
+/// batch's bytes (CLIENT_TELEMETRY-007, CLIENT_TELEMETRY-008).
+pub(super) async fn forward(
+    telemetry: &ClientTelemetry,
+    client: &Client,
+    principal: &Principal,
+    limits: &RateLimits,
+    batch: Sent,
+) -> Result<(), ClientTelemetryError> {
+    let Some(proxy) = &telemetry.proxy else {
+        return Err(RequestError::FeatureDisabled.into());
+    };
+    let current = consent(&telemetry.database, client, principal).await?;
+    if !current.consent.consented {
+        return Err(ClientTelemetryError::ConsentRequired);
+    }
+    // A batch holds at most a mebibyte, which a `u32` holds.
+    let bytes = u32::try_from(batch.bytes.len()).unwrap_or(u32::MAX);
+    let user = principal.user_id();
+    limits
+        .spend(proxy.user_budget, user.uuid().as_bytes(), bytes)
+        .await?;
+    limits.spend_on_replica(&proxy.replica_budget, bytes)?;
+    proxy
+        .relay
+        .forward(batch.signal, batch.media_type, batch.bytes)
+        .await
+        .map_err(|error| match error {
+            RelayError::Refused => ClientTelemetryError::BatchRefused,
+            RelayError::Unavailable(cause) => {
+                ClientTelemetryError::CollectorUnavailable(Some(cause))
+            }
+        })
 }

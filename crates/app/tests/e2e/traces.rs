@@ -18,7 +18,7 @@ use crate::{
 /// the body. The wait runs in a shell of the stack, since the test itself never sleeps (TEST-06);
 /// the stack takes seconds to store what it receives, and the collector waits 15 seconds before
 /// it decides to keep a trace.
-fn fetch_once_it_holds(url: &str, wanted: &str) -> Output {
+pub fn fetch_once_it_holds(url: &str, wanted: &str) -> Output {
     in_stack(&format!(
         "timeout 90 sh -c 'until wget -qO /tmp/body \"$0\" && grep -q \"$1\" /tmp/body; do sleep 1; done' \
          \"{url}\" \"{wanted}\" && cat /tmp/body"
@@ -52,7 +52,7 @@ fn in_stack(script: &str) -> Output {
 /// created and started, the collector's log, the last lines of Loki's and Tempo's, the API's
 /// exports that finished, with the error of each that failed, as Prometheus holds them, and the
 /// log of the API's instance.
-fn why_nothing_arrived(server: &Container) -> String {
+pub fn why_nothing_arrived(server: &Container) -> String {
     let started = compose(&[
         "--profile",
         "observability",
@@ -125,13 +125,15 @@ fn start_the_stack() {
     });
 }
 
-/// A replica of the image, exporting to the stack that Compose runs, on `database`.
-async fn serve_with_the_stack(database: &TestDatabase) -> Container {
+/// A replica of the image, exporting to the stack that Compose runs, on `database`, with `more`
+/// settings beside the image's own.
+pub async fn serve_with_the_stack(database: &TestDatabase, more: &[&str]) -> Container {
     start_the_stack();
     let image = Image::pushed();
     let network = postgres_network();
     let mut settings = settings(database);
     settings.push("OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318".to_owned());
+    settings.extend(more.iter().map(|setting| (*setting).to_owned()));
     let bootstrap = database
         .with_roles_locked(async {
             image.run(&network, &on_the_tests_server(&settings), "bootstrap")
@@ -190,7 +192,7 @@ async fn assert_traced(server: &Container, path: &str, status: &str, logged: &st
 #[tokio::test]
 async fn obs_08_the_trace_id_of_a_4xx_response_leads_to_its_logs_and_its_trace() {
     let database = TestDatabase::empty().await;
-    let server = serve_with_the_stack(&database).await;
+    let server = serve_with_the_stack(&database, &[]).await;
 
     assert_traced(&server, "/v1/no-such-resource", "404", "request completed").await;
 }
@@ -198,7 +200,7 @@ async fn obs_08_the_trace_id_of_a_4xx_response_leads_to_its_logs_and_its_trace()
 #[tokio::test]
 async fn obs_08_the_trace_id_of_a_5xx_response_leads_to_its_logs_and_its_trace() {
     let database = TestDatabase::empty().await;
-    let server = serve_with_the_stack(&database).await;
+    let server = serve_with_the_stack(&database, &[]).await;
     // Every request but the health probes counts in its IP's bucket, so once app can't write the
     // buckets, a request fails with the internal error, while the replica stays healthy.
     database
