@@ -292,11 +292,16 @@ fn fresh_copy(root: &Path, copy: &Path) -> io::Result<()> {
     for args in [
         &["init", "--quiet"][..],
         &["add", "--all"],
+        // Without git's maintenance after the commit, which a newer git runs in the background:
+        // it would write and remove its files under the copy's `.git` while the next check
+        // counts or removes what the copy holds.
         &[
             "-c",
             "user.name=xtask",
             "-c",
             "user.email=xtask@localhost",
+            "-c",
+            "maintenance.auto=false",
             "commit",
             "--quiet",
             "--no-gpg-sign",
