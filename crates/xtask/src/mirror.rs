@@ -1,15 +1,19 @@
 //! `mirror`, which `just e2e` runs before the end-to-end tests: it fills the cache of Docker Hub
 //! that Compose runs as `mirror` with every image the tests' servers pull from Docker Hub, for the
-//! servers' platform, so no test reaches a registry outside (TEST-06). The servers pull those
-//! images through the cache, and the API's and the deployment's Postgres from Compose's registry.
-//! It reads the images from the reference deployment's Compose files, the tools' that a deploy runs
-//! from deploy/tools/compose.yaml, and the stand-ins' for the bucket and the mail server from
+//! servers' platform, and with the attestations that the image's index lists for that platform's
+//! image, such as its provenance, which a server's Docker pulls with the image, so no test
+//! reaches a registry outside (TEST-06). The servers pull those images through the cache, and the
+//! API's and the deployment's Postgres from Compose's registry. It reads the images from the
+//! reference deployment's Compose files, the tools' that a deploy runs from
+//! deploy/tools/compose.yaml, and the stand-ins' for the bucket and the mail server from
 //! compose.yaml.
 
 use std::{
     path::Path,
     process::{Command, ExitCode, Stdio},
 };
+
+use serde_json::Value;
 
 use crate::{repo::Repo, stack};
 
@@ -39,23 +43,131 @@ pub fn run(platform: &str) -> ExitCode {
         Err(error) => return fail(&format!("can't list the servers' images: {error}")),
     };
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let crane = || {
+        let mut crane = Command::new("docker");
+        crane
+            .args(["compose", "run", "--rm", "--no-TTY", "crane", "--insecure"])
+            .current_dir(&root);
+        crane
+    };
     for image in &images {
         // crane fetches the image's index, and its manifest and layers for `platform`, through
         // the cache, which keeps them.
-        let fetched = Command::new("docker")
-            .args(["compose", "run", "--rm", "--no-TTY", "crane", "--insecure"])
+        let fetched = crane()
             .args(["--platform", platform, "validate", "--remote"])
             .arg(format!("mirror:5000/{image}"))
-            .current_dir(&root)
             .stdout(Stdio::null())
             .status();
         match fetched {
-            Ok(status) if status.success() => report(&format!("mirror: {image}")),
+            Ok(status) if status.success() => {}
             Ok(_) => return fail(&format!("can't fetch {image} through the mirror")),
             Err(error) => return fail(&format!("can't run docker compose: {error}")),
         }
+        // The index, which the cache now holds, lists the attestations of the platform's image,
+        // which crane left out, and which a server's Docker pulls with the image.
+        let index = match crane()
+            .arg("manifest")
+            .arg(format!("mirror:5000/{image}"))
+            .stderr(Stdio::null())
+            .output()
+        {
+            Ok(output) if output.status.success() => output.stdout,
+            Ok(_) => return fail(&format!("can't read the index of {image} from the mirror")),
+            Err(error) => return fail(&format!("can't run docker compose: {error}")),
+        };
+        if let Err(error) = attest(&crane, image, &String::from_utf8_lossy(&index), platform) {
+            return fail(&error);
+        }
+        report(&format!("mirror: {image}"));
     }
     ExitCode::SUCCESS
+}
+
+/// Fetches through the cache the attestations that `index` lists for `image`'s image of
+/// `platform`: the manifest of each, then the blobs that it names, since crane validates an
+/// image's layers, which an attestation's statements aren't.
+fn attest(
+    crane: &dyn Fn() -> Command,
+    image: &str,
+    index: &str,
+    platform: &str,
+) -> Result<(), String> {
+    let repository = image.split_once('@').map_or(image, |(name, _)| name);
+    let run = |error: std::io::Error| format!("can't run docker compose: {error}");
+    for attestation in attestations(index, platform) {
+        let reference = format!("mirror:5000/{repository}@{attestation}");
+        let manifest = crane()
+            .args(["manifest", &reference])
+            .stderr(Stdio::null())
+            .output()
+            .map_err(run)?;
+        if !manifest.status.success() {
+            return Err(format!(
+                "can't fetch {reference}, an attestation of {image}"
+            ));
+        }
+        for blob in blobs(&String::from_utf8_lossy(&manifest.stdout)) {
+            let fetched = crane()
+                .arg("blob")
+                .arg(format!("mirror:5000/{repository}@{blob}"))
+                .stdout(Stdio::null())
+                .status()
+                .map_err(run)?;
+            if !fetched.success() {
+                return Err(format!("can't fetch {blob}, a blob of {reference}"));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The digests of the blobs that `manifest`, an image manifest as JSON, names: its configuration
+/// and its layers, which for an attestation are its statements.
+fn blobs(manifest: &str) -> Vec<String> {
+    let Ok(manifest) = serde_json::from_str::<Value>(manifest) else {
+        return Vec::new();
+    };
+    std::iter::once(&manifest["config"])
+        .chain(manifest["layers"].as_array().into_iter().flatten())
+        .filter_map(|blob| blob["digest"].as_str())
+        .map(str::to_owned)
+        .collect()
+}
+
+/// The digests of the attestations that `index`, an image index as JSON, lists for the image of
+/// `platform`, such as linux/amd64: each manifest that the index annotates as an attestation of
+/// that image's manifest. None for a manifest that is no index, or an index without them.
+fn attestations(index: &str, platform: &str) -> Vec<String> {
+    let Ok(index) = serde_json::from_str::<Value>(index) else {
+        return Vec::new();
+    };
+    let manifests: Vec<&Value> = index["manifests"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .collect();
+    let mut wanted = platform.split('/');
+    let (os, architecture) = (wanted.next(), wanted.next());
+    let images: Vec<&str> = manifests
+        .iter()
+        .filter(|manifest| {
+            manifest["platform"]["os"].as_str() == os
+                && manifest["platform"]["architecture"].as_str() == architecture
+        })
+        .filter_map(|manifest| manifest["digest"].as_str())
+        .collect();
+    manifests
+        .iter()
+        .filter(|manifest| {
+            let annotations = &manifest["annotations"];
+            annotations["vnd.docker.reference.type"] == "attestation-manifest"
+                && annotations["vnd.docker.reference.digest"]
+                    .as_str()
+                    .is_some_and(|image| images.contains(&image))
+        })
+        .filter_map(|manifest| manifest["digest"].as_str())
+        .map(str::to_owned)
+        .collect()
 }
 
 /// The images that the servers pull from Docker Hub, by their paths in the cache, or why they
@@ -222,6 +334,34 @@ mod tests {
                 format!("mikefarah/yq@{DIGEST}"),
             ])
         );
+    }
+
+    #[test]
+    fn test_06_the_attestations_to_fetch_are_those_of_the_platform_s_image() {
+        let index = r#"{"manifests": [
+            {"digest": "sha256:aa", "platform": {"architecture": "amd64", "os": "linux"}},
+            {"digest": "sha256:bb", "platform": {"architecture": "arm64", "os": "linux"}},
+            {"digest": "sha256:cc", "platform": {"architecture": "unknown", "os": "unknown"},
+             "annotations": {"vnd.docker.reference.type": "attestation-manifest",
+                             "vnd.docker.reference.digest": "sha256:aa"}},
+            {"digest": "sha256:dd", "platform": {"architecture": "unknown", "os": "unknown"},
+             "annotations": {"vnd.docker.reference.type": "attestation-manifest",
+                             "vnd.docker.reference.digest": "sha256:bb"}}
+        ]}"#;
+
+        assert_eq!(attestations(index, "linux/amd64"), ["sha256:cc"]);
+        assert_eq!(attestations(index, "linux/arm64"), ["sha256:dd"]);
+        assert!(attestations(index, "linux/riscv64").is_empty());
+        // A single image's manifest, which lists none.
+        assert!(attestations(r#"{"layers": []}"#, "linux/amd64").is_empty());
+    }
+
+    #[test]
+    fn test_06_an_attestation_s_blobs_are_its_configuration_and_its_statements() {
+        let manifest = r#"{"config": {"digest": "sha256:aa"},
+            "layers": [{"digest": "sha256:bb"}, {"digest": "sha256:cc"}]}"#;
+
+        assert_eq!(blobs(manifest), ["sha256:aa", "sha256:bb", "sha256:cc"]);
     }
 
     #[test]

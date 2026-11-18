@@ -81,7 +81,7 @@ image-scan:
 e2e *tests: bound-build services
     {{ if tests =~ '/' { error("just e2e takes test names and the test harness's options; E2E_PLATFORM names the platform, such as E2E_PLATFORM=linux/arm64") } else { "" } }}docker compose up --detach --wait registry mirror
     docker compose pull --quiet server
-    docker compose --profile observability pull --quiet collector prometheus loki tempo
+    docker compose --profile observability pull --quiet collector prometheus loki tempo grafana
     {{ xtask }} mirror {{ native_platform }}
     cargo test --locked --package app --features e2e --test e2e -- {{ tests }}
 

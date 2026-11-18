@@ -122,6 +122,11 @@ fn start_the_stack() {
             "tempo",
             "prometheus",
         ]);
+        // The first shell of the stack, which runs in Grafana's image, has Docker fill Grafana's
+        // volume from that image. Two tests' first shells at once would both fill it, and Docker
+        // fails the second, so one shell runs here before any test's.
+        let first = in_stack("true");
+        assert!(first.status.success(), "{}", lossy(&first));
     });
 }
 
