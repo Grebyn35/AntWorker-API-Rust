@@ -553,8 +553,9 @@ services:
       # The key under which Grafana encrypts what it stores and hashes its sessions' tokens, in
       # place of the one its image holds, which is public.
       GF_SECURITY_SECRET_KEY__FILE: /run/secrets/grafana_secret_key
-      # The session cookie: sent over HTTPS alone, to this host alone, and with a link from
-      # another site, such as an alert's, but with no request that another site makes (SEC-12).
+      # The session cookie: sent over HTTPS alone, to this host alone, and with a link on another
+      # site, such as an alert's, but with nothing that another site's page sends of its own
+      # (SEC-14).
       # Grafana names its other cookie, which holds when the session's token changes next,
       # itself.
       GF_SECURITY_COOKIE_SECURE: "true"
