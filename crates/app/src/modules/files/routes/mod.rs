@@ -217,7 +217,7 @@ fn ok(
             HeaderBuilder::new()
                 .schema(Some(text()))
                 .description(Some(
-                    "`default-src 'none'; sandbox`, so the file runs nothing (SEC-11).",
+                    "`default-src 'none'; base-uri 'none'; frame-ancestors 'none'; sandbox`, so the file runs nothing (SEC-11).",
                 ))
                 .build(),
         )

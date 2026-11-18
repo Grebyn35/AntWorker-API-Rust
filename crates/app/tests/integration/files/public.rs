@@ -141,7 +141,7 @@ async fn files_023_anyone_downloads_a_public_file_under_its_id_and_its_kind_s_ex
         assert_eq!(response.header("x-content-type-options"), "nosniff");
         assert_eq!(
             response.header("content-security-policy"),
-            "default-src 'none'; sandbox"
+            "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; sandbox"
         );
         assert_eq!(response.header("accept-ranges"), "bytes");
         // The name is personal data, which a public download withholds (SEC-11).

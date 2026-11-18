@@ -76,8 +76,9 @@ pub struct Download<S> {
     pub bytes: Option<S>,
 }
 
-/// The policy that sandboxes the served bytes and lets them load nothing (PLATFORM-081).
-const SANDBOX: &str = "default-src 'none'; sandbox";
+/// The policy that sandboxes the served bytes, beside what every response's policy says: they
+/// load nothing, set no base address, and no page may frame them (PLATFORM-081, SEC-12).
+const SANDBOX: &str = "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; sandbox";
 
 impl<S, E> IntoResponse for Download<S>
 where

@@ -870,7 +870,7 @@ async fn platform_081_a_download_serves_its_bytes_with_the_headers_that_keep_a_b
     assert_eq!(whole.header("content-length"), whole.body.len().to_string());
     assert_eq!(
         whole.header("content-security-policy"),
-        "default-src 'none'; sandbox"
+        "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; sandbox"
     );
     assert_eq!(whole.header("x-content-type-options"), "nosniff");
     assert_eq!(whole.header("cache-control"), "no-store");

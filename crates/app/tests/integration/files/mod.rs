@@ -991,7 +991,7 @@ async fn files_009_a_download_serves_each_kind_so_that_it_can_t_run() {
         assert_eq!(response.header("x-content-type-options"), "nosniff");
         assert_eq!(
             response.header("content-security-policy"),
-            "default-src 'none'; sandbox"
+            "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; sandbox"
         );
         assert_eq!(response.header("cache-control"), "no-store");
     }

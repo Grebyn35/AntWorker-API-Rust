@@ -98,7 +98,7 @@ A public file's original name reaches only those who may read the file, its work
 <!-- end part: files -->
 
 ### SEC-12 Security headers on every response
-Every response carries `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`, and `Cache-Control: no-store`.
+Every response carries `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store`, and `Content-Security-Policy: default-src 'none'; base-uri 'none'; frame-ancestors 'none'`, with which a browser loads nothing for the response, takes no base address from it, and shows it in no frame. A download carries, in that policy's place, the same policy with `sandbox` added (PLATFORM-081), and the page of the API reference that development serves one that lets the page load what it shows, with the same `base-uri` and `frame-ancestors` (PLATFORM-052).
 A public file's download, an avatar's and a workspace's picture's are the only responses without `no-store`: each needs no credential, and names its bytes by their ID and their kind's extension alone (SEC-11), so shared caches may keep it for 5 minutes (FILES-023, FILES-024, FILES-027). <!-- part: files -->
 The reverse proxy in front of the API terminates TLS and sets HTTP Strict Transport Security (HSTS).
 - Why: browser-level defenses are on by default.

@@ -88,10 +88,20 @@ static REQUEST_DURATION: Histogram<4> = Histogram::new(
     ],
 );
 
+/// The `Content-Security-Policy` of a response that sets none of its own: what a browser shows of
+/// it loads nothing, sets no base address, and no page may frame it (SEC-12).
+const CONTENT_POLICY: &str = "default-src 'none'; base-uri 'none'; frame-ancestors 'none'";
+
 /// The security headers on every response, health probes included (SEC-12).
 pub(super) fn security_headers(router: Router) -> Router {
     router.layer(
         ServiceBuilder::new()
+            // A download, which adds `sandbox`, and development's API reference, which loads its
+            // scripts, each set their own.
+            .layer(SetResponseHeaderLayer::if_not_present(
+                header::CONTENT_SECURITY_POLICY,
+                HeaderValue::from_static(CONTENT_POLICY),
+            ))
             .layer(SetResponseHeaderLayer::overriding(
                 header::X_CONTENT_TYPE_OPTIONS,
                 HeaderValue::from_static("nosniff"),

@@ -68,6 +68,7 @@
 		header X-Content-Type-Options nosniff
 		header Referrer-Policy no-referrer
 		header Cache-Control no-store
+		header Content-Security-Policy "default-src 'none'; base-uri 'none'; frame-ancestors 'none'"
 		header -Server
 		@probe path /health/*
 		handle @probe {

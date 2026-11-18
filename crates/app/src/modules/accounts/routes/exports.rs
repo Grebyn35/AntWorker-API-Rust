@@ -114,7 +114,7 @@ async fn read_export(
             content_type = "application/zip", body = FileBytes,
             headers(
                 ("content-disposition" = String, description = "`attachment`, with the archive's name, `<product>-export-<date>.zip`."),
-                ("content-security-policy" = String, description = "`default-src 'none'; sandbox` (PLATFORM-081)."),
+                ("content-security-policy" = String, description = "`default-src 'none'; base-uri 'none'; frame-ancestors 'none'; sandbox` (PLATFORM-081)."),
             )),
     )
 )]

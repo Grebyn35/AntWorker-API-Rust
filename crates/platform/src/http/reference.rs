@@ -13,6 +13,8 @@ use axum::{
     response::IntoResponse,
     routing::{MethodRouter, get},
 };
+use base64::Engine;
+use sha2::{Digest, Sha256};
 
 use super::{docs::QueryNames, stack};
 
@@ -22,11 +24,10 @@ pub(super) const PAGE: &str = "/docs";
 /// The document's path, from which the page loads it.
 pub(super) const DOCUMENT: &str = "/docs/openapi.json";
 
-/// The page. Swagger UI comes from the jsDelivr content delivery network, pinned by its version
-/// and by the Subresource Integrity hash of each file, which are those of the package that npm
-/// publishes, so the browser refuses any other bytes. `validatorUrl: null` keeps the page from
-/// sending the document to Swagger's online validator.
-const HTML: &str = r##"<!doctype html>
+/// The page, up to its own script. Swagger UI comes from the jsDelivr content delivery network,
+/// pinned by its version and by the Subresource Integrity hash of each file, which are those of
+/// the package that npm publishes, so the browser refuses any other bytes.
+const HTML: &str = r#"<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -37,12 +38,28 @@ const HTML: &str = r##"<!doctype html>
 <body>
 <div id="reference"></div>
 <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.34.0/swagger-ui-bundle.js" integrity="sha384-9Td7MKiIr2S83E1kZyyVi8KdJw/S8CpAvu0llLyMeg0xq/hDGiZJfVn0fV4llCmK" crossorigin="anonymous"></script>
-<script>
+"#;
+
+/// The page's own script, which starts Swagger UI on the document. `validatorUrl: null` keeps
+/// the page from sending the document to Swagger's online validator.
+const START: &str = r##"
 SwaggerUIBundle({ url: "/docs/openapi.json", dom_id: "#reference", validatorUrl: null, deepLinking: true });
-</script>
-</body>
-</html>
 "##;
+
+/// The page's `Content-Security-Policy`, in place of the one that every other response carries
+/// (SEC-12), which would let the page load nothing: it lets the page load Swagger UI's script
+/// and style sheet from jsDelivr, run its own script, which the policy names by its hash, set
+/// the styles and show the images that Swagger UI writes into the page, and send its requests
+/// to the API's own origin. As every response's policy, it sets no base address, and lets no
+/// page frame it.
+fn policy() -> String {
+    let start = base64::engine::general_purpose::STANDARD.encode(Sha256::digest(START));
+    format!(
+        "default-src 'none'; script-src https://cdn.jsdelivr.net 'sha256-{start}'; \
+         style-src https://cdn.jsdelivr.net 'unsafe-inline'; img-src 'self' data:; \
+         connect-src 'self'; base-uri 'none'; frame-ancestors 'none'"
+    )
+}
 
 /// `router` with the page and `document`, the OpenAPI document as JSON. Each route is in a route
 /// group, as a builder's is, so its group's timeout and body limit apply, and it refuses any query
@@ -53,18 +70,30 @@ SwaggerUIBundle({ url: "/docs/openapi.json", dom_id: "#reference", validatorUrl:
               (API-14, PLATFORM-052)"
 )]
 pub(super) fn mount(router: Router, document: Arc<str>) -> Router {
+    let page: Arc<str> = format!("{HTML}<script>{START}</script>\n</body>\n</html>\n").into();
+    // The policy holds visible ASCII alone, which a header's value takes.
+    let policy = HeaderValue::from_str(&policy()).ok();
     router
         .route(
             PAGE,
-            grouped(get(|| async {
-                (
-                    [(
-                        header::CONTENT_TYPE,
-                        HeaderValue::from_static("text/html; charset=utf-8"),
-                    )],
-                    HTML,
-                )
-                    .into_response()
+            grouped(get(move || {
+                let (page, policy) = (page.clone(), policy.clone());
+                async move {
+                    let mut response = (
+                        [(
+                            header::CONTENT_TYPE,
+                            HeaderValue::from_static("text/html; charset=utf-8"),
+                        )],
+                        page.to_string(),
+                    )
+                        .into_response();
+                    if let Some(policy) = policy {
+                        response
+                            .headers_mut()
+                            .insert(header::CONTENT_SECURITY_POLICY, policy);
+                    }
+                    response
+                }
             })),
         )
         .route(

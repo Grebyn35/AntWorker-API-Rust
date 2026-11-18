@@ -451,6 +451,11 @@ async fn sec_12_every_response_carries_the_security_headers() {
         );
         assert_eq!(response.header("referrer-policy"), "no-referrer", "{path}");
         assert_eq!(response.header("cache-control"), "no-store", "{path}");
+        assert_eq!(
+            response.header("content-security-policy"),
+            "default-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+            "{path}"
+        );
     }
 }
 
@@ -525,6 +530,17 @@ async fn platform_052_development_serves_the_api_reference_of_the_running_code()
     ] {
         assert!(html.contains(pinned), "{pinned}");
     }
+    // The page's policy, which names the page's own script by a SHA-256 hash, of 44 characters
+    // in base64.
+    let policy = page.header("content-security-policy");
+    let (before, after) = (
+        "default-src 'none'; script-src https://cdn.jsdelivr.net 'sha256-",
+        "'; style-src https://cdn.jsdelivr.net 'unsafe-inline'; img-src 'self' data:; \
+         connect-src 'self'; base-uri 'none'; frame-ancestors 'none'",
+    );
+    assert!(policy.starts_with(before), "{policy}");
+    assert!(policy.ends_with(after), "{policy}");
+    assert_eq!(policy.len(), before.len() + 44 + after.len(), "{policy}");
     assert!(page.header("server-timing").starts_with("trace;desc="));
     assert_eq!(document.status, StatusCode::OK);
     assert_eq!(document.header("content-type"), "application/json");

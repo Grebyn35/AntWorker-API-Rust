@@ -54,7 +54,7 @@ async fn files_009_one_range_of_a_download_answers_206_with_those_bytes() {
         assert_eq!(response.header("content-type"), "text/plain; charset=utf-8");
         assert_eq!(
             response.header("content-security-policy"),
-            "default-src 'none'; sandbox"
+            "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; sandbox"
         );
         assert_eq!(response.header("x-content-type-options"), "nosniff");
         // A download sets no cache's lifetime of its own but a public one's, so the security

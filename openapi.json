@@ -7829,7 +7829,7 @@
                 }
               },
               "content-security-policy": {
-                "description": "`default-src 'none'; sandbox`, so the file runs nothing (SEC-11).",
+                "description": "`default-src 'none'; base-uri 'none'; frame-ancestors 'none'; sandbox`, so the file runs nothing (SEC-11).",
                 "schema": {
                   "type": "string"
                 }
@@ -7912,7 +7912,7 @@
                 }
               },
               "content-security-policy": {
-                "description": "`default-src 'none'; sandbox`, so the file runs nothing (SEC-11).",
+                "description": "`default-src 'none'; base-uri 'none'; frame-ancestors 'none'; sandbox`, so the file runs nothing (SEC-11).",
                 "schema": {
                   "type": "string"
                 }
@@ -8341,7 +8341,7 @@
                 }
               },
               "content-security-policy": {
-                "description": "`default-src 'none'; sandbox`, so the file runs nothing (SEC-11).",
+                "description": "`default-src 'none'; base-uri 'none'; frame-ancestors 'none'; sandbox`, so the file runs nothing (SEC-11).",
                 "schema": {
                   "type": "string"
                 }
@@ -8473,7 +8473,7 @@
                 }
               },
               "content-security-policy": {
-                "description": "`default-src 'none'; sandbox`, so the file runs nothing (SEC-11).",
+                "description": "`default-src 'none'; base-uri 'none'; frame-ancestors 'none'; sandbox`, so the file runs nothing (SEC-11).",
                 "schema": {
                   "type": "string"
                 }
@@ -8902,7 +8902,7 @@
                 }
               },
               "content-security-policy": {
-                "description": "`default-src 'none'; sandbox`, so the file runs nothing (SEC-11).",
+                "description": "`default-src 'none'; base-uri 'none'; frame-ancestors 'none'; sandbox`, so the file runs nothing (SEC-11).",
                 "schema": {
                   "type": "string"
                 }
@@ -9034,7 +9034,7 @@
                 }
               },
               "content-security-policy": {
-                "description": "`default-src 'none'; sandbox`, so the file runs nothing (SEC-11).",
+                "description": "`default-src 'none'; base-uri 'none'; frame-ancestors 'none'; sandbox`, so the file runs nothing (SEC-11).",
                 "schema": {
                   "type": "string"
                 }
@@ -9414,7 +9414,7 @@
                 }
               },
               "content-security-policy": {
-                "description": "`default-src 'none'; sandbox`, so the file runs nothing (SEC-11).",
+                "description": "`default-src 'none'; base-uri 'none'; frame-ancestors 'none'; sandbox`, so the file runs nothing (SEC-11).",
                 "schema": {
                   "type": "string"
                 }
@@ -9497,7 +9497,7 @@
                 }
               },
               "content-security-policy": {
-                "description": "`default-src 'none'; sandbox`, so the file runs nothing (SEC-11).",
+                "description": "`default-src 'none'; base-uri 'none'; frame-ancestors 'none'; sandbox`, so the file runs nothing (SEC-11).",
                 "schema": {
                   "type": "string"
                 }
@@ -17701,7 +17701,7 @@
                 }
               },
               "content-security-policy": {
-                "description": "`default-src 'none'; sandbox` (PLATFORM-081).",
+                "description": "`default-src 'none'; base-uri 'none'; frame-ancestors 'none'; sandbox` (PLATFORM-081).",
                 "schema": {
                   "type": "string"
                 }
@@ -17755,7 +17755,7 @@
                 }
               },
               "content-security-policy": {
-                "description": "`default-src 'none'; sandbox` (PLATFORM-081).",
+                "description": "`default-src 'none'; base-uri 'none'; frame-ancestors 'none'; sandbox` (PLATFORM-081).",
                 "schema": {
                   "type": "string"
                 }
@@ -19792,7 +19792,7 @@
                 }
               },
               "content-security-policy": {
-                "description": "`default-src 'none'; sandbox`, so the file runs nothing (SEC-11).",
+                "description": "`default-src 'none'; base-uri 'none'; frame-ancestors 'none'; sandbox`, so the file runs nothing (SEC-11).",
                 "schema": {
                   "type": "string"
                 }
@@ -19918,7 +19918,7 @@
                 }
               },
               "content-security-policy": {
-                "description": "`default-src 'none'; sandbox`, so the file runs nothing (SEC-11).",
+                "description": "`default-src 'none'; base-uri 'none'; frame-ancestors 'none'; sandbox`, so the file runs nothing (SEC-11).",
                 "schema": {
                   "type": "string"
                 }
@@ -33037,7 +33037,7 @@
                 }
               },
               "content-security-policy": {
-                "description": "`default-src 'none'; sandbox`, so the file runs nothing (SEC-11).",
+                "description": "`default-src 'none'; base-uri 'none'; frame-ancestors 'none'; sandbox`, so the file runs nothing (SEC-11).",
                 "schema": {
                   "type": "string"
                 }
@@ -33163,7 +33163,7 @@
                 }
               },
               "content-security-policy": {
-                "description": "`default-src 'none'; sandbox`, so the file runs nothing (SEC-11).",
+                "description": "`default-src 'none'; base-uri 'none'; frame-ancestors 'none'; sandbox`, so the file runs nothing (SEC-11).",
                 "schema": {
                   "type": "string"
                 }

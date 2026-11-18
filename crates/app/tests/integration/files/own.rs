@@ -452,7 +452,7 @@ async fn files_009_downloading_one_s_own_file_serves_it_so_that_it_can_t_run() {
     );
     assert_eq!(
         response.header("content-security-policy"),
-        "default-src 'none'; sandbox"
+        "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; sandbox"
     );
     assert_eq!(response.header("x-content-type-options"), "nosniff");
     assert_eq!(response.header("cache-control"), "no-store");
