@@ -104,7 +104,7 @@ async fn choose_consent(
 /// Takes a batch of the spans of one of the caller's clients, and forwards it to the collector.
 #[utoipa::path(
     post,
-    path = "/v1/telemetry/traces",
+    path = "/v1/users/me/telemetry/traces",
     tag = "client_telemetry",
     request_body(
         description = "A batch of spans, as the request of the OpenTelemetry Protocol over HTTP (OTLP/HTTP): an `ExportTraceServiceRequest`, sent as `application/x-protobuf` or as `application/json`, with `Content-Encoding: gzip` or without one, of at most 1,048,576 bytes, as sent and once inflated (CLIENT_TELEMETRY-004, CLIENT_TELEMETRY-006).",
@@ -144,7 +144,7 @@ async fn send_traces(
 /// collector.
 #[utoipa::path(
     post,
-    path = "/v1/telemetry/logs",
+    path = "/v1/users/me/telemetry/logs",
     tag = "client_telemetry",
     request_body(
         description = "A batch of log records, as the request of the OpenTelemetry Protocol over HTTP (OTLP/HTTP): an `ExportLogsServiceRequest`, sent as `application/x-protobuf` or as `application/json`, with `Content-Encoding: gzip` or without one, of at most 1,048,576 bytes, as sent and once inflated (CLIENT_TELEMETRY-004, CLIENT_TELEMETRY-006).",
@@ -186,5 +186,6 @@ async fn read(
     batch: Batch,
     telemetry: &ClientTelemetry,
 ) -> Result<ReadBatch, ClientTelemetryError> {
-    Ok(batch.read(MAX_BATCH_BYTES, &telemetry.workers).await?)
+    let limit = usize::try_from(MAX_BATCH_BYTES).unwrap_or(usize::MAX);
+    Ok(batch.read(limit, &telemetry.workers).await?)
 }

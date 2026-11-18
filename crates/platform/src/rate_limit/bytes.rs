@@ -1,21 +1,20 @@
-//! Budgets of bytes: buckets whose windows count the bytes of a kind of request, such as the
-//! batches of telemetry that a user's clients send. A budget of one subject counts in the
-//! database, as a bucket of requests does, and a replica's budget, of everything that the replica
-//! serves, in the replica's memory (PLATFORM-089).
+//! Budgets: they count the bytes of a kind of request in windows, where a bucket counts
+//! requests, such as the batches of telemetry that a user's clients send. A subject's budget
+//! counts in the database, in the buckets' table, and a replica's budget, of everything that the
+//! replica serves, in the replica's memory (PLATFORM-089). A budget's name, limit and window are
+//! held as a [`Bucket`] holds a bucket's, with the limit in bytes.
 
 use std::{
     sync::{Arc, Mutex, PoisonError},
     time::Instant,
 };
 
-use super::{Bucket, Count, LimitError, REFUSALS, RateLimiter, RateLimits};
+use super::{Bucket, Count, LimitError, RateLimiter, RateLimits};
 use crate::{clock::SharedClock, errors::Internal};
 
 impl RateLimiter {
     /// Counts `bytes` in the budget of `budget`'s kind for `value`, such as a user's ID, in one
     /// statement that commits at once, as [`RateLimiter::count`] counts a request (PLATFORM-055).
-    /// A request that it refuses is counted in `platform.rate_limit_refusals`, by the budget's
-    /// kind.
     async fn spend(&self, budget: Bucket, value: &[u8], bytes: u32) -> Result<Count, Internal> {
         let key = self.key.hash(budget.name, value);
         let (count, resets_in) = self.database.spend(&key, budget.window, bytes).await?;
@@ -23,19 +22,14 @@ impl RateLimiter {
     }
 }
 
-/// The state of `budget` once its window has counted `count` bytes and ends in `resets_in`, with
-/// its refusal counted in `platform.rate_limit_refusals`, if it is one.
+/// The state of `budget` once its window has counted `count` bytes and ends in `resets_in`.
 fn counted(budget: Bucket, count: u32, resets_in: std::time::Duration) -> Count {
-    let count = Count {
+    Count {
         bucket: budget,
         count,
         resets_in,
         bytes: true,
-    };
-    if count.refused() {
-        REFUSALS.add(1, [budget.name.into()]);
     }
-    count
 }
 
 impl RateLimits {
@@ -66,9 +60,10 @@ impl RateLimits {
     }
 }
 
-/// A budget of bytes that a replica counts in its own memory, for everything it serves, so the
-/// deployment's budget is this one for each replica it runs (PLATFORM-089). A window starts with
-/// the first bytes counted after the last window ended, by the replica's clock.
+/// A budget that a replica counts in its own memory, in no bucket of the database's, for
+/// everything it serves, so the deployment's budget is this one for each replica it runs
+/// (PLATFORM-089). A window starts with the first bytes counted after the last window ended, by
+/// the replica's clock.
 #[derive(Clone)]
 pub struct ReplicaBudget {
     budget: Bucket,

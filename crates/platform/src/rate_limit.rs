@@ -1,5 +1,9 @@
 //! Rate limits: buckets that count requests in windows, in the database that every replica shares
 //! (PLATFORM-011, PLATFORM-054 to PLATFORM-057).
+// part: client_telemetry
+//! Budgets, in `bytes`, count the bytes of requests instead: a subject's in that database too,
+//! and a replica's in its own memory (PLATFORM-089).
+// end part: client_telemetry
 
 // part: client_telemetry
 mod bytes;
@@ -42,27 +46,39 @@ pub fn address(ip: IpAddr) -> Vec<u8> {
 
 /// A kind of bucket: its name, which the rate-limit headers carry, and how many requests it
 /// allows in each window.
+// part: client_telemetry
+/// A budget's name, limit and window are held so too, with the limit in bytes (PLATFORM-089).
+// end part: client_telemetry
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Bucket {
     /// The name, such as `ip` or `sign_in` (PLATFORM-056).
     pub name: &'static str,
     /// How many requests a window allows.
+    // part: client_telemetry
+    /// A budget's window allows as many bytes.
+    // end part: client_telemetry
     pub limit: u32,
     /// The window's length.
     pub window: Duration,
 }
 
 /// A bucket's state after it counted a request.
+// part: client_telemetry
+/// Or a budget's, after it counted a request's bytes (PLATFORM-089).
+// end part: client_telemetry
 #[derive(Clone, Copy, Debug)]
 pub struct Count {
     /// The bucket that counted.
     pub bucket: Bucket,
     /// The requests its window has counted, this one included.
+    // part: client_telemetry
+    /// A budget's window has counted as many bytes.
+    // end part: client_telemetry
     pub count: u32,
     /// How long until its window ends.
     pub resets_in: Duration,
     // part: client_telemetry
-    /// Whether the bucket is a budget, which counts bytes where another bucket counts requests
+    /// Whether this is the state of a budget, which counts bytes, rather than of a bucket
     /// (PLATFORM-089).
     pub bytes: bool,
     // end part: client_telemetry
@@ -75,6 +91,9 @@ impl Count {
     }
 
     /// The requests the window still allows.
+    // part: client_telemetry
+    /// A budget's window still allows as many bytes.
+    // end part: client_telemetry
     pub fn remaining(&self) -> u32 {
         self.bucket.limit.saturating_sub(self.count)
     }
@@ -116,6 +135,9 @@ impl RateLimiter {
 
 /// The buckets that counted one request, which the pipeline describes in the response's headers
 /// (PLATFORM-056).
+// part: client_telemetry
+/// A budget that refused the request is among them (PLATFORM-089).
+// end part: client_telemetry
 #[derive(Clone, Debug, Default)]
 pub struct Counted(Arc<Mutex<Vec<Count>>>);
 

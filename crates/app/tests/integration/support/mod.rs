@@ -499,13 +499,26 @@ pub async fn http_request(
     path: &str,
     headers: &[(&str, &str)],
 ) -> io::Result<String> {
+    http_exchange(address, method, path, headers, "").await
+}
+
+/// Sends a request as [`http_request`] does, with `body` after its headers, which declare the
+/// body's length if it has one.
+pub async fn http_exchange(
+    address: SocketAddr,
+    method: &str,
+    path: &str,
+    headers: &[(&str, &str)],
+    body: &str,
+) -> io::Result<String> {
     let mut stream = TcpStream::connect(address).await?;
     let headers: String = headers
         .iter()
         .map(|(name, value)| format!("{name}: {value}\r\n"))
         .collect();
-    let request =
-        format!("{method} {path} HTTP/1.1\r\nHost: api\r\n{headers}Connection: close\r\n\r\n");
+    let request = format!(
+        "{method} {path} HTTP/1.1\r\nHost: api\r\n{headers}Connection: close\r\n\r\n{body}"
+    );
     stream.write_all(request.as_bytes()).await?;
     let mut response = String::new();
     stream.read_to_string(&mut response).await?;

@@ -44,7 +44,7 @@ No header selects a workspace.
 
 ### API-05 Responses are the resource itself
 A success body is the resource object, with no envelope. A list is `{"items": [...], "next_cursor": "..." | null}`. Fields are `snake_case`. Clients ignore fields they don't recognize.
-The telemetry proxy's routes answer what the OpenTelemetry Protocol asks of an endpoint, its full success in the media type of the request, since an exporter built for the protocol reads it (CLIENT_TELEMETRY-004). <!-- part: client_telemetry -->
+The telemetry proxy's routes answer what the OpenTelemetry Protocol asks of an endpoint, a 200 with its full success in the media type of the request, since an exporter built for the protocol reads it (CLIENT_TELEMETRY-004). <!-- part: client_telemetry -->
 - Why: one shape for every resource and every list (D8).
 - Check: `ci: check-openapi`.
 
@@ -67,8 +67,8 @@ An error response, except from the health probes (OPS-05), has `Content-Type: ap
 
 ### API-08 Request bodies are strict
 JSON bodies reject unknown fields. Each route group has a body size limit, and an oversized body gets the 413 problem before it is buffered.
-Uploads are the only non-JSON bodies: an upload route's group has no body limit of its own, since its handler refuses a caller before it reads the body, which it reads through `Upload` with the limit its module sets, such as a setting's, refusing an oversized body as a group's limit would (PLATFORM-074). <!-- part: files -->
-A batch of telemetry is the body that the OpenTelemetry Protocol defines, Protobuf or JSON, which the API forwards without parsing it: its route's group has no body limit of its own either, and its handler reads it through `Batch`, with the limit its module sets, refusing an oversized body as a group's limit would (PLATFORM-090). <!-- part: client_telemetry -->
+An upload's body isn't JSON: an upload route's group has no body limit of its own, since its handler refuses a caller before it reads the body, which it reads through `Upload` with the limit its module sets, such as a setting's, refusing an oversized body as a group's limit would (PLATFORM-074). <!-- part: files -->
+A batch of telemetry is the body that the OpenTelemetry Protocol defines, as Protobuf or as JSON, and the API forwards it without parsing it, so it reads no field of a JSON batch that it could refuse: the group of a batch's route has no body limit of its own, and its handler reads the body through `Batch`, with the limit its module sets, refusing an oversized body as a group's limit would (PLATFORM-090). <!-- part: client_telemetry -->
 - Why: a mistyped field fails loudly instead of being silently ignored (D8, D12).
 - Check: `ci: check-layers` (every type in a module's routes that derives `Deserialize` carries `#[serde(deny_unknown_fields)]`), plus `test`.
 

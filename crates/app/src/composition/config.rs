@@ -7,6 +7,9 @@ use platform::{
     config::{ConfigError, Settings},
     rate_limit::Bucket,
 };
+// part: client_telemetry
+use platform::telemetry::OtlpEndpoint;
+// end part: client_telemetry
 
 use crate::modules::{audit, auth};
 // part: client_telemetry
@@ -26,7 +29,7 @@ pub struct Config {
     /// The OAuth providers that the deployment configures (AUTH-081).
     pub(super) providers: auth::Providers,
     // part: client_telemetry
-    pub(super) client_telemetry: client_telemetry::Settings,
+    pub(super) client_telemetry: TelemetryProxy,
     // end part: client_telemetry
     // part: files
     pub(super) files: files::Settings,
@@ -47,6 +50,15 @@ const SIGN_IN_EMAIL_BUCKET: &str = "sign_in_email";
 const SIGN_IN_DEVICE_BUCKET: &str = "sign_in_device";
 
 // part: client_telemetry
+/// The telemetry proxy's settings: what the composition root builds the proxy from.
+pub(super) struct TelemetryProxy {
+    /// The collector's receiver of clients' batches, to which the relay forwards them, or `None`
+    /// while the deployment forwards none (CLIENT_TELEMETRY-010).
+    pub(super) endpoint: Option<OtlpEndpoint>,
+    /// The two budgets of what the proxy forwards.
+    pub(super) budgets: client_telemetry::Settings,
+}
+
 /// The setting that names the collector's receiver of clients' batches, and what it must be
 /// (CLIENT_TELEMETRY-010).
 const TELEMETRY_ENDPOINT: &str = "CLIENT_TELEMETRY_ENDPOINT";
@@ -63,10 +75,6 @@ const TELEMETRY_REPLICA_BUDGET: &str = "telemetry_replica";
 
 /// The window of both budgets.
 const TELEMETRY_WINDOW: Duration = Duration::from_secs(60);
-
-/// The least of both budgets: the bytes of the largest batch (CLIENT_TELEMETRY-006), so that a
-/// window holds any batch.
-const TELEMETRY_LEAST_BYTES: u32 = 1 << 20;
 // end part: client_telemetry
 
 // part: invitations
@@ -75,36 +83,43 @@ const INVITATION_BUCKET: &str = "invitation";
 // end part: invitations
 
 // part: client_telemetry
-/// The telemetry proxy's settings, from `settings`: the collector's receiver that it forwards
-/// to, if the deployment names one, and its two budgets (CLIENT_TELEMETRY-007,
-/// CLIENT_TELEMETRY-008, CLIENT_TELEMETRY-010).
-fn client_telemetry<E, F>(
+/// The collector's receiver that the telemetry proxy forwards to, from `settings`, if the
+/// deployment names one (CLIENT_TELEMETRY-010).
+fn client_telemetry_endpoint<E, F>(
     settings: &Settings<E, F>,
-) -> Result<client_telemetry::Settings, ConfigError>
+) -> Result<Option<OtlpEndpoint>, ConfigError>
 where
     E: Fn(&str) -> Option<OsString>,
     F: Fn(&Path) -> io::Result<String>,
 {
-    let endpoint = settings
+    settings
         .text_setting(TELEMETRY_ENDPOINT)?
         .map(|endpoint| {
             endpoint
                 .parse()
                 .map_err(|()| ConfigError::invalid(TELEMETRY_ENDPOINT, TELEMETRY_ENDPOINT_EXPECTED))
         })
-        .transpose()?;
+        .transpose()
+}
+
+/// The telemetry proxy's two budgets, from `settings`, each at least the bytes of the largest
+/// batch, so that a window holds any batch (CLIENT_TELEMETRY-007, CLIENT_TELEMETRY-008).
+fn client_telemetry_budgets<E, F>(
+    settings: &Settings<E, F>,
+) -> Result<client_telemetry::Settings, ConfigError>
+where
+    E: Fn(&str) -> Option<OsString>,
+    F: Fn(&Path) -> io::Result<String>,
+{
+    let least = client_telemetry::MAX_BATCH_BYTES;
     let budget = |name: &'static str, setting: &str| {
-        let most = 1 << 30;
-        let limit =
-            settings.number(setting, TELEMETRY_LEAST_BYTES, TELEMETRY_LEAST_BYTES..=most)?;
         Ok(Bucket {
             name,
-            limit,
+            limit: settings.number(setting, least, least..=1 << 30)?,
             window: TELEMETRY_WINDOW,
         })
     };
     Ok(client_telemetry::Settings {
-        endpoint,
         user_budget: budget(
             TELEMETRY_USER_BUDGET,
             "CLIENT_TELEMETRY_USER_BYTES_PER_MINUTE",
@@ -185,7 +200,10 @@ impl Config {
                 second_factor_required: settings.flag("SECOND_FACTOR_REQUIRED", false)?,
             },
             // part: client_telemetry
-            client_telemetry: client_telemetry(settings)?,
+            client_telemetry: TelemetryProxy {
+                endpoint: client_telemetry_endpoint(settings)?,
+                budgets: client_telemetry_budgets(settings)?,
+            },
             // end part: client_telemetry
             // part: files
             files: files::Settings {

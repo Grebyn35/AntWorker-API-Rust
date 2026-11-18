@@ -86,10 +86,24 @@ impl ErrorCode for ClientTelemetryError {
         }
     }
 
+    /// The wrapped error's, such as a disabled feature's hour (OPS-04).
+    fn retry_after_seconds(&self) -> u32 {
+        match self {
+            Self::Limit(error) => error.retry_after_seconds(),
+            Self::Platform(error) => error.retry_after_seconds(),
+            Self::Internal(error) => error.retry_after_seconds(),
+            Self::ConsentRequired | Self::BatchRefused | Self::CollectorUnavailable(_) => 1,
+        }
+    }
+
     fn errors(&self) -> Option<Vec<FieldError>> {
         match self {
             Self::Platform(error) => error.errors(),
-            _ => None,
+            Self::ConsentRequired
+            | Self::BatchRefused
+            | Self::CollectorUnavailable(_)
+            | Self::Limit(_)
+            | Self::Internal(_) => None,
         }
     }
 }

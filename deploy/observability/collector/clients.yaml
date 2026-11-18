@@ -19,8 +19,8 @@ processors:
     spike_limit_percentage: 25
   # Drops the spans and the log records of every resource whose service.name isn't a client's
   # that the deployment admits: a fork lists each of its clients here, in both lists. So no
-  # client's telemetry passes for the API's or the proxy's own, and the names that Loki labels
-  # its streams by are these alone.
+  # client's telemetry passes for the API's or Caddy's own, and the names that Loki labels its
+  # streams by are these alone.
   filter/clients:
     error_mode: propagate
     trace_conditions:
@@ -51,7 +51,7 @@ exporters:
 service:
   pipelines:
     # Every span that passes is kept: the tail sampling is the API's traces' alone (OBS-08), and
-    # the proxy's budgets bound what the clients send.
+    # the telemetry proxy's budgets bound what the clients send.
     traces/clients:
       receivers: [otlp/clients]
       processors: [memory_limiter/clients, filter/clients, transform/clients, batch]

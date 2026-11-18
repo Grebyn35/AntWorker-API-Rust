@@ -3,7 +3,7 @@
 use bytes::Bytes;
 use platform::{
     rate_limit::Bucket,
-    telemetry::{OtlpEndpoint, Signal},
+    telemetry::Signal,
     types::{Timestamp, Version},
 };
 use serde::Serialize;
@@ -38,13 +38,10 @@ pub(super) struct Exported {
     pub(super) updated_at: Timestamp,
 }
 
-/// The proxy's settings: where it forwards a batch, and the budgets of what it forwards (the
-/// client_telemetry spec's "The proxy" and "The budgets").
-#[derive(Clone, Debug)]
+/// The budgets of the batches that the proxy forwards (the client_telemetry spec's "The
+/// budgets").
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct Settings {
-    /// The collector's receiver of clients' batches, or `None` while the deployment forwards
-    /// none (CLIENT_TELEMETRY-010).
-    pub(crate) endpoint: Option<OtlpEndpoint>,
     /// How many bytes of batches each user's clients may send in each window
     /// (CLIENT_TELEMETRY-007).
     pub(crate) user_budget: Bucket,
@@ -52,8 +49,9 @@ pub(crate) struct Settings {
     pub(crate) replica_budget: Bucket,
 }
 
-/// The most bytes of a batch, as sent and once inflated (CLIENT_TELEMETRY-006).
-pub(super) const MAX_BATCH_BYTES: usize = 1 << 20;
+/// The most bytes of a batch, as sent and once inflated (CLIENT_TELEMETRY-006), and so the least
+/// that the settings take for a budget, whose window then holds any batch.
+pub(crate) const MAX_BATCH_BYTES: u32 = 1 << 20;
 
 /// A batch that a client sent the proxy, as its route read it (CLIENT_TELEMETRY-004).
 #[derive(Clone, Debug)]

@@ -56,6 +56,9 @@ enum Answer {
     // part: files
     Bytes(u16, Vec<u8>),
     // end part: files
+    // part: client_telemetry
+    Redirect(String),
+    // end part: client_telemetry
     Never,
 }
 
@@ -124,6 +127,17 @@ impl Upstream {
     }
     // end part: files
 
+    // part: client_telemetry
+    /// Makes `method` of `path` answer 307, a redirect to `location`, which keeps the method and
+    /// the body.
+    pub fn redirect(&self, method: &str, path: &str, location: &str) {
+        self.lock().by_route.insert(
+            (method.to_owned(), path.to_owned()),
+            Answer::Redirect(location.to_owned()),
+        );
+    }
+    // end part: client_telemetry
+
     /// Makes `method` of `path` never answer, as a system that hangs.
     pub fn hang(&self, method: &str, path: &str) {
         self.lock()
@@ -167,6 +181,13 @@ async fn answer(
         )
             .into_response(),
         // end part: files
+        // part: client_telemetry
+        Some(Answer::Redirect(location)) => (
+            StatusCode::TEMPORARY_REDIRECT,
+            [(header::LOCATION, location)],
+        )
+            .into_response(),
+        // end part: client_telemetry
         Some(Answer::Never) => std::future::pending().await,
         None => StatusCode::NOT_FOUND.into_response(),
     }
@@ -209,6 +230,9 @@ fn record(
         // part: files
         Some(Answer::Bytes(status, body)) => Some(Answer::Bytes(*status, body.clone())),
         // end part: files
+        // part: client_telemetry
+        Some(Answer::Redirect(location)) => Some(Answer::Redirect(location.clone())),
+        // end part: client_telemetry
         Some(Answer::Never) => Some(Answer::Never),
         None => None,
     }

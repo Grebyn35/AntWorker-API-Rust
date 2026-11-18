@@ -5,11 +5,10 @@
 use platform::{
     authn::Principal,
     blocking::Workers,
-    clock::SharedClock,
     db::Database,
     errors::RequestError,
     rate_limit::{Bucket, RateLimits, ReplicaBudget},
-    telemetry::{Relay, RelayBuildError, RelayError},
+    telemetry::{Relay, RelayError},
     types::{Client, Version},
 };
 
@@ -17,7 +16,7 @@ use super::{
     audit::{self, TelemetryConsentChoice},
     error::ClientTelemetryError,
     events::{TELEMETRY_CONSENT_UPDATED, TelemetryConsentUpdated},
-    model::{Current, Sent, Settings, TelemetryConsent},
+    model::{Current, Sent, TelemetryConsent},
     repo,
 };
 use crate::modules::audit::{self as log, Entry};
@@ -36,35 +35,33 @@ pub(crate) struct ClientTelemetry {
 /// What the proxy forwards a batch with: the relay to the collector, and the two budgets that
 /// count the batch's bytes first.
 #[derive(Clone)]
-struct Proxy {
+pub(crate) struct Proxy {
     relay: Relay,
     user_budget: Bucket,
     replica_budget: ReplicaBudget,
 }
 
+impl Proxy {
+    /// The proxy that forwards through `relay`, once the budget of `user_budget`'s kind for the
+    /// batch's caller, and then `replica_budget`, have counted a batch's bytes.
+    pub(crate) fn new(relay: Relay, user_budget: Bucket, replica_budget: ReplicaBudget) -> Self {
+        Self {
+            relay,
+            user_budget,
+            replica_budget,
+        }
+    }
+}
+
 impl ClientTelemetry {
-    /// The module's state, on `database`, whose proxy forwards to the collector's receiver that
-    /// `settings` names, if it names one, within its budgets, the replica's on `clock`.
-    pub(crate) fn new(
-        database: Database,
-        workers: Workers,
-        clock: SharedClock,
-        settings: &Settings,
-    ) -> Result<Self, RelayBuildError> {
-        let relay = settings
-            .endpoint
-            .as_ref()
-            .map(|endpoint| Relay::new(endpoint, clock.clone()))
-            .transpose()?;
-        Ok(Self {
+    /// The module's state, on `database`, with `proxy` if the deployment forwards its clients'
+    /// telemetry.
+    pub(crate) fn new(database: Database, workers: Workers, proxy: Option<Proxy>) -> Self {
+        Self {
             database,
             workers,
-            proxy: relay.map(|relay| Proxy {
-                relay,
-                user_budget: settings.user_budget,
-                replica_budget: ReplicaBudget::new(settings.replica_budget, clock),
-            }),
-        })
+            proxy,
+        }
     }
 }
 

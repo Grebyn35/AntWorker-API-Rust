@@ -5,6 +5,7 @@
 # the backend's OTLP endpoint, which MANAGED_OTLP_ENDPOINT names, signed in as MANAGED_OTLP_USER
 # with the token in the secret file managed_otlp_token. docs/operations/observability.md describes the path,
 # for a backend such as Grafana Cloud.
+# It comes after clients.yaml too, whose two pipelines it sends to the backend. # part: client_telemetry
 
 extensions:
   basicauth/managed:

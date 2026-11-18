@@ -464,7 +464,7 @@ services:
     restart: unless-stopped
 
   # The collector with a managed backend in place of the self-hosted stack (D42): the same
-  # receivers and processors, with the backend's exporter (observability/collector/managed.yaml).
+  # receivers and processors, exporting to the backend (observability/collector/managed.yaml).
   # It answers as `collector`, so the API's settings are the same.
   collector-managed:
     extends: { file: observability/compose.yaml, service: collector }

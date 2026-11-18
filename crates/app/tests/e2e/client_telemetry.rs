@@ -6,23 +6,19 @@
 use std::net::SocketAddr;
 
 use serde_json::{Value, json};
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpStream,
-};
 
 use crate::{
     docker::{Container, lossy},
     image::PORT,
-    support::{self, TestDatabase, users},
+    support::{self, TestDatabase, http_exchange, users},
     traces::{fetch_once_it_holds, serve_with_the_stack, why_nothing_arrived},
 };
 
 /// The service that the collector's configuration of clients' telemetry lists.
 const CLIENT: &str = "app-desktop";
 
-/// Sends `method` to `path` on `address`, with `headers` and the JSON `body`, over a connection
-/// of its own, and returns the response's status and its body.
+/// Sends `method` to `path` on `address`, with `headers` and the JSON `body`, and returns the
+/// response's status and its body.
 async fn send(
     address: SocketAddr,
     method: &str,
@@ -31,23 +27,13 @@ async fn send(
     body: &Value,
 ) -> (u16, String) {
     let body = body.to_string();
-    let headers: String = headers
-        .iter()
-        .map(|(name, value)| format!("{name}: {value}\r\n"))
-        .collect();
-    let request = format!(
-        "{method} {path} HTTP/1.1\r\nHost: api\r\nContent-Type: application/json\r\n\
-         Content-Length: {}\r\n{headers}Connection: close\r\n\r\n{body}",
-        body.len()
-    );
-    let mut stream = TcpStream::connect(address).await.expect("a connection");
-    stream
-        .write_all(request.as_bytes())
-        .await
-        .expect("a request");
-    let mut response = String::new();
-    stream
-        .read_to_string(&mut response)
+    let length = body.len().to_string();
+    let mut headers = headers.to_vec();
+    headers.extend([
+        ("Content-Type", "application/json"),
+        ("Content-Length", &length),
+    ]);
+    let response = http_exchange(address, method, path, &headers, &body)
         .await
         .expect("an answer");
     let status = response
@@ -158,7 +144,7 @@ async fn client_telemetry_011_a_client_s_spans_and_log_records_reach_tempo_and_l
     let sent_spans = send(
         address,
         "POST",
-        "/v1/telemetry/traces",
+        "/v1/users/me/telemetry/traces",
         &authorization,
         &spans(Some(CLIENT), &trace, &span, "settings opened", &at),
     )
@@ -166,7 +152,7 @@ async fn client_telemetry_011_a_client_s_spans_and_log_records_reach_tempo_and_l
     let sent_records = send(
         address,
         "POST",
-        "/v1/telemetry/logs",
+        "/v1/users/me/telemetry/logs",
         &authorization,
         &records(Some(CLIENT), &trace, &span, "the settings opened", &at),
     )
@@ -238,13 +224,20 @@ async fn client_telemetry_012_the_collector_stores_nothing_of_a_service_it_doesn
         let sent = send(
             address,
             "POST",
-            "/v1/telemetry/traces",
+            "/v1/users/me/telemetry/traces",
             &authorization,
             &traces,
         )
         .await;
         assert_eq!(sent, (200, "{}".to_owned()), "{service:?}");
-        let sent = send(address, "POST", "/v1/telemetry/logs", &authorization, &logs).await;
+        let sent = send(
+            address,
+            "POST",
+            "/v1/users/me/telemetry/logs",
+            &authorization,
+            &logs,
+        )
+        .await;
         assert_eq!(sent, (200, "{}".to_owned()), "{service:?}");
     }
     let stored = fetch_once_it_holds(
@@ -282,7 +275,7 @@ async fn client_telemetry_009_the_stack_s_collector_refuses_a_body_that_isn_t_th
     let (refused, problem) = send(
         address,
         "POST",
-        "/v1/telemetry/traces",
+        "/v1/users/me/telemetry/traces",
         &authorization,
         &json!({ "resourceSpans": 5 }),
     )

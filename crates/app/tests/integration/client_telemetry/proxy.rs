@@ -17,8 +17,8 @@ use crate::support::{
 };
 
 /// The proxy's routes.
-const TRACES: &str = "/v1/telemetry/traces";
-const LOGS: &str = "/v1/telemetry/logs";
+const TRACES: &str = "/v1/users/me/telemetry/traces";
+const LOGS: &str = "/v1/users/me/telemetry/logs";
 
 /// The protocol's two media types.
 const PROTOBUF: &str = "application/x-protobuf";
@@ -234,6 +234,24 @@ async fn client_telemetry_005_a_caller_who_doesn_t_consent_is_refused_on_both_ro
 }
 
 #[tokio::test]
+async fn client_telemetry_005_a_batch_without_consent_counts_in_no_budget() {
+    let collector = collector().await;
+    let whole = u32::try_from(MEBIBYTE).unwrap();
+    let api = Api::with(forwarding(&collector, whole, whole)).await;
+    let ada = users::register(&api, "ada@example.com").await;
+
+    // Two batches that the budgets couldn't both hold, had either counted.
+    let first = send_bytes(&api, &ada, 600 * 1024).await;
+    let second = send_bytes(&api, &ada, 600 * 1024).await;
+    assert_eq!(choose(&api, &ada, true, None).await.status, 200);
+    let consenting = send_bytes(&api, &ada, 600 * 1024).await;
+
+    assert_eq!(first.status, 403);
+    assert_eq!(second.status, 403);
+    assert_eq!(consenting.status, 200);
+}
+
+#[tokio::test]
 async fn client_telemetry_005_one_user_s_consent_admits_no_other_user_s_batch() {
     let (collector, api) = standing().await;
     let ada = consenting(&api, "ada@example.com").await;
@@ -304,8 +322,11 @@ async fn client_telemetry_007_a_user_s_budget_counts_their_batches_on_both_route
     let grace = consenting(&api, "grace@example.com").await;
     let records = vec![b' '; 400 * 1024];
 
+    // Another client of the user's: a session of its own.
+    let other_client = users::new_session(&api, "ada@example.com").await;
+
     let first = send_bytes(&api, &ada, 400 * 1024).await;
-    let on_logs = send(&api, &ada, LOGS, JSON, &records).await;
+    let on_logs = send(&api, &other_client, LOGS, JSON, &records).await;
     let beyond = send_bytes(&replica, &ada, 400 * 1024).await;
     let afterwards = send_bytes(&api, &ada, 1).await;
     let other_user = send_bytes(&replica, &grace, 400 * 1024).await;
@@ -471,6 +492,8 @@ async fn client_telemetry_010_without_the_setting_the_routes_answer_503_and_the_
 
             assert_eq!(response.status, 503);
             assert_eq!(response.json()["code"], "request.feature_disabled");
+            // Only a deploy turns the feature on, so a client waits long before it asks again.
+            assert_eq!(response.header("retry-after"), "3600");
         }
         let anonymous = api
             .request(Method::POST, path)
@@ -492,8 +515,11 @@ fn client_telemetry_010_serve_refuses_an_endpoint_that_isn_t_an_http_or_https_ur
     for endpoint in [
         "collector:4319",
         "ftp://collector:4319",
-        "http://user:secret@collector:4319",
+        "http://:4319",
+        "http://user@collector:4319",
+        "http://:secret@collector:4319",
         "http://collector:4319?token=secret",
+        "http://collector:4319#traces",
     ] {
         let refusal = refusal(&Options::default().set("CLIENT_TELEMETRY_ENDPOINT", endpoint));
 
@@ -561,6 +587,60 @@ async fn platform_089_a_response_that_no_budget_refused_describes_a_bucket_of_re
         "{policy}"
     );
     assert!(!policy.contains("qu="), "{policy}");
+}
+
+#[tokio::test]
+async fn platform_089_a_budget_s_key_holds_no_user_id() {
+    let (_collector, api) = standing().await;
+    let ada = consenting(&api, "ada@example.com").await;
+    assert_eq!(send_bytes(&api, &ada, 4321).await.status, 200);
+
+    // The one row whose window counted the batch's bytes is the user's budget.
+    let keys = api
+        .database()
+        .owner_reads(
+            "SELECT length(key_hash)::text || ' ' || encode(key_hash, 'escape') \
+             FROM rate_limit_buckets WHERE count = 4321",
+        )
+        .await;
+
+    assert_eq!(keys.len(), 1);
+    assert!(keys[0].starts_with("32 "), "{}", keys[0]);
+    assert!(!keys[0].contains(&ada.user_id), "{}", keys[0]);
+}
+
+#[tokio::test]
+async fn platform_090_a_batch_s_route_has_no_body_limit_of_its_own() {
+    let (collector, api) = standing().await;
+    let ada = consenting(&api, "ada@example.com").await;
+
+    // More than the 64 KiB that a route group lets a body hold.
+    let taken = send_bytes(&api, &ada, 65 * 1024).await;
+
+    assert_eq!(taken.status, 200);
+    assert_eq!(collector.received()[0].bytes.len(), 65 * 1024);
+}
+
+#[tokio::test]
+async fn platform_091_the_relay_follows_no_redirect() {
+    let (collector, api) = standing().await;
+    let ada = consenting(&api, "ada@example.com").await;
+    collector.redirect("POST", "/v1/traces", "/elsewhere");
+    collector.set("POST", "/elsewhere", 200, json!({}));
+
+    let response = send_bytes(&api, &ada, 8).await;
+
+    assert_eq!(response.status, 503);
+    assert_eq!(
+        response.json()["code"],
+        "client_telemetry.collector_unavailable"
+    );
+    let paths: Vec<_> = collector
+        .received()
+        .into_iter()
+        .map(|request| request.path)
+        .collect();
+    assert_eq!(paths, ["/v1/traces"]);
 }
 
 #[tokio::test]
