@@ -5,6 +5,7 @@
 mod audit;
 mod error;
 mod events;
+mod metrics;
 mod model;
 mod personal_data;
 mod repo;

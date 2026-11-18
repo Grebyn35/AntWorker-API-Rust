@@ -1,11 +1,12 @@
 //! The telemetry proxy: the batches of a consenting user's clients, which the API forwards to the
 //! collector, here a stand-in (the client_telemetry spec, CLIENT_TELEMETRY-004 to
-//! CLIENT_TELEMETRY-010, and PLATFORM-089 and PLATFORM-091).
+//! CLIENT_TELEMETRY-010 and CLIENT_TELEMETRY-013, and PLATFORM-089 and PLATFORM-091).
 
 use std::{io::Write, time::Duration};
 
 use flate2::{Compression, write::GzEncoder};
 use http::Method;
+use platform::telemetry::testing;
 use serde_json::json;
 
 use super::{choose, read};
@@ -19,6 +20,7 @@ use crate::support::{
 /// The proxy's routes.
 const TRACES: &str = "/v1/users/me/telemetry/traces";
 const LOGS: &str = "/v1/users/me/telemetry/logs";
+const METRICS: &str = "/v1/users/me/telemetry/metrics";
 
 /// The protocol's two media types.
 const PROTOBUF: &str = "application/x-protobuf";
@@ -35,6 +37,7 @@ async fn collector() -> Upstream {
     let collector = Upstream::start().await;
     collector.set("POST", "/v1/traces", 200, json!({}));
     collector.set("POST", "/v1/logs", 200, json!({}));
+    collector.set("POST", "/v1/metrics", 200, json!({}));
     collector
 }
 
@@ -84,6 +87,22 @@ fn gzip(bytes: &[u8]) -> Vec<u8> {
     encoder.finish().unwrap()
 }
 
+/// The bytes that `client_telemetry.forwarded` has counted of `signal`, in every test that runs
+/// alongside.
+fn forwarded(signal: &str) -> f64 {
+    testing::recorded("client_telemetry.forwarded")
+        .into_iter()
+        .filter(|point| {
+            point
+                .labels
+                .get("client_telemetry.signal")
+                .map(String::as_str)
+                == Some(signal)
+        })
+        .map(|point| point.value)
+        .sum()
+}
+
 /// Asserts that `response` is the 429 of the budget `name`, whose window allows `limit` bytes.
 fn assert_refused_by(response: &Response, name: &str, limit: u32) {
     assert_eq!(response.status, 429);
@@ -104,6 +123,7 @@ async fn client_telemetry_004_a_consenting_caller_s_batch_reaches_the_collector_
     let ada = consenting(&api, "ada@example.com").await;
     let spans = [0x0a, 0x03, 0xff, 0x00, 0x7f];
     let records = json!({ "resourceLogs": [{ "scopeLogs": [] }] }).to_string();
+    let points = [0x0a, 0x02, 0x12, 0x00];
 
     let traces = api
         .request(Method::POST, TRACES)
@@ -120,6 +140,7 @@ async fn client_telemetry_004_a_consenting_caller_s_batch_reaches_the_collector_
         .body(records.clone())
         .send()
         .await;
+    let metrics = send(&api, &ada, METRICS, PROTOBUF, &points).await;
 
     assert_eq!(traces.status, 200);
     assert_eq!(traces.header("content-type"), PROTOBUF);
@@ -127,16 +148,23 @@ async fn client_telemetry_004_a_consenting_caller_s_batch_reaches_the_collector_
     assert_eq!(logs.status, 200);
     assert_eq!(logs.header("content-type"), JSON);
     assert_eq!(logs.body, b"{}");
+    assert_eq!(metrics.status, 200);
+    assert_eq!(metrics.header("content-type"), PROTOBUF);
+    assert!(metrics.body.is_empty());
     let received = collector.received();
-    assert_eq!(received.len(), 2);
+    assert_eq!(received.len(), 3);
     let paths: Vec<_> = received
         .iter()
         .map(|request| format!("{} {}", request.method, request.path))
         .collect();
-    assert_eq!(paths, ["POST /v1/traces", "POST /v1/logs"]);
+    assert_eq!(
+        paths,
+        ["POST /v1/traces", "POST /v1/logs", "POST /v1/metrics"]
+    );
     assert_eq!(received[0].bytes, spans);
     assert_eq!(received[1].bytes, records.as_bytes());
-    for (request, media_type) in received.iter().zip([PROTOBUF, JSON]) {
+    assert_eq!(received[2].bytes, points);
+    for (request, media_type) in received.iter().zip([PROTOBUF, JSON, PROTOBUF]) {
         let header = |name: &str| {
             request
                 .headers
@@ -199,18 +227,19 @@ async fn client_telemetry_004_a_batch_is_taken_whichever_2xx_the_collector_answe
 }
 
 #[tokio::test]
-async fn client_telemetry_005_a_caller_who_doesn_t_consent_is_refused_on_both_routes() {
+async fn client_telemetry_005_a_caller_who_doesn_t_consent_is_refused_on_each_route() {
     let (collector, api) = standing().await;
     let ada = users::register(&api, "ada@example.com").await;
 
     let never_chose = send_bytes(&api, &ada, 8).await;
     let logs = send(&api, &ada, LOGS, JSON, b"{}").await;
+    let metrics = send(&api, &ada, METRICS, PROTOBUF, &[0; 8]).await;
     assert_eq!(choose(&api, &ada, true, None).await.status, 200);
     let consenting = send_bytes(&api, &ada, 8).await;
     assert_eq!(choose(&api, &ada, false, None).await.status, 200);
     let withdrew = send_bytes(&api, &ada, 8).await;
 
-    for refused in [&never_chose, &logs, &withdrew] {
+    for refused in [&never_chose, &logs, &metrics, &withdrew] {
         assert_eq!(refused.status, 403);
         assert_eq!(refused.json()["code"], "client_telemetry.consent_required");
     }
@@ -272,6 +301,7 @@ async fn client_telemetry_006_a_body_that_isn_t_a_batch_is_refused_and_counts_in
     };
 
     let other_type = send(&api, &ada, TRACES, "application/octet-stream", b"spans").await;
+    let no_metrics = send(&api, &ada, METRICS, "text/csv", b"points").await;
     let other_coding = coded("br", b"spans".to_vec()).send().await;
     let not_gzip = coded("gzip", b"spans".to_vec()).send().await;
     let too_large = send_bytes(&api, &ada, MEBIBYTE + 1).await;
@@ -283,7 +313,14 @@ async fn client_telemetry_006_a_body_that_isn_t_a_batch_is_refused_and_counts_in
     // The largest batch, which the budgets hold only while nothing else has counted in them.
     let largest = coded("identity", vec![0; MEBIBYTE]).send().await;
 
-    for refused in [&other_type, &other_coding, &not_gzip, &without_consent] {
+    let refused = [
+        &other_type,
+        &no_metrics,
+        &other_coding,
+        &not_gzip,
+        &without_consent,
+    ];
+    for refused in refused {
         assert_eq!(refused.status, 400);
         assert_eq!(refused.json()["code"], "request.invalid_body");
     }
@@ -296,8 +333,8 @@ async fn client_telemetry_006_a_body_that_isn_t_a_batch_is_refused_and_counts_in
 }
 
 #[tokio::test]
-async fn client_telemetry_007_a_user_s_budget_counts_their_batches_on_both_routes_and_every_replica()
- {
+async fn client_telemetry_007_a_user_s_budget_counts_their_batches_on_each_route_and_every_replica()
+{
     let collector = collector().await;
     let whole = u32::try_from(MEBIBYTE).unwrap();
     let options = || forwarding(&collector, whole, UNBOUNDED);
@@ -312,17 +349,19 @@ async fn client_telemetry_007_a_user_s_budget_counts_their_batches_on_both_route
 
     let first = send_bytes(&api, &ada, 400 * 1024).await;
     let on_logs = send(&api, &other_client, LOGS, JSON, &records).await;
+    let on_metrics = send(&api, &ada, METRICS, PROTOBUF, &vec![0; 100 * 1024]).await;
     let beyond = send_bytes(&replica, &ada, 400 * 1024).await;
-    let afterwards = send_bytes(&api, &ada, 1).await;
+    let afterwards = send(&api, &ada, METRICS, PROTOBUF, &[0]).await;
     let other_user = send_bytes(&replica, &grace, 400 * 1024).await;
 
     assert_eq!(first.status, 200);
     assert_eq!(on_logs.status, 200);
+    assert_eq!(on_metrics.status, 200);
     assert_refused_by(&beyond, "telemetry_user", whole);
     // The refused batch stays counted, so the window refuses the user's later batches.
     assert_refused_by(&afterwards, "telemetry_user", whole);
     assert_eq!(other_user.status, 200);
-    assert_eq!(collector.received().len(), 3);
+    assert_eq!(collector.received().len(), 4);
 }
 
 #[tokio::test]
@@ -373,6 +412,35 @@ async fn client_telemetry_008_a_replica_s_budget_counts_every_user_s_batches_tha
     assert_refused_by(&elsewhere, "telemetry_user", whole);
     assert_eq!(in_its_own.status, 200);
     assert_eq!(collector.received().len(), 2);
+}
+
+#[tokio::test]
+async fn client_telemetry_008_by_default_a_replica_s_budget_holds_four_users_full_budgets() {
+    let collector = collector().await;
+    let api = Api::with(collector.collector_options()).await;
+    let mut users = Vec::new();
+    for name in ["ada", "grace", "edsger", "barbara", "alan"] {
+        users.push(consenting(&api, &format!("{name}@example.com")).await);
+    }
+
+    // A user's whole budget, by default the largest batch, from each of four users, between
+    // which the first sends one byte more.
+    let first = send_bytes(&api, &users[0], MEBIBYTE).await;
+    let her_next = send_bytes(&api, &users[0], 1).await;
+    let mut others = Vec::new();
+    for user in &users[1..4] {
+        others.push(send_bytes(&api, user, MEBIBYTE).await);
+    }
+    let fifth = send_bytes(&api, &users[4], 1).await;
+
+    assert_eq!(first.status, 200);
+    assert_refused_by(&her_next, "telemetry_user", 1 << 20);
+    // What her own budget refused counted nothing in the replica's, which the four fill.
+    for other in &others {
+        assert_eq!(other.status, 200);
+    }
+    assert_refused_by(&fifth, "telemetry_replica", 4 << 20);
+    assert_eq!(collector.received().len(), 4);
 }
 
 #[tokio::test]
@@ -476,7 +544,7 @@ async fn client_telemetry_010_without_the_setting_the_routes_answer_503_and_the_
     let ada = consenting(&api, "ada@example.com").await;
     let grace = users::register(&api, "grace@example.com").await;
 
-    for path in [TRACES, LOGS] {
+    for path in [TRACES, LOGS, METRICS] {
         for user in [&ada, &grace] {
             let response = send(&api, user, path, PROTOBUF, &[0; 8]).await;
 
@@ -536,6 +604,50 @@ async fn client_telemetry_010_with_the_setting_the_feature_is_on() {
 
     assert_eq!(capabilities["features"]["client_telemetry"], true);
     assert_eq!((status, &consent["consented"]), (200, &json!(true)));
+}
+
+#[tokio::test]
+async fn client_telemetry_013_the_bytes_of_a_batch_that_the_collector_took_are_counted_by_signal() {
+    let (_collector, api) = standing().await;
+    let ada = consenting(&api, "ada@example.com").await;
+    let before = [forwarded("traces"), forwarded("logs"), forwarded("metrics")];
+
+    let spans = send_bytes(&api, &ada, 1_000).await;
+    let records = send(&api, &ada, LOGS, PROTOBUF, &[0; 20_000]).await;
+    // 30,000 zeros, which gzip sends as few bytes: the count is of the bytes inflated.
+    let points = api
+        .request(Method::POST, METRICS)
+        .header("content-type", PROTOBUF)
+        .header("content-encoding", "gzip")
+        .bearer(&ada.access)
+        .body(gzip(&vec![0; 30_000]))
+        .send()
+        .await;
+
+    for taken in [&spans, &records, &points] {
+        assert_eq!(taken.status, 200);
+    }
+    // Tests running alongside forward batches too, so the counts grow by at least these.
+    assert!(forwarded("traces") >= before[0] + 1_000.0);
+    assert!(forwarded("logs") >= before[1] + 20_000.0);
+    assert!(forwarded("metrics") >= before[2] + 30_000.0);
+}
+
+#[tokio::test]
+async fn client_telemetry_013_a_batch_that_the_collector_didn_t_take_counts_no_bytes() {
+    let collector = collector().await;
+    collector.set("POST", "/v1/metrics", 503, json!({}));
+    let api = Api::with(forwarding(&collector, UNBOUNDED, UNBOUNDED)).await;
+    let ada = consenting(&api, "ada@example.com").await;
+    // The tests of this file that run alongside have the collector take fewer bytes of metrics,
+    // all together, than this batch holds: a count that grows by less didn't count the batch.
+    let before = forwarded("metrics");
+
+    let untaken = send(&api, &ada, METRICS, PROTOBUF, &vec![0; 900_000]).await;
+
+    assert_eq!(untaken.status, 503);
+    let counted = forwarded("metrics") - before;
+    assert!(counted < 900_000.0, "{counted}");
 }
 
 #[tokio::test]

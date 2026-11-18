@@ -28,7 +28,7 @@ Module code writes events only at `DEBUG`. Every `INFO`, `WARN` and `ERROR` even
 
 ### OBS-04 No personal data or secrets in telemetry
 Logs, spans and metric labels never contain personal data or secrets. `EmailAddress` redacts itself when formatted, as `Secret` does (SEC-01). Every `#[instrument]` uses `skip_all` and lists its fields explicitly. The reference deployment's proxy writes no field of a log line that holds personal data, and the collector keeps only the attributes of its spans whose names `platform::telemetry` lists (D53).
-Of the telemetry that a user's client sends through the telemetry proxy, the collector keeps of each resource only what names the client, its version and, on spans, its installation (CLIENT_TELEMETRY-011); what its spans and its log records hold besides is the client's to keep free of personal data, and its user's to consent to (D7). <!-- part: client_telemetry -->
+Of the telemetry that a user's client sends through the telemetry proxy, the collector keeps of each resource only what names the client, its version and, on spans, its installation (CLIENT_TELEMETRY-011), and of its metrics only the client's name and the attributes and values that its configuration lists (CLIENT_TELEMETRY-015); what its spans and its log records hold besides is the client's to keep free of personal data, and its user's to consent to (D7). <!-- part: client_telemetry -->
 - Why: telemetry is copied widely and kept for a long time (D7).
 - Check: `compiler` (the redacting types), `ci: check-instrument` (every `#[instrument]` has `skip_all`), plus `ci: e2e` (the proxy's span and log line hold no client address or user agent), plus `review`.
 
@@ -93,6 +93,7 @@ Alerts are of two kinds:
 - Burn-rate alerts against the service-level objectives for availability and latency.
 - Cause alerts for a dependency that is down, dead-lettered jobs, jobs that wait long past their time, periodic jobs that keep failing, events delivered late or not loaded at all, telemetry that is dropped, that stops arriving, or that a service of the stack can't receive because it is down, backups whose archiving of the write-ahead log fails or whose newest base backup is older than their schedule allows, and a server whose disk fills or whose memory runs low.
   Also a malware scanner whose signatures are older than their updates allow. <!-- part: files -->
+  Also the telemetry of users' clients that the collector takes none of, or that a replica's budget refuses. No alert reads a metric that users' clients send, since a client reports its numbers itself, which `review` checks. <!-- part: client_telemetry -->
 
 Every alert has a severity (`page` or `ticket`), a runbook section in `docs/operations/runbooks.md` and a `promtool` test. The rules are the file `deploy/observability/prometheus/rules.yaml`, which the self-hosted Prometheus reads and a managed Grafana imports as rules of its own.
 - Why: an alert means action, and the action is written down (D19). A backup that fails silently is found only when it is needed (D30).

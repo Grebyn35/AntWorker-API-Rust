@@ -98,6 +98,11 @@ pub const STORAGE_OUTCOME: &str = "storage.outcome";
 /// How a scan by the malware scanner ended, such as `clean` or `unavailable` (PLATFORM-079).
 pub const SCANNER_OUTCOME: &str = "scanner.outcome";
 // end part: files
+// part: client_telemetry
+/// The signal that a batch of a client's telemetry holds: `traces`, `logs` or `metrics`
+/// (CLIENT_TELEMETRY-004).
+pub const CLIENT_TELEMETRY_SIGNAL: &str = "client_telemetry.signal";
+// end part: client_telemetry
 /// A job's kind, or a periodic job's name, such as `platform.send_email` (PLATFORM-020).
 pub const JOB_KIND: &str = "job.kind";
 /// A queued job's ID, or the claim of a periodic job's run.

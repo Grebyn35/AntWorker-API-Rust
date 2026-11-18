@@ -103,7 +103,9 @@ where
 }
 
 /// The telemetry proxy's two budgets, from `settings`, each at least the bytes of the largest
-/// batch, so that a window holds any batch (CLIENT_TELEMETRY-007, CLIENT_TELEMETRY-008).
+/// batch, so that a window holds any batch (CLIENT_TELEMETRY-007, CLIENT_TELEMETRY-008). A
+/// user's is the largest batch unless a setting says otherwise, and a replica's four times that,
+/// so that no one user's batches spend it (the client_telemetry spec's "The budgets").
 fn client_telemetry_budgets<E, F>(
     settings: &Settings<E, F>,
 ) -> Result<client_telemetry::Settings, ConfigError>
@@ -112,10 +114,10 @@ where
     F: Fn(&Path) -> io::Result<String>,
 {
     let least = client_telemetry::MAX_BATCH_BYTES;
-    let budget = |name: &'static str, setting: &str| {
+    let budget = |name: &'static str, setting: &str, default: u32| {
         Ok(Bucket {
             name,
-            limit: settings.number(setting, least, least..=1 << 30)?,
+            limit: settings.number(setting, default, least..=1 << 30)?,
             window: TELEMETRY_WINDOW,
         })
     };
@@ -123,10 +125,12 @@ where
         user_budget: budget(
             TELEMETRY_USER_BUDGET,
             "CLIENT_TELEMETRY_USER_BYTES_PER_MINUTE",
+            least,
         )?,
         replica_budget: budget(
             TELEMETRY_REPLICA_BUDGET,
             "CLIENT_TELEMETRY_REPLICA_BYTES_PER_MINUTE",
+            4 * least,
         )?,
     })
 }

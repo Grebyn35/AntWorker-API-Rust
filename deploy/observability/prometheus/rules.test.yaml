@@ -241,19 +241,97 @@ tests:
               summary: An instance of the API failed to export spans, log records or metrics in the last 10 minutes.
               runbook: docs/operations/runbooks.md#telemetryexportfailing
 
+  # An exporter that fails to send, and a receiver that refuses, beside ones that do neither: the
+  # alert names each.
   - interval: 1m
     input_series:
-      - series: 'otelcol_exporter_send_failed_spans_total{job="collector", instance="collector:8888"}'
+      - series: 'otelcol_exporter_send_failed_spans_total{job="collector", instance="collector:8888", exporter="otlp_http/tempo"}'
         values: "0 0 10 10 10"
+      - series: 'otelcol_exporter_send_failed_log_records_total{job="collector", instance="collector:8888", exporter="otlp_http/loki"}'
+        values: "0 0 0 0 0"
+      - series: 'otelcol_receiver_refused_metric_points_total{job="collector", instance="collector:8888", receiver="otlp", transport="http"}'
+        values: "0 0 0 7 7"
+      - series: 'otelcol_receiver_refused_spans_total{job="collector", instance="collector:8888", receiver="otlp", transport="http"}'
+        values: "0 0 0 0 0"
     alert_rule_test:
       - eval_time: 4m
         alertname: CollectorDroppingTelemetry
         exp_alerts:
           - exp_labels:
               severity: ticket
+              exporter: otlp_http/tempo
             exp_annotations:
               summary: The collector refused, failed to pass on, or dropped before deciding, telemetry in the last 10 minutes.
               runbook: docs/operations/runbooks.md#collectordroppingtelemetry
+          - exp_labels:
+              severity: ticket
+              receiver: otlp
+            exp_annotations:
+              summary: The collector refused, failed to pass on, or dropped before deciding, telemetry in the last 10 minutes.
+              runbook: docs/operations/runbooks.md#collectordroppingtelemetry
+
+  # part: client_telemetry
+  # The collector takes no batch of a client's telemetry, then takes them again.
+  - interval: 1m
+    input_series:
+      - series: 'http_server_request_duration_seconds_count{job="api", instance="a", http_route="/v1/users/me/telemetry/traces", http_response_status_code="503", error_type="client_telemetry.collector_unavailable"}'
+        values: "0+3x20 60x20"
+      - series: 'client_telemetry_forwarded_bytes_total{job="api", instance="a", client_telemetry_signal="traces"}'
+        values: "0+1000x3 3000x16 3000+1000x20"
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: ClientTelemetryNotForwarded
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: ClientTelemetryNotForwarded
+        exp_alerts: []
+      - eval_time: 19m
+        alertname: ClientTelemetryNotForwarded
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: ClientTelemetryNotForwarded
+        exp_alerts: []
+
+  # The collector takes no batch for long enough: nothing is forwarded from the start.
+  - interval: 1m
+    input_series:
+      - series: 'http_server_request_duration_seconds_count{job="api", instance="a", http_route="/v1/users/me/telemetry/logs", http_response_status_code="503", error_type="client_telemetry.collector_unavailable"}'
+        values: "0+3x30"
+      - series: 'client_telemetry_forwarded_bytes_total{job="api", instance="a", client_telemetry_signal="logs"}'
+        values: "5000x30"
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: ClientTelemetryNotForwarded
+        exp_alerts: []
+      - eval_time: 7m
+        alertname: ClientTelemetryNotForwarded
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+            exp_annotations:
+              summary: The collector took none of the batches of telemetry that the API forwarded for users' clients for 15 minutes, while some went untaken.
+              runbook: docs/operations/runbooks.md#clienttelemetrynotforwarded
+
+  # A replica's budget refuses batches, beside a user's, which raises no alert.
+  - interval: 1m
+    input_series:
+      - series: 'platform_rate_limit_refusals_total{job="api", instance="a", rate_limit_bucket="telemetry_user"}'
+        values: "0+2x20"
+      - series: 'platform_rate_limit_refusals_total{job="api", instance="a", rate_limit_bucket="telemetry_replica"}'
+        values: "0x10 0+4x10"
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: ClientTelemetryBudgetSpent
+        exp_alerts: []
+      - eval_time: 13m
+        alertname: ClientTelemetryBudgetSpent
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+            exp_annotations:
+              summary: A replica's budget refused batches of the telemetry of users' clients in the last 10 minutes.
+              runbook: docs/operations/runbooks.md#clienttelemetrybudgetspent
+  # end part: client_telemetry
 
   - interval: 1m
     input_series:

@@ -21,6 +21,8 @@ Each dashboard panel's title is the question it answers (OBS-13). The overview l
 | Are clients retrying requests that are still running? | API platform: "How do requests with an idempotency key end?" |
 | Are background jobs, such as emails, keeping up, and which fail? | API platform: "Are background jobs keeping up?" and "How do job runs end?" |
 | Do events reach clients promptly, and why do their streams close? | API platform: "How long after commit do events reach the streams?", "How many events does each hub owe its streams?", "How many event streams are open?" and "Why do event streams close?" |
+| Does the telemetry of users' clients reach the stores, and how much of it? | Clients' telemetry: "How do the clients' batches end?", "How many bytes of clients' telemetry does each replica forward a minute?", "How many bytes of each signal do the stores take in a minute?" and "Is the collector refusing or failing to pass on the clients' telemetry?" <!-- part: client_telemetry --> |
+| How do the requests of users' clients end, as the clients measure them? | Clients' telemetry: "How do the clients' requests end?" and "How long do the clients wait for their requests?" <!-- part: client_telemetry --> |
 
 ## How telemetry flows
 
@@ -49,13 +51,14 @@ flowchart LR
   - every trace slower than the [latency objective](#service-level-objectives)
   - 10% of the rest
 <!-- part: client_telemetry -->
-- **Users' clients** send their spans and their log records to the API, whose telemetry proxy forwards each batch of a user who consents to the collector ([client_telemetry spec](../spec/client_telemetry.md#the-proxy)). The collector takes these batches on a receiver of their own, on port 4319, and passes them through pipelines and exporters of their own ([clients.yaml](../../deploy/observability/collector/clients.yaml)), so nothing that a client sends passes through a pipeline, or waits in a queue, of the API's telemetry:
+- **Users' clients** send their spans, their log records and their metrics to the API, whose telemetry proxy forwards each batch of a user who consents to the collector ([client_telemetry spec](../spec/client_telemetry.md#the-proxy)). The collector takes these batches on a receiver of their own, on port 4319, and passes them through pipelines and exporters of their own ([clients.yaml](../../deploy/observability/collector/clients.yaml)), so nothing that a client sends passes through a pipeline, or waits in a queue, of the API's telemetry:
   - Its memory limiter for them has a lower limit than the one for the API's own, 70% of the collector's memory against 80%, each less a spike of 25%, so as its memory fills, the collector refuses the clients' telemetry before the API's.
-  - It drops the spans and the log records of every resource whose `service.name` the file doesn't list, and answers the batch as taken. The template lists `app-desktop`, and a fork lists each of its clients. So no client's telemetry passes for the API's or Caddy's, and Loki labels its streams by the listed names alone.
-  - It keeps of each resource its `service.name`, its `service.version` and, on spans, its `service.instance.id`, and nothing else that an SDK adds, such as the name of the user's machine (OBS-04).
+  - It drops the spans, the log records and the metrics of every resource whose `service.name` the file doesn't list, and answers the batch as taken. The template lists `app-desktop`, and a fork lists each of its clients. So no client's telemetry passes for the API's or Caddy's, and Loki labels its streams by the listed names alone.
+  - It keeps of each resource its `service.name`, its `service.version` and, on spans, its `service.instance.id`, and nothing else that an SDK adds, such as the name of the user's machine (OBS-04). It writes them anew, from the first value of each, so a resource that names its service twice is stored under the first name alone (CLIENT_TELEMETRY-012).
   - It samples none of their traces: it keeps each span that it admits, and the telemetry proxy's budgets bound what the clients send (CLIENT_TELEMETRY-007, CLIENT_TELEMETRY-008).
+  - It keeps of their metrics those that the file lists, each with the attributes and the values that the file lists for it, and of a metric's resource the client's name alone (CLIENT_TELEMETRY-015). It sets each point's time to the moment it takes it, and adds the points of every installation into one series for each set of those values, which it serves on port 9464, a port that a deployment publishes nowhere. Prometheus scrapes the series there, each under its client's name as its job (CLIENT_TELEMETRY-014). The [client_telemetry spec](../spec/client_telemetry.md#the-clients-metrics) says why.
 
-  Tempo and Loki store them beside the API's own. A request that a client sends with a `traceparent` of its own trace continues that trace (PLATFORM-041), so the trace holds the client's spans, and the API's when the tail sampling kept them, and the query of [Following a request](#following-a-request-from-its-trace-id) shows the client's log lines of the trace beside the API's.
+  Tempo and Loki store the spans and the log records beside the API's own (D178). A request that a client sends with a `traceparent` of its own trace continues that trace (PLATFORM-041), so the trace holds the client's spans, and the API's when the tail sampling kept them, and the query of [Following a request](#following-a-request-from-its-trace-id) shows the client's log lines of the trace beside the API's.
 <!-- end part: client_telemetry -->
 - **Prometheus** ([config](../../deploy/observability/prometheus/prometheus.yaml)) receives the metrics through its OTLP receiver, and scrapes the collector, Loki, Tempo and Alertmanager for their own. It evaluates the [rules](../../deploy/observability/prometheus/rules.yaml) and sends firing alerts to Alertmanager. [metrics.md](metrics.md) lists every metric under its name in Prometheus.
 - **Loki** ([config](../../deploy/observability/loki/config.yaml)) keeps every log record the API exports, and the proxy's: logs are never sampled. The API's queue of records drops a record that arrives while it is full, as the [platform spec](../spec/platform.md#telemetry-export) says, and stdout drops no line while the API runs. A record's line is its message, such as `request completed`. The service's name, instance and environment are labels, such as `service_name`, and every other field, `trace_id` and `span_id` among them, is structured metadata that a query filters with `| trace_id="…"`.
@@ -63,7 +66,15 @@ flowchart LR
 - **Grafana** reads all three, through the [data sources](../../deploy/observability/grafana/provisioning/datasources/datasources.yaml) it provisions. A log line links to its trace, and a span links to its trace's log lines.
 
 Prometheus keeps metrics for 15 days, and Loki and Tempo keep logs and traces for 14 days.
-They keep the clients' spans and log records as long. <!-- part: client_telemetry -->
+They keep the clients' spans and log records as long (D178), and Prometheus the series of the clients' metrics. <!-- part: client_telemetry -->
+
+<!-- part: client_telemetry -->
+### What the clients' telemetry adds
+
+The telemetry proxy's budgets bound what the clients' telemetry adds to the stores. Each replica forwards at most `CLIENT_TELEMETRY_REPLICA_BYTES_PER_MINUTE` bytes of batches in each window of a minute (CLIENT_TELEMETRY-008), so the stores take in at most that many bytes a minute for each replica that the deployment runs, before each store compresses what it keeps: at the default, 4,194,304 bytes, about 6 gigabytes a day for each replica, which Loki and Tempo keep for 14 days. The clients' metrics add the series that the collector's lists allow (CLIENT_TELEMETRY-015).
+
+The Clients' telemetry dashboard shows what the replicas forward, under "How many bytes of clients' telemetry does each replica forward a minute?", and `ClientTelemetryBudgetSpent` opens a ticket when a replica's budget refuses batches ([runbooks.md](runbooks.md#clienttelemetrybudgetspent)). A deployment that raises the budget gives the stores' volumes the disk that the new one can fill; [DiskFillingUp](runbooks.md#diskfillingup) fires for a disk of the server that fills, the one that holds those volumes among them. With a managed backend, the budgets bound what the backend is sent.
+<!-- end part: client_telemetry -->
 
 ## A managed backend
 
@@ -71,7 +82,7 @@ A deployment may send its telemetry to a managed backend that accepts the OpenTe
 
 The deployment's settings name the backend's OTLP endpoint, which is HTTPS (OPS-17), and the user the collector signs in as: `MANAGED_OTLP_ENDPOINT` and `MANAGED_OTLP_USER`, which [deploy/settings.env.example](../../deploy/settings.env.example) describes. The token goes in the secret file `secrets/managed_otlp_token`. A backend whose certificate a private authority signed is trusted through that authority's certificate in `certs/managed-otlp-ca.crt`.
 
-The clients' spans and log records, which the telemetry proxy forwards, go to the backend too, through an exporter of their own. <!-- part: client_telemetry -->
+The clients' spans and log records, which the telemetry proxy forwards, go to the backend too, through an exporter of their own, and so do the series that the collector adds up from the clients' metrics, which it scrapes from itself, as it does its own metrics. <!-- part: client_telemetry -->
 
 The managed configuration adds what the self-hosted stack does elsewhere: the collector scrapes its own metrics, which Prometheus scrapes in the stack, for the alerts on telemetry that is lost, and it copies `deployment.environment.name` and the `file.name` of each file whose time it reads from each metric's resource into its labels, which the self-hosted Prometheus promotes.
 

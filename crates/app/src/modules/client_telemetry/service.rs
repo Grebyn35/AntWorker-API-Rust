@@ -16,6 +16,7 @@ use super::{
     audit::{self, TelemetryConsentChoice},
     error::ClientTelemetryError,
     events::{TELEMETRY_CONSENT_UPDATED, TelemetryConsentUpdated},
+    metrics,
     model::{Current, Sent, Settings, TelemetryConsent},
     repo,
 };
@@ -126,7 +127,8 @@ pub(super) async fn choose(
 /// collector took it (CLIENT_TELEMETRY-004, CLIENT_TELEMETRY-009): once the deployment forwards
 /// clients' telemetry at all (CLIENT_TELEMETRY-010), the caller consents, as their consent reads
 /// now (CLIENT_TELEMETRY-005), and the caller's budget, then the replica's, have counted the
-/// batch's bytes (CLIENT_TELEMETRY-007, CLIENT_TELEMETRY-008).
+/// batch's bytes (CLIENT_TELEMETRY-007, CLIENT_TELEMETRY-008). It counts the bytes of a batch
+/// that the collector took in `client_telemetry.forwarded`.
 pub(super) async fn forward(
     telemetry: &ClientTelemetry,
     client: &Client,
@@ -159,5 +161,7 @@ pub(super) async fn forward(
             RelayError::Unavailable(cause) => {
                 ClientTelemetryError::CollectorUnavailable(Some(cause))
             }
-        })
+        })?;
+    metrics::forwarded(batch.signal, bytes);
+    Ok(())
 }

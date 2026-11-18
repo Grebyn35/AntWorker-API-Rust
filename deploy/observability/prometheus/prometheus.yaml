@@ -44,3 +44,12 @@ scrape_configs:
   - job_name: tempo
     static_configs:
       - targets: [tempo:3200]
+  # part: client_telemetry
+  # The series that the collector adds up from the metrics of users' clients (clients.yaml). Each
+  # keeps the job that the collector serves it with, its client's service.name, as the API's own
+  # series have the API's.
+  - job_name: clients
+    honor_labels: true
+    static_configs:
+      - targets: [collector:9464]
+  # end part: client_telemetry

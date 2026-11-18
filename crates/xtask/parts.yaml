@@ -200,6 +200,7 @@ parts:
       - crates/platform/src/rate_limit
       - crates/platform/src/telemetry/relay.rs
       - deploy/observability/collector/clients.yaml
+      - deploy/observability/grafana/dashboards/client-telemetry.json
       - docs/spec/client_telemetry.md
     words:
       - client_telemetry

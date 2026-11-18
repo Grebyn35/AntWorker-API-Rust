@@ -67,3 +67,13 @@ metrics:
     kind: counter
     producer: the collector
     description: Traces each sampling policy decided, by the policy and whether it kept them.
+  # part: client_telemetry
+  - name: http_client_request_duration_seconds_count
+    kind: counter
+    producer: the collector, from the metrics of users' clients
+    description: The requests that users' clients measured, added up over every installation, by the response's status, and for a request that got none, by error_type (CLIENT_TELEMETRY-014).
+  - name: http_client_request_duration_seconds_bucket
+    kind: counter
+    producer: the collector, from the metrics of users' clients
+    description: Those requests that took at most le seconds each.
+  # end part: client_telemetry

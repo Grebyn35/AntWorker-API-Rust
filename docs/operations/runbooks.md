@@ -101,11 +101,30 @@ For any other failure, check the provider's status page, and that the server rea
 
 ## CollectorDroppingTelemetry
 
-**What it means.** The collector refused telemetry, failed to send it to Tempo, Loki or Prometheus, or dropped traces before tail sampling decided them, in the last 10 minutes.
+**What it means.** The collector refused telemetry, failed to send it to Tempo, Loki or Prometheus, or dropped traces before tail sampling decided them, in the last 10 minutes. The alert's `receiver` names the receiver that refused, and its `exporter` the exporter that failed.
 
 **Look first.** The Telemetry pipeline dashboard: "Is the collector refusing telemetry?", "Is the collector failing to pass telemetry on?" and "Is tail sampling dropping traces before it decides them?" show which step loses data.
 
 **What to do.** Refused data means the collector reached its memory limit: give it more memory. Failed sends name a store: check that Tempo, Loki or Prometheus runs and has disk space. Traces dropped early mean the collector holds more undecided traces than its `num_traces`: raise it, along with the collector's memory.
+The receiver `otlp/clients` takes the batches that the telemetry proxy forwards for users' clients, and the exporters whose names end in `_clients` send them on. Its memory limit is the lower one, so it refuses before the API's own receiver does: the proxy answers each batch that it refuses with 503, which has a client send the batch again later, and the Clients' telemetry dashboard shows what the clients send ([ClientTelemetryBudgetSpent](#clienttelemetrybudgetspent)). <!-- part: client_telemetry -->
+
+<!-- part: client_telemetry -->
+## ClientTelemetryNotForwarded
+
+**What it means.** For 15 minutes, the collector took none of the batches of telemetry that the API forwarded for users' clients, while some went untaken: no connection to its receiver opened, it didn't answer within 5 seconds, or it answered neither with a 2xx nor with a refusal of the batch (CLIENT_TELEMETRY-009). The telemetry proxy answers such a batch with 503 `client_telemetry.collector_unavailable`, which has a client send it again later, so the clients' spans, log records and metrics of that time reach no store unless a client still holds them once the collector takes batches again. Every other route serves.
+
+**Look first.** The Clients' telemetry dashboard: "How do the clients' batches end?" shows since when. The `ERROR` lines of the 503s name the failure, such as a connection's, or the status that the collector answered.
+
+**What to do.** If the API's own telemetry arrives, the collector runs, and the failure is its receiver of clients' batches or the way to it: check that `CLIENT_TELEMETRY_ENDPOINT` names that receiver, port 4319 of the collector in the reference deployment, and read the collector's log, with `just logs <host> collector`, for what its pipelines of clients' telemetry report. A [CollectorDroppingTelemetry](#collectordroppingtelemetry) whose `receiver` is `otlp/clients` means that the collector refuses the batches at its memory limit. If the API's own telemetry is missing too, follow [ObservabilityServiceDown](#observabilityservicedown). The alert clears once the collector takes a batch.
+
+## ClientTelemetryBudgetSpent
+
+**What it means.** A replica's budget refused batches of clients' telemetry in the last 10 minutes: the clients of every user together sent that replica more than `CLIENT_TELEMETRY_REPLICA_BYTES_PER_MINUTE` bytes within a minute (CLIENT_TELEMETRY-008). Until that minute's window ends, the replica answers every user's batch with 429, which has a client send it again later. Nothing else is refused.
+
+**Look first.** The Clients' telemetry dashboard: "How many bytes of clients' telemetry does each replica forward a minute?" shows whether the volume grew over days, as it does with the product's users, or at once. On the API platform dashboard, "Which rate limits refuse requests?" shows whether `telemetry_user`, a user's own budget, refuses too, as it does while single accounts send all that one may.
+
+**What to do.** A volume that grew with the users needs a larger budget: raise the setting, and give the stores the disk that the new budget can fill ([observability.md](observability.md#what-the-clients-telemetry-adds)). A volume that came at once is a client that sends more than it should, or accounts that someone registered to send it: the budget keeps what they add to the stores within its bound, and each request that a budget refused has a trace, whose span of the request names its user in `user.id`. The alert clears once a replica's budget has refused nothing for 10 minutes.
+<!-- end part: client_telemetry -->
 
 ## EventsDelayed
 

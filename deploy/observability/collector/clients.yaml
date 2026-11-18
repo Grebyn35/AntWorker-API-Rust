@@ -1,7 +1,8 @@
-# The telemetry of users' clients, which the API's telemetry proxy forwards (D177). The collector
-# merges this file over config.yaml: it adds a receiver, two pipelines and two exporters of the
-# clients' own, so nothing that the clients send passes through a pipeline or waits in a queue of
-# the API's telemetry. docs/operations/observability.md describes the pipelines.
+# The telemetry of users' clients, which the API's telemetry proxy forwards (D177, D179). The
+# collector merges this file over config.yaml: it adds a receiver, three pipelines and three
+# exporters of the clients' own, so nothing that the clients send passes through a pipeline or
+# waits in a queue of the API's telemetry. docs/operations/observability.md describes the
+# pipelines.
 
 receivers:
   # Where the API forwards each batch: a port of its own, which a deployment publishes nowhere.
@@ -17,36 +18,151 @@ processors:
     check_interval: 1s
     limit_percentage: 70
     spike_limit_percentage: 25
-  # Drops the spans and the log records of every resource whose service.name isn't a client's
-  # that the deployment admits: a fork lists each of its clients here, in both lists. So no
-  # client's telemetry passes for the API's or Caddy's own, and the names that Loki labels its
-  # streams by are these alone.
+  # Drops the spans, the log records and the metrics of every resource whose service.name isn't a
+  # client's that the deployment admits: a fork lists each of its clients here, in the three
+  # lists. A condition reads the first service.name of a resource that repeats it, and
+  # transform/clients then keeps that one alone. So no client's telemetry passes for the API's or
+  # Caddy's own, and the names that Loki labels its streams by, and Prometheus the clients'
+  # series, are these alone.
+  #
+  # Of the metrics, it keeps the points that are what this file lists: a fork lists each metric
+  # of its clients here, and the metric's attributes in transform/clients. The template lists the
+  # one that OpenTelemetry's conventions define for a client's HTTP requests,
+  # http.client.request.duration: a histogram in seconds, whose points hold what the client
+  # measured since its last ones (delta temporality), in the buckets that the conventions advise.
+  # It drops a point of it whose sum isn't from 0 to a billion seconds, which a sum that is no
+  # number isn't either, and one that is flagged as holding no value: prometheus/clients serves
+  # nothing of a series whose first point is flagged so.
   filter/clients:
     error_mode: propagate
     trace_conditions:
       - resource.attributes["service.name"] != "app-desktop"
     log_conditions:
       - resource.attributes["service.name"] != "app-desktop"
-  # Keeps of each resource what names the client and its version, and, on spans, its
-  # installation: an SDK adds more, such as the name of the user's machine and of their account
-  # on it (OBS-04, D7). A log record keeps no service.instance.id, which Loki would label a
-  # stream by, one for each installation.
+    metric_conditions:
+      - resource.attributes["service.name"] != "app-desktop"
+      - >-
+        not (metric.name == "http.client.request.duration"
+        and metric.type == METRIC_DATA_TYPE_HISTOGRAM
+        and metric.unit == "s"
+        and metric.aggregation_temporality == AGGREGATION_TEMPORALITY_DELTA)
+      - >-
+        metric.type == METRIC_DATA_TYPE_HISTOGRAM
+        and (Format("%v", [datapoint.explicit_bounds]) != "[0.005 0.01 0.025 0.05 0.075 0.1 0.25 0.5 0.75 1 2.5 5 7.5 10]"
+        or Len(datapoint.bucket_counts) != 15
+        or not (datapoint.sum >= 0.0 and datapoint.sum <= 1.0e+9)
+        or datapoint.flags != 0)
+  # Writes each resource's attributes anew, from the first value that it holds of each one kept:
+  # what names the client and its version, and, on spans, its installation. An SDK adds more,
+  # such as the name of the user's machine and of their account on it (OBS-04, D7), and a
+  # resource that repeats a key, which the protocol forbids and the receiver takes, would pass a
+  # second service.name on to the stores. A log record keeps no service.instance.id, which Loki
+  # would label a stream by, one for each installation.
   transform/clients:
     error_mode: propagate
     trace_statements:
       - context: resource
         statements:
-          - keep_keys(resource.attributes, ["service.name", "service.version", "service.instance.id"])
+          - set(resource.cache["name"], resource.attributes["service.name"])
+          - set(resource.cache["version"], resource.attributes["service.version"])
+          - set(resource.cache["instance"], resource.attributes["service.instance.id"])
+          - keep_keys(resource.attributes, [])
+          - set(resource.attributes["service.name"], resource.cache["name"])
+          - set(resource.attributes["service.version"], resource.cache["version"]) where resource.cache["version"] != nil
+          - set(resource.attributes["service.instance.id"], resource.cache["instance"]) where resource.cache["instance"] != nil
     log_statements:
       - context: resource
         statements:
-          - keep_keys(resource.attributes, ["service.name", "service.version"])
+          - set(resource.cache["name"], resource.attributes["service.name"])
+          - set(resource.cache["version"], resource.attributes["service.version"])
+          - keep_keys(resource.attributes, [])
+          - set(resource.attributes["service.name"], resource.cache["name"])
+          - set(resource.attributes["service.version"], resource.cache["version"]) where resource.cache["version"] != nil
+    # A metric keeps the client's name alone, and nothing of the library that measured it, since
+    # a client writes its version and its library's name itself, and the collector adds up a
+    # series for each value that stays. It keeps no description either, which a client writes
+    # too. A point's attributes are written anew: the attributes that this file lists for its
+    # metric, each with a value that the file lists, read from the first that the point holds of
+    # it.
+    #
+    # A point of http.client.request.duration keeps the response's status, when it is the
+    # integer of a status code that RFC 9110 or RFC 6585 defines, the two that RFC 9110 keeps
+    # unused aside. A point that keeps no status keeps error.type, the conventions' name for why
+    # a request failed: timeout or connection_error as they are, and any other value as _OTHER,
+    # the conventions' own value for the rest. A fork lists the values that its clients send.
+    metric_statements:
+      - context: resource
+        statements:
+          - set(resource.cache["name"], resource.attributes["service.name"])
+          - keep_keys(resource.attributes, [])
+          - set(resource.attributes["service.name"], resource.cache["name"])
+      - context: scope
+        statements:
+          - set(scope.name, "")
+          - set(scope.version, "")
+          - set(scope.schema_url, "")
+          - keep_keys(scope.attributes, [])
+      - context: metric
+        statements:
+          - set(metric.description, "")
+      - context: datapoint
+        statements:
+          - set(datapoint.exemplars, nil)
+          - set(datapoint.cache["status"], datapoint.attributes["http.response.status_code"])
+          - set(datapoint.cache["error"], datapoint.attributes["error.type"])
+          - keep_keys(datapoint.attributes, [])
+          - >-
+            set(datapoint.attributes["http.response.status_code"], datapoint.cache["status"])
+            where metric.name == "http.client.request.duration"
+            and ContainsValue([100, 101, 200, 201, 202, 203, 204, 205, 206, 300, 301, 302, 303, 304, 305, 307,
+            308, 400, 401, 402, 403, 404, 405, 406, 407, 408, 409, 410, 411, 412, 413, 414, 415, 416, 417, 421, 422,
+            426, 428, 429, 431, 500, 501, 502, 503, 504, 505, 511], datapoint.cache["status"])
+          - >-
+            set(datapoint.attributes["error.type"], datapoint.cache["error"])
+            where metric.name == "http.client.request.duration"
+            and datapoint.attributes["http.response.status_code"] == nil
+            and ContainsValue(["timeout", "connection_error"], datapoint.cache["error"])
+          - >-
+            set(datapoint.attributes["error.type"], "_OTHER")
+            where metric.name == "http.client.request.duration"
+            and datapoint.attributes["http.response.status_code"] == nil
+            and datapoint.cache["error"] != nil
+            and datapoint.attributes["error.type"] == nil
+  # Sets the time of each point of a metric to the moment the collector takes it. A client's own
+  # clock sets the times that it sends, and deltatocumulative/clients takes the points of a
+  # series in the order of their times: it drops one that starts before the series did, or that
+  # ends before the last one it took. This processor comes after batch, which passes the batches
+  # on one at a time, so the times of a series' points only grow.
+  transform/clients_arrival:
+    error_mode: propagate
+    metric_statements:
+      - context: datapoint
+        statements:
+          - set(datapoint.time_unix_nano, UnixNano(Now()))
+          - set(datapoint.start_time_unix_nano, datapoint.time_unix_nano)
+  # Adds the points of every installation into one series for each set of the values that
+  # transform/clients keeps, which counts from the first point that the collector takes for it.
+  # The lists above allow 52 such histograms for each client that filter/clients lists: one for
+  # each of the 48 statuses and of the 3 values of error.type, and one of the points that keep
+  # neither. Past max_streams, the collector takes no new series. Once a series has had no point
+  # for an hour, the collector ends it, and a later point starts it anew.
+  deltatocumulative/clients:
+    max_stale: 1h
+    max_streams: 1000
 
 exporters:
   otlp_http/tempo_clients:
     endpoint: http://tempo:4318
   otlp_http/loki_clients:
     endpoint: http://loki:3100/otlp
+  # Serves the clients' series for Prometheus to scrape, each with its client's name as its job,
+  # until an hour after its last point. A scrape reads every series that is served, so a count
+  # that seldom grows still has the two samples that a query of its increase needs. The port is
+  # one that a deployment publishes nowhere.
+  prometheus/clients:
+    endpoint: 0.0.0.0:9464
+    metric_expiration: 1h
+    without_scope_info: true
 
 service:
   pipelines:
@@ -60,3 +176,13 @@ service:
       receivers: [otlp/clients]
       processors: [memory_limiter/clients, filter/clients, transform/clients, batch]
       exporters: [otlp_http/loki_clients]
+    metrics/clients:
+      receivers: [otlp/clients]
+      processors:
+        - memory_limiter/clients
+        - filter/clients
+        - transform/clients
+        - batch
+        - transform/clients_arrival
+        - deltatocumulative/clients
+      exporters: [prometheus/clients]

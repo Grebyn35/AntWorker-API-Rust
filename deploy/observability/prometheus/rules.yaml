@@ -186,20 +186,44 @@ groups:
           summary: An instance of the API failed to export spans, log records or metrics in the last 10 minutes.
           runbook: docs/operations/runbooks.md#telemetryexportfailing
 
+      # One alert for each receiver that refused and each exporter that failed, which its
+      # `receiver` or its `exporter` names.
       - alert: CollectorDroppingTelemetry
         expr: |
-          sum(increase(otelcol_receiver_refused_spans_total[10m])) > 0
-          or sum(increase(otelcol_receiver_refused_log_records_total[10m])) > 0
-          or sum(increase(otelcol_receiver_refused_metric_points_total[10m])) > 0
-          or sum(increase(otelcol_exporter_send_failed_spans_total[10m])) > 0
-          or sum(increase(otelcol_exporter_send_failed_log_records_total[10m])) > 0
-          or sum(increase(otelcol_exporter_send_failed_metric_points_total[10m])) > 0
+          sum by (receiver) (increase(otelcol_receiver_refused_spans_total[10m])) > 0
+          or sum by (receiver) (increase(otelcol_receiver_refused_log_records_total[10m])) > 0
+          or sum by (receiver) (increase(otelcol_receiver_refused_metric_points_total[10m])) > 0
+          or sum by (exporter) (increase(otelcol_exporter_send_failed_spans_total[10m])) > 0
+          or sum by (exporter) (increase(otelcol_exporter_send_failed_log_records_total[10m])) > 0
+          or sum by (exporter) (increase(otelcol_exporter_send_failed_metric_points_total[10m])) > 0
           or sum(increase(otelcol_processor_tail_sampling_sampling_trace_dropped_too_early_total[10m])) > 0
         labels:
           severity: ticket
         annotations:
           summary: The collector refused, failed to pass on, or dropped before deciding, telemetry in the last 10 minutes.
           runbook: docs/operations/runbooks.md#collectordroppingtelemetry
+
+      # part: client_telemetry
+      # The telemetry of users' clients (OBS-14, the client_telemetry spec's "Operating it").
+      - alert: ClientTelemetryNotForwarded
+        expr: |
+          sum(increase(http_server_request_duration_seconds_count{error_type="client_telemetry.collector_unavailable"}[15m])) > 0
+            unless sum(increase(client_telemetry_forwarded_bytes_total[15m])) > 0
+        for: 5m
+        labels:
+          severity: ticket
+        annotations:
+          summary: The collector took none of the batches of telemetry that the API forwarded for users' clients for 15 minutes, while some went untaken.
+          runbook: docs/operations/runbooks.md#clienttelemetrynotforwarded
+
+      - alert: ClientTelemetryBudgetSpent
+        expr: sum(increase(platform_rate_limit_refusals_total{rate_limit_bucket="telemetry_replica"}[10m])) > 0
+        labels:
+          severity: ticket
+        annotations:
+          summary: A replica's budget refused batches of the telemetry of users' clients in the last 10 minutes.
+          runbook: docs/operations/runbooks.md#clienttelemetrybudgetspent
+      # end part: client_telemetry
 
       # Events (OBS-14, the platform spec's "Events and the real-time hub"). The lag is recorded
       # only for events that a hub loaded, so a hub that hears nothing is DatabaseUnreachable's.

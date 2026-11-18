@@ -1,4 +1,4 @@
-//! The caller's consent to the telemetry of their clients, and the proxy's two routes, which
+//! The caller's consent to the telemetry of their clients, and the proxy's three routes, which
 //! take a consenting caller's batches (the client_telemetry spec's Routes).
 
 use axum::extract::State;
@@ -39,6 +39,7 @@ pub(crate) fn routes() -> Routes<ClientTelemetry> {
         .user(routes!(consent, choose_consent), &[])
         .user_batch(routes!(send_traces), &proxy_errors)
         .user_batch(routes!(send_logs), &proxy_errors)
+        .user_batch(routes!(send_metrics), &proxy_errors)
 }
 
 /// Reads whether the caller consents to their clients' sending their telemetry.
@@ -173,6 +174,45 @@ async fn send_logs(
     let batch = read(batch, &telemetry).await?;
     let sent = Sent {
         signal: Signal::Logs,
+        media_type: batch.encoding.media_type(),
+        bytes: batch.bytes.clone(),
+    };
+    service::forward(&telemetry, &client, &principal, &limits, sent).await?;
+    Ok(BatchTaken(batch.encoding))
+}
+
+/// Takes a batch of the metrics of one of the caller's clients, and forwards it to the collector.
+#[utoipa::path(
+    post,
+    path = "/v1/users/me/telemetry/metrics",
+    tag = "client_telemetry",
+    request_body(
+        description = "A batch of metrics, as the request of the OpenTelemetry Protocol over HTTP (OTLP/HTTP): an `ExportMetricsServiceRequest`, sent as `application/x-protobuf` or as `application/json`, with `Content-Encoding: gzip` or without one, of at most 1,048,576 bytes, as sent and once inflated (CLIENT_TELEMETRY-004, CLIENT_TELEMETRY-006).",
+        content(
+            (FileBytes = "application/x-protobuf"),
+            (BatchJson = "application/json"),
+        ),
+    ),
+    responses(
+        (status = 200, description = "The collector took the batch: the protocol's full success, in the media type of the request, which holds no bytes as `application/x-protobuf`.",
+            content(
+                (FileBytes = "application/x-protobuf"),
+                (BatchTakenJson = "application/json"),
+            )),
+    )
+)]
+async fn send_metrics(
+    State(telemetry): State<ClientTelemetry>,
+    client: Client,
+    principal: Principal,
+    limits: RateLimits,
+    batch: Batch,
+) -> Result<BatchTaken, Problem<ClientTelemetryError>> {
+    // The turn the bytes hold lasts until `batch` is dropped, once the collector has answered
+    // (PLATFORM-090).
+    let batch = read(batch, &telemetry).await?;
+    let sent = Sent {
+        signal: Signal::Metrics,
         media_type: batch.encoding.media_type(),
         bytes: batch.bytes.clone(),
     };

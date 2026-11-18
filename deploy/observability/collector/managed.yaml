@@ -5,7 +5,7 @@
 # the backend's OTLP endpoint, which MANAGED_OTLP_ENDPOINT names, signed in as MANAGED_OTLP_USER
 # with the token in the secret file managed_otlp_token. docs/operations/observability.md describes the path,
 # for a backend such as Grafana Cloud.
-# It comes after clients.yaml too, whose two pipelines it sends to the backend. # part: client_telemetry
+# It comes after clients.yaml too: it sends the two pipelines of clients' spans and log records to the backend, and the series that the third adds up from their metrics. # part: client_telemetry
 
 extensions:
   basicauth/managed:
@@ -23,6 +23,18 @@ receivers:
           scrape_interval: 15s
           static_configs:
             - targets: [127.0.0.1:8888]
+  # part: client_telemetry
+  # The series that clients.yaml adds up from the metrics of users' clients, which the
+  # self-hosted Prometheus scrapes, each under its client's service.name.
+  prometheus/clients:
+    config:
+      scrape_configs:
+        - job_name: clients
+          scrape_interval: 15s
+          honor_labels: true
+          static_configs:
+            - targets: [127.0.0.1:9464]
+  # end part: client_telemetry
 
 processors:
   # A backend keeps resource attributes apart from a series' labels, while the self-hosted
@@ -76,5 +88,9 @@ service:
     traces/clients:
       exporters: [otlp_http/managed_clients]
     logs/clients:
+      exporters: [otlp_http/managed_clients]
+    metrics/clients_series:
+      receivers: [prometheus/clients]
+      processors: [memory_limiter/clients, batch]
       exporters: [otlp_http/managed_clients]
     # end part: client_telemetry

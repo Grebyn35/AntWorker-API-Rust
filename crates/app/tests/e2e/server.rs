@@ -507,7 +507,8 @@ impl Server {
              exporters:\n  file:\n    path: /backend/out/telemetry.json\n\
              service:\n  extensions: [basicauth/server]\n  pipelines:\n    \
              traces:\n      receivers: [otlp]\n      exporters: [file]\n    \
-             logs:\n      receivers: [otlp]\n      exporters: [file]\n",
+             logs:\n      receivers: [otlp]\n      exporters: [file]\n    \
+             metrics:\n      receivers: [otlp]\n      exporters: [file]\n",
         );
         self.write(
             &format!("{DEPLOYMENT}/secrets/managed_otlp_token"),

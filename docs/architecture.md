@@ -29,7 +29,7 @@ flowchart LR
 - Object storage holds file bytes. Uploads and downloads use it during the request, and deletions go through background jobs. <!-- part: files -->
 - ClamAV's daemon scans each upload for malware during its request, before the upload is stored. <!-- part: files -->
 - The Simple Mail Transfer Protocol (SMTP) delivers email, and only background jobs reach it. No request waits for an email to send (D1).
-- A client's telemetry reaches the collector through the API: its telemetry proxy forwards the spans and the log records of a user who consents, on a receiver and through pipelines of their own (D7, D175, D177). <!-- part: client_telemetry -->
+- A client's telemetry reaches the collector through the API: its telemetry proxy forwards the spans, the log records and the metrics of a user who consents, on a receiver and through pipelines of their own (D7, D175, D177, D179). <!-- part: client_telemetry -->
 - The observability stack is always part of the codebase, and turning it on at runtime is optional.
 
 ## 2. Principles

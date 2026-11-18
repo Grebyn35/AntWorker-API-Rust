@@ -22,6 +22,8 @@ pub enum Signal {
     Traces,
     /// Log records.
     Logs,
+    /// Metrics.
+    Metrics,
 }
 
 impl Signal {
@@ -30,6 +32,7 @@ impl Signal {
         match self {
             Self::Traces => "v1/traces",
             Self::Logs => "v1/logs",
+            Self::Metrics => "v1/metrics",
         }
     }
 }
@@ -60,6 +63,7 @@ pub struct Relay {
     host: String,
     traces: String,
     logs: String,
+    metrics: String,
 }
 
 impl std::fmt::Debug for Relay {
@@ -67,6 +71,7 @@ impl std::fmt::Debug for Relay {
         f.debug_struct("Relay")
             .field("traces", &self.traces)
             .field("logs", &self.logs)
+            .field("metrics", &self.metrics)
             .finish_non_exhaustive()
     }
 }
@@ -89,6 +94,7 @@ impl Relay {
             host: endpoint.host(),
             traces: endpoint.url(Signal::Traces.path()),
             logs: endpoint.url(Signal::Logs.path()),
+            metrics: endpoint.url(Signal::Metrics.path()),
         })
     }
 
@@ -112,6 +118,7 @@ impl Relay {
         let url = match signal {
             Signal::Traces => &self.traces,
             Signal::Logs => &self.logs,
+            Signal::Metrics => &self.metrics,
         };
         let sending = self
             .client
