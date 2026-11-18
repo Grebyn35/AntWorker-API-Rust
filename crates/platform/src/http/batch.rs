@@ -2,7 +2,11 @@
 //! OpenTelemetry Protocol on HTTP (OTLP/HTTP), and the response that tells the exporter that the
 //! batch was taken (PLATFORM-090).
 
-use std::{io::Read, sync::Arc};
+use std::{
+    collections::HashMap,
+    io::Read,
+    sync::{Arc, Mutex, PoisonError},
+};
 
 use axum::{
     body::{Body, Bytes},
@@ -24,6 +28,7 @@ use super::{
 use crate::{
     blocking::Workers,
     errors::{BodyFault, ErrorCode, Internal, PlatformError, Problem, RequestError},
+    types::UserId,
 };
 
 impl<S> Routes<S>
@@ -46,14 +51,59 @@ const MEDIA_TYPES: &str = "application/x-protobuf or application/json";
 const BATCHES_AT_ONCE: usize = 8;
 
 /// The turns of the batches that a replica reads at once, which the stack shares with every
-/// request (PLATFORM-090).
+/// request, and each user's own turn at them, so that no user holds more than one
+/// (PLATFORM-090).
 #[derive(Clone, Debug)]
-pub(super) struct BatchTurns(Arc<Semaphore>);
+pub(super) struct BatchTurns {
+    /// The replica's turns.
+    all: Arc<Semaphore>,
+    /// The own turn of each user whose batch holds a turn or waits for one.
+    users: Arc<Mutex<HashMap<UserId, Arc<Semaphore>>>>,
+}
+
+/// A turn at reading a batch's body: its user's own, and one of the replica's, which both go
+/// when it is dropped (PLATFORM-090).
+#[derive(Debug)]
+struct Turn {
+    _own: OwnedSemaphorePermit,
+    _shared: OwnedSemaphorePermit,
+}
 
 impl BatchTurns {
     /// Every turn free.
     pub(super) fn new() -> Self {
-        Self(Arc::new(Semaphore::new(BATCHES_AT_ONCE)))
+        Self {
+            all: Arc::new(Semaphore::new(BATCHES_AT_ONCE)),
+            users: Arc::default(),
+        }
+    }
+
+    /// Waits for `caller`'s own turn, which their earlier batch holds until it is dropped, and
+    /// only then for one of the replica's, so a user's batches hold one of the replica's turns
+    /// between them (PLATFORM-090).
+    async fn take(&self, caller: UserId) -> Result<Turn, Internal> {
+        let own = {
+            // A lock that a panic poisoned still holds a whole map, since each change of it is
+            // one call, so it is taken as it is.
+            let mut users = self.users.lock().unwrap_or_else(PoisonError::into_inner);
+            // A user's turn that no batch holds or waits for is only the map's.
+            users.retain(|_, own| Arc::strong_count(own) > 1);
+            Arc::clone(
+                users
+                    .entry(caller)
+                    .or_insert_with(|| Arc::new(Semaphore::new(1))),
+            )
+        };
+        // Neither semaphore is ever closed, so waiting for a turn ends only with one.
+        let own = own.acquire_owned().await.map_err(Internal::new)?;
+        let shared = Arc::clone(&self.all)
+            .acquire_owned()
+            .await
+            .map_err(Internal::new)?;
+        Ok(Turn {
+            _own: own,
+            _shared: shared,
+        })
     }
 }
 
@@ -131,7 +181,7 @@ pub struct ReadBatch {
     pub encoding: BatchEncoding,
     /// Its bytes, inflated if they came as gzip.
     pub bytes: Bytes,
-    _turn: OwnedSemaphorePermit,
+    _turn: Turn,
 }
 
 impl Batch {
@@ -157,14 +207,20 @@ impl Batch {
         }
     }
 
-    /// Waits for one of the replica's turns, then reads the body, up to `limit` bytes, and
+    /// Waits for the turn of `caller`, the user who sends the batch, and for one of the replica's,
+    /// then reads the body, up to `limit` bytes, and
     /// inflates one that came as gzip, up to as many: 400 `request.invalid_body` for another
     /// `Content-Type` or `Content-Encoding` than a batch's, for a body that stops before its end,
     /// and for gzip that doesn't inflate, and 413 `request.payload_too_large` for a body that
     /// declares more than `limit` bytes, grows past them, or inflates past them. Inflating is
     /// CPU-heavy work, which runs through `workers` (CODE-05), and stops at the first byte past
     /// `limit`.
-    pub async fn read(self, limit: usize, workers: &Workers) -> Result<ReadBatch, PlatformError> {
+    pub async fn read(
+        self,
+        caller: UserId,
+        limit: usize,
+        workers: &Workers,
+    ) -> Result<ReadBatch, PlatformError> {
         let encoding = self.encoding()?;
         let gzip = self.is_gzip()?;
         // A length that isn't a number Rust can hold is over any limit.
@@ -174,8 +230,7 @@ impl Batch {
         {
             return Err(RequestError::PayloadTooLarge.into());
         }
-        // The semaphore is never closed, so waiting for a turn ends only with one.
-        let turn = self.turns.0.acquire_owned().await.map_err(Internal::new)?;
+        let turn = self.turns.take(caller).await?;
         let sent = match Limited::new(self.body, limit).collect().await {
             Ok(collected) => collected.to_bytes(),
             Err(error) if is_too_large(&*error) => return Err(RequestError::PayloadTooLarge.into()),
@@ -275,7 +330,12 @@ mod tests {
             .body(Body::from(body))
             .unwrap();
         let batch = Batch::from_request(request, &()).await.unwrap();
-        batch.read(limit, &Workers::new()).await
+        batch.read(user(0), limit, &Workers::new()).await
+    }
+
+    /// The user numbered `number`.
+    fn user(number: u128) -> UserId {
+        UserId::from_uuid(uuid::Uuid::from_u128(number))
     }
 
     const PROTOBUF: (&str, &str) = ("content-type", "application/x-protobuf");
@@ -391,7 +451,7 @@ mod tests {
 
         let batch = Batch::from_request(request, &()).await.unwrap();
         let read_by_extraction = polled.load(Ordering::SeqCst);
-        let read = batch.read(10, &Workers::new()).await.unwrap();
+        let read = batch.read(user(0), 10, &Workers::new()).await.unwrap();
 
         assert!(!read_by_extraction);
         assert!(polled.load(Ordering::SeqCst), "`read` reads the body");
@@ -426,21 +486,59 @@ mod tests {
             Batch::from_request(request, &()).await.unwrap()
         };
         let mut read = Vec::new();
-        for _ in 0..8 {
-            read.push(batch().await.read(1, &workers).await.unwrap());
+        for number in 0..8 {
+            let batch = batch().await.read(user(number), 1, &workers);
+            read.push(batch.await.unwrap());
         }
 
-        // Every turn is held while its bytes are, so a ninth batch's body waits, unread.
+        // Every turn is held while its bytes are, so a ninth user's batch waits, unread.
         let ninth = batch().await;
-        let mut ninth = std::pin::pin!(ninth.read(1, &workers));
+        let mut ninth = std::pin::pin!(ninth.read(user(8), 1, &workers));
         assert!((&mut ninth).now_or_never().is_none());
         drop(read.pop());
         let ninth = ninth.await.unwrap();
 
         assert_eq!(&ninth.bytes[..], b"x");
-        assert_eq!(turns.0.available_permits(), 0);
+        assert_eq!(turns.all.available_permits(), 0);
         drop((read, ninth));
-        assert_eq!(turns.0.available_permits(), BATCHES_AT_ONCE);
+        assert_eq!(turns.all.available_permits(), BATCHES_AT_ONCE);
+    }
+
+    #[tokio::test]
+    async fn platform_090_a_user_s_next_batch_waits_for_their_first_holding_no_turn() {
+        use futures_util::FutureExt;
+
+        let (turns, workers) = (BatchTurns::new(), Workers::new());
+        let batch = || async {
+            let request = Request::builder()
+                .header(PROTOBUF.0, PROTOBUF.1)
+                .extension(turns.clone())
+                .body(Body::from("x"))
+                .unwrap();
+            Batch::from_request(request, &()).await.unwrap()
+        };
+        let (ada, bob) = (user(1), user(2));
+        let first = batch().await.read(ada, 1, &workers).await.unwrap();
+
+        // Ada's next batch waits for her first, and takes none of the replica's turns
+        // meanwhile, so another user's batch is read.
+        let next = batch().await;
+        let mut next = std::pin::pin!(next.read(ada, 1, &workers));
+        assert!((&mut next).now_or_never().is_none());
+        assert_eq!(turns.all.available_permits(), BATCHES_AT_ONCE - 1);
+        let others = batch().await.read(bob, 1, &workers).await.unwrap();
+        assert!((&mut next).now_or_never().is_none());
+        drop(first);
+        let next = next.await.unwrap();
+
+        assert_eq!(turns.all.available_permits(), BATCHES_AT_ONCE - 2);
+        drop((next, others));
+        assert_eq!(turns.all.available_permits(), BATCHES_AT_ONCE);
+        // A user's own turn stays only while a batch of theirs holds it or waits for it.
+        let last = batch().await.read(bob, 1, &workers).await.unwrap();
+        let users: Vec<UserId> = turns.users.lock().unwrap().keys().copied().collect();
+        assert_eq!(users, [bob]);
+        drop(last);
     }
 
     #[tokio::test]

@@ -1,7 +1,10 @@
-//! The body of an upload route: a file's bytes, read in one of the replica's turns, with the
-//! request's idempotency key (PLATFORM-074).
+//! The body of an upload route: a file's bytes, read in one of the replica's turns, of which a
+//! user holds one at most, with the request's idempotency key (PLATFORM-074).
 
-use std::sync::Arc;
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex, PoisonError},
+};
 
 use axum::{
     body::{Body, Bytes},
@@ -20,6 +23,7 @@ use crate::{
     blocking::Workers,
     errors::{BodyFault, Internal, PlatformError, Problem, RequestError},
     idempotency::IdempotencyKey,
+    types::UserId,
 };
 
 /// The media type of an upload's bytes, whose kind its route finds from the bytes themselves.
@@ -28,15 +32,59 @@ const OCTET_STREAM: &str = "application/octet-stream";
 /// How many uploads' bodies a replica holds in memory at once (PLATFORM-074).
 const UPLOADS_AT_ONCE: usize = 4;
 
-/// The turns of the uploads a replica reads at once, which the stack shares with every request
-/// (PLATFORM-074).
+/// The turns of the uploads a replica reads at once, which the stack shares with every request,
+/// and each user's own turn at them, so that no user holds more than one (PLATFORM-074).
 #[derive(Clone, Debug)]
-pub(super) struct UploadTurns(Arc<Semaphore>);
+pub(super) struct UploadTurns {
+    /// The replica's turns.
+    all: Arc<Semaphore>,
+    /// The own turn of each user whose upload holds a turn or waits for one.
+    users: Arc<Mutex<HashMap<UserId, Arc<Semaphore>>>>,
+}
+
+/// A turn at reading an upload's body: its user's own, and one of the replica's, which both go
+/// when it is dropped (PLATFORM-074).
+#[derive(Debug)]
+struct Turn {
+    _own: OwnedSemaphorePermit,
+    _shared: OwnedSemaphorePermit,
+}
 
 impl UploadTurns {
     /// Every turn free.
     pub(super) fn new() -> Self {
-        Self(Arc::new(Semaphore::new(UPLOADS_AT_ONCE)))
+        Self {
+            all: Arc::new(Semaphore::new(UPLOADS_AT_ONCE)),
+            users: Arc::default(),
+        }
+    }
+
+    /// Waits for `caller`'s own turn, which their earlier upload holds until its bytes are
+    /// dropped, and only then for one of the replica's, so a user's uploads hold one of the
+    /// replica's turns between them (PLATFORM-074).
+    async fn take(&self, caller: UserId) -> Result<Turn, Internal> {
+        let own = {
+            // A lock that a panic poisoned still holds a whole map, since each change of it is
+            // one call, so it is taken as it is.
+            let mut users = self.users.lock().unwrap_or_else(PoisonError::into_inner);
+            // A user's turn that no upload holds or waits for is only the map's.
+            users.retain(|_, own| Arc::strong_count(own) > 1);
+            Arc::clone(
+                users
+                    .entry(caller)
+                    .or_insert_with(|| Arc::new(Semaphore::new(1))),
+            )
+        };
+        // Neither semaphore is ever closed, so waiting for a turn ends only with one.
+        let own = own.acquire_owned().await.map_err(Internal::new)?;
+        let shared = Arc::clone(&self.all)
+            .acquire_owned()
+            .await
+            .map_err(Internal::new)?;
+        Ok(Turn {
+            _own: own,
+            _shared: shared,
+        })
     }
 }
 
@@ -116,7 +164,7 @@ pub struct Uploaded {
     pub bytes: Bytes,
     /// The key, which the operation's unit of work claims.
     pub key: Option<IdempotencyKey>,
-    _turn: OwnedSemaphorePermit,
+    _turn: Turn,
 }
 
 impl Upload {
@@ -130,15 +178,20 @@ impl Upload {
         }
     }
 
-    /// Waits for one of the replica's turns, then reads the body, up to `limit` bytes: 413
-    /// `request.payload_too_large` for a body that declares more or grows past it (PLATFORM-048,
-    /// PLATFORM-050), and 400 `request.invalid_body` for one that stops before its end. A keyed
-    /// upload's digest of the bytes, for its key's fingerprint, is CPU-heavy work, which runs
-    /// through `workers` (CODE-05).
-    pub async fn read(self, limit: usize, workers: &Workers) -> Result<Uploaded, PlatformError> {
+    /// Waits for the turn of `caller`, the user who uploads, and for one of the replica's, then
+    /// reads the body, up to `limit` bytes: 413 `request.payload_too_large` for a body that
+    /// declares more or grows past it (PLATFORM-048, PLATFORM-050), and 400
+    /// `request.invalid_body` for one that stops before its end. A keyed upload's digest of the
+    /// bytes, for its key's fingerprint, is CPU-heavy work, which runs through `workers`
+    /// (CODE-05).
+    pub async fn read(
+        self,
+        caller: UserId,
+        limit: usize,
+        workers: &Workers,
+    ) -> Result<Uploaded, PlatformError> {
         self.refuse_declared(limit)?;
-        // The semaphore is never closed, so waiting for a turn ends only with one.
-        let turn = self.turns.0.acquire_owned().await.map_err(Internal::new)?;
+        let turn = self.turns.take(caller).await?;
         let bytes = match Limited::new(self.body, limit).collect().await {
             Ok(collected) => collected.to_bytes(),
             Err(error) if is_too_large(&*error) => return Err(RequestError::PayloadTooLarge.into()),
@@ -223,24 +276,58 @@ mod tests {
         }
     }
 
+    /// The user numbered `number`.
+    fn user(number: u128) -> UserId {
+        UserId::from_uuid(uuid::Uuid::from_u128(number))
+    }
+
     #[tokio::test]
     async fn platform_074_a_replica_reads_four_uploads_at_once_and_a_fifth_waits_for_a_turn() {
         let turns = UploadTurns::new();
         let workers = Workers::new();
         let mut read = Vec::new();
-        for _ in 0..4 {
-            read.push(upload("x", &turns).read(1, &workers).await.unwrap());
+        for number in 0..4 {
+            let upload = upload("x", &turns).read(user(number), 1, &workers);
+            read.push(upload.await.unwrap());
         }
 
-        // Every turn is held while its bytes are, so a fifth upload's body waits, unread.
-        let mut fifth = std::pin::pin!(upload("y", &turns).read(1, &workers));
+        // Every turn is held while its bytes are, so a fifth user's upload waits, unread.
+        let mut fifth = std::pin::pin!(upload("y", &turns).read(user(4), 1, &workers));
         assert!((&mut fifth).now_or_never().is_none());
         drop(read.pop());
         let fifth = fifth.await.unwrap();
 
         assert_eq!(&fifth.bytes[..], b"y");
-        assert_eq!(turns.0.available_permits(), 0);
+        assert_eq!(turns.all.available_permits(), 0);
         drop((read, fifth));
-        assert_eq!(turns.0.available_permits(), UPLOADS_AT_ONCE);
+        assert_eq!(turns.all.available_permits(), UPLOADS_AT_ONCE);
+    }
+
+    #[tokio::test]
+    async fn platform_074_a_user_s_next_upload_waits_for_their_first_holding_no_turn() {
+        let turns = UploadTurns::new();
+        let workers = Workers::new();
+        let (ada, bob) = (user(1), user(2));
+        let first = upload("x", &turns).read(ada, 1, &workers).await.unwrap();
+
+        // Ada's next upload waits for her first, and takes none of the replica's turns
+        // meanwhile, so another user's upload is read.
+        let mut next = std::pin::pin!(upload("y", &turns).read(ada, 1, &workers));
+        assert!((&mut next).now_or_never().is_none());
+        assert_eq!(turns.all.available_permits(), UPLOADS_AT_ONCE - 1);
+        let others = upload("z", &turns).read(bob, 1, &workers).await.unwrap();
+        assert!((&mut next).now_or_never().is_none());
+        drop(first);
+        let next = next.await.unwrap();
+
+        assert_eq!(&next.bytes[..], b"y");
+        assert_eq!(turns.all.available_permits(), UPLOADS_AT_ONCE - 2);
+        drop((next, others));
+        assert_eq!(turns.all.available_permits(), UPLOADS_AT_ONCE);
+        // A user's own turn stays only while an upload of theirs holds it or waits for it.
+        let last = upload("w", &turns).read(bob, 1, &workers).await.unwrap();
+        let users: Vec<UserId> = turns.users.lock().unwrap().keys().copied().collect();
+        assert_eq!(users, [bob]);
+        drop(last);
     }
 }

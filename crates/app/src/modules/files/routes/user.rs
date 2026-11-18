@@ -73,7 +73,7 @@ async fn upload_own_file(
     // The turn the bytes hold lasts until `uploaded` is dropped, once the file is stored
     // (PLATFORM-074).
     let uploaded = upload
-        .read(limit, &files.workers)
+        .read(principal.user_id(), limit, &files.workers)
         .await
         .map_err(FilesError::from)?;
     let sent = Sent {

@@ -65,7 +65,11 @@ async fn set_picture(
     // The turn the bytes hold lasts until `uploaded` is dropped, once the picture is stored
     // (PLATFORM-074).
     let uploaded = upload
-        .read(PICTURE_MAX_BYTES, &pictures.workers)
+        .read(
+            authorize.principal().user_id(),
+            PICTURE_MAX_BYTES,
+            &pictures.workers,
+        )
         .await
         .map_err(WorkspacesError::from)?;
     let bytes = uploaded.bytes.clone();

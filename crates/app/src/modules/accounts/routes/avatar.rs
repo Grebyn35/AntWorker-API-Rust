@@ -60,7 +60,7 @@ async fn set_avatar(
     // The turn the bytes hold lasts until `uploaded` is dropped, once the avatar is stored
     // (PLATFORM-074).
     let uploaded = upload
-        .read(AVATAR_MAX_BYTES, &avatars.workers)
+        .read(principal.user_id(), AVATAR_MAX_BYTES, &avatars.workers)
         .await
         .map_err(AccountsError::from)?;
     let bytes = uploaded.bytes.clone();

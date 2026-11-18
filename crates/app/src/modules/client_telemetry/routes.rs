@@ -131,7 +131,7 @@ async fn send_traces(
 ) -> Result<BatchTaken, Problem<ClientTelemetryError>> {
     // The turn the bytes hold lasts until `batch` is dropped, once the collector has answered
     // (PLATFORM-090).
-    let batch = read(batch, &telemetry).await?;
+    let batch = read(batch, &telemetry, &principal).await?;
     let sent = Sent {
         signal: Signal::Traces,
         media_type: batch.encoding.media_type(),
@@ -171,7 +171,7 @@ async fn send_logs(
 ) -> Result<BatchTaken, Problem<ClientTelemetryError>> {
     // The turn the bytes hold lasts until `batch` is dropped, once the collector has answered
     // (PLATFORM-090).
-    let batch = read(batch, &telemetry).await?;
+    let batch = read(batch, &telemetry, &principal).await?;
     let sent = Sent {
         signal: Signal::Logs,
         media_type: batch.encoding.media_type(),
@@ -210,7 +210,7 @@ async fn send_metrics(
 ) -> Result<BatchTaken, Problem<ClientTelemetryError>> {
     // The turn the bytes hold lasts until `batch` is dropped, once the collector has answered
     // (PLATFORM-090).
-    let batch = read(batch, &telemetry).await?;
+    let batch = read(batch, &telemetry, &principal).await?;
     let sent = Sent {
         signal: Signal::Metrics,
         media_type: batch.encoding.media_type(),
@@ -220,12 +220,15 @@ async fn send_metrics(
     Ok(BatchTaken(batch.encoding))
 }
 
-/// Reads `batch`, up to the largest batch's bytes, inflating it in one of `telemetry`'s turns of
-/// CPU-heavy work if it came as gzip (CLIENT_TELEMETRY-006).
+/// Reads `batch`, which `principal`'s user sends, up to the largest batch's bytes, inflating it
+/// in one of `telemetry`'s turns of CPU-heavy work if it came as gzip (CLIENT_TELEMETRY-006).
 async fn read(
     batch: Batch,
     telemetry: &ClientTelemetry,
+    principal: &Principal,
 ) -> Result<ReadBatch, ClientTelemetryError> {
     let limit = usize::try_from(MAX_BATCH_BYTES).unwrap_or(usize::MAX);
-    Ok(batch.read(limit, &telemetry.workers).await?)
+    Ok(batch
+        .read(principal.user_id(), limit, &telemetry.workers)
+        .await?)
 }

@@ -84,7 +84,7 @@ A client sends nothing while its user doesn't consent ([the consent](#the-consen
 ### A batch's steps
 
 1. The pipeline counts the request in its client IP's bucket, authenticates it, and counts it in its user's bucket, as it does any request (PLATFORM-054).
-2. The route reads the body, up to 1,048,576 bytes, and inflates one that came as gzip, up to as many (CLIENT_TELEMETRY-006). A replica reads at most 8 batches at once, each in a turn that it holds until the collector has answered, so the batches in its memory take at most 8 times that, twice over while they inflate, whatever the concurrency limit lets in (PLATFORM-090).
+2. The route reads the body, up to 1,048,576 bytes, and inflates one that came as gzip, up to as many (CLIENT_TELEMETRY-006). A replica reads at most 8 batches at once, each in a turn that it holds until the collector has answered, so the batches in its memory take at most 8 times that, twice over while they inflate, whatever the concurrency limit lets in, and a user's batches hold one of those turns between them, so one user's slow bodies leave the others' batches their turns (PLATFORM-090).
 3. Without `CLIENT_TELEMETRY_ENDPOINT`, the request ends with 503 (CLIENT_TELEMETRY-010).
 4. The service reads the caller's consent, as CLIENT_TELEMETRY-001 does, and refuses a caller who doesn't consent (CLIENT_TELEMETRY-005).
 5. It counts the bytes in the caller's budget, then in the replica's (CLIENT_TELEMETRY-007, CLIENT_TELEMETRY-008).
