@@ -1,6 +1,6 @@
 # Threat model
 
-What the API and its reference deployment protect, from whom, and which rules and behaviors stop each threat. The bar is Level 2 of version 5.0.0 of the Application Security Verification Standard (ASVS), but for its requirement 6.3.3, as [the security rules](../standards/security.md) say (D26, D63). Each mitigation is stated in its home, a rule or a behavior, which this file cites by ID rather than restating it (DOC-07), and a change that adds a threat, or changes what stops one, changes this file in the same commit. Parts not built yet, such as a deployment's requirement of a second factor, are listed with the rules that already bind them, and arrive with step 5 of [the migration](../MIGRATION.md#build-order).
+What the API and its reference deployment protect, from whom, and which rules and behaviors stop each threat. The bar is Level 2 of version 5.0.0 of the Application Security Verification Standard (ASVS), but for its requirement 6.3.3, as [the security rules](../standards/security.md) say (D26, D63). Each mitigation is stated in its home, a rule or a behavior, which this file cites by ID rather than restating it (DOC-07), and a change that adds a threat, or changes what stops one, changes this file in the same commit. [The map of the bar's requirements](asvs.md) says how each one stands.
 
 ## What it protects
 
