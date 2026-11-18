@@ -323,6 +323,8 @@ Caddy obtains and renews the certificates on its own, with keys on the curve P-2
 
 A client that sends plain HTTP to the API's address gets no answer: Caddy closes the connection, so the mistake shows at the client's first request, where a redirect to HTTPS would let it go on sending each request, with its credentials, in plain text first. Grafana's address, which a browser opens, answers plain HTTP with a redirect to HTTPS.
 
+Caddy alone reads how a client marks where a request ends, over HTTP/1.1, HTTP/2 or HTTP/3, and it sends each request on to a replica over HTTP/1.1 with one mark of its own: a `Content-Length` where the client gave the body's length, and chunks otherwise. A request that gives two lengths that differ gets Caddy's 400, one whose `Transfer-Encoding` is anything but a single `chunked` its 501, and one that sends both a length and chunks goes on in chunks, without the length. So no replica reads a request that two readers could end at different bytes, which is what request smuggling takes.
+
 Caddy replaces each request's `X-Forwarded-For` with the address it came from, so a client can't pretend to come from elsewhere. When a content delivery network or a load balancer stands in front of the server, list its addresses in `TRUSTED_PROXIES`, and Caddy keeps the header they send (SEC-13).
 
 ## Grafana
