@@ -88,6 +88,11 @@ async fn sec_14_a_server_publishes_only_the_proxy_and_grafana_signs_every_viewer
         r#"{"email":"viewer@example.invalid","username":"viewer","password":"a password of the e2e tests"}"#
             .to_owned(),
     );
+    let (metrics, _, exposition) = get_within(
+        root.clone(),
+        deployment.url_at(GRAFANA_ADDRESS, "https", 443, "/metrics"),
+        Duration::from_secs(10),
+    );
     let (sign_in, signed_in) = post(
         root,
         deployment.url_at(GRAFANA_ADDRESS, "https", 443, "/login"),
@@ -117,6 +122,9 @@ async fn sec_14_a_server_publishes_only_the_proxy_and_grafana_signs_every_viewer
         "max-age=31536000; includeSubDomains"
     );
     assert_eq!(search, 401);
+    // Grafana's own metrics, which nothing of the stack scrapes, answer no one.
+    assert_ne!(metrics, 200, "{exposition}");
+    assert!(!exposition.contains("# TYPE"), "{exposition}");
     assert_eq!(sign_up, 401, "{refusal}");
     assert!(refusal.contains("signup is disabled"), "{refusal}");
     assert_eq!(sign_in, 200, "{signed_in}");

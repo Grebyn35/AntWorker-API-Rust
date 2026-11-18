@@ -110,7 +110,7 @@ An IP limit applies to every route except the health probes, before authenticati
 - Check: `test`.
 
 ### SEC-14 A server exposes only the API and a Grafana that signs viewers in
-The reference deployment publishes only Caddy's ports, 80 and 443. Caddy serves the API's address and, with the self-hosted observability stack, Grafana's, where every viewer signs in: Grafana admits no anonymous viewer and no one who signs themselves up. Postgres, the collector and the rest of the stack answer only on the deployment's private networks.
+The reference deployment publishes only Caddy's ports, 80 and 443. Caddy serves the API's address and, with the self-hosted observability stack, Grafana's, where every viewer signs in: Grafana admits no anonymous viewer and no one who signs themselves up, and serves its own metrics to no one, which nothing of the stack scrapes; its health check answers without a sign-in, as the API's probes do (OPS-05). Postgres, the collector and the rest of the stack answer only on the deployment's private networks.
 - Why: the database holds everything, and the dashboards, logs and traces show how the system is used (D26, D42).
 - Check: `ci: e2e`.
 

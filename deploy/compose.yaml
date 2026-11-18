@@ -548,6 +548,9 @@ services:
       GF_SECURITY_COOKIE_SECURE: "true"
       GF_AUTH_ANONYMOUS_ENABLED: "false"
       GF_USERS_ALLOW_SIGN_UP: "false"
+      # Grafana's own metrics, which it would serve at /metrics to whoever asks, without a
+      # sign-in: nothing of the stack scrapes them (SEC-14).
+      GF_METRICS_ENABLED: "false"
     secrets: [grafana_admin_password]
     networks: [edge, telemetry]
     restart: unless-stopped
