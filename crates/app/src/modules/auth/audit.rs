@@ -295,7 +295,7 @@ pub(crate) const ACTIONS: &[&dyn Catalogued] = &[
 /// through, absent for one with a password.
 #[derive(Clone, Debug, Default, Serialize, ToSchema)]
 pub(super) struct ThroughProvider {
-    /// The provider's key, such as `google`, as the capabilities list it (AUTH-081).
+    /// The provider's key, as the capabilities list it (AUTH-081).
     #[serde(skip_serializing_if = "Option::is_none")]
     provider: Option<String>,
 }
@@ -313,7 +313,7 @@ impl ThroughProvider {
 /// The details of an action on the user's account at a provider: the provider.
 #[derive(Clone, Debug, Serialize, ToSchema)]
 pub(super) struct LinkedProvider {
-    /// The provider's key, such as `google`, as the capabilities list it (AUTH-081).
+    /// The provider's key, as the capabilities list it (AUTH-081).
     provider: String,
 }
 

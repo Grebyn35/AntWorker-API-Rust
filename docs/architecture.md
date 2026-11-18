@@ -483,7 +483,9 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 | Image index | The list in a registry that names one image's version for each platform, with each one's SBOM and provenance. A multi-platform image's digest is its index's. |
 | Capability | A feature that a deployment can turn off, which the capabilities endpoint lists with whether it is on (D9). |
 | Trace ID | The identifier, returned with every response except the health probes, that leads to a request's logs, and to its trace whenever the request ended in an error (D10). |
-| Personal data | In these documents: information that identifies a person directly, such as email addresses, names, avatars, IP addresses, user agents, file names and text a user writes. User and workspace IDs are pseudonymous. The General Data Protection Regulation (GDPR) still counts them as personal data, so export and erasure cover them (D31), but they may appear in telemetry and audit entries. |
+| Personal data | In these documents: information that identifies a person directly, such as email addresses, names, IP addresses, user agents and text a user writes. User and workspace IDs are pseudonymous. The General Data Protection Regulation (GDPR) still counts them as personal data, so export and erasure cover them (D31), but they may appear in telemetry and audit entries. |
 | Point-in-time recovery | A restore of a database as it stood at any moment its backups reach, from a base backup and the write-ahead log archived after it: what the reference deployment's bundled Postgres provides, and what it requires of a managed one (OPS-15). |
+
+An avatar and a file's name are personal data in the glossary's sense too. <!-- part: files -->
 
 The documents assume a developer knows these acronyms, and don't spell them out (DOC-06): API, ASCII, CI, CPU, CSV, DNS, GIF, HTML, HTTP, HTTPS, ID, IP, JPEG, JSON, PDF, PNG, REST, RFC, SDK, SQL, TCP, TLS, UI, URL, UTC, UTF and UUID. These names are written in capitals, and aren't acronyms to spell out: AES, BSD, CDLA, GCM, IETF, ISC, MIT, QEMU, README, S3, SHA, SIGINT, SIGKILL, SIGTERM, SOC, W3C, ZIP and ZIP64.

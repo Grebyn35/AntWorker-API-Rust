@@ -1,9 +1,8 @@
-//! The untrusted client (SEC-10): it calls URLs that come from a third party, such as the
-//! picture of a user that an OAuth provider names. It fetches over HTTPS only, from public
-//! addresses only, which it checks once DNS has resolved a name, so a name that resolves to a
-//! private address reaches nothing, re-checks every redirect and follows at most
-//! [`MAX_REDIRECTS`], and caps each answer's size and time. It sends no credential, no cookie
-//! and no proxy's request, so every address it reaches is one it checked.
+//! The untrusted client (SEC-10): it calls URLs that come from a third party. It fetches over
+//! HTTPS only, from public addresses only, which it checks once DNS has resolved a name, so a
+//! name that resolves to a private address reaches nothing, re-checks every redirect and follows
+//! at most [`MAX_REDIRECTS`], and caps each answer's size and time. It sends no credential, no
+//! cookie and no proxy's request, so every address it reaches is one it checked.
 
 use std::{
     error::Error,

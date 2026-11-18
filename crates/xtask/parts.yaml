@@ -56,6 +56,8 @@ parts:
       - avatar_
       - avatar.
       - /avatar
+      - an avatar
+      - avatars
       - clam
       - eicar
       - malware
@@ -91,6 +93,8 @@ parts:
       - files.storage
       - files.unsupported
       - files.upload
+      - file.uploaded
+      - file.deleted
   # end part: files
   # part: workspace_creation
   - name: workspace_creation

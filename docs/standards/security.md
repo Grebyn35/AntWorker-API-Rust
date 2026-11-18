@@ -72,12 +72,14 @@ All outbound HTTP that application code makes uses one of the two clients in `pl
 The object storage adapter uses its library's own client too, with its endpoint from configuration, and the malware scanner's adapter speaks clamd's own protocol, not HTTP, over TCP to the address that configuration names (PLATFORM-079), so neither client applies to them either. <!-- part: files -->
 The relay of clients' batches of telemetry is a telemetry adapter too: it sends each batch to the collector's receiver that configuration names, through a client of its own, which follows no redirect and sends none of the caller's credentials (PLATFORM-091). <!-- part: client_telemetry -->
 - The configured client calls URLs that come from configuration or from the code, such as an OAuth provider's endpoints. It requires HTTPS, unless the environment is development or test, follows no redirect, and caps response size and time.
-- The untrusted client calls URLs that come from a third party, such as the picture of a user that an OAuth provider names. It:
+- The untrusted client calls URLs that come from a third party. It:
   - allows HTTPS only
   - blocks private, loopback and link-local addresses after DNS resolution
   - re-checks every redirect, and limits redirects
   - caps response size and time
   - sends no credential, and goes through no proxy, which would resolve a name in its place
+
+  The picture of a user that an OAuth provider names is such a URL. <!-- part: files -->
 
 In the test environment only, the configured client sends every request to one configured loopback origin, keeping its path, and the untrusted client accepts that origin, over `http`, as the one address that isn't public, so tests can reach a fake provider. Startup refuses the setting in any other environment.
 - Why: no server-side request forgery, while every path stays testable (D26).

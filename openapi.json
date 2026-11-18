@@ -2386,7 +2386,7 @@
         "description": "The details of an action on the user's account at a provider: the provider.",
         "properties": {
           "provider": {
-            "description": "The provider's key, such as `google`, as the capabilities list it (AUTH-081).",
+            "description": "The provider's key, as the capabilities list it (AUTH-081).",
             "type": "string"
           }
         },
@@ -6045,7 +6045,7 @@
         "description": "The details of a sign-in's actions, and of a re-authentication's: the provider that it went\nthrough, absent for one with a password.",
         "properties": {
           "provider": {
-            "description": "The provider's key, such as `google`, as the capabilities list it (AUTH-081).",
+            "description": "The provider's key, as the capabilities list it (AUTH-081).",
             "type": [
               "string",
               "null"

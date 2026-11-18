@@ -304,19 +304,19 @@ async fn audit_008_a_page_boundary_between_entries_of_both_reads_recorded_at_onc
 }
 
 /// Arranges, in `acme`'s log, four entries of one day, an hour apart from 10:00 to 13:00: two of
-/// files, acted by `ada` and by `grace`, one that `ada` did to `grace`, and one of the
-/// workspace, acted by `grace`.
+/// things, a resource of the test's own, acted by `ada` and by `grace`, one that `ada` did to
+/// `grace`, and one of the workspace, acted by `grace`.
 async fn four_entries(db: &TestDatabase, acme: &str, ada: &str, grace: &str) {
     let first = "00000000-0000-4000-8000-000000000001";
     let second = "00000000-0000-4000-8000-000000000002";
     let entries = [
         Logged {
-            resource: ("file", first),
-            ..Logged::new(acme, ada, "file.uploaded")
+            resource: ("thing", first),
+            ..Logged::new(acme, ada, "thing.added")
         },
         Logged {
-            resource: ("file", second),
-            ..Logged::new(acme, grace, "file.deleted")
+            resource: ("thing", second),
+            ..Logged::new(acme, grace, "thing.removed")
         },
         Logged {
             target: Some(grace),
@@ -352,8 +352,8 @@ async fn audit_009_each_filter_keeps_the_entries_that_match_one_of_its_values() 
 
     for (query, expected) in [
         (
-            "action=file.uploaded,file.deleted".to_owned(),
-            vec!["file.deleted", "file.uploaded"],
+            "action=thing.added,thing.removed".to_owned(),
+            vec!["thing.removed", "thing.added"],
         ),
         (
             "resource_type=workspace".to_owned(),
@@ -361,11 +361,11 @@ async fn audit_009_each_filter_keeps_the_entries_that_match_one_of_its_values() 
         ),
         (
             format!("resource_id={first},{second}"),
-            vec!["file.deleted", "file.uploaded"],
+            vec!["thing.removed", "thing.added"],
         ),
         (
             format!("actor_user_id={grace_id}"),
-            vec!["workspace.renamed", "file.deleted"],
+            vec!["workspace.renamed", "thing.removed"],
         ),
         (
             format!("target_user_id={grace_id},{ada_id}"),
@@ -373,14 +373,14 @@ async fn audit_009_each_filter_keeps_the_entries_that_match_one_of_its_values() 
         ),
         (
             "from=2026-11-01T11:00:00Z&to=2026-11-01T13:00:00.000Z".to_owned(),
-            vec!["member.removed", "file.deleted"],
+            vec!["member.removed", "thing.removed"],
         ),
         (
             "from=2026-11-01T11:00:00.000001Z".to_owned(),
             vec!["workspace.renamed", "member.removed"],
         ),
         (
-            format!("action=file.uploaded,workspace.renamed&actor_user_id={grace_id}"),
+            format!("action=thing.added,workspace.renamed&actor_user_id={grace_id}"),
             vec!["workspace.renamed"],
         ),
         ("action=nothing.happened".to_owned(), vec![]),
