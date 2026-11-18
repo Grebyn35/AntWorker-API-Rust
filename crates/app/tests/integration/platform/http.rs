@@ -208,6 +208,79 @@ async fn platform_045_a_documented_query_parameter_passes() {
 }
 
 #[tokio::test]
+async fn platform_092_a_body_that_names_a_member_twice_answers_400() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+
+    let response = api
+        .request(Method::PATCH, "/v1/users/me")
+        .header("content-type", "application/merge-patch+json")
+        .body(r#"{"name": "Ada", "name": "Grace"}"#)
+        .bearer(&ada.access)
+        .send()
+        .await;
+
+    problem(&response, StatusCode::BAD_REQUEST, "request.invalid_body");
+    let name = api.get("/v1/users/me").bearer(&ada.access).send().await;
+    assert_eq!(name.json()["name"], "Ada Lovelace");
+}
+
+#[tokio::test]
+async fn platform_092_a_query_parameter_given_twice_keeps_its_last_value() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let listed = |query: &'static str| {
+        api.get(&format!("/v1/workspaces?{query}"))
+            .bearer(&ada.access)
+            .send()
+    };
+
+    // A limit of 0 is refused (PLATFORM-046), so each answer shows which value was read.
+    let last_is_valid = listed("limit=0&limit=5").await;
+    let last_is_refused = listed("limit=5&limit=0").await;
+
+    assert_eq!(last_is_valid.status, StatusCode::OK);
+    let refused = problem(
+        &last_is_refused,
+        StatusCode::BAD_REQUEST,
+        "request.invalid_query",
+    );
+    assert_eq!(refused["errors"][0]["field"], "/limit");
+}
+
+#[tokio::test]
+async fn platform_092_a_header_on_several_lines_is_read_by_its_first() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let me =
+        |first: &str, second: &str| api.get("/v1/users/me").bearer(first).bearer(second).send();
+    let renamed = |first: &'static str, second: &'static str| {
+        api.request(Method::PATCH, "/v1/users/me")
+            .header("content-type", first)
+            .header("content-type", second)
+            .body(r#"{"name": "Ada"}"#)
+            .bearer(&ada.access)
+            .send()
+    };
+
+    let as_ada = me(&ada.access, &grace.access).await;
+    let as_no_one = me("unknown", &ada.access).await;
+    let as_a_patch = renamed("application/merge-patch+json", "text/plain").await;
+    let as_text = renamed("text/plain", "application/merge-patch+json").await;
+
+    assert_eq!(as_ada.status, StatusCode::OK);
+    assert_eq!(as_ada.json()["email"], "ada@example.com");
+    problem(
+        &as_no_one,
+        StatusCode::UNAUTHORIZED,
+        "request.unauthenticated",
+    );
+    assert_eq!(as_a_patch.status, StatusCode::OK);
+    problem(&as_text, StatusCode::BAD_REQUEST, "request.invalid_body");
+}
+
+#[tokio::test]
 async fn platform_048_a_body_over_the_limit_answers_413_before_it_is_read() {
     let api = Api::new().await;
     let limit = 64 * 1024;

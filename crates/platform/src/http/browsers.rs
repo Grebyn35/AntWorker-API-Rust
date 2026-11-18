@@ -308,4 +308,21 @@ mod tests {
             "__Host-refresh_token=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Strict"
         );
     }
+
+    #[test]
+    fn platform_092_cookies_on_several_lines_are_one_list_read_by_a_name_s_first_value() {
+        let mut headers = HeaderMap::new();
+        for line in [
+            "__Host-access_token=one",
+            "__Host-refresh_token=two; __Host-access_token=three",
+        ] {
+            headers.append(header::COOKIE, HeaderValue::from_static(line));
+        }
+        let cookies = Cookies {
+            pairs: pairs(&headers),
+            may_authenticate: true,
+        };
+        assert_eq!(cookies.credential("access_token").unwrap(), Some("one"));
+        assert_eq!(cookies.credential("refresh_token").unwrap(), Some("two"));
+    }
 }

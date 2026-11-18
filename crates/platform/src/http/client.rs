@@ -136,6 +136,19 @@ mod tests {
     }
 
     #[test]
+    fn platform_092_forwarded_addresses_on_several_lines_are_one_list_in_their_order() {
+        let trusted = ranges(&["172.18.0.0/16", "192.0.2.0/24"]);
+        let lines = |first: &str, second: &str| {
+            let mut headers = headers(first);
+            headers.append("x-forwarded-for", second.parse().unwrap());
+            client_ip(PROXY.parse().unwrap(), &headers, &trusted).to_string()
+        };
+        // The second line's address is the rightmost, and the first line's comes before it.
+        assert_eq!(lines("203.0.113.66", "198.51.100.7"), "198.51.100.7");
+        assert_eq!(lines("198.51.100.7", "192.0.2.10"), "198.51.100.7");
+    }
+
+    #[test]
     fn platform_053_a_walk_that_finds_no_untrusted_address_stops_at_the_last_trusted_proxy() {
         let trusted = ranges(&["172.18.0.0/16", "192.0.2.0/24"]);
         let peer: IpAddr = PROXY.parse().unwrap();
