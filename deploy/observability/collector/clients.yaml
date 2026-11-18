@@ -31,8 +31,9 @@ processors:
   # http.client.request.duration: a histogram in seconds, whose points hold what the client
   # measured since its last ones (delta temporality), in the buckets that the conventions advise.
   # It drops a point of it whose sum isn't from 0 to a billion seconds, which a sum that is no
-  # number isn't either, and one that is flagged as holding no value: prometheus/clients serves
-  # nothing of a series whose first point is flagged so.
+  # number isn't either, and one that carries a flag. The protocol's one flag says that a point
+  # holds no value, and prometheus/clients serves nothing of a series whose first point is
+  # flagged so.
   filter/clients:
     error_mode: propagate
     trace_conditions:

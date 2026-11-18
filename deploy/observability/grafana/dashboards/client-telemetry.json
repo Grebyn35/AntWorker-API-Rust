@@ -79,7 +79,7 @@
     {
       "type": "timeseries",
       "title": "How many bytes of clients' telemetry does each replica forward a minute?",
-      "description": "The bytes a minute, inflated, of the batches that the collector took from each replica, over the last 5 minutes. A replica forwards at most its budget, CLIENT_TELEMETRY_REPLICA_BYTES_PER_MINUTE, in each minute (CLIENT_TELEMETRY-008).",
+      "description": "The bytes a minute, inflated, of the batches that the collector took from each replica, over the last 5 minutes. A replica forwards at most its budget, CLIENT_TELEMETRY_REPLICA_BYTES_PER_MINUTE, in each of the budget's windows of a minute (CLIENT_TELEMETRY-008), which start with a batch, so a minute here can hold the bytes of two windows.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -119,7 +119,7 @@
     {
       "type": "timeseries",
       "title": "How many bytes of each signal does the collector take from the replicas a minute?",
-      "description": "The bytes a minute, inflated, of the batches that the collector took from every replica together, by signal, over the last 5 minutes (CLIENT_TELEMETRY-013). The stores take in less: the collector drops what its configuration doesn't list, and of the clients' metrics Prometheus stores the series that the collector adds up.",
+      "description": "The bytes a minute, inflated, of the batches that the collector took from every replica together, by signal, over the last 5 minutes (CLIENT_TELEMETRY-013). Tempo and Loki take in no more of the clients' spans and log records than those batches hold, since the collector drops what its configuration doesn't list. Of the clients' metrics, Prometheus stores the series that the collector adds up, at each scrape, whatever bytes their batches held.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"

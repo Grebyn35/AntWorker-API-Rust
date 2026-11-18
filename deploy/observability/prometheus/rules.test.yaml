@@ -271,28 +271,51 @@ tests:
               runbook: docs/operations/runbooks.md#collectordroppingtelemetry
 
   # part: client_telemetry
-  # The collector takes no batch of a client's telemetry for 9 minutes, then takes them again.
+  # The collector takes a batch in minute 3, and its next one in minute 17: 14 minutes without one
+  # taken, in which the telemetry proxy answers batches with 503, raise nothing.
   - interval: 1m
     input_series:
       - series: 'http_server_request_duration_seconds_count{job="api", instance="a", http_route="/v1/users/me/telemetry/traces", http_response_status_code="503", error_type="client_telemetry.collector_unavailable"}'
-        values: "0x3 0+3x8 24x20"
+        values: "0x3 0+3x12 36x13"
       - series: 'client_telemetry_forwarded_bytes_total{job="api", instance="a", client_telemetry_signal="traces"}'
-        values: "0+1000x3 3000x8 3000+1000x20"
+        values: "0+1000x3 3000x12 4000+1000x13"
     alert_rule_test:
-      - eval_time: 6m
-        alertname: ClientTelemetryNotForwarded
-        exp_alerts: []
       - eval_time: 11m
         alertname: ClientTelemetryNotForwarded
         exp_alerts: []
-      - eval_time: 13m
+      - eval_time: 16m
+        alertname: ClientTelemetryNotForwarded
+        exp_alerts: []
+      - eval_time: 17m
         alertname: ClientTelemetryNotForwarded
         exp_alerts: []
       - eval_time: 20m
         alertname: ClientTelemetryNotForwarded
         exp_alerts: []
 
-  # The collector takes no batch from the start, and leaves some untaken.
+  # The collector takes a batch in minute 3, and its next one in minute 18: the alert fires in
+  # minute 17, at 15 minutes without one taken.
+  - interval: 1m
+    input_series:
+      - series: 'http_server_request_duration_seconds_count{job="api", instance="a", http_route="/v1/users/me/telemetry/traces", http_response_status_code="503", error_type="client_telemetry.collector_unavailable"}'
+        values: "0x3 0+3x13 39x12"
+      - series: 'client_telemetry_forwarded_bytes_total{job="api", instance="a", client_telemetry_signal="traces"}'
+        values: "0+1000x3 3000x13 4000+1000x12"
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: ClientTelemetryNotForwarded
+        exp_alerts: []
+      - eval_time: 17m
+        alertname: ClientTelemetryNotForwarded
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+            exp_annotations:
+              summary: For 15 minutes, or since the API's replicas started, the collector took none of the batches of telemetry that the API sent it for users' clients, and neither took nor refused some.
+              runbook: docs/operations/runbooks.md#clienttelemetrynotforwarded
+
+  # The collector took no batch since the series began, as since the replicas started: the alert
+  # fires once batches have been answered with 503 for 5 minutes.
   - interval: 1m
     input_series:
       - series: 'http_server_request_duration_seconds_count{job="api", instance="a", http_route="/v1/users/me/telemetry/logs", http_response_status_code="503", error_type="client_telemetry.collector_unavailable"}'
@@ -309,11 +332,11 @@ tests:
           - exp_labels:
               severity: ticket
             exp_annotations:
-              summary: For 15 minutes, the collector took none of the batches of telemetry that the API sent it for users' clients, and left some untaken.
+              summary: For 15 minutes, or since the API's replicas started, the collector took none of the batches of telemetry that the API sent it for users' clients, and neither took nor refused some.
               runbook: docs/operations/runbooks.md#clienttelemetrynotforwarded
 
-  # The collector refuses every batch, as it does one that isn't the protocol's request, and takes
-  # none: a refusal is the batch's, and raises nothing.
+  # The collector refuses every batch, which the telemetry proxy answers with 400, and takes none:
+  # refusals raise nothing.
   - interval: 1m
     input_series:
       - series: 'http_server_request_duration_seconds_count{job="api", instance="a", http_route="/v1/users/me/telemetry/metrics", http_response_status_code="400", error_type="client_telemetry.batch_refused"}'

@@ -562,7 +562,8 @@ async fn client_telemetry_014_a_client_s_metrics_reach_prometheus_added_up_over_
 }
 
 /// The statuses whose series the test of what the collector keeps reads: 404, under which it
-/// keeps points, and ten that the points it drops name.
+/// keeps points, 500, which one of those points names second, and nine that the points it drops
+/// name.
 const READ: [u16; 11] = [404, 500, 501, 502, 503, 504, 505, 511, 417, 421, 428];
 
 /// The attribute that says why a request failed, as the conventions name it.
@@ -642,8 +643,9 @@ fn kept(at: &str, api: &str) -> Vec<Value> {
 /// The points that the collector drops, each of which names a status of [`READ`] that no kept
 /// point names: another metric; the listed one whose points hold what the client measured since
 /// it started, in milliseconds, in other buckets, with a sum that is no number, that is below
-/// 0 or that is above a billion, and flagged as holding no value; and the listed one from a
-/// client that isn't listed, and from a resource whose first name, `api`, isn't listed.
+/// 0 or that is above a billion, and with the flag of a point that holds no value; and the
+/// listed one from a client that isn't listed, and from a resource whose first name, `api`,
+/// isn't listed.
 fn dropped(at: &str, api: &str) -> Vec<Value> {
     let client = resource(Some(CLIENT));
     let one = |code: u16| point(&json!([status(code)]), 1, at);
@@ -707,9 +709,10 @@ async fn client_telemetry_015_the_collector_keeps_of_a_client_s_metrics_what_its
         .iter()
         .map(|series| grew(&before, &after, series))
         .collect();
-    // 404 by its three kept points' 1, 10 and 100 requests, and none of the ten statuses that
-    // the dropped points name; then each kind of failure by one point; then the series of
-    // neither by its two points' 1 and 10 requests.
+    // 404 by its three kept points' 1, 10 and 100 requests, 500 by none, though a kept point
+    // names it second, and none of the nine statuses that the dropped points name; then each
+    // kind of failure by one point; then the series of neither by its two points' 1 and 10
+    // requests.
     assert_eq!(
         grown,
         [

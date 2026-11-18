@@ -205,8 +205,9 @@ groups:
 
       # part: client_telemetry
       # The telemetry of users' clients (OBS-14, the client_telemetry spec's "Operating it").
-      # Each 10 minutes of the last 5 held a batch that the collector didn't take, and none that it
-      # took: 15 minutes without one taken.
+      # For 5 minutes, the last 10 held a batch that the telemetry proxy answered with 503
+      # `client_telemetry.collector_unavailable`, and none that the collector took. A batch that
+      # the collector refuses, which the proxy answers with 400, counts for nothing here.
       - alert: ClientTelemetryNotForwarded
         expr: |
           sum(increase(http_server_request_duration_seconds_count{error_type="client_telemetry.collector_unavailable"}[10m])) > 0
@@ -215,7 +216,7 @@ groups:
         labels:
           severity: ticket
         annotations:
-          summary: For 15 minutes, the collector took none of the batches of telemetry that the API sent it for users' clients, and left some untaken.
+          summary: For 15 minutes, or since the API's replicas started, the collector took none of the batches of telemetry that the API sent it for users' clients, and neither took nor refused some.
           runbook: docs/operations/runbooks.md#clienttelemetrynotforwarded
 
       - alert: ClientTelemetryBudgetSpent
