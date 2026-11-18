@@ -52,12 +52,13 @@ processors:
         or Len(datapoint.bucket_counts) != 15
         or not (datapoint.sum >= 0.0 and datapoint.sum <= 1.0e+9)
         or datapoint.flags != 0)
-  # Writes each resource's attributes anew, from the first value that it holds of each one kept:
-  # what names the client and its version, and, on spans, its installation. An SDK adds more,
-  # such as the name of the user's machine and of their account on it (OBS-04, D7), and a
-  # resource that repeats a key, which the protocol forbids and the receiver takes, would pass a
-  # second service.name on to the stores. A log record keeps no service.instance.id, which Loki
-  # would label a stream by, one for each installation.
+  # Writes each resource's attributes anew, from the first value that it holds of each one kept.
+  # A span's and a log record's resource keep what names the client and its version, and a
+  # span's its installation too. An SDK adds more, such as the name of the user's machine and of
+  # their account on it (OBS-04, D7), and a resource that repeats a key, which the protocol
+  # forbids and the receiver takes, would pass a second service.name on to the stores. A log
+  # record keeps no service.instance.id, which Loki would label a stream by, one for each
+  # installation. A metric's resource keeps the client's name alone, as the comment below says.
   transform/clients:
     error_mode: propagate
     trace_statements:

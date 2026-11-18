@@ -118,8 +118,8 @@
     },
     {
       "type": "timeseries",
-      "title": "How many bytes of each signal do the stores take in a minute?",
-      "description": "The bytes a minute, inflated, of the batches that the collector took from every replica together, by signal, over the last 5 minutes: what the clients' telemetry adds to Tempo, Loki and the collector's sums of the clients' metrics, before each stores it in its own format (CLIENT_TELEMETRY-013).",
+      "title": "How many bytes of each signal does the collector take from the replicas a minute?",
+      "description": "The bytes a minute, inflated, of the batches that the collector took from every replica together, by signal, over the last 5 minutes (CLIENT_TELEMETRY-013). The stores take in less: the collector drops what its configuration doesn't list, and of the clients' metrics Prometheus stores the series that the collector adds up.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -198,7 +198,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (exporter) (rate(otelcol_exporter_send_failed_spans_total{exporter=~\".+_clients\"}[$__rate_interval]))",
+          "expr": "sum by (exporter) (rate(otelcol_exporter_send_failed_spans_total{exporter=~\".+clients\"}[$__rate_interval]))",
           "legendFormat": "{{exporter}}: spans"
         },
         {
@@ -207,7 +207,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (exporter) (rate(otelcol_exporter_send_failed_log_records_total{exporter=~\".+_clients\"}[$__rate_interval]))",
+          "expr": "sum by (exporter) (rate(otelcol_exporter_send_failed_log_records_total{exporter=~\".+clients\"}[$__rate_interval]))",
           "legendFormat": "{{exporter}}: log records"
         },
         {
@@ -216,7 +216,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (exporter) (rate(otelcol_exporter_send_failed_metric_points_total{exporter=~\".+_clients\"}[$__rate_interval]))",
+          "expr": "sum by (exporter) (rate(otelcol_exporter_send_failed_metric_points_total{exporter=~\".+clients\"}[$__rate_interval]))",
           "legendFormat": "{{exporter}}: metric points"
         }
       ],
@@ -328,6 +328,46 @@
         "w": 12,
         "x": 12,
         "y": 16
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Which points of the clients' metrics does the collector leave out of its sums?",
+      "description": "Points per second of the clients' metrics that the collector didn't add to a series, by why: limit, for a point of a series beyond the most that the collector adds up, or the error of a point whose time isn't after its series' last one.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (error) (rate(otelcol_deltatocumulative_datapoints_total{error!=\"\"}[$__rate_interval]))",
+          "legendFormat": "{{error}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "id": 7,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
       }
     }
   ]

@@ -6,12 +6,12 @@
 //! over every installation. And through a deployment whose telemetry goes to a managed backend
 //! (CLIENT_TELEMETRY-016).
 
-use std::{net::SocketAddr, process::Output, thread, time::Duration};
+use std::{net::SocketAddr, process::Output, time::Duration};
 
 use serde_json::{Value, json};
 
 use crate::{
-    deployment::{Deployment, get_within, post, post_as, streaming_client},
+    deployment::{Deployment, get_within, post, post_as, put_as},
     docker::{Container, lossy},
     image::PORT,
     support::{self, TestDatabase, http_exchange, users},
@@ -562,8 +562,8 @@ async fn client_telemetry_014_a_client_s_metrics_reach_prometheus_added_up_over_
 }
 
 /// The statuses whose series the test of what the collector keeps reads: 404, under which it
-/// keeps points, and eight that the points it drops name.
-const READ: [u16; 9] = [404, 500, 501, 502, 503, 504, 505, 511, 428];
+/// keeps points, and ten that the points it drops name.
+const READ: [u16; 11] = [404, 500, 501, 502, 503, 504, 505, 511, 417, 421, 428];
 
 /// The attribute that says why a request failed, as the conventions name it.
 fn error(kind: &str) -> Value {
@@ -641,9 +641,9 @@ fn kept(at: &str, api: &str) -> Vec<Value> {
 
 /// The points that the collector drops, each of which names a status of [`READ`] that no kept
 /// point names: another metric; the listed one whose points hold what the client measured since
-/// it started, in milliseconds, in other buckets, with a sum that is no number, and flagged as
-/// holding no value; and the listed one from a client that isn't listed, and from a resource
-/// whose first name, `api`, isn't listed.
+/// it started, in milliseconds, in other buckets, with a sum that is no number, that is below
+/// 0 or that is above a billion, and flagged as holding no value; and the listed one from a
+/// client that isn't listed, and from a resource whose first name, `api`, isn't listed.
 fn dropped(at: &str, api: &str) -> Vec<Value> {
     let client = resource(Some(CLIENT));
     let one = |code: u16| point(&json!([status(code)]), 1, at);
@@ -654,12 +654,19 @@ fn dropped(at: &str, api: &str) -> Vec<Value> {
     no_number["sum"] = json!("NaN");
     let mut no_value = one(511);
     no_value["flags"] = json!(1);
+    let mut below = one(417);
+    below["sum"] = json!(-0.5);
+    let mut above = one(421);
+    above["sum"] = json!(2.0e9);
     let metric = "http.client.request.duration";
     vec![
         measured(&client, &named("another.metric", "s", 1, &one(501))),
         measured(&client, &named(metric, "s", 2, &one(502))),
         measured(&client, &named(metric, "ms", 1, &one(503))),
-        measured(&client, &listed(&[other_buckets, no_number, no_value])),
+        measured(
+            &client,
+            &listed(&[other_buckets, no_number, no_value, below, above]),
+        ),
         measured(&resource(Some("another-client")), &listed(&[one(428)])),
         measured(&named_twice(api, CLIENT), &listed(&[one(428)])),
     ]
@@ -700,13 +707,13 @@ async fn client_telemetry_015_the_collector_keeps_of_a_client_s_metrics_what_its
         .iter()
         .map(|series| grew(&before, &after, series))
         .collect();
-    // 404 by its three kept points' 1, 10 and 100 requests, and none of the eight statuses that
+    // 404 by its three kept points' 1, 10 and 100 requests, and none of the ten statuses that
     // the dropped points name; then each kind of failure by one point; then the series of
     // neither by its two points' 1 and 10 requests.
     assert_eq!(
         grown,
         [
-            111.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 11.0
+            111.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 11.0
         ],
         "{read:?}\n{after}"
     );
@@ -760,41 +767,6 @@ async fn client_telemetry_009_the_stack_s_collector_refuses_a_body_that_isn_t_th
     assert_eq!(problem["code"], "client_telemetry.batch_refused");
 }
 
-/// Sends `PUT` to `url` with the JSON body `body`, with `token` as its Bearer access token,
-/// through a client that trusts `root`, and returns the response's status.
-fn put_as(root: String, url: String, token: String, body: String) -> u16 {
-    thread::spawn(move || {
-        streaming_client(&root, Duration::from_secs(10))
-            .put(&url)
-            .header("content-type", "application/json")
-            .bearer_auth(token)
-            .body(body)
-            .send()
-            .expect("an answer")
-            .status()
-            .as_u16()
-    })
-    .join()
-    .expect("the request")
-}
-
-/// A deployment whose telemetry goes to a stand-in for a managed backend, which writes what it
-/// receives to /root/backend/out/telemetry.json.
-async fn with_a_managed_backend() -> Deployment {
-    let deployment = Deployment::managed(&[]);
-    let backend = deployment.server.start_otlp_backend();
-    let mut changes = vec![("TELEMETRY", "managed")];
-    changes.extend(
-        backend
-            .iter()
-            .map(|(name, value)| (name.as_str(), value.as_str())),
-    );
-    deployment.set(&changes);
-    let deployed = deployment.apply(&deployment.api, &[]).await;
-    assert!(deployed.status.success(), "{}", lossy(&deployed));
-    deployment
-}
-
 /// Registers a user on `deployment`, has them consent to their clients' telemetry, and returns
 /// their access token.
 fn consenting(deployment: &Deployment) -> String {
@@ -822,7 +794,7 @@ fn consenting(deployment: &Deployment) -> String {
 
 #[tokio::test]
 async fn client_telemetry_016_a_deployment_sends_its_managed_backend_its_clients_telemetry() {
-    let deployment = with_a_managed_backend().await;
+    let deployment = Deployment::with_a_managed_backend().await;
     let token = consenting(&deployment);
     let root = deployment.server.caddy_root();
     let url = |path: &str| deployment.url("https", 443, path);

@@ -84,6 +84,23 @@ impl Deployment {
         deployment
     }
 
+    /// A deployment, deployed, whose telemetry goes to a stand-in for a managed backend, which
+    /// writes what it receives to /root/backend/out/telemetry.json.
+    pub async fn with_a_managed_backend() -> Self {
+        let deployment = Self::managed(&[]);
+        let backend = deployment.server.start_otlp_backend();
+        let mut changes = vec![("TELEMETRY", "managed")];
+        changes.extend(
+            backend
+                .iter()
+                .map(|(name, value)| (name.as_str(), value.as_str())),
+        );
+        deployment.set(&changes);
+        let deployed = deployment.apply(&deployment.api, &[]).await;
+        assert!(deployed.status.success(), "{}", lossy(&deployed));
+        deployment
+    }
+
     /// A deployment whose database is the bundled Postgres, which backs up to a stand-in bucket
     /// on the same server, with the tests' settings and `changes`.
     pub fn bundled(changes: &[(&str, &str)]) -> Self {
@@ -441,6 +458,25 @@ pub fn post_as(root: String, url: String, token: Option<String>, body: String) -
     .join()
     .expect("the request")
 }
+
+// part: client_telemetry
+/// Sends `PUT` to `url` with the JSON body `body`, with `token` as its Bearer access token,
+/// through a client that trusts `root`, and returns the response's status.
+pub fn put_as(root: String, url: String, token: String, body: String) -> u16 {
+    thread::spawn(move || {
+        let response = client(&root)
+            .put(&url)
+            .header("content-type", "application/json")
+            .bearer_auth(token)
+            .body(body)
+            .send()
+            .expect("an answer");
+        response.status().as_u16()
+    })
+    .join()
+    .expect("the request")
+}
+// end part: client_telemetry
 
 /// Sends `DELETE` to `url`, with `token` as its Bearer access token, through a client that trusts
 /// `root`, and returns the response's status.

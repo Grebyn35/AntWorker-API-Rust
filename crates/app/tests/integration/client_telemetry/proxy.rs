@@ -613,38 +613,43 @@ async fn client_telemetry_013_the_bytes_of_a_batch_that_the_collector_took_are_c
     let before = [forwarded("traces"), forwarded("logs"), forwarded("metrics")];
 
     let spans = send_bytes(&api, &ada, 1_000).await;
-    let records = send(&api, &ada, LOGS, PROTOBUF, &[0; 20_000]).await;
-    // 30,000 zeros, which gzip sends as few bytes: the count is of the bytes inflated.
-    let points = api
-        .request(Method::POST, METRICS)
+    // 600,000 zeros, which gzip sends as few bytes: the count is of the bytes inflated. The tests
+    // of this file that run alongside have the collector take fewer bytes of log records than
+    // that, all together, so a count of the bytes as sent wouldn't reach it.
+    let records = api
+        .request(Method::POST, LOGS)
         .header("content-type", PROTOBUF)
         .header("content-encoding", "gzip")
         .bearer(&ada.access)
-        .body(gzip(&vec![0; 30_000]))
+        .body(gzip(&vec![0; 600_000]))
         .send()
         .await;
+    let points = send(&api, &ada, METRICS, PROTOBUF, &[0; 20_000]).await;
 
     for taken in [&spans, &records, &points] {
         assert_eq!(taken.status, 200);
     }
     // Tests running alongside forward batches too, so the counts grow by at least these.
     assert!(forwarded("traces") >= before[0] + 1_000.0);
-    assert!(forwarded("logs") >= before[1] + 20_000.0);
-    assert!(forwarded("metrics") >= before[2] + 30_000.0);
+    assert!(forwarded("logs") >= before[1] + 600_000.0);
+    assert!(forwarded("metrics") >= before[2] + 20_000.0);
 }
 
 #[tokio::test]
-async fn client_telemetry_013_a_batch_that_the_collector_didn_t_take_counts_no_bytes() {
+async fn client_telemetry_013_a_batch_that_the_collector_refused_or_didn_t_take_counts_no_bytes() {
     let collector = collector().await;
-    collector.set("POST", "/v1/metrics", 503, json!({}));
     let api = Api::with(forwarding(&collector, UNBOUNDED, UNBOUNDED)).await;
     let ada = consenting(&api, "ada@example.com").await;
     // The tests of this file that run alongside have the collector take fewer bytes of metrics,
-    // all together, than this batch holds: a count that grows by less didn't count the batch.
+    // all together, than one of these batches holds: a count that grows by less counted neither.
     let before = forwarded("metrics");
 
+    collector.set("POST", "/v1/metrics", 400, json!({}));
+    let refused = send(&api, &ada, METRICS, PROTOBUF, &vec![0; 900_000]).await;
+    collector.set("POST", "/v1/metrics", 503, json!({}));
     let untaken = send(&api, &ada, METRICS, PROTOBUF, &vec![0; 900_000]).await;
 
+    assert_eq!(refused.status, 400);
     assert_eq!(untaken.status, 503);
     let counted = forwarded("metrics") - before;
     assert!(counted < 900_000.0, "{counted}");

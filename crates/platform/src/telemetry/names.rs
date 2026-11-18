@@ -100,7 +100,7 @@ pub const SCANNER_OUTCOME: &str = "scanner.outcome";
 // end part: files
 // part: client_telemetry
 /// The signal that a batch of a client's telemetry holds: `traces`, `logs` or `metrics`
-/// (CLIENT_TELEMETRY-004).
+/// (CLIENT_TELEMETRY-013).
 pub const CLIENT_TELEMETRY_SIGNAL: &str = "client_telemetry.signal";
 // end part: client_telemetry
 /// A job's kind, or a periodic job's name, such as `platform.send_email` (PLATFORM-020).

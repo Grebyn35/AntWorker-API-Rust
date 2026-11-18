@@ -71,9 +71,13 @@ metrics:
   - name: http_client_request_duration_seconds_count
     kind: counter
     producer: the collector, from the metrics of users' clients
-    description: The requests that users' clients measured, added up over every installation, by the response's status, and for a request that got none, by error_type (CLIENT_TELEMETRY-014).
+    description: The requests that users' clients measured, added up over every installation, by the response's status, and for a request that got none, by error_type (CLIENT_TELEMETRY-014, CLIENT_TELEMETRY-015).
   - name: http_client_request_duration_seconds_bucket
     kind: counter
     producer: the collector, from the metrics of users' clients
     description: Those requests that took at most le seconds each.
+  - name: otelcol_deltatocumulative_datapoints_total
+    kind: counter
+    producer: the collector
+    description: The points of clients' metrics that reached the collector's sums, and with an error, those that it left out of them, by why, such as limit.
   # end part: client_telemetry

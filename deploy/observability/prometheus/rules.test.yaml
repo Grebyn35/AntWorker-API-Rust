@@ -271,28 +271,28 @@ tests:
               runbook: docs/operations/runbooks.md#collectordroppingtelemetry
 
   # part: client_telemetry
-  # The collector takes no batch of a client's telemetry, then takes them again.
+  # The collector takes no batch of a client's telemetry for 9 minutes, then takes them again.
   - interval: 1m
     input_series:
       - series: 'http_server_request_duration_seconds_count{job="api", instance="a", http_route="/v1/users/me/telemetry/traces", http_response_status_code="503", error_type="client_telemetry.collector_unavailable"}'
-        values: "0+3x20 60x20"
+        values: "0x3 0+3x8 24x20"
       - series: 'client_telemetry_forwarded_bytes_total{job="api", instance="a", client_telemetry_signal="traces"}'
-        values: "0+1000x3 3000x16 3000+1000x20"
+        values: "0+1000x3 3000x8 3000+1000x20"
     alert_rule_test:
-      - eval_time: 3m
+      - eval_time: 6m
         alertname: ClientTelemetryNotForwarded
         exp_alerts: []
-      - eval_time: 16m
+      - eval_time: 11m
         alertname: ClientTelemetryNotForwarded
         exp_alerts: []
-      - eval_time: 19m
+      - eval_time: 13m
         alertname: ClientTelemetryNotForwarded
         exp_alerts: []
-      - eval_time: 25m
+      - eval_time: 20m
         alertname: ClientTelemetryNotForwarded
         exp_alerts: []
 
-  # The collector takes no batch for long enough: nothing is forwarded from the start.
+  # The collector takes no batch from the start, and leaves some untaken.
   - interval: 1m
     input_series:
       - series: 'http_server_request_duration_seconds_count{job="api", instance="a", http_route="/v1/users/me/telemetry/logs", http_response_status_code="503", error_type="client_telemetry.collector_unavailable"}'
@@ -309,8 +309,21 @@ tests:
           - exp_labels:
               severity: ticket
             exp_annotations:
-              summary: The collector took none of the batches of telemetry that the API forwarded for users' clients for 15 minutes, while some went untaken.
+              summary: For 15 minutes, the collector took none of the batches of telemetry that the API sent it for users' clients, and left some untaken.
               runbook: docs/operations/runbooks.md#clienttelemetrynotforwarded
+
+  # The collector refuses every batch, as it does one that isn't the protocol's request, and takes
+  # none: a refusal is the batch's, and raises nothing.
+  - interval: 1m
+    input_series:
+      - series: 'http_server_request_duration_seconds_count{job="api", instance="a", http_route="/v1/users/me/telemetry/metrics", http_response_status_code="400", error_type="client_telemetry.batch_refused"}'
+        values: "0+3x30"
+      - series: 'client_telemetry_forwarded_bytes_total{job="api", instance="a", client_telemetry_signal="metrics"}'
+        values: "5000x30"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: ClientTelemetryNotForwarded
+        exp_alerts: []
 
   # A replica's budget refuses batches, beside a user's, which raises no alert.
   - interval: 1m

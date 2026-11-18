@@ -93,11 +93,11 @@ Alerts are of two kinds:
 - Burn-rate alerts against the service-level objectives for availability and latency.
 - Cause alerts for a dependency that is down, dead-lettered jobs, jobs that wait long past their time, periodic jobs that keep failing, events delivered late or not loaded at all, telemetry that is dropped, that stops arriving, or that a service of the stack can't receive because it is down, backups whose archiving of the write-ahead log fails or whose newest base backup is older than their schedule allows, and a server whose disk fills or whose memory runs low.
   Also a malware scanner whose signatures are older than their updates allow. <!-- part: files -->
-  Also the telemetry of users' clients that the collector takes none of, or that a replica's budget refuses. No alert reads a metric that users' clients send, since a client reports its numbers itself, which `review` checks. <!-- part: client_telemetry -->
+  Also the telemetry of users' clients that the collector doesn't take from the telemetry proxy (CLIENT_TELEMETRY-009), or that a replica's budget refuses (CLIENT_TELEMETRY-008). No alert reads a metric that users' clients send, since a client reports its numbers itself. <!-- part: client_telemetry -->
 
 Every alert has a severity (`page` or `ticket`), a runbook section in `docs/operations/runbooks.md` and a `promtool` test. The rules are the file `deploy/observability/prometheus/rules.yaml`, which the self-hosted Prometheus reads and a managed Grafana imports as rules of its own.
 - Why: an alert means action, and the action is written down (D19). A backup that fails silently is found only when it is needed (D30).
-- Check: `ci: alert-rules` (each rule has a test and a runbook anchor), plus `ci: e2e` (an alert reaches the integration a release names, and a managed Grafana imports the rules).
+- Check: `ci: alert-rules` (each rule has a test and a runbook anchor), plus `ci: e2e` (an alert reaches the integration a release names, and a managed Grafana imports the rules), plus `review` (what each alert reads and fires on).
 
 ### OBS-15 Health probes stay out of telemetry
 Liveness and readiness requests are excluded from request metrics, are not sampled into traces, and carry no trace ID (API-16). The reference deployment's proxy doesn't trace them either.

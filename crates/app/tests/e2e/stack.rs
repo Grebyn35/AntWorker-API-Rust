@@ -25,23 +25,6 @@ const PERSONAL: [&str; 9] = [
     "\"headers\"",
 ];
 
-/// A deployment whose telemetry goes to a stand-in for a managed backend, which writes what it
-/// receives to /root/backend/out/telemetry.json.
-async fn with_a_managed_backend() -> Deployment {
-    let deployment = Deployment::managed(&[]);
-    let backend = deployment.server.start_otlp_backend();
-    let mut changes = vec![("TELEMETRY", "managed")];
-    changes.extend(
-        backend
-            .iter()
-            .map(|(name, value)| (name.as_str(), value.as_str())),
-    );
-    deployment.set(&changes);
-    let deployed = deployment.apply(&deployment.api, &[]).await;
-    assert!(deployed.status.success(), "{}", lossy(&deployed));
-    deployment
-}
-
 /// The lines of the stand-in backend's file that hold `trace`, once a line of spans and one of
 /// log records do. The collector decides on a trace 15 seconds after its last span.
 fn received(deployment: &Deployment, trace: &str) -> String {
@@ -672,7 +655,7 @@ async fn obs_08_the_trace_id_of_the_proxy_s_503_leads_to_its_span_and_its_log_li
 
 #[tokio::test]
 async fn obs_04_the_proxy_s_span_and_log_line_hold_no_personal_data() {
-    let deployment = with_a_managed_backend().await;
+    let deployment = Deployment::with_a_managed_backend().await;
 
     let trace = trace_of_a_request_no_replica_answers(&deployment);
     let telemetry = received(&deployment, &trace);
@@ -690,7 +673,7 @@ async fn obs_04_the_proxy_s_span_and_log_line_hold_no_personal_data() {
 
 #[tokio::test]
 async fn obs_15_the_proxy_traces_no_probe() {
-    let deployment = with_a_managed_backend().await;
+    let deployment = Deployment::with_a_managed_backend().await;
     // A probe's trace context, which a traced probe would continue: while no replica runs, its
     // 503 would be a span that the collector keeps.
     let probe = "4bf92f3577b34da6a3ce929d0e0e4736";
@@ -725,7 +708,7 @@ async fn obs_15_the_proxy_traces_no_probe() {
 
 #[tokio::test]
 async fn obs_08_a_managed_backend_receives_the_proxy_s_span_and_log_line_of_its_503() {
-    let deployment = with_a_managed_backend().await;
+    let deployment = Deployment::with_a_managed_backend().await;
 
     let trace = trace_of_a_request_no_replica_answers(&deployment);
     let telemetry = received(&deployment, &trace);

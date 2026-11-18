@@ -7,7 +7,7 @@ static FORWARDED: Counter<1> = Counter::new(
     "client_telemetry.forwarded",
     "By",
     "The bytes, inflated, of the batches of clients' telemetry that the collector took from the \
-     telemetry proxy, by the signal of each: traces, logs or metrics (CLIENT_TELEMETRY-004).",
+     telemetry proxy, by the signal of each: traces, logs or metrics (CLIENT_TELEMETRY-013).",
     [names::CLIENT_TELEMETRY_SIGNAL],
 );
 
