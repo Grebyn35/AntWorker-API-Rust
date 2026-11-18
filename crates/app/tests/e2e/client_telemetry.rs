@@ -1,9 +1,10 @@
 //! Clients' telemetry through the image and the observability stack that Compose runs
 //! (CLIENT_TELEMETRY-011, CLIENT_TELEMETRY-012, CLIENT_TELEMETRY-014, CLIENT_TELEMETRY-015): what
 //! a consenting user's client sends the API reaches Tempo, Loki and Prometheus through the
-//! collector's pipelines of clients' telemetry, which keep the listed services' alone, of each
-//! resource only what names the client, and of the metrics what the configuration lists, added up
-//! over every installation. And through a deployment whose telemetry goes to a managed backend
+//! collector's pipelines of clients' telemetry, which keep the listed services' alone, of a
+//! span's or a log record's resource only what names the client, its version and, on spans, its
+//! installation, and of the metrics what the configuration lists, added up over every
+//! installation. And through a deployment whose telemetry goes to a managed backend
 //! (CLIENT_TELEMETRY-016).
 
 use std::{net::SocketAddr, process::Output, time::Duration};

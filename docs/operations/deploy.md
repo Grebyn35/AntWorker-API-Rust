@@ -242,7 +242,7 @@ The deploy runs only the services the choice needs, and stops the ones an earlie
 | | `managed` | The collector alone, which sends every signal to a managed backend, into whose Grafana each deploy imports the dashboards and the alert rules ([observability.md](observability.md#a-managed-backend)) |
 | | `off` | Nothing: the API's logs go only to its containers' output |
 
-With the collector, the API forwards its clients' telemetry to it; with `off`, it forwards none, and tells its clients so (CLIENT_TELEMETRY-010). `CLIENT_TELEMETRY_USER_BYTES_PER_MINUTE` and `CLIENT_TELEMETRY_REPLICA_BYTES_PER_MINUTE` bound what each user's clients send, and what each replica forwards (CLIENT_TELEMETRY-007, CLIENT_TELEMETRY-008), which bounds what the stores take in of it ([observability.md](observability.md#what-the-clients-telemetry-adds)). <!-- part: client_telemetry -->
+With the collector, the API forwards its clients' telemetry to it; with `off`, it forwards none, and tells its clients so (CLIENT_TELEMETRY-010). `CLIENT_TELEMETRY_USER_BYTES_PER_MINUTE` and `CLIENT_TELEMETRY_REPLICA_BYTES_PER_MINUTE` bound what each user's clients send, and what each replica forwards (CLIENT_TELEMETRY-007, CLIENT_TELEMETRY-008), which bounds the spans and the log records that Tempo and Loki take in of it ([observability.md](observability.md#what-the-clients-telemetry-adds)). <!-- part: client_telemetry -->
 
 Files' bytes always go to a provider's bucket, off the server, as the backups do: a bucket on the server would lose what it holds with the server, so it would need its own backup off the server (D106, [the files bucket](#the-files-bucket)). <!-- part: files -->
 

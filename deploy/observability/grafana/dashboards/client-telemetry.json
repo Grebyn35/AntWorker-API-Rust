@@ -79,7 +79,7 @@
     {
       "type": "timeseries",
       "title": "How many bytes of clients' telemetry does each replica forward a minute?",
-      "description": "The bytes a minute, inflated, of the batches that the collector took from each replica, over the last 5 minutes. A replica forwards at most its budget, CLIENT_TELEMETRY_REPLICA_BYTES_PER_MINUTE, in each of the budget's windows of a minute (CLIENT_TELEMETRY-008), which start with a batch, so a minute here can hold the bytes of two windows.",
+      "description": "The bytes a minute, inflated, of the batches that the collector took from each replica, over the last 5 minutes. A replica's budget, CLIENT_TELEMETRY_REPLICA_BYTES_PER_MINUTE, bounds what it forwards in each of the budget's windows of a minute (CLIENT_TELEMETRY-008).",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"

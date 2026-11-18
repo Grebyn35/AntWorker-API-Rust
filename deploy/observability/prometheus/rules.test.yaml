@@ -314,14 +314,33 @@ tests:
               summary: For 15 minutes, or since the API's replicas started, the collector took none of the batches of telemetry that the API sent it for users' clients, and neither took nor refused some.
               runbook: docs/operations/runbooks.md#clienttelemetrynotforwarded
 
-  # The collector took no batch since the series began, as since the replicas started: the alert
-  # fires once batches have been answered with 503 for 5 minutes.
+  # The collector took no batch since the series of the bytes that it took began: the alert fires
+  # once batches have been answered with 503 for 5 minutes.
   - interval: 1m
     input_series:
       - series: 'http_server_request_duration_seconds_count{job="api", instance="a", http_route="/v1/users/me/telemetry/logs", http_response_status_code="503", error_type="client_telemetry.collector_unavailable"}'
         values: "0+3x30"
       - series: 'client_telemetry_forwarded_bytes_total{job="api", instance="a", client_telemetry_signal="logs"}'
         values: "5000x30"
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: ClientTelemetryNotForwarded
+        exp_alerts: []
+      - eval_time: 7m
+        alertname: ClientTelemetryNotForwarded
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+            exp_annotations:
+              summary: For 15 minutes, or since the API's replicas started, the collector took none of the batches of telemetry that the API sent it for users' clients, and neither took nor refused some.
+              runbook: docs/operations/runbooks.md#clienttelemetrynotforwarded
+
+  # The collector took no batch since the replicas started, so no series of the bytes that it took
+  # exists: the alert fires as it does while that series stands still.
+  - interval: 1m
+    input_series:
+      - series: 'http_server_request_duration_seconds_count{job="api", instance="a", http_route="/v1/users/me/telemetry/metrics", http_response_status_code="503", error_type="client_telemetry.collector_unavailable"}'
+        values: "0+3x30"
     alert_rule_test:
       - eval_time: 4m
         alertname: ClientTelemetryNotForwarded
