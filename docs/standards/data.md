@@ -125,6 +125,7 @@ Tenancy is enforced by the application, and every query on user or workspace dat
   - when inviting, by the invitee's email, and when changing, sending again or cancelling an invitation, by its address <!-- part: invitations -->
   - in the setup subcommand, by its owner's email (WORKSPACES-023) <!-- part: workspace_setup -->
   - in the operator's removal of a second factor, by the address it is given (AUTH-072)
+  - in the operator's end of an account's sessions, by the address it is given (AUTH-094)
   - in the operator's making of a superadmin, or ending of one, by the address it is given (SUPERADMINS-001) <!-- part: superadmins -->
   - in a sign-in through a provider, of the user whose provider identity holds the provider's subject, by the provider and the subject (AUTH-073)
   - for a signed URL, of its session by the ID that its signature proves the API gave (PLATFORM-080) <!-- part: files -->
@@ -137,6 +138,7 @@ A row ID alone never addresses tenant data. These reads are exempt:
 - a user's read of their own log, which reads the entries of every workspace's log whose target is them by their own ID alone, since what was done to a user is theirs to see (AUDIT-008, D6)
 - the position of the event that a stream's `Last-Event-ID` names, read by the event's ID alone, so a client resumes after the last event it received even from a workspace it has since left; the replay after that position filters by tenant, and the lookup tells a caller only whether an event ID it holds names an event, which a UUIDv7's random bits keep anyone from guessing (REALTIME-004)
 - scheduled jobs that span tenants, which select rows by their own criteria, such as expiry
+- the operator's end of every account's sessions, which reads the users that hold a session, whoever they are, and ends each user's sessions by the IDs that the read gave (AUTH-094)
 - a superadmin's reads, under the proof `Superadmin`, which names no workspace, and which the first two take: of every workspace's name and creation time; of each one's owner and member count, by the IDs that the first read gave; and of those owners' names and addresses, by the IDs that the second gave (WORKSPACES-029, D62) <!-- part: superadmins -->
 - a superadmin's deletion of a workspace, under the same proof, which locks and ends the memberships of the workspace that its path names, and deletes that workspace, by the path's ID (WORKSPACES-030, ACCESS-011) <!-- part: superadmins -->
 - the operator's list of the deployment's superadmins, which reads every superadmin's row, and those users' addresses by the IDs that the read gave (SUPERADMINS-008) <!-- part: superadmins -->

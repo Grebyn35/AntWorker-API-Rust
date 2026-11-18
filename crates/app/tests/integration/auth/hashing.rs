@@ -194,7 +194,7 @@ async fn auth_093_a_change_s_new_password_is_hashed_in_the_turn_its_check_took()
     turns.pop();
     let (status, body) = ada_changing.await.unwrap();
 
-    assert_eq!(status, 204, "{body}");
+    assert_eq!(status, 200, "{body}");
     execute_on(&mut held, "COMMIT").await;
     assert_eq!(bob_signing_in.await.unwrap().status, 201);
     drop(turns);
@@ -243,7 +243,7 @@ async fn auth_093_a_change_of_the_password_gives_its_turn_up_before_its_writes()
     // The change has verified the current password and hashed the new one, and waits to write.
     another_request_hashes(&api).await;
     execute_on(&mut held, "COMMIT").await;
-    assert_eq!(ada_changing.await.unwrap().0, 204);
+    assert_eq!(ada_changing.await.unwrap().0, 200);
     drop(busy);
 }
 
@@ -294,6 +294,6 @@ async fn auth_093_a_change_by_an_account_with_an_app_gives_its_turn_up_before_th
     another_request_hashes(&api).await;
     execute_on(&mut held, "COMMIT").await;
     let (status, body) = ada_changing.await.unwrap();
-    assert_eq!(status, 204, "{body}");
+    assert_eq!(status, 200, "{body}");
     drop(busy);
 }

@@ -1,5 +1,7 @@
 //! Registration and refresh; in `sign_in.rs`, signing in; in `sessions.rs`, reading, listing and
-//! ending a user's sessions, signing out among them; in `reauthentication.rs`, re-authenticating;
+//! ending a user's sessions, signing out among them; in `starting.rs`, starting a session in
+//! place of those its request shows; in `ending.rs`, the operator's end of an account's
+//! sessions, or of every account's; in `reauthentication.rs`, re-authenticating;
 //! in `deletion.rs`, confirming an account's deletion; in `exports.rs`, confirming the request of
 //! an export of the caller's data; in `verification.rs`, proving an account's
 //! email address, and the job that sends every code; in `password.rs`, resetting and changing the
@@ -9,7 +11,8 @@
 //! unit of work, after any per-action limit it counts first. One operation opens a second: a
 //! sign-in through a provider whose linked account went while it waited for the user's turn
 //! ends its unit of work with nothing written, counts as the registration it has become, and
-//! reads again in a new one (ARCH-11, AUTH-074).
+//! reads again in a new one (ARCH-11, AUTH-074). The operator's end of every account's sessions
+//! is an operation for each account, with a unit of work for each (AUTH-094).
 
 use std::sync::Arc;
 
@@ -33,6 +36,7 @@ mod buckets;
 mod deletion;
 mod devices;
 mod email_change;
+mod ending;
 mod exports;
 mod identities;
 mod password;
@@ -41,11 +45,13 @@ mod reauthentication;
 mod second_factors;
 mod sessions;
 mod sign_in;
+mod starting;
 mod verification;
 mod verifier;
 
 pub(super) use deletion::erase;
 pub(crate) use email_change::ChangeConfirmation;
+pub(crate) use ending::{Ending, end_every_session, end_sessions_of};
 // part: workspace_setup
 pub(crate) use identities::has_identity;
 // end part: workspace_setup
@@ -60,12 +66,12 @@ pub(crate) use second_factors::has_authenticator_app;
 // end part: superadmins
 pub(crate) use sessions::Ended;
 pub(crate) use sign_in::{SignIn, SignedIn};
+pub(crate) use starting::Held;
 pub(crate) use verifier::Verifier;
 
 use super::{
-    audit::{self, ThroughProvider},
+    audit,
     error::AuthError,
-    events::{SESSION_CREATED, SessionChanged},
     model::{
         self, DeviceId, DeviceName, DeviceToken, Lifetimes, Password, Required, Session,
         StoredSession, Tokens,
@@ -94,6 +100,9 @@ pub(crate) struct Device {
     /// The provider whose sign-in the device makes, or `None` for a password, which the session
     /// records (AUTH-016, AUTH-073).
     pub(crate) provider: Option<String>,
+    /// The session that the request's browser holds, if its cookies name one, which the session
+    /// that starts replaces (AUTH-096).
+    pub(crate) held: Held,
 }
 
 /// What `auth` takes from the deployment.
@@ -259,36 +268,6 @@ impl Auth {
         Ok((session.answer(required), tokens, device))
     }
 
-    /// Starts a session of `user_id` on `device`, ending the one its device has, if any, through
-    /// the full sign-out path (AUTH-008).
-    async fn replace_session(
-        &self,
-        uow: &mut UnitOfWork,
-        user_id: UserId,
-        device: &Device,
-    ) -> Result<(Principal, StoredSession, Tokens), AuthError> {
-        let replaced = match &device.id {
-            Some(device_id) => repo::session_on_device(uow, user_id, device_id).await?,
-            None => None,
-        };
-        let mut ended = Vec::new();
-        if let Some(old) = replaced
-            && repo::delete_session(uow, user_id, old).await?
-        {
-            ended.push(old);
-        }
-        let (principal, session, tokens) = self.start_session(uow, user_id, device).await?;
-        sessions::end_sessions(uow, principal.audit_scope(), user_id, &ended).await?;
-        let entry = Entry::detailed(
-            audit::SESSION_CREATED,
-            audit::SESSION,
-            session.id.uuid(),
-            ThroughProvider::new(device.provider.as_deref()),
-        );
-        audit_log::record(uow, principal.audit_scope(), entry).await?;
-        Ok((principal, session, tokens))
-    }
-
     /// Gives the session of the refresh token `token` a new pair of tokens (AUTH-010 to
     /// AUTH-012).
     pub(crate) async fn refresh(
@@ -383,41 +362,6 @@ impl Auth {
             email_verification,
             second_factor_setup,
         }))
-    }
-
-    /// Creates a session of `user_id` on `device`, with new tokens, and the principal it proves,
-    /// and publishes `session.created` to the user's streams (AUTH-046).
-    async fn start_session(
-        &self,
-        uow: &mut UnitOfWork,
-        user_id: UserId,
-        device: &Device,
-    ) -> Result<(Principal, StoredSession, Tokens), AuthError> {
-        let tokens = new_tokens()?;
-        let session = repo::insert_session(
-            uow,
-            user_id,
-            (
-                device.id.as_ref(),
-                device.name.as_ref(),
-                device.provider.as_deref(),
-            ),
-            &sha256(tokens.access.expose().as_bytes()),
-            &sha256(tokens.refresh.expose().as_bytes()),
-            self.settings.lifetimes,
-        )
-        .await?;
-        #[expect(
-            clippy::disallowed_methods,
-            reason = "auth builds the principal of a session it just created (the auth spec)"
-        )]
-        let principal = Principal::new(user_id, session.id);
-        let payload = SessionChanged {
-            session_id: session.id,
-        };
-        uow.publish_to_user(&SESSION_CREATED, user_id, &payload)
-            .await?;
-        Ok((principal, session, tokens))
     }
 
     /// The database, for the jobs that delete the sessions that stopped lasting, and the setups

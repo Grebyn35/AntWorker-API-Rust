@@ -22,7 +22,7 @@ use crate::modules::{
         error::AuthError,
         model::{DeviceToken, FactorProof, Session, Tokens},
         repo::{self, second_factors as factors},
-        service::{Auth, Device, buckets},
+        service::{Auth, Device, Held, buckets},
     },
 };
 
@@ -42,6 +42,9 @@ pub(crate) struct Challenge {
 pub(crate) struct Completion {
     pub(crate) challenge: Secret<String>,
     pub(crate) proof: FactorProof,
+    /// The session that the request's browser holds, if its cookies name one, which the session
+    /// that the completion starts replaces (AUTH-096).
+    pub(crate) held: Held,
 }
 
 impl Auth {
@@ -145,16 +148,17 @@ impl Auth {
         if !factors::claim_challenge(&mut uow, user_id, challenge.id).await? {
             return Err(AuthError::InvalidChallenge);
         }
-        self.start_completed(uow, challenge, used).await
+        self.start_completed(uow, (challenge, completion.held), used)
+            .await
     }
 
-    /// Starts the session of `challenge`, whose completion `uow` claimed, with its device token,
-    /// and tells the address when a recovery code completed it, leaving `used` (AUTH-059,
-    /// AUTH-062).
+    /// Starts the session of `challenge`, whose completion `uow` claimed, in place of the one
+    /// that `held` names, with its device token, and tells the address when a recovery code
+    /// completed it, leaving `used` (AUTH-059, AUTH-062, AUTH-096).
     async fn start_completed(
         &self,
         mut uow: UnitOfWork,
-        challenge: factors::StoredChallenge,
+        (challenge, held): (factors::StoredChallenge, Held),
         used: Option<i64>,
     ) -> Result<(Session, Tokens, DeviceToken), AuthError> {
         let user_id = challenge.user_id;
@@ -165,6 +169,7 @@ impl Auth {
             id: challenge.device_id,
             name: challenge.device_name,
             provider: challenge.provider,
+            held,
         };
         let (principal, session, tokens) = self.replace_session(&mut uow, user_id, &device).await?;
         let device = self

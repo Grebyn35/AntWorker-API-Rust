@@ -316,6 +316,8 @@ async fn auth_062_a_recovery_code_works_once_in_place_of_the_app_s_and_only_its_
     )
     .await;
     assert_eq!(first.status, 200, "{}", first.json());
+    // With the tokens that the proof gave the session (AUTH-095).
+    let ada = SignedIn::from(&first);
     assert_eq!(
         reads(&api, "SELECT count(*)::text FROM recovery_codes").await,
         ["9"]
@@ -502,8 +504,9 @@ async fn auth_065_with_an_app_re_authenticating_needs_its_code_beside_the_passwo
     )
     .await;
     assert_eq!(right.status, 200, "{}", right.json());
-    // The session proved who its user is, so a sensitive action may follow.
-    assert_eq!(start_setup(&api, &ada).await.status, 200);
+    // The session proved who its user is, so a sensitive action may follow, with the tokens
+    // that the proof gave it (AUTH-095).
+    assert_eq!(start_setup(&api, &SignedIn::from(&right)).await.status, 200);
 }
 
 #[tokio::test]
@@ -543,7 +546,7 @@ async fn auth_065_with_an_app_changing_the_password_needs_its_code_beside_the_cu
         "current_password": PASSWORD, "password": new_password, "code": code_now
     }))
     .await;
-    assert_eq!(right.status, 204, "{}", right.json());
+    assert_eq!(right.status, 200, "{}", right.json());
     assert_eq!(
         users::sign_in(&api, "ada@example.com", new_password)
             .await
@@ -569,6 +572,8 @@ async fn auth_068_each_change_of_the_second_factor_and_each_recovery_code_used_t
     )
     .await;
     assert_eq!(used.status, 200);
+    // With the tokens that the proof gave the session (AUTH-095).
+    let ada = SignedIn::from(&used);
     assert_eq!(remove(&api, &ada).await.status, 204);
     api.run_jobs().await;
 

@@ -78,6 +78,17 @@ pub enum ServerTask {
         /// The account's email address.
         email: String,
     },
+    /// Ends every session of the account that holds an address on the deployment at `host`, or,
+    /// with `--all` in the address's place, of every account, through the subcommand of the
+    /// image that serves (AUTH-094).
+    #[command(name = "end-sessions")]
+    EndSessions {
+        /// The server, as SSH names it.
+        host: String,
+        /// The account's email address, or `--all`, for every account.
+        #[arg(allow_hyphen_values = true)]
+        whose: String,
+    },
     // part: workspace_setup
     /// Creates the workspace `name` on the deployment at `host`, owned by the account that holds
     /// `email`, through the subcommand of the image that serves, which, with email on, creates
@@ -166,6 +177,7 @@ impl ServerTask {
             Self::Status { host } => deploy::status(&host),
             Self::Logs { host, arguments } => deploy::logs(&host, &arguments),
             Self::RemoveSecondFactor { host, email } => deploy::remove_second_factor(&host, &email),
+            Self::EndSessions { host, whose } => deploy::end_sessions(&host, &whose),
             // part: workspace_setup
             Self::SetupWorkspace {
                 host,

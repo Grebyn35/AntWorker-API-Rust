@@ -226,15 +226,25 @@ pub async fn added_bucket(
     api: &Api,
     request: impl std::future::Future<Output = Response>,
 ) -> String {
+    added_bucket_of(api, request).await.0
+}
+
+/// The ID of the one bucket that `request`, sent once, adds to those there before it, and what
+/// the request answered, such as a proof's answer, which holds its session's new tokens
+/// (AUTH-095).
+pub async fn added_bucket_of(
+    api: &Api,
+    request: impl std::future::Future<Output = Response>,
+) -> (String, Response) {
     let before = buckets(api).await;
-    request.await;
+    let answer = request.await;
     let mut added: Vec<String> = buckets(api)
         .await
         .into_iter()
         .filter(|id| !before.contains(id))
         .collect();
     assert_eq!(added.len(), 1, "{added:?}");
-    added.remove(0)
+    (added.remove(0), answer)
 }
 
 /// Makes `user`'s session one that stopped lasting an hour ago: its tokens and its absolute

@@ -96,6 +96,8 @@ async fn auth_070_an_account_without_an_app_is_refused_but_where_setting_one_up_
         .send()
         .await;
     assert_eq!(reauthenticated.status, 200);
+    // With the tokens that the proof gave the session (AUTH-095).
+    let ada = SignedIn::from(&reauthenticated);
     let factors = api
         .get("/v1/users/me/second-factors")
         .bearer(&ada.access)

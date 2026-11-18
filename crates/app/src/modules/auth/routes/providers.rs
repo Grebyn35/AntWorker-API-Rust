@@ -15,10 +15,10 @@ use serde::Deserialize;
 use utoipa::ToSchema;
 use utoipa_axum::routes;
 
-use super::{created, delivery, device, second_factors};
+use super::{SessionResponse, created, delivery, device, held, renewed, second_factors};
 use crate::modules::auth::{
     error::AuthError,
-    model::{DEVICE_COOKIE, DeviceId, DeviceName, FactorProof, Identities, Session},
+    model::{DEVICE_COOKIE, DeviceId, DeviceName, FactorProof, Identities},
     providers::Providers,
     service::{Auth, Grant, ProviderSignIn, SignedIn},
 };
@@ -254,6 +254,7 @@ async fn sign_in_through(
     let (grant, mut device) = errors.finish(grant.zip(device)).map_err(AuthError::from)?;
     let provider = request.provider;
     device.provider = Some(provider.clone());
+    device.held = held(&cookies);
     let input = ProviderSignIn {
         provider,
         grant,
@@ -278,14 +279,14 @@ async fn sign_in_through(
 
 /// Re-authenticates through a provider: proves again, in the session that authenticated the
 /// request, that the caller holds their account at the provider, for an action that needs it,
-/// such as deleting the account.
+/// such as deleting the account, and gives the session new tokens.
 #[utoipa::path(
     post,
     path = "/v1/users/me/sessions/current/reauthenticate/provider",
     tag = "auth",
     request_body = ProviderReauthenticationRequest,
     responses(
-        (status = 200, description = "The session, without its tokens.", body = Session),
+        (status = 200, description = "The session, with its new tokens.", body = SessionResponse),
     )
 )]
 async fn reauthenticate_through(
@@ -293,8 +294,9 @@ async fn reauthenticate_through(
     limits: RateLimits,
     client: Client,
     principal: Principal,
+    headers: HeaderMap,
     Json(request): Json<ProviderReauthenticationRequest>,
-) -> Result<axum::Json<Session>, Problem<AuthError>> {
+) -> Result<Response, Problem<AuthError>> {
     let mut errors = FieldErrors::new();
     let grant = grant(
         &mut errors,
@@ -311,10 +313,10 @@ async fn reauthenticate_through(
     let (grant, proof): (Grant, Option<FactorProof>) =
         errors.finish(grant.zip(proof)).map_err(AuthError::from)?;
     let provider = request.provider;
-    let session = auth
+    let (session, tokens) = auth
         .reauthenticate_through(&limits, &client, &principal, (&provider, grant), proof)
         .await?;
-    Ok(axum::Json(session))
+    Ok(renewed(session, &tokens, delivery(&headers))?)
 }
 
 /// Links the caller's account at a provider, which the code names, to their account, so it signs

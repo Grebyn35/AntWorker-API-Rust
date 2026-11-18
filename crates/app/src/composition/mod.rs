@@ -13,7 +13,7 @@ mod tasks;
 pub use config::Config;
 pub use pipeline::pipeline;
 pub use seed::{SeedError, SeedReport, seed, seed_allowed};
-pub use tasks::{Done, Operation, Refused, RemovalRefused};
+pub use tasks::{Done, EndingRefused, Operation, Refused, RemovalRefused};
 // part: superadmins
 pub use tasks::{SuperadminCommand, SuperadminRefused};
 // end part: superadmins

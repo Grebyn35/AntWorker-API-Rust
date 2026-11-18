@@ -17,7 +17,7 @@ use crate::modules::{
         audit::{self, LinkedProvider, ThroughProvider},
         error::AuthError,
         metrics,
-        model::{FactorProof, Required, Session},
+        model::{FactorProof, Required, Session, Tokens},
         providers::{self, Exchange, Found, Identity, On, ProviderError},
         repo,
     },
@@ -257,7 +257,7 @@ impl Auth {
         principal: &Principal,
         (provider, grant): (&str, Grant),
         proof: Option<FactorProof>,
-    ) -> Result<Session, AuthError> {
+    ) -> Result<(Session, Tokens), AuthError> {
         let user_id = principal.user_id();
         self.count_signed_in_check(limits, principal, proof.as_ref())
             .await?;
@@ -286,10 +286,7 @@ impl Auth {
         let mut uow = self
             .check_signed_in_factor(uow, principal, proof.as_ref())
             .await?;
-        // Another request may have ended the session since it authenticated this one.
-        let session = repo::reauthenticate(&mut uow, user_id, principal.session_id())
-            .await?
-            .ok_or(RequestError::Unauthenticated)?;
+        let (session, tokens) = self.proved(&mut uow, principal).await?;
         audit_log::record(
             &mut uow,
             principal.audit_scope(),
@@ -303,7 +300,7 @@ impl Auth {
         .await?;
         let session = self.answer(&mut uow, session).await?;
         uow.commit().await?;
-        Ok(session)
+        Ok((session, tokens))
     }
 
     /// The provider that `id` names, and the identity that `grant`'s code gives there, as

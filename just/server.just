@@ -78,6 +78,16 @@ logs host *services:
 remove-second-factor host email:
     {{ xtask }} remove-second-factor {{ host }} {{ quote(email) }}
 
+# Ends every session of the account that holds `whose`, an email address, on the reference
+# deployment on `host`, or, with `--all` as `whose`, of every account: each signs in again
+# (AUTH-094). It runs the API's subcommand `end-sessions` with the image of the color that serves,
+# and exits 1, changing nothing, when no account holds the address, or no session is there to
+# end. docs/operations/deploy.md says when to run it.
+[doc("Ends the sessions of an account on a server, or of every account")]
+[group('server')]
+end-sessions host whose:
+    {{ xtask }} end-sessions {{ host }} {{ quote(whose) }}
+
 # part: workspace_setup
 # Creates the workspace `name` on the reference deployment on `host`, owned by the account that
 # holds `email` (WORKSPACES-023, D65). With email on, it creates that account, named

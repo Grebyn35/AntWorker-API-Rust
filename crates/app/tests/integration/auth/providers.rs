@@ -477,9 +477,10 @@ async fn auth_080_the_caller_s_subject_reauthenticates_the_session() {
     let response = reauthenticate(&api, &ada, json!({})).await;
 
     assert_eq!(response.status, 200, "{}", response.json());
+    // With the tokens that the proof gave the session (AUTH-095).
     let deleted = api
         .request(http::Method::DELETE, "/v1/users/me/sessions/others")
-        .bearer(&ada.access)
+        .bearer(&SignedIn::from(&response).access)
         .send()
         .await;
     assert_eq!(deleted.status, 204, "the proof holds (AUTH-045)");
@@ -748,7 +749,9 @@ async fn auth_080_a_session_that_another_request_ended_meanwhile_answers_401() {
     let ada = signed_in(&api).await;
     let db = api.database();
     api.get("/v1/users/me").bearer(&ada.access).send().await;
-    let checks = users::added_bucket(&api, reauthenticate(&api, &ada, json!({}))).await;
+    let (checks, first) = users::added_bucket_of(&api, reauthenticate(&api, &ada, json!({}))).await;
+    // The proof gave the session new tokens (AUTH-095).
+    let ada = SignedIn::from(&first);
     // The re-authentication waits at its bucket while another request ends its session.
     let mut ender = db
         .holding(&format!(

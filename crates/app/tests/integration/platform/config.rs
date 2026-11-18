@@ -207,7 +207,7 @@ fn subcommand_settings(subcommand: &str) -> Option<std::collections::BTreeSet<St
             settings.migrate()?;
             Ok(())
         }),
-        "remove-second-factor" => settings_read(|settings| {
+        "remove-second-factor" | "end-sessions" => settings_read(|settings| {
             settings.telemetry()?;
             settings.operator()?;
             Ok(())
@@ -319,8 +319,13 @@ fn ops_02_each_setting_the_api_reads_is_documented_and_each_container_gets_only_
         );
         subcommands.insert(subcommand);
     }
-    let expected =
-        std::collections::BTreeSet::from(["bootstrap", "migrate", "remove-second-factor", "serve"]);
+    let expected = std::collections::BTreeSet::from([
+        "bootstrap",
+        "end-sessions",
+        "migrate",
+        "remove-second-factor",
+        "serve",
+    ]);
     // part: workspace_setup
     let expected: std::collections::BTreeSet<&str> =
         expected.into_iter().chain(["setup-workspace"]).collect();

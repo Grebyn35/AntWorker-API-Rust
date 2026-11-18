@@ -197,6 +197,22 @@ just remove-second-factor production ada@example.com
 
 removes the account's app and its recovery codes, ends every session of the account, records the removal in the account's own log, and tells the address ([auth spec](../spec/auth.md#second-factors), D135). The account then signs in with its password alone, and its user sets up an app again, at once when `SECOND_FACTOR_REQUIRED` is true. It runs the API's subcommand `remove-second-factor` with the image of the color that serves, in a service of `compose.yaml` of its own, one for each color, which passes it only the telemetry's, the database's and the email's settings (OPS-02), so it needs a replica running, and it exits 1, changing nothing, when no account holds the address or the account has no app.
 
+## Ending sessions
+
+When an account's tokens may have reached someone else, such as on a device that its owner lost and can't sign in to end from another,
+
+```
+just end-sessions production ada@example.com
+```
+
+ends every session of the account that holds the address: its clients' next requests are refused, their streams close, and its owner signs in again. Each end is recorded in the account's own log, with no actor ([auth spec](../spec/auth.md#a-users-sessions), AUTH-094). The account keeps its password and its second factor, so an owner whose password someone else may know also resets it.
+
+```
+just end-sessions production --all
+```
+
+ends every session of every account, for when the tokens of many may have reached someone else, such as after a fault that wrote them where they don't belong. It ends them one account after another, so a run that stops partway has ended those it came to, and a second run ends the rest; a session that starts while it runs, once its account's turn has passed, stays. Each runs the API's subcommand `end-sessions` as `remove-second-factor` runs, with the image of the color that serves, so it needs a replica running, and exits 1, changing nothing, when no account holds the address, or no session is there to end.
+
 <!-- part: workspace_setup -->
 ## Setting up a workspace
 

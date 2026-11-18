@@ -708,7 +708,7 @@ async fn auth_069_a_change_of_the_password_deletes_the_challenges_issued_before_
         .send()
         .await;
 
-    assert_eq!(changed.status, 204, "{}", changed.json());
+    assert_eq!(changed.status, 200, "{}", changed.json());
     forget_steps(&api, &ada.user_id).await;
     let stale = complete(
         &api,

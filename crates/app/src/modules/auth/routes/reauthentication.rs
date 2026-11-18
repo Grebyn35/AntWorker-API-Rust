@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use axum::extract::State;
+use axum::{extract::State, http::HeaderMap, response::Response};
 use platform::{
     authn::Principal,
     errors::{Problem, RequestError},
@@ -16,10 +16,10 @@ use serde::Deserialize;
 use utoipa::ToSchema;
 use utoipa_axum::routes;
 
-use super::second_factors;
+use super::{SessionResponse, delivery, renewed, second_factors};
 use crate::modules::auth::{
     error::AuthError,
-    model::{FactorProof, Password, Session},
+    model::{FactorProof, Password},
     service::Auth,
 };
 
@@ -72,14 +72,15 @@ impl TryFrom<ReauthenticationRequest> for (Password, Option<FactorProof>) {
 }
 
 /// Re-authenticates: proves the caller's password again in the session that authenticated the
-/// request, for an action that needs it, such as deleting the account.
+/// request, for an action that needs it, such as deleting the account, and gives the session new
+/// tokens.
 #[utoipa::path(
     post,
     path = "/v1/users/me/sessions/current/reauthenticate",
     tag = "auth",
     request_body = ReauthenticationRequest,
     responses(
-        (status = 200, description = "The session, without its tokens.", body = Session),
+        (status = 200, description = "The session, with its new tokens.", body = SessionResponse),
     )
 )]
 async fn reauthenticate(
@@ -87,12 +88,13 @@ async fn reauthenticate(
     limits: RateLimits,
     client: Client,
     principal: Principal,
+    headers: HeaderMap,
     Json(request): Json<ReauthenticationRequest>,
-) -> Result<axum::Json<Session>, Problem<AuthError>> {
+) -> Result<Response, Problem<AuthError>> {
     let (password, proof) =
         <(Password, Option<FactorProof>)>::try_from(request).map_err(AuthError::from)?;
-    let session = auth
+    let (session, tokens) = auth
         .reauthenticate(&limits, &client, &principal, password, proof)
         .await?;
-    Ok(axum::Json(session))
+    Ok(renewed(session, &tokens, delivery(&headers))?)
 }

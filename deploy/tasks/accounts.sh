@@ -25,6 +25,13 @@ remove_second_factor() {
     operate remove-second-factor "$1"
 }
 
+# Ends every session of the account that holds the address $1, or, when $1 is --all, of every
+# account, through the API's subcommand end-sessions, which exits 1, changing nothing, when no
+# account holds the address, or no session is there to end (AUTH-094).
+end_sessions() {
+    operate end-sessions "$1"
+}
+
 # part: workspace_setup
 # Creates the workspace named $1, owned by the account that holds the address $2, through the
 # API's subcommand setup-workspace, which, with email on, creates that account, named $3, when no

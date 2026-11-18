@@ -204,6 +204,8 @@ async fn auth_025_an_account_that_must_verify_corrects_its_address_through_a_cha
         .send()
         .await;
     assert_eq!(reauthenticated.status, 200);
+    // With the tokens that the proof gave the session (AUTH-095).
+    let ada = users::SignedIn::from(&reauthenticated);
     assert_eq!(ask(&api, &ada, &new).await.status, 202);
     let code = code_sent(&api, &new).await;
     let confirmed = confirm(&api, &ada, &new, &code).await;
@@ -817,8 +819,8 @@ async fn auth_040_of_two_changes_sent_at_once_the_second_checks_against_the_firs
 
     let mut statuses = [first.0.as_u16(), second.0.as_u16()];
     statuses.sort_unstable();
-    assert_eq!(statuses, [204, 403]);
-    let (changed, refused) = if first.0 == 204 {
+    assert_eq!(statuses, [200, 403]);
+    let (changed, refused) = if first.0 == 200 {
         ("lantern-orchard-58-brisk", second)
     } else {
         ("meadow-copper-73-swift", first)
@@ -1030,11 +1032,11 @@ async fn auth_022_a_check_that_waits_for_a_change_or_a_reset_reads_the_password_
     let db = api.database();
     let changed_to = "lantern-orchard-58-brisk";
     let reset_to = "meadow-copper-73-swift";
-    let reauthenticate = |password: &str| {
+    let reauthenticate = |access: &str, password: &str| {
         api.spawn(
             http::Method::POST,
             "/v1/users/me/sessions/current/reauthenticate",
-            &ada.access,
+            access,
             Some(json!({ "password": password })),
         )
     };
@@ -1048,10 +1050,13 @@ async fn auth_022_a_check_that_waits_for_a_change_or_a_reset_reads_the_password_
         Some(json!({ "current_password": PASSWORD, "password": changed_to })),
     );
     queries_wait_on_locks(db, 1).await;
-    let after_change = reauthenticate(PASSWORD);
+    let after_change = reauthenticate(&ada.access, PASSWORD);
     queries_wait_on_locks(db, 2).await;
     execute_on(&mut held, "COMMIT").await;
-    assert_eq!(change.await.unwrap().0, 204);
+    let (status, changed) = change.await.unwrap();
+    assert_eq!(status, 200);
+    // The change gave the session new tokens (AUTH-095).
+    let access = changed["access_token"].as_str().unwrap();
     let (status, body) = after_change.await.unwrap();
     assert_eq!(status, 403);
     assert_eq!(body["code"], "auth.wrong_password");
@@ -1079,7 +1084,7 @@ async fn auth_022_a_check_that_waits_for_a_change_or_a_reset_reads_the_password_
         }
     });
     queries_wait_on_locks(db, 1).await;
-    let after_reset = reauthenticate(changed_to);
+    let after_reset = reauthenticate(access, changed_to);
     queries_wait_on_locks(db, 2).await;
     execute_on(&mut held, "COMMIT").await;
     assert_eq!(reset.await.unwrap(), 204);
@@ -1089,7 +1094,7 @@ async fn auth_022_a_check_that_waits_for_a_change_or_a_reset_reads_the_password_
 }
 
 #[tokio::test]
-async fn auth_040_of_two_changes_sent_at_once_that_keep_the_password_both_answer_204() {
+async fn auth_040_of_two_changes_sent_at_once_that_keep_the_password_both_answer_200() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     let db = api.database();
@@ -1112,8 +1117,22 @@ async fn auth_040_of_two_changes_sent_at_once_that_keep_the_password_both_answer
     execute_on(&mut held, "COMMIT").await;
 
     // The first kept the password it had, which the second's check then reads.
-    assert_eq!(first.await.unwrap().0, 204);
-    assert_eq!(second.await.unwrap().0, 204);
+    let (first, second) = (first.await.unwrap(), second.await.unwrap());
+    assert_eq!(first.0, 200);
+    assert_eq!(second.0, 200);
+    // Each gave the session new tokens, so the pair of the one that came second holds
+    // (AUTH-095).
+    let mut works = Vec::new();
+    for answer in [&first.1, &second.1] {
+        let current = api
+            .get("/v1/users/me/sessions/current")
+            .bearer(answer["access_token"].as_str().unwrap())
+            .send()
+            .await;
+        works.push(current.status.as_u16());
+    }
+    works.sort_unstable();
+    assert_eq!(works, [200, 401]);
     assert_eq!(
         users::sign_in(&api, "ada@example.com", PASSWORD)
             .await

@@ -25,6 +25,17 @@ pub enum Operation {
         /// The account's email address.
         email: String,
     },
+    /// Ends every session of the account that holds an address, or, with `--all`, of every
+    /// account. Exits 1, changing nothing, when no account holds the address, or when no session
+    /// is there to end.
+    EndSessions {
+        /// The account's email address.
+        #[arg(required_unless_present = "all", conflicts_with = "all")]
+        email: Option<String>,
+        /// Ends the sessions of every account.
+        #[arg(long)]
+        all: bool,
+    },
     // part: workspace_setup
     /// Creates a workspace, owned by the account that holds an address, and, with email on,
     /// creates that account when no account holds the address, and tells the address. Exits 1,
@@ -103,6 +114,9 @@ pub enum Refused {
     /// Why `remove-second-factor` changed nothing.
     #[error(transparent)]
     RemoveSecondFactor(#[from] RemovalRefused),
+    /// Why `end-sessions` changed nothing.
+    #[error(transparent)]
+    EndSessions(#[from] EndingRefused),
     // part: workspace_setup
     /// Why `setup-workspace` changed nothing.
     #[error(transparent)]
@@ -122,6 +136,10 @@ impl Operation {
         match self {
             Self::RemoveSecondFactor { email } => {
                 let done = remove_second_factor(database, mail, &email).await?;
+                Ok(Done::of(done))
+            }
+            Self::EndSessions { email, .. } => {
+                let done = end_sessions(database, email.as_deref()).await?;
                 Ok(Done::of(done))
             }
             // part: superadmins
@@ -186,6 +204,52 @@ async fn remove_second_factor(
         ),
         auth::Removal::NoAccount => Err(RemovalRefused::NoAccount),
         auth::Removal::NoApp => Err(RemovalRefused::NoApp),
+    }
+}
+
+/// Why the subcommand `end-sessions` changed nothing, which its message says without the address,
+/// since the logs hold no personal data (AUTH-094, OBS-04).
+#[derive(Debug, thiserror::Error)]
+pub enum EndingRefused {
+    /// What the operator gave isn't an email address.
+    #[error("the address given isn't an email address, so no account holds it: nothing changed")]
+    NotAnAddress,
+    /// No account holds the address.
+    #[error("no account holds the address: nothing changed")]
+    NoAccount,
+    /// The account that holds the address has no session.
+    #[error("the account that holds the address has no session: nothing changed")]
+    NoSession,
+    /// No account has a session.
+    #[error("no account has a session: nothing changed")]
+    NoSessions,
+    /// The end couldn't run.
+    #[error(transparent)]
+    Internal(#[from] Internal),
+}
+
+/// Ends, on `database`, every session of the account that holds `email`, or of every account
+/// when it is `None`, as the subcommand's `--all` asks, for the subcommand `end-sessions`, and
+/// answers what it did, with how many sessions it ended, and for every account's, of how many
+/// accounts, for the subcommand's log (AUTH-094).
+async fn end_sessions(database: &Database, email: Option<&str>) -> Result<String, EndingRefused> {
+    let Some(email) = email else {
+        return match auth::end_every_session(database).await? {
+            auth::Ending::Ended { sessions, users } => Ok(format!(
+                "ended every session of every account: sessions {sessions}, accounts {users}"
+            )),
+            auth::Ending::NoAccount | auth::Ending::NoSession => Err(EndingRefused::NoSessions),
+        };
+    };
+    let Ok(email) = platform::types::EmailAddress::parse(email) else {
+        return Err(EndingRefused::NotAnAddress);
+    };
+    match auth::end_sessions_of(database, &email).await? {
+        auth::Ending::Ended { sessions, .. } => Ok(format!(
+            "ended every session of the account that holds the address: sessions {sessions}"
+        )),
+        auth::Ending::NoAccount => Err(EndingRefused::NoAccount),
+        auth::Ending::NoSession => Err(EndingRefused::NoSession),
     }
 }
 

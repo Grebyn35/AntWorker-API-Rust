@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use utoipa_axum::routes;
 
-use super::{SessionResponse, created, delivery};
+use super::{SessionResponse, created, delivery, held};
 use crate::modules::auth::{
     error::AuthError,
     model::{AppCode, FactorProof, RecoveryCode, TokenDelivery},
@@ -201,6 +201,7 @@ async fn complete_sign_in(
     let completion = Completion {
         challenge: Secret::new(challenge),
         proof,
+        held: held(&cookies),
     };
     let (session, tokens, device) = auth.complete_sign_in(&limits, &client, completion).await?;
     let delivery = delivery(&headers);

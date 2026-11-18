@@ -22834,8 +22834,15 @@
           "required": true
         },
         "responses": {
-          "204": {
-            "description": "The password changed, and every other session of the caller ended.",
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            },
+            "description": "The password changed, and every other session of the caller ended: the session, with its new tokens.",
             "headers": {
               "ratelimit": {
                 "description": "The quota left in the bucket that decided the response, and the seconds until its window ends.",
@@ -23122,7 +23129,7 @@
             }
           }
         },
-        "summary": "Changes the caller's password, given their current one, and ends every other session of\ntheirs.",
+        "summary": "Changes the caller's password, given their current one, ends every other session of theirs,\nand gives the session that authenticated the request new tokens.",
         "tags": [
           "auth"
         ],
@@ -25656,11 +25663,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Session"
+                  "$ref": "#/components/schemas/SessionResponse"
                 }
               }
             },
-            "description": "The session, without its tokens.",
+            "description": "The session, with its new tokens.",
             "headers": {
               "ratelimit": {
                 "description": "The quota left in the bucket that decided the response, and the seconds until its window ends.",
@@ -25945,7 +25952,7 @@
             }
           }
         },
-        "summary": "Re-authenticates: proves the caller's password again in the session that authenticated the\nrequest, for an action that needs it, such as deleting the account.",
+        "summary": "Re-authenticates: proves the caller's password again in the session that authenticated the\nrequest, for an action that needs it, such as deleting the account, and gives the session new\ntokens.",
         "tags": [
           "auth"
         ],
@@ -25970,11 +25977,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Session"
+                  "$ref": "#/components/schemas/SessionResponse"
                 }
               }
             },
-            "description": "The session, without its tokens.",
+            "description": "The session, with its new tokens.",
             "headers": {
               "ratelimit": {
                 "description": "The quota left in the bucket that decided the response, and the seconds until its window ends.",
@@ -26301,7 +26308,7 @@
             }
           }
         },
-        "summary": "Re-authenticates through a provider: proves again, in the session that authenticated the\nrequest, that the caller holds their account at the provider, for an action that needs it,\nsuch as deleting the account.",
+        "summary": "Re-authenticates through a provider: proves again, in the session that authenticated the\nrequest, that the caller holds their account at the provider, for an action that needs it,\nsuch as deleting the account, and gives the session new tokens.",
         "tags": [
           "auth"
         ],

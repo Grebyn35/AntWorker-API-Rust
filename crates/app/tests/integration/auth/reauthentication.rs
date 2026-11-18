@@ -52,8 +52,10 @@ async fn auth_021_the_right_password_reauthenticates_the_session() {
     assert_eq!(response.status, 200);
     let session = response.json();
     assert_eq!(session["id"], ada.session_id.as_str());
-    assert!(session.get("access_token").is_none());
-    assert!(session.get("refresh_token").is_none());
+    // The session's new tokens come with it (AUTH-095).
+    assert!(session["access_token"].is_string(), "{session}");
+    assert!(session["refresh_token"].is_string(), "{session}");
+    assert!(session.get("device_token").is_none(), "{session}");
     let after = authenticated_at(&api, &ada).await;
     assert!(after > before, "{before} then {after}");
     let stored = api
@@ -169,7 +171,9 @@ async fn auth_021_a_session_that_another_request_ended_meanwhile_answers_401() {
     let db = api.database();
     // Every bucket of Ada's requests but her password checks', which a re-authentication adds.
     api.get("/v1/users/me").bearer(&ada.access).send().await;
-    let checks = users::added_bucket(&api, reauthenticate(&api, &ada, PASSWORD)).await;
+    let (checks, first) = users::added_bucket_of(&api, reauthenticate(&api, &ada, PASSWORD)).await;
+    // The proof gave the session new tokens (AUTH-095).
+    let ada = SignedIn::from(&first);
     // The re-authentication waits at that bucket while another request ends its session.
     let mut ender = db
         .holding(&format!(
@@ -216,19 +220,20 @@ async fn auth_023_a_deletion_needs_the_password_proved_within_5_minutes() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     users::authenticated_ago(&api, &ada, 6).await;
-    let delete = || {
+    let delete = |access: &str| {
         api.request(http::Method::DELETE, "/v1/users/me")
-            .bearer(&ada.access)
+            .bearer(access)
             .send()
     };
 
-    let refused = delete().await;
+    let refused = delete(&ada.access).await;
     let proved = reauthenticate(&api, &ada, PASSWORD).await;
-    let deleted = delete().await;
+    assert_eq!(proved.status, 200);
+    // The proof gave the session new tokens (AUTH-095).
+    let deleted = delete(&SignedIn::from(&proved).access).await;
 
     assert_eq!(refused.status, 403);
     assert_eq!(refused.json()["code"], "request.reauthentication_required");
-    assert_eq!(proved.status, 200);
     assert_eq!(deleted.status, 204);
     let cleared = deleted.headers("set-cookie");
     for name in ["access_token", "refresh_token"] {
@@ -307,11 +312,12 @@ async fn auth_023_a_session_that_changed_its_password_within_5_minutes_may_delet
         .bearer(&ada.access)
         .send()
         .await;
-    assert_eq!(changed.status, 204);
+    assert_eq!(changed.status, 200);
 
+    // With the tokens that the change gave the session (AUTH-095).
     let deleted = api
         .request(http::Method::DELETE, "/v1/users/me")
-        .bearer(&ada.access)
+        .bearer(&SignedIn::from(&changed).access)
         .send()
         .await;
 

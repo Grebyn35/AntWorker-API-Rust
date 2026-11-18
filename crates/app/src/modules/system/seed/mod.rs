@@ -169,7 +169,7 @@ pub(crate) async fn seed(seed: Seed<'_>) -> Result<Seeded, SystemError> {
     // The workspace that a superadmin creates, once the operator has made Sam one, and Sam has
     // set an authenticator app up (SYSTEM-010).
     (seed.make_superadmin)(sam.email).await?;
-    let app_secret = api.set_up_app(&sam).await?;
+    let (sam, app_secret) = api.set_up_app(sam).await?;
     let holdings = api.create_as_superadmin(&sam, "Acme Holdings").await?;
     // part: invitations
     // Sam hands it over to Olivia, and leaves it.

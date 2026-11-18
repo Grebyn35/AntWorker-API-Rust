@@ -5,8 +5,8 @@ mod composition;
 mod modules;
 
 pub use composition::{
-    Config, Done, MIGRATIONS, Operation, Refused, RemovalRefused, Resources, SeedError, SeedReport,
-    Services, compose, openapi, pipeline, seed, seed_allowed,
+    Config, Done, EndingRefused, MIGRATIONS, Operation, Refused, RemovalRefused, Resources,
+    SeedError, SeedReport, Services, compose, openapi, pipeline, seed, seed_allowed,
 };
 // part: superadmins
 pub use composition::{SuperadminCommand, SuperadminRefused};

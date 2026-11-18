@@ -166,6 +166,8 @@ async fn accounts_020_a_session_that_proved_its_user_more_than_5_minutes_ago_is_
         .send()
         .await;
     assert_eq!(reauthenticated.status, 200);
+    // With the tokens that the proof gave the session (AUTH-095).
+    let ada = users::SignedIn::from(&reauthenticated);
     assert_eq!(request(&api, &ada).await.status, 202);
 }
 

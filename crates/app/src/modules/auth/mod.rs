@@ -27,5 +27,6 @@ pub(crate) use service::has_authenticator_app;
 pub(crate) use service::has_identity;
 // end part: workspace_setup
 pub(crate) use service::{
-    Auth, Keys, Outside, Removal, Settings, Verifier, remove_second_factor, require_recent_proof,
+    Auth, Ending, Keys, Outside, Removal, Settings, Verifier, end_every_session, end_sessions_of,
+    remove_second_factor, require_recent_proof,
 };

@@ -828,16 +828,22 @@ async fn auth_040_changing_sets_the_password_ends_the_other_sessions_and_keeps_t
 
     let changed = change(&api, &ada, users::PASSWORD).await;
 
-    assert_eq!(changed.status, 204);
-    assert!(changed.body.is_empty());
+    assert_eq!(changed.status, 200);
+    // It answers the caller's session, with the new tokens that the proof gave it (AUTH-095).
+    let renewed = SignedIn::from(&changed);
+    assert_eq!(renewed.session_id, ada.session_id);
     let refused = api.get("/v1/users/me").bearer(&other.access).send().await;
     assert_eq!(refused.status, 401);
     let session = api
         .get("/v1/users/me/sessions/current")
-        .bearer(&ada.access)
+        .bearer(&renewed.access)
         .send()
         .await;
     assert_eq!(session.status, 200);
+    assert_eq!(
+        session.json()["authenticated_at"],
+        changed.json()["authenticated_at"]
+    );
     assert!(session.json()["authenticated_at"].as_str() > before.as_str());
     let received: Vec<Value> = signals.received().await;
     assert_eq!(received.len(), 1);
@@ -882,7 +888,7 @@ async fn auth_046_a_change_and_a_reset_publish_the_end_of_each_session_they_end(
     let code = code_sent(&api, &address).await;
     let reset = confirm(&api, &address, &code).await;
 
-    assert_eq!(changed.status, 204);
+    assert_eq!(changed.status, 200);
     assert_eq!(reset.status, 204);
     // The change ends the other session alone, and the reset every session left.
     assert_eq!(
@@ -1022,7 +1028,7 @@ async fn auth_041_a_reset_and_a_change_each_tell_the_address() {
         .bearer(&signed_in.access)
         .send()
         .await;
-    assert_eq!(changed.status, 204);
+    assert_eq!(changed.status, 200);
     api.run_jobs().await;
 
     let told: Vec<String> = mailbox::to(&address)
@@ -1045,7 +1051,7 @@ async fn auth_041_with_email_off_a_change_enqueues_no_email() {
     let api = Api::without_email().await;
     let ada = users::register(&api, "ada@example.com").await;
 
-    assert_eq!(change(&api, &ada, users::PASSWORD).await.status, 204);
+    assert_eq!(change(&api, &ada, users::PASSWORD).await.status, 200);
 
     assert!(
         api.database()

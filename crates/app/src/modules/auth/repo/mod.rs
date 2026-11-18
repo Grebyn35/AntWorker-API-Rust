@@ -1,10 +1,11 @@
-//! The SQL of `sessions` and `device_tokens` (ARCH-10), with that of `identities` in
-//! `identities.rs`, that of `verification_codes` in `codes.rs`, and that of second factors and
-//! sign-in challenges in `second_factors.rs`. Every expiry comes from the database's clock
-//! (DATA-03), and a session or a device token is found by a token's hash through its unique index
+//! The SQL of `sessions` (ARCH-10), with that of `device_tokens` in `device_tokens.rs`, that of
+//! `identities` in `identities.rs`, that of `verification_codes` in `codes.rs`, and that of
+//! second factors and sign-in challenges in `second_factors.rs`. Every expiry comes from the
+//! database's clock (DATA-03), and a session is found by a token's hash through its unique index
 //! (DATA-16). What a user's export holds of them is in `exported.rs`.
 
 pub(super) mod codes;
+mod device_tokens;
 pub(super) mod exported;
 mod identities;
 pub(super) mod second_factors;
@@ -18,6 +19,9 @@ use platform::{
 
 use super::model::{DeviceId, DeviceName, Lifetimes, StoredSession};
 
+pub(super) use device_tokens::{
+    delete_device_tokens, device_token_valid, end_device_tokens, insert_device_token,
+};
 pub(super) use identities::{
     add_password, delete_identities, delete_password_identity, delete_provider_identity,
     insert_password_identity, insert_provider_identity, password_hash, password_identity,
@@ -95,65 +99,6 @@ pub(super) async fn insert_session(
     .fetch_one(uow.executor())
     .await?;
     Ok(session!(row))
-}
-
-/// Whether the device token that hashes to `token` is one of the email whose HMAC is `email`, and
-/// hasn't expired (AUTH-019).
-pub(super) async fn device_token_valid(
-    uow: &mut UnitOfWork,
-    token: &[u8],
-    email: &[u8],
-) -> Result<bool, Internal> {
-    Ok(sqlx::query_scalar!(
-        r#"SELECT EXISTS (
-            SELECT 1 FROM device_tokens
-            WHERE token_hash = $1 AND email_hash = $2 AND expires_at > now()
-        ) AS "valid!""#,
-        token,
-        email,
-    )
-    .fetch_one(uow.executor())
-    .await?)
-}
-
-/// Deletes `user_id`'s expired device tokens, and the one that hashes to `token`, if any.
-pub(super) async fn end_device_tokens(
-    uow: &mut UnitOfWork,
-    user_id: UserId,
-    token: Option<&[u8]>,
-) -> Result<(), Internal> {
-    sqlx::query!(
-        "DELETE FROM device_tokens
-        WHERE user_id = $1 AND (expires_at <= now() OR token_hash = $2)",
-        user_id.uuid(),
-        token,
-    )
-    .execute(uow.executor())
-    .await?;
-    Ok(())
-}
-
-/// Inserts `user_id`'s device token that hashes to `token`, for the email whose HMAC is `email`,
-/// lasting `lifetime`, and returns its ID and when it expires.
-pub(super) async fn insert_device_token(
-    uow: &mut UnitOfWork,
-    user_id: UserId,
-    email: &[u8],
-    token: &[u8],
-    lifetime: std::time::Duration,
-) -> Result<(uuid::Uuid, Timestamp), Internal> {
-    let row = sqlx::query!(
-        "INSERT INTO device_tokens (user_id, email_hash, token_hash, expires_at)
-        VALUES ($1, $2, $3, now() + make_interval(secs => $4::float8))
-        RETURNING id, expires_at",
-        user_id.uuid(),
-        email,
-        token,
-        seconds(lifetime),
-    )
-    .fetch_one(uow.executor())
-    .await?;
-    Ok((row.id, Timestamp::from_database(row.expires_at)))
 }
 
 /// The session `user_id` has on `device_id`, if any (AUTH-008).
@@ -374,18 +319,33 @@ pub(super) async fn session(
 }
 
 /// Sets the session `session_id` of `user_id` as re-authenticated now, by the database's clock,
-/// and returns it, if it exists (AUTH-021).
+/// gives it the tokens that hash to `access` and `refresh`, as a refresh does, keeping the hash
+/// of the refresh token it had as the previous one, and returns it, if it exists (AUTH-021,
+/// AUTH-095). The refresh expiry slides, never past the absolute lifetime.
 pub(super) async fn reauthenticate(
     uow: &mut UnitOfWork,
-    user_id: UserId,
-    session_id: SessionId,
+    (user_id, session_id): (UserId, SessionId),
+    access: &[u8],
+    refresh: &[u8],
+    lifetimes: Lifetimes,
 ) -> Result<Option<StoredSession>, Internal> {
     let row = sqlx::query!(
-        "UPDATE sessions SET authenticated_at = now() WHERE id = $2 AND user_id = $1
+        "UPDATE sessions SET
+            authenticated_at = now(),
+            previous_refresh_token_hash = refresh_token_hash,
+            access_token_hash = $3,
+            refresh_token_hash = $4,
+            access_token_expires_at = least(now() + make_interval(secs => $5::float8), expires_at),
+            refresh_token_expires_at = least(now() + make_interval(secs => $6::float8), expires_at)
+        WHERE id = $2 AND user_id = $1
         RETURNING id, user_id, device_id, device_name, created_at, access_token_expires_at,
             refresh_token_expires_at, expires_at, authenticated_at, provider",
         user_id.uuid(),
         session_id.uuid(),
+        access,
+        refresh,
+        seconds(lifetimes.access),
+        seconds(lifetimes.refresh),
     )
     .fetch_optional(uow.executor())
     .await?;
@@ -410,8 +370,9 @@ pub(super) async fn recently_authenticated(
     .await?)
 }
 
-/// Deletes every session of `user_id`, whose account the unit of work deletes (ACCOUNTS-013), or
-/// whose password it resets (AUTH-037), and returns their IDs.
+/// Deletes every session of `user_id`, whose account the unit of work deletes (ACCOUNTS-013),
+/// whose password it resets (AUTH-037), whose authenticator app the operator removes (AUTH-072),
+/// or whose sessions the operator ends (AUTH-094), and returns their IDs.
 pub(super) async fn delete_sessions(
     uow: &mut UnitOfWork,
     user_id: UserId,
@@ -423,6 +384,27 @@ pub(super) async fn delete_sessions(
     .fetch_all(uow.executor())
     .await?;
     Ok(ids.into_iter().map(SessionId::from_uuid).collect())
+}
+
+/// At most `limit` of the users that hold a session, by their IDs, those after `after` when it
+/// names one, for the operator's end of every user's sessions, which spans every user by nature
+/// (AUTH-094, DATA-16).
+pub(super) async fn holders(
+    uow: &mut UnitOfWork,
+    after: Option<UserId>,
+    limit: i64,
+) -> Result<Vec<UserId>, Internal> {
+    let ids = sqlx::query_scalar!(
+        "SELECT DISTINCT user_id FROM sessions
+        WHERE $1::uuid IS NULL OR user_id > $1
+        ORDER BY user_id
+        LIMIT $2",
+        after.map(UserId::uuid),
+        limit,
+    )
+    .fetch_all(uow.executor())
+    .await?;
+    Ok(ids.into_iter().map(UserId::from_uuid).collect())
 }
 
 /// Deletes every session of `user_id` but `kept`, the one whose request changes their password or
@@ -462,19 +444,4 @@ pub(super) async fn delete_other_sessions_through(
     .fetch_all(uow.executor())
     .await?;
     Ok(ids.into_iter().map(SessionId::from_uuid).collect())
-}
-
-/// Deletes every device token of `user_id`, whose account the unit of work deletes
-/// (ACCOUNTS-013).
-pub(super) async fn delete_device_tokens(
-    uow: &mut UnitOfWork,
-    user_id: UserId,
-) -> Result<(), Internal> {
-    sqlx::query!(
-        "DELETE FROM device_tokens WHERE user_id = $1",
-        user_id.uuid()
-    )
-    .execute(uow.executor())
-    .await?;
-    Ok(())
 }

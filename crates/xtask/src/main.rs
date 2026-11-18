@@ -470,6 +470,31 @@ mod tests {
         assert!(Cli::try_parse_from(["xtask", "remove-second-factor", "production"]).is_err());
     }
 
+    #[test]
+    fn auth_094_the_operator_s_end_of_sessions_takes_a_server_and_an_address_or_all() {
+        let cli = |arguments: &[&str]| {
+            Cli::try_parse_from(
+                ["xtask", "end-sessions"]
+                    .into_iter()
+                    .chain(arguments.iter().copied()),
+            )
+        };
+        let one = cli(&["production", "ada@example.com"]).unwrap();
+        let all = cli(&["production", "--all"]).unwrap();
+
+        assert!(matches!(
+            one.command,
+            Command::Server(ServerTask::EndSessions { host, whose })
+                if host == "production" && whose == "ada@example.com"
+        ));
+        assert!(matches!(
+            all.command,
+            Command::Server(ServerTask::EndSessions { host, whose })
+                if host == "production" && whose == "--all"
+        ));
+        assert!(cli(&["production"]).is_err());
+    }
+
     // part: workspace_setup
     #[test]
     fn workspaces_023_the_operator_s_setup_takes_a_server_a_name_an_address_and_maybe_a_name() {

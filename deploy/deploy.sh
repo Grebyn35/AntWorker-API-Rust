@@ -2,11 +2,12 @@
 # The reference deployment's tasks on its server (D45): deploys a release with no downtime
 # (OPS-14), and with a managed backend, imports its dashboards and alert rules into the backend's
 # Grafana through import-grafana.sh (D42), takes and restores the bundled database's backups
-# (OPS-15), shows the deployment's state and its services' logs (OPS-19), and removes a lost
-# second factor from an account (AUTH-072). `just deploy`, `just backup`, `just restore`,
-# `just status`, `just logs` and `just remove-second-factor` run it over SSH from a developer's
-# machine; docs/operations/deploy.md describes the deployment. Each task's code is a file of
-# tasks/, which this script sources.
+# (OPS-15), shows the deployment's state and its services' logs (OPS-19), removes a lost second
+# factor from an account (AUTH-072), and ends an account's sessions, or every account's
+# (AUTH-094). `just deploy`, `just backup`, `just restore`, `just status`, `just logs`,
+# `just remove-second-factor` and `just end-sessions` run it over SSH from a developer's machine;
+# docs/operations/deploy.md describes the deployment. Each task's code is a file of tasks/, which
+# this script sources.
 # It also sets up a workspace (WORKSPACES-023), which `just setup-workspace` runs. # part: workspace_setup
 # It also makes an account a superadmin, ends one, or lists them (SUPERADMINS-001), which `just superadmin` runs. # part: superadmins
 #
@@ -49,6 +50,11 @@
 #       ends every session of the account, and tells the address, through the API's subcommand of
 #       the same name, with the image of the color that serves. Fails, changing nothing, when no
 #       account holds the address or it has no app.
+#   deploy.sh end-sessions <email>
+#   deploy.sh end-sessions --all
+#       Ends every session of the account that holds <email>, or, with --all, of every account,
+#       through the API's subcommand of the same name, with the image of the color that serves.
+#       Fails, changing nothing, when no account holds the address, or no session is there to end.
 # part: workspace_setup
 #   deploy.sh setup-workspace <name> <email> [<owner's name>]
 #       Creates the workspace <name>, owned by the account that holds <email>, through the API's
@@ -107,7 +113,7 @@ allowed() {
 }
 
 # The tasks, for the usage that an unknown one gets.
-tasks="deploy|apply|backup|restore|restore-inputs|status|logs|remove-second-factor|check|check-images"
+tasks="deploy|apply|backup|restore|restore-inputs|status|logs|remove-second-factor|end-sessions|check|check-images"
 # part: workspace_setup
 tasks="$tasks|setup-workspace"
 # end part: workspace_setup
@@ -142,6 +148,10 @@ case $command in
     remove-second-factor)
         if [ "$#" -ne 2 ]; then fail "usage: deploy.sh remove-second-factor <email>"; fi
         remove_second_factor "$2"
+        ;;
+    end-sessions)
+        if [ "$#" -ne 2 ]; then fail "usage: deploy.sh end-sessions <email>, or deploy.sh end-sessions --all"; fi
+        end_sessions "$2"
         ;;
     # part: workspace_setup
     setup-workspace)

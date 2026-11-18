@@ -26,30 +26,35 @@ pub(crate) type MakingSuperadmin<'a> =
 const APP_STEP_SECONDS: u64 = 30;
 
 impl Api {
-    /// Sets up an authenticator app for `account`, as a client does, and returns its secret, in
-    /// base32, whose codes a sign-in to the account then takes (AUTH-055, AUTH-056), wrapped, so
-    /// only the seed's report shows it (SEC-01). The account
-    /// re-authenticates first: the answer's `authenticated_at` is the request's time by the
-    /// database's clock, by which the API checks an app's code (AUTH-021, AUTH-057), and the
-    /// seed reads no clock of its own (CODE-06).
+    /// Sets up an authenticator app for `account`, as a client does, and returns the account,
+    /// with its session's new access token, and the app's secret, in base32, whose codes a
+    /// sign-in to the account then takes (AUTH-055, AUTH-056), wrapped, so only the seed's report
+    /// shows it (SEC-01). The account re-authenticates first: the answer's `authenticated_at` is
+    /// the request's time by the database's clock, by which the API checks an app's code
+    /// (AUTH-021, AUTH-057), and the seed reads no clock of its own (CODE-06). The answer holds
+    /// the session's new tokens, with which the pair it had stops working (AUTH-095).
     pub(super) async fn set_up_app(
         &self,
-        account: &Account,
-    ) -> Result<Secret<String>, SystemError> {
+        account: Account,
+    ) -> Result<(Account, Secret<String>), SystemError> {
         let session = self
             .send(
                 Method::POST,
                 "/v1/users/me/sessions/current/reauthenticate",
-                Some(account),
+                Some(&account),
                 Some(json!({ "password": PASSWORD })),
             )
             .await?;
         let now = unix_seconds(&session["authenticated_at"])?;
+        let account = Account {
+            access_token: text(&session, "access_token")?,
+            ..account
+        };
         let setup = self
             .send(
                 Method::POST,
                 "/v1/users/me/second-factors/totp/setup",
-                Some(account),
+                Some(&account),
                 None,
             )
             .await?;
@@ -58,11 +63,11 @@ impl Api {
         self.send(
             Method::POST,
             "/v1/users/me/second-factors/totp/setup/confirm",
-            Some(account),
+            Some(&account),
             Some(json!({ "code": code })),
         )
         .await?;
-        Ok(Secret::new(secret))
+        Ok((account, Secret::new(secret)))
     }
 
     /// Creates the workspace `name` as `superadmin`, who owns it, and returns its ID

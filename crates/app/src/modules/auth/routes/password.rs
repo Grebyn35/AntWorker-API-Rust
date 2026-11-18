@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use axum::{
     extract::State,
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
 };
 use platform::{
@@ -19,6 +19,7 @@ use serde::Deserialize;
 use utoipa::ToSchema;
 use utoipa_axum::routes;
 
+use super::{SessionResponse, delivery, renewed};
 use crate::modules::auth::{
     error::AuthError,
     model::{Password, ResetCode},
@@ -221,15 +222,15 @@ async fn confirm_reset(
     Ok(StatusCode::NO_CONTENT.into_response())
 }
 
-/// Changes the caller's password, given their current one, and ends every other session of
-/// theirs.
+/// Changes the caller's password, given their current one, ends every other session of theirs,
+/// and gives the session that authenticated the request new tokens.
 #[utoipa::path(
     post,
     path = "/v1/users/me/password/change",
     tag = "auth",
     request_body = PasswordChangeRequest,
     responses(
-        (status = 204, description = "The password changed, and every other session of the caller ended."),
+        (status = 200, description = "The password changed, and every other session of the caller ended: the session, with its new tokens.", body = SessionResponse),
     )
 )]
 async fn change_password(
@@ -237,10 +238,12 @@ async fn change_password(
     limits: RateLimits,
     client: Client,
     principal: Principal,
+    headers: HeaderMap,
     Json(request): Json<PasswordChangeRequest>,
 ) -> Result<Response, Problem<AuthError>> {
     let change = PasswordChange::try_from(request).map_err(AuthError::from)?;
-    auth.change_password(&limits, &client, &principal, change)
+    let (session, tokens) = auth
+        .change_password(&limits, &client, &principal, change)
         .await?;
-    Ok(StatusCode::NO_CONTENT.into_response())
+    Ok(renewed(session, &tokens, delivery(&headers))?)
 }

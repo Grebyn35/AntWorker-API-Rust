@@ -8,18 +8,19 @@ use platform::{
     blocking::Turn,
     db::UnitOfWork,
     errors::{Internal, RequestError},
+    hashing::sha256,
     rate_limit::RateLimits,
     types::Client,
 };
 
-use super::{Auth, buckets, verify_in};
+use super::{Auth, buckets, new_tokens, verify_in};
 use crate::modules::{
     accounts,
     audit::{self as audit_log, Entry},
     auth::{
         audit,
         error::AuthError,
-        model::{FactorProof, Password, Session},
+        model::{FactorProof, Password, Session, StoredSession, Tokens},
         repo,
     },
 };
@@ -69,8 +70,7 @@ impl Auth {
         principal: &Principal,
         password: Password,
         proof: Option<FactorProof>,
-    ) -> Result<Session, AuthError> {
-        let user_id = principal.user_id();
+    ) -> Result<(Session, Tokens), AuthError> {
         self.count_signed_in_check(limits, principal, proof.as_ref())
             .await?;
         let (uow, _, matches, _) = self
@@ -82,10 +82,7 @@ impl Auth {
         let mut uow = self
             .check_signed_in_factor(uow, principal, proof.as_ref())
             .await?;
-        // Another request may have ended the session since it authenticated this one.
-        let session = repo::reauthenticate(&mut uow, user_id, principal.session_id())
-            .await?
-            .ok_or(RequestError::Unauthenticated)?;
+        let (session, tokens) = self.proved(&mut uow, principal).await?;
         audit_log::record(
             &mut uow,
             principal.audit_scope(),
@@ -98,7 +95,31 @@ impl Auth {
         .await?;
         let session = self.answer(&mut uow, session).await?;
         uow.commit().await?;
-        Ok(session)
+        Ok((session, tokens))
+    }
+
+    /// Records in `uow` that the session that authenticated the caller proved who they are now,
+    /// by the database's clock, and gives it a new pair of tokens, with which the pair it had
+    /// stops working, as a refresh does: the one step of every proof in a session, a
+    /// re-authentication's, with the password or through a provider, and a change of the
+    /// password's (AUTH-095, AUTH-021, AUTH-040, AUTH-080). A session that another request ended
+    /// since it authenticated this one answers 401.
+    pub(super) async fn proved(
+        &self,
+        uow: &mut UnitOfWork,
+        principal: &Principal,
+    ) -> Result<(StoredSession, Tokens), AuthError> {
+        let tokens = new_tokens()?;
+        let session = repo::reauthenticate(
+            uow,
+            (principal.user_id(), principal.session_id()),
+            &sha256(tokens.access.expose().as_bytes()),
+            &sha256(tokens.refresh.expose().as_bytes()),
+            self.settings.lifetimes,
+        )
+        .await?
+        .ok_or(RequestError::Unauthenticated)?;
+        Ok((session, tokens))
     }
 
     /// Records in `uow` that the caller's password was wrong, a security failure, which commits

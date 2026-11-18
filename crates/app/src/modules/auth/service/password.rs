@@ -25,7 +25,7 @@ use crate::modules::{
         error::AuthError,
         jobs::SendCode,
         metrics,
-        model::{FactorProof, Password, Purpose, ResetCode},
+        model::{FactorProof, Password, Purpose, ResetCode, Session, Tokens},
         repo::{self, codes},
     },
 };
@@ -262,7 +262,7 @@ impl Auth {
         client: &Client,
         principal: &Principal,
         change: PasswordChange,
-    ) -> Result<(), AuthError> {
+    ) -> Result<(Session, Tokens), AuthError> {
         let user_id = principal.user_id();
         self.count_signed_in_check(limits, principal, change.proof.as_ref())
             .await?;
@@ -294,12 +294,7 @@ impl Auth {
         repo::second_factors::delete_challenges(&mut uow, user_id).await?;
         // The request proved the password, as a re-authentication does; its session, read after
         // the turn, may have ended meanwhile.
-        if repo::reauthenticate(&mut uow, user_id, principal.session_id())
-            .await?
-            .is_none()
-        {
-            return Err(RequestError::Unauthenticated.into());
-        }
+        let (session, tokens) = self.proved(&mut uow, principal).await?;
         let ended = repo::delete_other_sessions(&mut uow, user_id, principal.session_id()).await?;
         end_sessions(&mut uow, principal.audit_scope(), user_id, &ended).await?;
         audit_log::record(
@@ -310,8 +305,9 @@ impl Auth {
         .await?;
         self.tell_password_changed(&mut uow, principal.job_scope(), address.email)
             .await?;
+        let session = self.answer(&mut uow, session).await?;
         uow.commit().await?;
-        Ok(())
+        Ok((session, tokens))
     }
 
     /// Enqueues in `uow` the email that tells `to` its account's password changed, while email is

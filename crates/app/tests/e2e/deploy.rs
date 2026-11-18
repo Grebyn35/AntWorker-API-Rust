@@ -944,6 +944,20 @@ fn operator_subcommands_run(deployment: &Deployment) {
         "{written}"
     );
     assert!(!written.contains("nobody@example.com"), "{written}");
+    // The end of sessions refuses an address that no account holds, and, for every account's, a
+    // deployment where no account has a session, as this one, which has no account yet
+    // (AUTH-094).
+    for (whose, refusal) in [
+        ("nobody@example.com", app::EndingRefused::NoAccount),
+        ("--all", app::EndingRefused::NoSessions),
+    ] {
+        let ending = deployment.server.deploy(&["end-sessions", whose]);
+        let written = lossy(&ending);
+        assert_eq!(ending.status.code(), Some(1), "{written}");
+        assert!(written.contains("startup failed"), "{written}");
+        assert!(written.contains(&refusal.to_string()), "{written}");
+        assert!(!written.contains("nobody@example.com"), "{written}");
+    }
     // part: workspace_setup
     // The setup of a workspace (WORKSPACES-023): with email off, it makes the account that holds
     // the address the workspace's owner, and sets nothing up for an address that no account

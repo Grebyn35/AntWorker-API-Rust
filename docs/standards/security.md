@@ -36,7 +36,7 @@ A failed sign-in gives the same response and the same timing whether the email e
 - Check: `test` (identical responses for known and unknown emails), plus `review` (an unknown email runs the same password hash as a known one, and a reset's request does the same work).
 
 ### SEC-06 Sessions are bounded, and lost access ends open streams
-A session starts only in a request that carries its user's password, a provider's code for the user, or the challenge of such a sign-in with its second factor. Access tokens are short-lived. Refresh tokens rotate on every use, and reuse is detected. Every session has an absolute maximum lifetime. The auth spec sets the durations.
+A session starts only in a request that carries its user's password, a provider's code for the user, or the challenge of such a sign-in with its second factor. Access tokens are short-lived. Refresh tokens rotate on every use, and reuse is detected. A proof of who a session's user is gives the session new tokens, as a refresh does (AUTH-095), and a request that starts a session ends the one that its device, or its browser, held (AUTH-008, AUTH-096). Every session has an absolute maximum lifetime. The auth spec sets the durations.
 
 When a session is revoked, a user is deleted, a membership is removed or a role changes, the affected open streams are closed or re-filtered as soon as the change commits. If that signal is missed, they are closed or re-filtered within the configured re-check interval, 60 seconds by default. [The platform spec](../spec/platform.md#events-and-the-real-time-hub) describes the mechanism.
 - Why: a stolen token has a limited life, and lost access ends at once, or within the re-check interval in the worst case (D5, D35).

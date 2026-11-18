@@ -90,6 +90,8 @@ async fn auth_025_an_account_that_must_verify_is_refused_but_where_verifying_nee
         .send()
         .await;
     assert_eq!(reauthenticated.status, 200);
+    // With the tokens that the proof gave the session (AUTH-095).
+    let ada = users::SignedIn::from(&reauthenticated);
     assert_eq!(ask(&api, &ada).await.status, 202);
     let code = code_sent(&api, &address).await;
     assert_eq!(confirm(&api, &ada, &code).await.status, 200);

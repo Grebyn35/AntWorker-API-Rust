@@ -349,6 +349,19 @@ services:
     command: ["remove-second-factor"]
     image: ${API_IMAGE_GREEN:?the image of the green replicas, in state/deploy.env}
 
+  # The operator's end of an account's sessions, or of every account's (AUTH-094), which
+  # `just end-sessions` runs as it runs the removal above, with the settings that the removal
+  # reads.
+  end-sessions-blue:
+    <<: *operator
+    command: ["end-sessions"]
+    image: ${API_IMAGE_BLUE:?the image of the blue replicas, in state/deploy.env}
+
+  end-sessions-green:
+    <<: *operator
+    command: ["end-sessions"]
+    image: ${API_IMAGE_GREEN:?the image of the green replicas, in state/deploy.env}
+
   # part: workspace_setup
   # The operator's setup of a workspace (WORKSPACES-023), which `just setup-workspace` runs as it
   # runs the removal above, with the settings that the removal reads.
