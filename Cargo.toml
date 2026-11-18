@@ -39,7 +39,7 @@ ipnet = { version = "2.12.2", default-features = false, features = ["std"] }
 jsonschema ={ version = "0.60.1", default-features = false }
 json-subscriber = { version = "0.3.1", default-features = false, features = ["tracing-opentelemetry-0-34"] }
 # The SMTP transport on Tokio, with rustls on ring and the system's certificates (SEC-16, D38).
-lettre = { version = "0.11.23", default-features = false, features = ["builder", "pool", "smtp-transport", "tokio1", "tokio1-rustls", "ring", "rustls-native-certs"] }
+lettre = { version = "0.11.24", default-features = false, features = ["builder", "pool", "smtp-transport", "tokio1", "tokio1-rustls", "ring", "rustls-native-certs"] }
 mimalloc = { version = "0.1.52", default-features = false }
 # part: files
 # The client of the S3-compatible bucket that holds files' bytes, signing with ring and sending
