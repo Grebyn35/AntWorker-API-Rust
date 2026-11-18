@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** step 6, which closes the migration: step 5 is complete, with `client_telemetry`'s third part built and reviewed, clean at its third pass, and the proposal on registration points decided. The step's first work is its own order: the three parts of Foundation that remain, the decisions of the proposals that wait for it, the Known gaps, and the review of the whole codebase. Nothing waits on the owner, who decided on 2026-11-18 that the stores keep clients' telemetry beside the API's own, as long, and that no alert reads the numbers that clients report. The trial server runs 0.1.0-rc.11, and its Grafana Cloud alerts reach no contact point. Its next release needs a B2 files bucket with its own key pair and "Keep only the last version of the file", `--allow-restart`, and `just server-setup` first; its first deploy proves the scanner's first start and settles the platform spec's `UNSIGNED-PAYLOAD` question, and its first restore measures a restore's downtime. Dependabot's #23 to #31 are open; #23, #24, #28 and #31 fail.
+**Next:** step 6.1, the pass against Level 2 of ASVS, with `SECURITY.md`. Step 6 has its order in the [build order](#build-order): what changes the code or the rules comes before the review of the whole codebase, and the ADRs after it. The pass reads the code against the 253 requirements of Levels 1 and 2 of version 5.0.0, in 17 chapters, and its first work settles where its map of them lives. Nothing waits on the owner. The trial server runs 0.1.0-rc.11, and its Grafana Cloud alerts reach no contact point. Its next release needs a B2 files bucket with its own key pair and "Keep only the last version of the file", `--allow-restart`, and `just server-setup` first; its first deploy proves the scanner's first start and settles the platform spec's `UNSIGNED-PAYLOAD` question, and its first restore measures a restore's downtime. Dependabot's #23 to #31 are open; #23, #24, #28 and #31 fail.
 
 ## Build order
 
@@ -30,7 +30,12 @@ Every part of the system is listed under [Foundation](#foundation), [Modules](#m
 3. **Rule fixes.** Apply one round of rule changes from what steps 1 and 2 taught, through [Changing a rule](standards/README.md#changing-a-rule). The round deletes rules as well as fixing them: a rule that no code needed, or that only restates another, goes. It settles each CI check that [CI checks](#ci-checks) leaves to it, and the commit message records the number of rules, behaviors and CI checks before and after. Right after it, rule and behavior IDs are renumbered once, closing the gaps the round leaves, before later tests carry the old numbers. From then on, IDs are never reused.
 4. **Afternoon test.** A developer or agent new to the codebase, using only the docs, adds a small feature to the slice. Anything that slows them down is fixed by removing complexity, not by adding it.
 5. **Remaining modules, one at a time.** `just new-module` and the guide to adding a module come first, shaped by the afternoon test, and every remaining module starts from them. Each module's spec is written just before the module is built, and carries the commitments that [inventory/decision-trace.md](inventory/decision-trace.md) lists for it.
-6. **Close the migration.** The remaining parts under [Foundation](#foundation) are built, and one conformance review covers the whole codebase, under the same stopping rule. The architecture decision records (ADRs) are written from the rules as they then stand: ADR-00NN records decision DNN, and [inventory/decision-trace.md](inventory/decision-trace.md) lists where the rules refine the decisions' first wording in [inventory/SYNTHESIS.md](inventory/SYNTHESIS.md). Every `DNN` citation is replaced with a link to its ADR, and architecture.md is rewritten to describe the system as built (DOC-01). The migration closes when [Known gaps](#known-gaps) and [Rule proposals](#rule-proposals) are empty. Then `docs/inventory/` and this file are deleted, with the code of the checks that reads them.
+6. **Close the migration.** What changes the code or the rules comes before the review of the whole codebase, and the decisions' records after it:
+   1. **The security bar:** the pass against Level 2 of ASVS, which maps each requirement to a rule or a behavior, or marks it not applicable (D26, D63), with the fixes of what it finds, `SECURITY.md`, and the proposals and the known gap that wait for the pass.
+   2. **What a fork starts from:** `just rename`, with its guide and `check-rename` (ARCH-15), the proposal on the one command with which a fork chooses its shape (ARCH-07), and the GitHub template repository (D29).
+   3. **The review of the whole codebase.** Before its first pass come the decisions of the proposals that wait for it, the fixes of the known gaps, `CHANGELOG.md`, the two checks that read an earlier release, `test-migrations` and the breaking-change diff of `check-openapi`, which pass in a repository that has none, as a new fork is, and architecture.md rewritten to describe the system as built (DOC-01). Then one conformance review covers the whole codebase, under the same stopping rule.
+   4. **The ADRs,** written from the rules as they stand after that review: ADR-00NN records decision DNN, and [inventory/decision-trace.md](inventory/decision-trace.md) lists where the rules refine the decisions' first wording in [inventory/SYNTHESIS.md](inventory/SYNTHESIS.md). Every `DNN` citation is replaced with a link to its ADR, and `check-docs` keeps the body of an accepted ADR as it is (DOC-10).
+   5. **The close.** The migration closes when [Known gaps](#known-gaps) and [Rule proposals](#rule-proposals) are empty. Then `docs/inventory/` and this file are deleted, with the code of the checks that reads them and with what the rules, `CLAUDE.md` and the skills say of them. The first final release is the owner's to start from then on.
 
 
 ## Foundation
@@ -52,9 +57,10 @@ The parts that aren't modules, from [architecture.md](architecture.md) and the d
 | `just seed` and the API reference in development | D28, D69, D71 | built |
 | The threat model | D26 | built |
 | `just new-module` and the guide to adding a module | D29, D91, D92 | built |
-| `just rename`, the guide to renaming a fork, and the GitHub template repository | D29 | 6 |
-| `SECURITY.md`, and the pass against Level 2 of the Application Security Verification Standard (ASVS) of the Open Worldwide Application Security Project (OWASP) | D26 | 6 |
-| The ADRs and `CHANGELOG.md` | D27, D29 | 6 |
+| `SECURITY.md`, and the pass against Level 2 of the Application Security Verification Standard (ASVS) of the Open Worldwide Application Security Project (OWASP) | D26, D63 | 6.1 |
+| `just rename`, the guide to renaming a fork, and the GitHub template repository | D29 | 6.2 |
+| `CHANGELOG.md` | D27, D29 | 6.3 |
+| The ADRs | D27 | 6.4 |
 
 ## Modules
 
@@ -94,11 +100,11 @@ Every check a rule names, and the step that builds it. [operations/ci.md](operat
 | `check-docs`, for accepted ADRs (DOC-10) | 6, with the first ADR |
 | `check-openapi`, with list shapes, `check-instrument`, `check-layers`, `check-deps`, `check-schema`, `check-sql-bans`, `check-tenancy` | built |
 | `check-metrics`, `check-telemetry-config`, `alert-rules` | built |
-| `check-openapi`, for the breaking-change diff (API-18, ERR-02) | the first final release |
+| `check-openapi`, for the breaking-change diff (API-18, ERR-02) | 6, before the review of the whole codebase |
 | `check-pins`, `image-scan`, `image-rescan`, `verify-release`, `check-shell`, `setup-smoke` | built |
 | `e2e` | built, and extended by every later step |
 | `check-removable`, `check-new-module`, `check-parts`, `check-table-ownership`, `check-migrations`, `sqlx-check`, `check-layout` | built |
-| `test-migrations` | 6, with the first final release |
+| `test-migrations` | 6, before the review of the whole codebase |
 | `check-rename` | 6, with `just rename` |
 
 ## Known gaps
@@ -184,7 +190,7 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | Conformance review of 57ab047..1d5e599 | TEST-07: whether a test may act again once it has asserted, as a test that shows a refusal and then what lets the request through does, such as `auth_048_`'s and the second factors' | 6, with the review of the whole codebase |
 | Conformance review of 57ab047..a41b6c8 | API-01: whether the path parameter that names a member is `{member_id}`, after the resource, or `{user_id}`, after what it holds, as the three routes of a member name it; `check-openapi` checks only that a parameter ends in `_id` | 6, with the review of the whole codebase |
 | Conformance review of 9bcdfdb..321eb1f | ARCH-03 and ARCH-07: which function that exists only for a part, in a file of a module that isn't the part's own, goes in a file that the part owns, and which carries its markers where it is: ARCH-03 gives a file to the functions and handlers that a part adds, ARCH-07 counts a function among the items of other modules that only a part uses, and the code keeps under markers the registration of the job that copies a provider's picture, in `accounts/jobs.rs`, and the read of an exported file's bytes, in `accounts/service/exports.rs`, as it keeps what a module offers a part's own module; and whether `check-parts` then fails on a marked block that holds a function of the first kind | 6, with the review of the whole codebase <!-- part: files --> |
-| Conformance review of 9bcdfdb..321eb1f | DATA-10: whether an event's name and payload are among the data that the next release reads, since a stream replays the events that the release before stored, so that a release renames or retires an event only after one that publishes it no more | the first final release |
+| Conformance review of 9bcdfdb..321eb1f | DATA-10: whether an event's name and payload are among the data that the next release reads, since a stream replays the events that the release before stored, so that a release renames or retires an event only after one that publishes it no more | 6, with the review of the whole codebase |
 | Conformance review of 9bcdfdb..e285cc0 | API-10: whether `check-layers` refuses a `&str` or `String` parameter of a module's service function that carries a value with a domain type, such as a role's name, so the rule's last sentence holds by a check rather than by review | 6, with the review of the whole codebase |
 | Conformance review of 9bcdfdb..e285cc0 | TEST-09 and TEST-01: whether the tests of an avatar and of a workspace's picture share their helpers, such as the body that fails once read and the calls that set and download an image, through the test support; and whether each kind of image's download proves SEC-11's headers, and its held bytes FILES-026's clause, which a file's tests prove of the mechanism they share | 6, with the review of the whole codebase <!-- part: files --> |
 | Conformance review of 9bcdfdb..d67888a | TEST-04: whether a check, or a step of the review, lists each route that only the tests serve with the kind of behavior that TEST-04 allows it for, so that a route which an API route makes redundant is found, as the picture's upload made the tests' own check of an upload's permission | 6, with the review of the whole codebase |
