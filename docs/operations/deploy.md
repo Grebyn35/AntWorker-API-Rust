@@ -52,8 +52,8 @@ The server answers on ports 80 and 443, and to SSH. Beyond itself, the deploymen
 
 | What reaches out | Where | For |
 |---|---|---|
-| Caddy | Let's Encrypt, at `acme-v02.api.letsencrypt.org`, and at `acme-staging-v02.api.letsencrypt.org` once an attempt has failed | The certificates of the addresses, and when to renew them |
-| Docker, at a deploy | The registry that holds the release's images, `ghcr.io`, and Docker Hub and `gcr.io`, for the other images that `compose.yaml` and `tools/compose.yaml` pin | The images |
+| Caddy | Let's Encrypt, at `acme-v02.api.letsencrypt.org`, which the Caddyfile names; Caddy's code also names Let's Encrypt's staging address, `acme-staging-v02.api.letsencrypt.org`, for the attempts that follow a failed one, which no run here has shown | The certificates of the addresses, and when to renew them |
+| Docker, at a deploy | The registry that holds the release's images, `ghcr.io`, and Docker Hub and `gcr.io`, for the other images that the deployment's Compose files pin | The images |
 | A deploy, as it verifies a release | Sigstore's trust data, at `tuf-repo-cdn.sigstore.dev`, and the release's registry, which holds the signatures | [Verifying a release](release.md#verifying-a-release) |
 | pgBackRest, with the bundled database | The backups' bucket, at `BACKUP_S3_ENDPOINT` | The write-ahead log and the base backups ([backups.md](backups.md)) |
 | The replicas, with a managed database | The database, at the host of its URLs | Every query |

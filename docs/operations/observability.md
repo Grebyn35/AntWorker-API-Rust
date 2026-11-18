@@ -79,7 +79,7 @@ The Clients' telemetry dashboard shows what the replicas forward, under "How man
 
 ## The logs
 
-Each part of a deployment writes a log of its own, and this is what each holds, in which form, where it goes and how long it is kept, as requirement 16.1.1 of the Application Security Verification Standard (ASVS) asks. Each writes the time of a line in UTC. The server's clock sets those times, and, with the bundled database, the times that the database stores (DATA-03), so `just server-check` checks that it is synchronized ([deploy.md](deploy.md#checking-a-server)).
+Each part of a deployment writes a log of its own, and this is what each holds, in which form, where it goes and how long it is kept, as requirement 16.1.1 of the Application Security Verification Standard (ASVS) asks. Each container's log writes the time of a line in UTC, Caddy's as seconds since 1970, and the server's own logs in the server's time zone. The server's clock sets those times, and, with the bundled database, the times that the database stores (DATA-03), so `just server-check` checks that it is synchronized ([deploy.md](deploy.md#checking-a-server)).
 
 | Log | What it holds | Form | Where it goes | Kept |
 |---|---|---|---|---|
@@ -92,7 +92,7 @@ Each part of a deployment writes a log of its own, and this is what each holds, 
 | Grafana's | Its start, and each request that it refused, with the viewer's name once they have signed in, and the address that the request came from, Caddy's | Text, as pairs of a name and a value | The container's output | As a container's output is |
 | The server's own | Who signed in over Secure Shell (SSH), and what Docker did: the operating system's logs, which the deployment neither reads nor changes | The operating system's | The server | As the operating system keeps them |
 
-The scanner's log holds its start, the signatures it loaded, and each signature that it finds in an upload, as text with the time of each line, in its container's output ([platform spec](../spec/platform.md#scanner)). <!-- part: files -->
+The scanner's log holds its start, the signatures it loaded, and each signature that it finds in an upload, as text with the time of each line, in UTC without naming the zone, in its container's output ([platform spec](../spec/platform.md#scanner)). <!-- part: files -->
 
 Docker keeps a container's output, its last 100 megabytes, and the operator reads it over SSH, with `just logs` ([deploy.md](deploy.md#checking-on-a-deployment)), as whoever is in the server's `docker` group can. Grafana's viewers read what Loki holds, once they have signed in (SEC-14). Inside the deployment, each container of the `telemetry` network reaches Loki without a credential.
 
