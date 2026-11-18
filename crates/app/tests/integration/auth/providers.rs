@@ -306,6 +306,17 @@ async fn auth_077_invalid_grant_answers_401_and_any_other_refusal_or_failure_503
     upstream.set("GET", "/identity", 200, json!({ "unexpected": true }));
     let response = sign_in(&api, &grant()).await;
     assert_eq!(response.status, 503, "an answer the API can't read");
+
+    let nameless = json!({ "sub": "", "email": "ada@example.com" });
+    upstream.set("GET", "/identity", 200, nameless);
+    let response = sign_in(&api, &grant()).await;
+    assert_eq!(response.status, 503, "an identity without a subject");
+    assert_eq!(response.json()["code"], "auth.provider_unavailable");
+    let users = api
+        .database()
+        .owner_reads("SELECT count(*)::text FROM users")
+        .await;
+    assert_eq!(users, ["0"]);
 }
 
 #[tokio::test]

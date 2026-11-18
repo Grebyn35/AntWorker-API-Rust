@@ -146,6 +146,12 @@ trait Provider: Send + Sync {
                 .flatten()
                 .ok_or_else(unreadable)?;
             let info = UserInfo::deserialize(&claims).map_err(|_| unreadable())?;
+            // Every user of a provider that answers an empty `sub` would reach one account.
+            if info.sub.is_empty() {
+                return Err(ProviderError::Unavailable(
+                    "the userinfo endpoint answered an empty sub".to_owned(),
+                ));
+            }
             Ok(Identity {
                 subject: self.subject(info.sub),
                 email: info.email,
