@@ -216,3 +216,19 @@ A deployment whose product needs the requirement in full turns `SECOND_FACTOR_RE
 - Detection: each failed sign-in of an existing account is recorded in its audit log (AUTH-005), with the client's address and user agent (AUDIT-003), as is the reuse of a refresh token (AUTH-012).
 - Access: lost access ends open streams (SEC-06), and authorization is checked on every workspace request (SEC-08).
 - A second factor for whoever wants one: an authenticator app, which a sign-in, a reset, a re-authentication and a change of the password then ask for (AUTH-058, AUTH-037, AUTH-065), with its secret encrypted at rest (AUTH-066).
+
+## Session lifetimes
+
+Requirement 7.1.1 of ASVS asks that the lifetimes of a session be documented, that they fit the other controls, and that the reasons be given where they depart from Special Publication 800-63B of the National Institute of Standards and Technology (NIST). Its fourth revision recommends that a session which one factor started be authenticated again within 30 days, and one which two factors started within 24 hours, and after an hour without activity (its sections 2.1.3 and 2.2.3).
+
+**The lifetimes.** A session of the API ends 30 days after its last refresh, `REFRESH_TOKEN_SECONDS`, and 90 days after it started, `SESSION_LIFETIME_SECONDS`, whichever comes first, and its access token lasts an hour, `ACCESS_TOKEN_SECONDS` (AUTH-007, AUTH-010, AUTH-011). A viewer's session of Grafana's ends after 7 days without a request, and after 30 days (SEC-14), which is what the publication recommends of one factor.
+
+**The departure.** The API's defaults are longer than the publication recommends: 90 days where it recommends 30, for a session that a password or a provider's sign-in started, and where it recommends 24 hours, with an hour without activity, for one that an authenticator app's code completed.
+
+**The reasons.** The template's clients are applications that their users leave signed in, on devices of their own, and a session that ended each day, or after each hour away, would send those users through a sign-in far more often than such products do. The publication's limits are recommendations, there to confirm that the user is still present, and the API confirms it where it matters instead of by the clock:
+
+- A change of what the account rests on, the end of another session and the deletion of the account each need their user proved within the last 5 minutes, with the second factor of an account that has one ([re-authentication](../spec/auth.md#re-authentication), AUTH-021, AUTH-065).
+- A refresh gives a session new tokens, with which the old ones stop working (AUTH-010), and a refresh token that is used a second time ends the session (AUTH-012), so a copied token works until its owner's client next refreshes, which a client in use does within the hour, when its access token ends.
+- A user sees their sessions, and ends any other once they prove who they are again (AUTH-043 to AUTH-045), and signing out ends a session at once (AUTH-013).
+- A product that needs the publication's limits sets them: `SESSION_LIFETIME_SECONDS` to 86,400, and `REFRESH_TOKEN_SECONDS` to 3,600, with which a session ends an hour after its last refresh.
+
