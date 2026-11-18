@@ -36,8 +36,7 @@ flowchart LR
 - **Memory for the services the settings choose.** On a trial server with 4 gigabytes, the bundled database and two replicas, the server used about 1.2 gigabytes with the self-hosted stack, Grafana the most at about 300 megabytes, and 0.75 gigabytes with a managed backend, the operating system and Docker included. Give it at least 2 gigabytes with the self-hosted stack, which needs room for its data to grow, and 1 gigabyte without it, since a deploy runs twice the replicas while it switches colors; `just server-check` checks it. The images take about 5 gigabytes of disk.
   The scanner needs 2 gigabytes more: it holds about 1 gigabyte, and 2 while it loads new signatures ([below](#the-scanner)), and its signatures take about 120 megabytes of disk. <!-- part: files -->
 - **An encrypted disk** for its volumes (OPS-17). A provider encrypts below the server, where the server can't see it, so confirm it in the provider's documentation or in writing from its support: some providers encrypt neither their servers' disks nor their copies of them. Without it, encrypt the disk that holds Docker's data with Linux Unified Key Setup (LUKS), and plan where its key comes from at each boot, since a key on the same disk protects nothing: typed at the provider's console, sent over SSH, or fetched from a key server on another machine. Until the disk is unlocked, nothing of the deployment starts.
-- **A firewall** that admits SSH, and ports 80 and 443 from anywhere. Ports 80 and 443 must be open for Let's Encrypt to issue the certificates. The server reaches out over HTTPS, to the registry and the buckets, among others.
-  The scanner reaches ClamAV's mirrors, `database.clamav.net`, the same way. <!-- part: files -->
+- **A firewall** that admits SSH, and ports 80 and 443 from anywhere. Ports 80 and 443 must be open for Let's Encrypt to issue the certificates. A firewall that also bounds what leaves the server lets through [what the deployment reaches](#what-the-deployment-reaches).
 - **DNS records** that point `API_ADDRESS`, and with the self-hosted stack `GRAFANA_ADDRESS`, to the server, such as `api.example.com` and `grafana.example.com`.
 - **A registry login** that can read the release's images, for a private repository: `just server-setup` makes it with a token that can read the repository's packages. The tools that verify a release read the login from `~/.docker/config.json`.
 - **A bucket for files' bytes, off the server**, at any provider that speaks the S3 protocol over HTTPS, such as Backblaze B2, Cloudflare R2, Hetzner Object Storage or Amazon S3, with encryption at rest, and a key pair that reaches only that bucket ([below](#the-files-bucket)). <!-- part: files -->
@@ -45,6 +44,30 @@ flowchart LR
 - **Buckets that expire each noncurrent version a day after it becomes one.** A noncurrent version is S3's name for the old version that a bucket with versioning keeps of an object deleted or replaced: kept, it would hold each backup that retention let go, for as long as the bucket lasts.
   It would hold the bytes of each file that the API deleted too (FILES-011). <!-- part: files -->
   So each bucket of the deployment has versioning off, or an enabled lifecycle rule of the whole bucket that expires noncurrent versions after 1 day (D102). Backblaze B2 keeps versions in every bucket: give each bucket its lifecycle setting "Keep only the last version of the file", which deletes a version at its first daily run a day after it became noncurrent, so within 2 days. `just server-check` reads each bucket's versioning and lifecycle rules, and fails while one keeps versions without such a rule.
+
+## What the deployment reaches
+
+The server answers on ports 80 and 443, and to SSH. Beyond itself, the deployment reaches these systems, each over TLS that checks the certificate (OPS-17), but for the operating system's packages:
+
+| What reaches out | Where | For |
+|---|---|---|
+| Caddy | Let's Encrypt, at `acme-v02.api.letsencrypt.org`, and at `acme-staging-v02.api.letsencrypt.org` once an attempt has failed | The certificates of the addresses, and when to renew them |
+| Docker, at a deploy | The registry that holds the release's images, `ghcr.io`, and Docker Hub and `gcr.io`, for the other images that `compose.yaml` and `tools/compose.yaml` pin | The images |
+| A deploy, as it verifies a release | Sigstore's trust data, at `tuf-repo-cdn.sigstore.dev`, and the release's registry, which holds the signatures | [Verifying a release](release.md#verifying-a-release) |
+| pgBackRest, with the bundled database | The backups' bucket, at `BACKUP_S3_ENDPOINT` | The write-ahead log and the base backups ([backups.md](backups.md)) |
+| The replicas, with a managed database | The database, at the host of its URLs | Every query |
+| The replicas, with email on | The mail server, at `SMTP_HOST` | Each email ([Email](#email)) |
+| The collector, with a managed backend | The backend, at `MANAGED_OTLP_ENDPOINT`; and each deploy, its Grafana, at `MANAGED_GRAFANA_URL` | The telemetry, and the dashboards and alert rules ([observability.md](observability.md#a-managed-backend)) |
+| Alertmanager | The integrations that your fork's `alertmanager.yaml` names | The alerts ([observability.md](observability.md#alerts)) |
+| The operating system | Its packages' mirrors, Docker's packages at `download.docker.com`, which `just server-setup` installs, a time source, and its name servers | The server itself |
+| The replicas | The files bucket, at `FILES_S3_ENDPOINT` | Files' bytes ([the files bucket](#the-files-bucket)) <!-- part: files --> |
+| The scanner | ClamAV's mirrors, at `database.clamav.net` | Its signatures ([the scanner](#the-scanner)) <!-- part: files --> |
+| The replicas | Google, at `oauth2.googleapis.com` and `openidconnect.googleapis.com` | A sign-in's exchange ([Signing in through a provider](#signing-in-through-a-provider)) <!-- part: google --> |
+| The replicas | GitHub, at `github.com` and `api.github.com` | A sign-in's exchange ([Signing in through a provider](#signing-in-through-a-provider)) <!-- part: github --> |
+| The replicas | The provider that the settings name, at its token and userinfo endpoints | A sign-in's exchange ([Signing in through a provider](#signing-in-through-a-provider)) <!-- part: openid_connect --> |
+
+Of the self-hosted stack, Grafana's settings turn off each thing it would reach on its own ([Grafana](#grafana)), and Loki's and Tempo's the reports of their use to their maker.
+One address is a third party's to choose: that of a user's picture, which a sign-in provider gives, and which a replica fetches from any public host over HTTPS, through the untrusted client (SEC-10, ACCOUNTS-028). <!-- part: files -->
 
 ## Setting up a server
 

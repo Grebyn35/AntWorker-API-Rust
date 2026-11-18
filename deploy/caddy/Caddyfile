@@ -9,6 +9,10 @@
 	log default {
 		exclude http.handlers.reverse_proxy.health_checker.active
 	}
+	# The authority that issues the certificates of the addresses: Let's Encrypt, and no other.
+	# Caddy issues those of names that no public authority certifies, such as one under
+	# `localhost`, itself.
+	acme_ca https://acme-v02.api.letsencrypt.org/directory
 	# The key of each certificate that Caddy obtains: an elliptic curve key on P-256 (OPS-17).
 	key_type p256
 	servers {
