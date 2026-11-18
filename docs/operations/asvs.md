@@ -4,10 +4,11 @@ How the API and its reference deployment stand against each requirement of Level
 
 ## What the rows cover
 
-The API and its subcommands, the reference deployment and what it configures of the components it runs, such as Caddy, Postgres and Grafana, the pipeline, and the documents. Two things are outside:
+The API and its subcommands, the reference deployment and what it configures of the components it runs, such as Caddy, Postgres and Grafana, the pipeline, and the documents. Three things are outside:
 
 - **Clients.** A client is a separate product. What a requirement asks of a client's pages, or of what a client stores, is the client's to meet, and a requirement that the API and a client meet together says which share is the API's.
 - **A component's own code.** How a component that the deployment runs does what no setting of it changes, such as how Grafana hashes its viewers' passwords, is its maker's. Where a component has a setting for what a requirement asks, the requirement is met only when the deployment sets it, or a document states the value it keeps.
+- **A product's policies.** What a requirement asks an organization to decide and to keep to, such as how soon a vulnerable component is updated, is for whoever runs a product on a fork: the template is maintained on a best-effort basis, and promises no time (D183). The row of such a requirement says what the template gives a product to keep its decision with.
 
 ## How a requirement stands
 
@@ -20,6 +21,7 @@ The last cell of a row starts with one of these words:
 | Unstated | The code does what the requirement asks, and no rule or behavior states it, so nothing holds a later change to it |
 | Not met | What holds comes first, with its rules and behaviors, and what is missing after it |
 | Relaxed | The bar leaves the requirement out, and the threat model records why, and the controls that stand in for it |
+| A product's | The requirement asks a decision of the organization that runs a product, which the template doesn't make for it; what the template gives the product comes after |
 
 A requirement that applies only to an optional part (ARCH-07) has its row with the part, so a fork that removes the part has no row for it. Where the core and a part each meet a share of a requirement, each has a row, and the part's says what it adds.
 
@@ -354,12 +356,12 @@ A requirement that applies only to an optional part (ARCH-07) has its row with t
 
 | Requirement | Level | What it asks | How it stands |
 |---|---|---|---|
-| 15.1.1 | 1 | Documented, risk-based time frames for fixing vulnerable components and for updating libraries in general | Not met: an advisory fails CI at once, every day as on every push, the images are scanned again every week (SEC-15, [the pipeline](ci.md#the-pipeline)), and Dependabot proposes updates every week ([dependency updates](ci.md#dependency-updates)); no document sets how soon a vulnerable component, or any library, must be updated, and `SECURITY.md` and `CHANGELOG.md`, which SEC-17 names, don't exist |
+| 15.1.1 | 1 | Documented, risk-based time frames for fixing vulnerable components and for updating libraries in general | A product's: the template sets no time frame (D183); it gives a product an advisory that fails CI the day it is published, every day as on every push, a scan of the released images every week (SEC-15, [the pipeline](ci.md#the-pipeline)), and Dependabot's updates every week ([dependency updates](ci.md#dependency-updates)) |
 | 15.1.2 | 2 | A maintained inventory of third-party libraries, such as a software bill of materials (SBOM), from trusted repositories | Met: SEC-15, OPS-12, CODE-12; each image carries its SBOM, the binary records its crates, and `cargo-deny` takes crates from crates.io alone ([checks that exist](ci.md#checks-that-exist)) |
 | 15.1.3 | 2 | Documented costly functions, with how their overuse is kept from denying service and responses kept within timeouts | Met: API-04, OPS-07, PLATFORM-039, PLATFORM-042, PLATFORM-060; [availability](threat-model.md#availability): every route has a timeout and a concurrency limit, CPU-heavy work waits for a turn, and long work, such as an export, runs in a job |
 | 15.1.3 | 2 | The same, of uploads | Not met: a replica reads 4 uploads' bodies at once, each holding its turn up to the route's 60 seconds (PLATFORM-074); no document says how one caller is kept from holding every turn with slow bodies <!-- part: files --> |
 | 15.1.3 | 2 | The same, of batches of telemetry | Not met: a replica reads 8 batches at once, each holding its turn up to the route group's timeout (PLATFORM-090); no document says how one caller is kept from holding every turn with slow bodies <!-- part: client_telemetry --> |
-| 15.2.1 | 1 | No component past its documented time frames for updates and fixes | Not met: CI fails on every RustSec advisory of a locked crate, every day as on every push (SEC-15); no document sets the time frames that this requirement holds components to (15.1.1) |
+| 15.2.1 | 1 | No component past its documented time frames for updates and fixes | A product's: its time frames are its own (15.1.1); CI fails on every RustSec advisory of a locked crate, every day as on every push, and a release waits for CI to pass (SEC-15, [what a release is](release.md#what-a-release-is)) |
 | 15.2.1 | 1 | The same, of the files bucket's client | Not met: `deny.toml` ignores the notices that `chrono` and `humantime` are unmaintained, which the client's newest release needs, a known gap against SEC-15 (D173) <!-- part: files --> |
 | 15.2.2 | 2 | Defenses, as documented, against loss of availability from costly or slow functions | Met: OPS-07, PLATFORM-039, PLATFORM-042, PLATFORM-060, REALTIME-006; timeouts, load shedding and CPU turns bound each route, and a user's streams on a replica are capped |
 | 15.2.2 | 2 | The same, of uploads | Not met: an upload takes its turn before its body comes, and holds it while the body comes, up to the route's 60 seconds (PLATFORM-074), so one caller's slow bodies can hold all 4 of a replica's turns, which nothing bounds for a caller <!-- part: files --> |

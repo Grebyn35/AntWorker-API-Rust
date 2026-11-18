@@ -129,7 +129,7 @@ Cryptography comes from the RustCrypto crates (`aes-gcm`, `hmac`, `sha2`, `argon
 ## Disclosure
 
 ### SEC-17 Vulnerabilities have a reporting path
-`SECURITY.md` states how to report a vulnerability and what response to expect. Each security fix is marked in `CHANGELOG.md` (DOC-11).
+`SECURITY.md` states how to report a vulnerability and what response to expect: the template is maintained on a best-effort basis, and promises no time for an answer or for a fix (D183). Each security fix is marked in `CHANGELOG.md` (DOC-11). A product built on a fork replaces the file with its own policy.
 - Why: forks and users learn about fixes they need to port.
 - Check: `review`.
 
