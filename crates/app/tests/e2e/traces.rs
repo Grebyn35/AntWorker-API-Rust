@@ -28,6 +28,8 @@ pub fn fetch_once_it_holds(url: &str, wanted: &str) -> Output {
 /// Runs `script` in a shell on Compose's network, from the image of Grafana, whose `wget`
 /// resolves the services' short names on every host. That of Prometheus's image resolves none on a
 /// host whose `/etc/resolv.conf` names the search domain `.`, which Docker copies into containers.
+/// What the script prints is the output's stdout: its stderr also holds what Compose reports of
+/// the container that it ran in, whose name holds the project's.
 pub fn in_stack(script: &str) -> Output {
     std::process::Command::new("docker")
         .args([
