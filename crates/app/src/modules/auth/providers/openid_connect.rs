@@ -36,7 +36,7 @@ pub(super) const ENTRY: Entry = Entry {
 /// The longest the provider's name is, in characters.
 const NAME_MAX_CHARS: usize = 100;
 
-const NAME_EXPECTED: &str = "a name of 1 to 100 characters (AUTH-084)";
+const NAME_EXPECTED: &str = "a name of 1 to 100 characters, with no control character (AUTH-084)";
 const ISSUER_EXPECTED: &str = "an https URL without a query or a fragment (AUTH-084)";
 const ENDPOINT_EXPECTED: &str = "an https URL without a fragment (AUTH-084)";
 

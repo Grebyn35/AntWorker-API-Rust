@@ -218,11 +218,13 @@ async fn accounts_007_a_rename_with_a_stale_etag_answers_412_and_changes_nothing
 }
 
 #[tokio::test]
-async fn accounts_003_a_new_name_is_refused_unless_it_holds_a_character() {
+async fn accounts_003_a_new_name_that_the_rule_refuses_answers_400_and_changes_nothing() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
 
     let blank = rename(&api, &ada, " \t ", None).await;
+    // Postgres stores no U+0000 in a text, so the name must be refused before it reaches it.
+    let control = rename(&api, &ada, "A\u{0}da", None).await;
     // A name longer than the document allows, or a field the patch doesn't take, is malformed
     // input, sent raw.
     let raw = |body: serde_json::Value| {
@@ -236,7 +238,11 @@ async fn accounts_003_a_new_name_is_refused_unless_it_holds_a_character() {
         .send()
         .await;
 
-    for (refused, code) in [(&blank, "required"), (&long, "too_long")] {
+    for (refused, code) in [
+        (&blank, "required"),
+        (&long, "too_long"),
+        (&control, "control_character"),
+    ] {
         assert_eq!(refused.status, 400);
         assert_eq!(refused.json()["code"], "request.invalid_fields");
         assert_eq!(refused.json()["errors"][0]["field"], "/name");

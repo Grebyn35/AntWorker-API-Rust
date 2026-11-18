@@ -189,7 +189,7 @@ fn decode(value: &str, tag: [u8; 4]) -> Result<Cursor, Invalid> {
 
 /// What a list's items must contain, in one of the fields its route names, ignoring case:
 /// trimmed, with each run of whitespace inside collapsed to one space, in Unicode Normalization
-/// Form C, of 1 to 100 characters (PLATFORM-047).
+/// Form C, of 1 to 100 characters, with no control character (PLATFORM-047).
 #[derive(Clone, PartialEq, Eq)]
 pub struct Search(String);
 
@@ -381,6 +381,16 @@ mod tests {
             Search::parse(&"a".repeat(101)).unwrap_err().code,
             "too_long"
         );
+    }
+
+    #[test]
+    fn platform_047_a_search_holds_no_control_character() {
+        for control in ["a\u{0}b", "a\u{1b}b", "a\u{7f}b"] {
+            assert_eq!(
+                Search::parse(control).unwrap_err().code,
+                "control_character"
+            );
+        }
     }
 
     #[test]

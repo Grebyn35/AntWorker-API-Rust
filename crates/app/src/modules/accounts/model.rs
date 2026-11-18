@@ -25,8 +25,8 @@ pub(crate) struct Address {
 const NAME_MAX_CHARS: usize = 100;
 
 /// How a user appears to others: trimmed, with each run of whitespace inside collapsed to one
-/// space, in Unicode Normalization Form C, of 1 to 100 characters (ACCOUNTS-003). It is personal
-/// data, so `Debug` doesn't show it (OBS-04).
+/// space, in Unicode Normalization Form C, of 1 to 100 characters, with no control character
+/// (ACCOUNTS-003). It is personal data, so `Debug` doesn't show it (OBS-04).
 #[derive(Clone, PartialEq, Eq, Serialize)]
 #[serde(transparent)]
 pub(crate) struct DisplayName(String);
@@ -191,6 +191,19 @@ mod tests {
         // "e" followed by a combining acute accent becomes one character in form C.
         let composed = DisplayName::parse("Rene\u{301}e").unwrap();
         assert_eq!(composed.as_str(), "Ren\u{e9}e");
+    }
+
+    #[test]
+    fn accounts_003_a_display_name_holds_no_control_character() {
+        for control in ["A\u{0}da", "A\u{1b}da", "A\u{7f}da", "A\u{9b}da"] {
+            assert_eq!(
+                DisplayName::parse(control).unwrap_err().code,
+                "control_character"
+            );
+        }
+        // A tab and a next line (U+0085) are whitespace, which is collapsed.
+        let collapsed = DisplayName::parse("Ada\t\u{85}Lovelace").unwrap();
+        assert_eq!(collapsed.as_str(), "Ada Lovelace");
     }
 
     #[test]

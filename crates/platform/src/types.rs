@@ -71,9 +71,12 @@ impl Invalid {
 }
 
 /// `value` as one line of text, such as a name or a search: trimmed, with each run of whitespace
-/// inside it collapsed to one space, in Unicode Normalization Form C (NFC), and of 1 to
-/// `max_chars` characters, or why it isn't one: `required`, explained by `empty`, or `too_long`,
-/// explained by `too_long` (D25). A domain type of text a user writes wraps what it returns.
+/// inside it collapsed to one space, in Unicode Normalization Form C (NFC), of 1 to `max_chars`
+/// characters, and with no control character left, such as U+0000, which Postgres stores in no
+/// text; or why it isn't one: `required`, explained by `empty`, `too_long`, explained by
+/// `too_long`, or `control_character` (D25). A control character that is whitespace, such as a
+/// tab, is collapsed with the whitespace around it. A domain type of text a user writes wraps
+/// what it returns.
 pub fn one_line(
     value: &str,
     max_chars: usize,
@@ -87,6 +90,12 @@ pub fn one_line(
     }
     if line.chars().count() > max_chars {
         return Err(Invalid::new("too_long", too_long));
+    }
+    if line.chars().any(char::is_control) {
+        return Err(Invalid::new(
+            "control_character",
+            "This holds a control character.",
+        ));
     }
     Ok(line)
 }

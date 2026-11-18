@@ -15,7 +15,7 @@ use super::{DeviceId, StoredSession};
 const DEVICE_NAME_MAX_CHARS: usize = 100;
 
 /// The name a client gives its device, such as `Ada's laptop`: one line of 1 to 100 characters,
-/// normalized as a user's name is (AUTH-042). It is personal data, so its `Debug` shows nothing
+/// with no control character, normalized as a user's name is (AUTH-042). It is personal data, so its `Debug` shows nothing
 /// of it (OBS-04).
 #[derive(Clone, PartialEq, Eq, Serialize)]
 #[serde(transparent)]
@@ -129,5 +129,15 @@ mod tests {
             DeviceName::parse(&"é".repeat(101)).unwrap_err().code,
             "too_long"
         );
+    }
+
+    #[test]
+    fn auth_042_a_device_s_name_holds_no_control_character() {
+        for control in ["Ada's\u{0}laptop", "Ada's\u{1b}laptop", "Ada's\u{7f}laptop"] {
+            assert_eq!(
+                DeviceName::parse(control).unwrap_err().code,
+                "control_character"
+            );
+        }
     }
 }

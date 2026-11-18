@@ -41,19 +41,13 @@ impl std::fmt::Debug for FileName {
 impl FileName {
     /// The name in `value`, normalized, or why it isn't one.
     pub(crate) fn parse(value: &str) -> Result<Self, Invalid> {
-        let name = one_line(
+        one_line(
             value,
             NAME_MAX_CHARS,
             "Name the file.",
             "A file's name has at most 255 characters.",
-        )?;
-        if name.chars().any(char::is_control) {
-            return Err(Invalid::new(
-                "control_character",
-                "A file's name holds no control character.",
-            ));
-        }
-        Ok(Self(name))
+        )
+        .map(Self)
     }
 
     /// A name the database holds, which was normalized when it was stored.

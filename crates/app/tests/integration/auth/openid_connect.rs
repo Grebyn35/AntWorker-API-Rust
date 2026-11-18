@@ -267,12 +267,16 @@ async fn auth_084_startup_refuses_an_issuer_or_an_address_that_isn_t_an_https_ur
 }
 
 #[tokio::test]
-async fn auth_084_startup_refuses_a_name_longer_than_100_characters() {
+async fn auth_084_startup_refuses_a_name_that_is_longer_than_100_characters_or_holds_a_control_one()
+{
     let named = |name: &str| settings(Options::default(), ISSUER).set("OPENID_CONNECT_NAME", name);
 
-    assert_eq!(
-        api::refusal(&named(&"n".repeat(101))),
-        "OPENID_CONNECT_NAME must be a name of 1 to 100 characters (AUTH-084)"
-    );
+    for refused in ["n".repeat(101), "Example\u{1b}Login".to_owned()] {
+        assert_eq!(
+            api::refusal(&named(&refused)),
+            "OPENID_CONNECT_NAME must be a name of 1 to 100 characters, with no control character \
+             (AUTH-084)"
+        );
+    }
     api::configuration(&named(&"n".repeat(100)));
 }

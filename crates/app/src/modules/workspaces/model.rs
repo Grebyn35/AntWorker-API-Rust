@@ -18,8 +18,8 @@ const NAME_MAX_CHARS: usize = 255;
 const MEMBER_ID_CHARS: usize = 36;
 
 /// A workspace's name: trimmed, with each run of whitespace inside collapsed to one space, in
-/// Unicode Normalization Form C, of 1 to 255 characters (WORKSPACES-002). A name can hold a
-/// person's name, so `Debug` doesn't show it (OBS-04). `Deserialize` only reads back a stored
+/// Unicode Normalization Form C, of 1 to 255 characters, with no control character
+/// (WORKSPACES-002). A name can hold a person's name, so `Debug` doesn't show it (OBS-04). `Deserialize` only reads back a stored
 /// result that an idempotency key replays (PLATFORM-036), which held a parsed name.
 #[derive(Clone, PartialEq, Eq, Serialize, serde::Deserialize)]
 #[serde(transparent)]
@@ -369,6 +369,19 @@ mod tests {
         let replayed: Current = serde_json::from_value(stored).unwrap();
         assert_eq!(replayed.workspace.permissions, ["workspace.read"]);
         assert_ne!(replayed.workspace.permissions, held(Role::Admin));
+    }
+
+    #[test]
+    fn workspaces_002_a_name_holds_no_control_character() {
+        for control in ["Ac\u{0}me", "Ac\u{1b}me", "Ac\u{7f}me", "Ac\u{9b}me"] {
+            assert_eq!(
+                WorkspaceName::parse(control).unwrap_err().code,
+                "control_character"
+            );
+        }
+        // A tab and a next line (U+0085) are whitespace, which is collapsed.
+        let collapsed = WorkspaceName::parse("Acme\t\u{85}Labs").unwrap();
+        assert_eq!(collapsed.as_str(), "Acme Labs");
     }
 
     #[test]

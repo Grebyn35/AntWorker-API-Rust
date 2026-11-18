@@ -148,16 +148,19 @@ async fn auth_042_a_registration_s_and_a_sign_in_s_device_name_is_kept_normalize
 }
 
 #[tokio::test]
-async fn auth_042_a_device_name_without_a_character_or_over_100_answers_400() {
+async fn auth_042_a_device_name_that_the_rule_refuses_answers_400() {
     let api = Api::new().await;
     users::register(&api, "ada@example.com").await;
-    let blank = api
-        .post(
+    let signs_in_as = |device_name: &'static str| {
+        api.post(
             "/v1/sessions",
-            &json!({ "email": "ada@example.com", "password": PASSWORD, "device_name": " \t " }),
+            &json!({ "email": "ada@example.com", "password": PASSWORD, "device_name": device_name }),
         )
         .send()
-        .await;
+    };
+    let blank = signs_in_as(" \t ").await;
+    // Postgres stores no U+0000 in a text, so the name must be refused before it reaches it.
+    let control = signs_in_as("Ada's\u{0}laptop").await;
     // A name longer than the document allows is malformed input, sent raw.
     let mut body = users::registration("grace@example.com");
     body["device_name"] = json!("é".repeat(101));
@@ -168,7 +171,11 @@ async fn auth_042_a_device_name_without_a_character_or_over_100_answers_400() {
         .send()
         .await;
 
-    for (refused, code) in [(&blank, "required"), (&long, "too_long")] {
+    for (refused, code) in [
+        (&blank, "required"),
+        (&long, "too_long"),
+        (&control, "control_character"),
+    ] {
         assert_eq!(refused.status, 400);
         assert_eq!(refused.json()["code"], "request.invalid_fields");
         assert_eq!(refused.json()["errors"][0]["field"], "/device_name");

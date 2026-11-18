@@ -165,6 +165,25 @@ async fn platform_047_a_search_matches_any_part_ignoring_case_in_every_script() 
 }
 
 #[tokio::test]
+async fn platform_047_a_search_that_holds_a_control_character_answers_400() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+
+    // Postgres takes no U+0000 in a text, so the search must be refused before it reaches it.
+    let response = api
+        .get("/v1/workspaces?search=ac%00me")
+        .bearer(&ada.access)
+        .send()
+        .await;
+
+    assert_eq!(response.status, 400);
+    let body = response.json();
+    assert_eq!(body["code"], "request.invalid_query");
+    assert_eq!(body["errors"][0]["field"], "/search");
+    assert_eq!(body["errors"][0]["code"], "control_character");
+}
+
+#[tokio::test]
 async fn access_005_a_search_reaches_every_workspace_the_caller_belongs_to_and_no_other() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
@@ -699,12 +718,14 @@ async fn workspaces_008_a_member_may_not_rename_and_the_owner_may() {
 }
 
 #[tokio::test]
-async fn workspaces_002_a_new_name_is_refused_unless_it_holds_a_character() {
+async fn workspaces_002_a_new_name_that_the_rule_refuses_answers_400_and_changes_nothing() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     let workspace = workspaces::arrange(api.database(), "Acme", &[(&ada.user_id, "owner")]).await;
 
     let blank = rename(&api, &ada, &workspace, " \t ", None).await;
+    // Postgres stores no U+0000 in a text, so the name must be refused before it reaches it.
+    let control = rename(&api, &ada, &workspace, "Ac\u{0}me", None).await;
     // A name longer than the document allows is malformed input, sent raw.
     let long = api
         .request(http::Method::PATCH, &format!("/v1/workspaces/{workspace}"))
@@ -714,7 +735,11 @@ async fn workspaces_002_a_new_name_is_refused_unless_it_holds_a_character() {
         .send()
         .await;
 
-    for (refused, code) in [(&blank, "required"), (&long, "too_long")] {
+    for (refused, code) in [
+        (&blank, "required"),
+        (&long, "too_long"),
+        (&control, "control_character"),
+    ] {
         assert_eq!(refused.status, 400);
         assert_eq!(refused.json()["code"], "request.invalid_fields");
         assert_eq!(refused.json()["errors"][0]["field"], "/name");
