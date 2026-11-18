@@ -94,6 +94,13 @@ trait Provider: Send + Sync {
     /// What it declares.
     fn declared(&self) -> Declared<'_>;
 
+    /// Whether the provider also sends a user back to `uri` for a client of its own that lists
+    /// the redirect URI `listed`, though the client doesn't list `uri`: to none, unless the
+    /// provider takes more than the URIs that its client lists, as its file then says (AUTH-081).
+    fn also_redirects_to(&self, _listed: &str, _uri: &str) -> bool {
+        false
+    }
+
     /// The access token of the token endpoint's answer, whose status is a success: its
     /// `access_token`, as RFC 6749 gives it (§5.1), or why it holds none, as for a provider that
     /// answers a refusal with a success status.
@@ -334,6 +341,27 @@ impl Providers {
                         &client.setting,
                         "redirect URIs that no other client lists, nor matches as AUTH-078 \
                          matches them, so each names one provider (AUTH-081)",
+                    ));
+                }
+            }
+        }
+        for provider in &on {
+            let own = provider.clients.iter();
+            for (client, listed) in
+                own.flat_map(|client| client.redirect_uris.iter().map(move |uri| (client, uri)))
+            {
+                let taken = clients.iter().find(|other| {
+                    !std::ptr::eq(**other, client)
+                        && other
+                            .redirect_uris
+                            .iter()
+                            .any(|uri| provider.provider.also_redirects_to(listed, uri))
+                });
+                if let Some(other) = taken {
+                    return Err(ConfigError::invalid(
+                        &other.setting,
+                        "redirect URIs to which no other client's provider sends its users \
+                         back, so each names one provider (AUTH-081)",
                     ));
                 }
             }

@@ -67,6 +67,11 @@ impl Provider for GitHub {
         }
     }
 
+    /// GitHub sends a user back to any address under a callback URL of its app (AUTH-083).
+    fn also_redirects_to(&self, listed: &str, uri: &str) -> bool {
+        under(listed, uri)
+    }
+
     /// GitHub answers a refusal with a success status: one of the API's own client is no user's
     /// to fix, so it is an unavailable provider, and any other is of the code, its verifier or
     /// its redirect URI (AUTH-083).
@@ -105,6 +110,31 @@ impl Provider for GitHub {
     ) -> BoxFuture<'a, Result<(), String>> {
         Box::pin(delete(outbound, client, token))
     }
+}
+
+/// Whether GitHub takes `uri` for an address under the callback URL `listed`: on the URL's host or
+/// a subdomain of it, at its port, or at any port of a loopback host, and at its path or in a
+/// directory below it, whatever the scheme of either (AUTH-083).
+fn under(listed: &str, uri: &str) -> bool {
+    let (Ok(listed), Ok(uri)) = (url::Url::parse(listed), url::Url::parse(uri)) else {
+        return false;
+    };
+    let (Some(host), Some(inner)) = (listed.host_str(), uri.host_str()) else {
+        return false;
+    };
+    let named = matches!(listed.host(), Some(url::Host::Domain(_)));
+    let subdomain = named
+        && inner
+            .strip_suffix(host)
+            .is_some_and(|rest| rest.ends_with('.'));
+    let loopback = matches!(host, "127.0.0.1" | "[::1]" | "localhost");
+    let at_port = loopback || listed.port_or_known_default() == uri.port_or_known_default();
+    let directory = listed.path().trim_end_matches('/');
+    let below = uri
+        .path()
+        .strip_prefix(directory)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'));
+    (inner == host || subdomain) && at_port && below
 }
 
 /// A request of GitHub's REST API, with the headers it asks for, as the user `token` sends it.
@@ -187,5 +217,42 @@ async fn delete(
         Ok(answer) if answer.status == 204 => Ok(()),
         Ok(answer) => Err(format!("DELETE of the token answered {}", answer.status)),
         Err(error) => Err(error.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn auth_083_an_address_is_under_a_callback_url_on_its_host_at_its_port_and_below_its_path() {
+        let callback = "https://app.example.com/callback";
+        for inside in [
+            "https://app.example.com/callback",
+            "https://app.example.com/callback/google",
+            "https://app.example.com/callback/google?next=1",
+            "https://sign-in.app.example.com/callback/google",
+            "http://app.example.com:443/callback/google",
+        ] {
+            assert!(under(callback, inside), "{inside}");
+        }
+        for outside in [
+            "https://app.example.com/",
+            "https://app.example.com/callbacks",
+            "https://app.example.com:8443/callback/google",
+            "https://notapp.example.com/callback/google",
+            "https://example.com/callback/google",
+        ] {
+            assert!(!under(callback, outside), "{outside}");
+        }
+        // A loopback address is taken at any port.
+        assert!(under(
+            "http://127.0.0.1/callback",
+            "http://127.0.0.1:5000/callback/google"
+        ));
+        assert!(!under(
+            "http://127.0.0.1/callback",
+            "http://127.0.0.2:5000/callback/google"
+        ));
     }
 }

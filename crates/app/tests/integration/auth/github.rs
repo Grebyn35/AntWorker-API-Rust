@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 
 use platform::telemetry::testing;
 
-use crate::support::{Api, api::Response, providers::VERIFIER, upstream::Upstream};
+use crate::support::{Api, Options, api, api::Response, providers::VERIFIER, upstream::Upstream};
 
 /// A stand-in of GitHub's endpoints, and an API with GitHub's client.
 async fn github() -> (Upstream, Api) {
@@ -273,4 +273,30 @@ async fn auth_083_github_is_listed_by_its_key_name_and_scopes() {
         "https://github.com/login/oauth/authorize"
     );
     assert_eq!(github["clients"][0]["client_id"], "github-client");
+}
+
+#[tokio::test]
+async fn auth_083_startup_refuses_another_client_s_redirect_uri_under_one_of_github_s() {
+    let beside = |stand_in: &str| {
+        Options::default()
+            .set("GITHUB_CLIENT_ID", "github-client")
+            .set("GITHUB_CLIENT_SECRET", "github-secret")
+            .set("GITHUB_REDIRECT_URIS", "https://app.example.com/callback")
+            .set("STAND_IN_NAME", "Stand-in")
+            .set("STAND_IN_CLIENT_ID", "stand-in-client")
+            .set("STAND_IN_CLIENT_SECRET", "stand-in-secret")
+            .set("STAND_IN_REDIRECT_URIS", stand_in)
+    };
+
+    for under in [
+        "https://app.example.com/callback/stand-in",
+        "https://sign-in.app.example.com/callback/stand-in",
+    ] {
+        let refusal = api::refusal(&beside(under));
+        assert!(
+            refusal.starts_with("STAND_IN_REDIRECT_URIS must be"),
+            "{under}: {refusal}"
+        );
+    }
+    api::configuration(&beside("https://app.example.com/stand-in/callback"));
 }
