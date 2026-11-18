@@ -4,7 +4,10 @@
 //! once the test has ended, and a later run deletes, by their names, the buckets that a process
 //! which runs no more left, so the tests leave nothing in the storage (OPS-21).
 
-use std::{net::SocketAddr, sync::Arc};
+use std::{
+    net::SocketAddr,
+    sync::{Arc, Mutex, PoisonError},
+};
 
 use futures_util::TryStreamExt;
 use platform::{
@@ -123,7 +126,37 @@ async fn request(method: &str, bucket: &str) -> u16 {
 pub struct Scripted {
     /// Its endpoint, for `S3_ENDPOINT`.
     pub endpoint: String,
+    paths: Arc<Mutex<Vec<String>>>,
     server: JoinHandle<()>,
+}
+
+impl Scripted {
+    /// The path of each request that the bucket has read, in their order.
+    pub fn paths(&self) -> Vec<String> {
+        self.paths
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+}
+
+/// What a scripted bucket answers each request with: a status, the `Location` of a redirect, and
+/// a body.
+#[derive(Clone)]
+struct Answer {
+    status: u16,
+    location: Option<&'static str>,
+    body: String,
+}
+
+impl Answer {
+    fn of(status: u16, body: String) -> Self {
+        Self {
+            status,
+            location: None,
+            body,
+        }
+    }
 }
 
 impl Drop for Scripted {
@@ -135,7 +168,17 @@ impl Drop for Scripted {
 /// A bucket that reads each request whole and answers it with `status` and no body, or, with
 /// `None`, never answers, holding each connection open until the bucket is dropped.
 pub async fn scripted(status: Option<u16>) -> Scripted {
-    serve(status.map(|status| (status, String::new()))).await
+    serve(status.map(|status| Answer::of(status, String::new()))).await
+}
+
+/// A bucket that answers every request with a redirect to `location`, a path of its own.
+pub async fn redirecting(location: &'static str) -> Scripted {
+    serve(Some(Answer {
+        status: 307,
+        location: Some(location),
+        body: String::new(),
+    }))
+    .await
 }
 
 /// A bucket that answers every request with a listing of `objects`, each a key and when the
@@ -154,35 +197,52 @@ pub async fn listing(objects: &[(&str, &str)]) -> Scripted {
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?><ListBucketResult>\
          <IsTruncated>false</IsTruncated>{contents}</ListBucketResult>"
     );
-    serve(Some((200, body))).await
+    serve(Some(Answer::of(200, body))).await
 }
 
-/// Serves each connection with `answer`, a status and a body, or no answer.
-async fn serve(answer: Option<(u16, String)>) -> Scripted {
+/// Serves each connection with `answer`, or no answer.
+async fn serve(answer: Option<Answer>) -> Scripted {
     let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
         .await
         .unwrap();
     let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let paths = Arc::new(Mutex::new(Vec::new()));
+    let read = paths.clone();
     let server = tokio::spawn(async move {
         loop {
             let Ok((stream, _)) = listener.accept().await else {
                 return;
             };
-            tokio::spawn(answering(stream, answer.clone()));
+            tokio::spawn(answering(stream, answer.clone(), read.clone()));
         }
     });
-    Scripted { endpoint, server }
+    Scripted {
+        endpoint,
+        paths,
+        server,
+    }
 }
 
-/// Reads each request on `stream`, its body included, and answers it with `answer`, or never.
-async fn answering(stream: TcpStream, answer: Option<(u16, String)>) {
+/// Reads each request on `stream`, its body included, records its path in `paths`, and answers
+/// it with `answer`, or never.
+async fn answering(stream: TcpStream, answer: Option<Answer>, paths: Arc<Mutex<Vec<String>>>) {
     let mut stream = BufReader::new(stream);
     loop {
         let mut length = 0;
+        let mut first = true;
         loop {
             let mut line = String::new();
             if stream.read_line(&mut line).await.unwrap_or(0) == 0 {
                 return;
+            }
+            if std::mem::take(&mut first) {
+                // The request's line: its method, its target and the protocol's version.
+                let target = line.split(' ').nth(1).unwrap_or_default();
+                let path = target.split('?').next().unwrap_or_default().to_owned();
+                paths
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .push(path);
             }
             let line = line.trim_end().to_ascii_lowercase();
             if line.is_empty() {
@@ -196,13 +256,19 @@ async fn answering(stream: TcpStream, answer: Option<(u16, String)>) {
         if stream.read_exact(&mut body).await.is_err() {
             return;
         }
-        let Some((status, body)) = &answer else {
+        let Some(Answer {
+            status,
+            location,
+            body,
+        }) = &answer
+        else {
             // Holds the connection, answering nothing.
             std::future::pending::<()>().await;
             return;
         };
+        let location = location.map_or_else(String::new, |to| format!("Location: {to}\r\n"));
         let answer = format!(
-            "HTTP/1.1 {status} Scripted\r\nContent-Length: {}\r\n\r\n{body}",
+            "HTTP/1.1 {status} Scripted\r\n{location}Content-Length: {}\r\n\r\n{body}",
             body.len()
         );
         if stream.get_mut().write_all(answer.as_bytes()).await.is_err() {

@@ -140,26 +140,41 @@ pub struct Collector {
 struct Shared {
     received: Mutex<Received>,
     changed: Notify,
-    refuse_logs: bool,
+    logs: Logs,
+}
+
+/// What the stand-in does with an export of log records.
+#[derive(Clone, Copy)]
+enum Logs {
+    Taken,
+    Refused,
+    Redirected,
 }
 
 impl Collector {
     /// A collector that accepts every export. Fails if it can't listen.
     pub async fn start() -> io::Result<Self> {
-        Self::listening(false).await
+        Self::listening(Logs::Taken).await
     }
 
     /// A collector that answers every export of log records with 400, which the exporter
     /// counts as a failed export and doesn't retry. Fails if it can't listen.
     pub async fn refusing_logs() -> io::Result<Self> {
-        Self::listening(true).await
+        Self::listening(Logs::Refused).await
     }
 
-    async fn listening(refuse_logs: bool) -> io::Result<Self> {
+    /// A collector that answers every export of log records with a redirect to another path
+    /// of its own, which takes them, so the records of an exporter that followed it are
+    /// among what it received. Fails if it can't listen.
+    pub async fn redirecting_logs() -> io::Result<Self> {
+        Self::listening(Logs::Redirected).await
+    }
+
+    async fn listening(log_exports: Logs) -> io::Result<Self> {
         let state = Arc::new(Shared {
             received: Mutex::default(),
             changed: Notify::new(),
-            refuse_logs,
+            logs: log_exports,
         });
         #[expect(
             clippy::disallowed_methods,
@@ -168,6 +183,7 @@ impl Collector {
         let router = Router::new()
             .route("/v1/traces", post(traces))
             .route("/v1/logs", post(logs))
+            .route(MOVED_LOGS, post(moved_logs))
             .route("/v1/metrics", post(metrics))
             .with_state(state.clone());
         let listener = TcpListener::bind("127.0.0.1:0").await?;
@@ -228,9 +244,21 @@ async fn traces(State(state): State<Arc<Shared>>, body: Bytes) -> Response {
 }
 
 async fn logs(State(state): State<Arc<Shared>>, body: Bytes) -> Response {
-    if state.refuse_logs {
-        return StatusCode::BAD_REQUEST.into_response();
+    match state.logs {
+        Logs::Taken => moved_logs(State(state), body).await,
+        Logs::Refused => StatusCode::BAD_REQUEST.into_response(),
+        Logs::Redirected => (
+            StatusCode::TEMPORARY_REDIRECT,
+            [(header::LOCATION, MOVED_LOGS)],
+        )
+            .into_response(),
     }
+}
+
+/// The path that a redirected export of log records is sent to, which takes it.
+const MOVED_LOGS: &str = "/moved/logs";
+
+async fn moved_logs(State(state): State<Arc<Shared>>, body: Bytes) -> Response {
     match ExportLogsServiceRequest::decode(body) {
         Ok(export) => state.keep(|received| received.logs.push(export)),
         Err(_) => StatusCode::BAD_REQUEST.into_response(),

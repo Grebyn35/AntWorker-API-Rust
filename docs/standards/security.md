@@ -68,8 +68,8 @@ Three actions are exceptions to the rank of members, and each has its own rule:
 ## Requests and responses
 
 ### SEC-10 Outbound requests go through one of two clients
-All outbound HTTP that application code makes uses one of the two clients in `platform::outbound`. The telemetry adapters use their libraries' own clients, with endpoints from configuration. The probe that the `health` subcommand sends to the instance's own address (PLATFORM-063) reaches no other service, so neither client applies to it.
-The object storage adapter uses its library's own client too, with its endpoint from configuration, and the malware scanner's adapter speaks clamd's own protocol, not HTTP, over TCP to the address that configuration names (PLATFORM-079), so neither client applies to them either. <!-- part: files -->
+All outbound HTTP that application code makes uses one of the two clients in `platform::outbound`. The telemetry adapters use their libraries' own clients, with endpoints from configuration, and follow no redirect. The probe that the `health` subcommand sends to the instance's own address (PLATFORM-063) reaches no other service, so neither client applies to it.
+The object storage adapter uses its library's own client too, with its endpoint from configuration, and follows no redirect, and the malware scanner's adapter speaks clamd's own protocol, not HTTP, over TCP to the address that configuration names (PLATFORM-079), so neither client applies to them either. <!-- part: files -->
 The relay of clients' batches of telemetry is a telemetry adapter too: it sends each batch to the collector's receiver that configuration names, through a client of its own, which follows no redirect and sends none of the caller's credentials (PLATFORM-091). <!-- part: client_telemetry -->
 - The configured client calls URLs that come from configuration or from the code, such as an OAuth provider's endpoints. It requires HTTPS, unless the environment is development or test, follows no redirect, and caps response size and time.
 - The untrusted client calls URLs that come from a third party. It:

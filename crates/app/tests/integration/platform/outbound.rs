@@ -1,15 +1,37 @@
-//! The untrusted client of `platform::outbound`, against a server on a loopback address, the
-//! tests' origin (SEC-10).
+//! The two clients of `platform::outbound`, against a server on a loopback address, the tests'
+//! origin (SEC-10).
 
-use platform::outbound::{FetchError, OutboundConfig, Untrusted};
+use std::sync::{Arc, Mutex, PoisonError};
+
+use platform::{
+    config::Environment,
+    outbound::{Configured, FetchError, OutboundConfig, Request, Untrusted},
+};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
 };
 
 /// A server on a loopback address, the tests' origin, that answers each request with what
-/// `answer` gives for its path, or never, when it gives none; and a client that accepts it.
+/// `answer` gives for its path, or never, when it gives none; and the untrusted client, which
+/// accepts it.
 async fn serving(answer: impl Fn(&str) -> Option<Vec<u8>> + Send + 'static) -> (Untrusted, String) {
+    let (config, origin) = origin(answer).await;
+    (Untrusted::new(&config).unwrap(), origin)
+}
+
+/// The configured client of the test environment, which sends each request to a server that
+/// answers it with what `answer` gives for its path, or never, when it gives none.
+async fn configured(answer: impl Fn(&str) -> Option<Vec<u8>> + Send + 'static) -> Configured {
+    let (config, _) = origin(answer).await;
+    Configured::new(Environment::Test, &config).unwrap()
+}
+
+/// A server on a loopback address that answers each request with what `answer` gives for its
+/// path, or never, when it gives none: its origin, and the settings that make it the tests'.
+async fn origin(
+    answer: impl Fn(&str) -> Option<Vec<u8>> + Send + 'static,
+) -> (OutboundConfig, String) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let origin = format!("http://{}", listener.local_addr().unwrap());
     tokio::spawn(async move {
@@ -43,7 +65,7 @@ async fn serving(answer: impl Fn(&str) -> Option<Vec<u8>> + Send + 'static) -> (
     let config = OutboundConfig {
         test_origin: Some(url::Url::parse(&origin).unwrap()),
     };
-    (Untrusted::new(&config).unwrap(), origin)
+    (config, origin)
 }
 
 /// An answer of `status`, with `headers` and `body`, which ends with its connection.
@@ -165,4 +187,66 @@ async fn sec_10_the_untrusted_client_gives_up_an_answer_that_doesn_t_come_in_tim
     let failed = client.get(&format!("{origin}/ada.png"), 16).await;
 
     assert!(matches!(failed, Err(FetchError::Failed(_))), "{failed:?}");
+}
+
+#[tokio::test]
+async fn sec_10_the_configured_client_follows_no_redirect() {
+    let asked = Arc::new(Mutex::new(Vec::new()));
+    let paths = asked.clone();
+    let client = configured(move |path| {
+        paths
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(path.to_owned());
+        Some(match path {
+            "/token" => redirect("/elsewhere"),
+            _ => response("200 OK", &["Content-Length: 2"], b"ok"),
+        })
+    })
+    .await;
+
+    let answer = client
+        .send(Request::post("https://provider.example.com/token"))
+        .await
+        .unwrap();
+
+    assert_eq!(answer.status, 302);
+    let asked = asked.lock().unwrap_or_else(PoisonError::into_inner);
+    assert_eq!(*asked, ["/token"]);
+}
+
+#[tokio::test]
+async fn sec_10_the_configured_client_caps_an_answer_s_size() {
+    const MEBIBYTE: usize = 1 << 20;
+    let client = configured(|path| {
+        Some(match path {
+            "/over" => response("200 OK", &[], &vec![0; MEBIBYTE + 1]),
+            _ => response("200 OK", &[], &vec![0; MEBIBYTE]),
+        })
+    })
+    .await;
+
+    let over = client
+        .send(Request::get("https://provider.example.com/over"))
+        .await;
+    let whole = client
+        .send(Request::get("https://provider.example.com/whole"))
+        .await;
+
+    assert!(over.is_err(), "{over:?}");
+    assert_eq!(whole.unwrap().body.len(), MEBIBYTE);
+}
+
+#[tokio::test]
+async fn sec_10_the_configured_client_gives_up_an_answer_that_doesn_t_come_in_time() {
+    let client = configured(|_| None).await;
+    // The client's time limit runs on tokio's time, which the runtime advances once the request
+    // waits for the answer alone (TEST-06).
+    tokio::time::pause();
+
+    let failed = client
+        .send(Request::get("https://provider.example.com/token"))
+        .await;
+
+    assert!(failed.is_err(), "{failed:?}");
 }

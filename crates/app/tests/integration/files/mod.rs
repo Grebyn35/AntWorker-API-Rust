@@ -1387,6 +1387,22 @@ async fn files_012_a_bucket_that_answers_it_can_t_serve_counts_as_not_answering(
     }
 }
 
+#[tokio::test]
+async fn sec_10_the_bucket_s_client_follows_no_redirect() {
+    let bucket = bucket::redirecting("/elsewhere").await;
+    let api = Api::with(Options::default().set("S3_ENDPOINT", &bucket.endpoint)).await;
+    let (workspace, ada, _) = acme(&api, "member").await;
+    let id = files::arrange_row(api.database(), &workspace, "Blue").await;
+
+    let downloaded = download(&api, &ada, &workspace, &id).await;
+
+    // The redirect is an answer that the client can't read (FILES-012).
+    assert_eq!(downloaded.status, 500);
+    let paths = bucket.paths();
+    assert!(!paths.is_empty());
+    assert!(!paths.contains(&"/elsewhere".to_owned()), "{paths:?}");
+}
+
 #[test]
 fn platform_076_the_client_refuses_to_start_without_its_authorities_file() {
     let config = |ca_path: Option<&str>| StorageConfig {

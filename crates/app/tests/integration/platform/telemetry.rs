@@ -534,6 +534,29 @@ async fn platform_068_the_last_metrics_count_the_exports_that_failed() {
 }
 
 #[tokio::test]
+async fn sec_10_an_exporter_follows_no_redirect() {
+    let collector = Collector::redirecting_logs().await.unwrap();
+    let database = TestDatabase::migrated().await;
+
+    let output = database
+        .run_api(
+            &["migrate"],
+            &[
+                ("ENVIRONMENT", "test"),
+                ("OTEL_EXPORTER_OTLP_ENDPOINT", &collector.endpoint()),
+            ],
+        )
+        .await;
+
+    assert!(output.status.success(), "{output:?}");
+    // The path that the redirect names takes the records of an exporter that follows it.
+    let received = collector.received();
+    assert!(received.logs.is_empty());
+    let failed = received.count("otel.sdk.exporter.log.exported", Some("export_failed"));
+    assert!(failed >= 1, "{failed}");
+}
+
+#[tokio::test]
 async fn obs_10_an_exporter_that_can_t_be_built_fails_startup() {
     let database = TestDatabase::migrated().await;
     let missing = std::env::temp_dir().join("no-such-certificates.pem");

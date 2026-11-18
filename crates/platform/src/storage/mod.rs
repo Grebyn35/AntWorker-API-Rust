@@ -427,7 +427,8 @@ fn path(key: &ObjectKey) -> Path {
 /// verifies an `https` bucket against the operating system's certificates, or the files that
 /// `SSL_CERT_FILE` and `SSL_CERT_DIR` name, as a verified database connection does (D38), and
 /// against those of `S3_CA_PATH`, if it names a file. Its only timeout is the connection's: the
-/// waits for the bucket's answers are the clock's, in [`Storage`].
+/// waits for the bucket's answers are the clock's, in [`Storage`]. It follows no redirect, so a
+/// request reaches the endpoint that the settings name, or fails (SEC-10).
 #[derive(Debug)]
 struct Connector {
     ca_path: Option<PathBuf>,
@@ -443,6 +444,7 @@ impl HttpConnector for Connector {
         let tls = crate::tls::client_config(true, self.ca_path.as_deref()).map_err(failed)?;
         let client = reqwest::Client::builder()
             .connect_timeout(CONNECT_TIMEOUT)
+            .redirect(reqwest::redirect::Policy::none())
             .tls_backend_preconfigured(tls)
             .build()
             .map_err(|error| failed(Box::new(error)))?;
