@@ -205,7 +205,7 @@ A browser sends a cookie that is `SameSite=Strict` only with requests from the c
 
 ### Passwords
 
-The breached-password list holds at least the 3,000 most common passwords of 8 to 128 characters, drawn from passwords that breaches revealed, as requirements 6.2.4 and 6.2.12 of ASVS ask. The context list holds the words a password of this product mustn't contain, such as the product's name, which `just rename` rewrites (ARCH-15); a fork adds its own, as requirements 6.1.2 and 6.2.11 ask. Both lists are compiled into the binary, so checking a password reaches no other system. No rule asks for a kind of character (6.2.5), and the password is verified exactly as the user typed it (6.2.8).
+The breached-password list holds at least the 3,000 most common passwords of 8 to 128 characters, drawn from passwords that breaches revealed, as requirements 6.2.4 and 6.2.12 of ASVS ask. The context list holds the words a password of this product mustn't contain, as requirements 6.1.2 and 6.2.11 ask: it is `CONTEXT_WORDS`, in `crates/app/src/modules/auth/model/mod.rs`, and holds one word, the product's name, `antworker`, which `just rename` rewrites there and here (ARCH-15). A fork adds its own words to it, such as its organization's name, and names them here. Both lists are compiled into the binary, so checking a password reaches no other system. No rule asks for a kind of character (6.2.5), and the password is verified exactly as the user typed it (6.2.8).
 
 ### Re-authentication
 

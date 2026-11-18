@@ -9,6 +9,7 @@ These rules cover the mechanisms every module relies on. The threat model in `do
 ### SEC-01 Secrets arrive by environment or file, and stay wrapped
 A secret is read from an environment variable, or from a file named by `<NAME>_FILE`. It is held in `platform::types::Secret`, which never prints its value through `Debug`, `Display` or serialization, or in a type of its own that never prints it either, such as `platform::hashing::HmacKey`. A setting that carries a secret, such as a database URL with its password, is a secret setting as a whole: it is read the same way, its secret part is held in `Secret`, and the setting is never printed. Secrets never appear in images, error details, or the URLs the API sends or serves, and telemetry holds none (OBS-04). An authenticator app's setup is the one answer that gives its caller a secret, the app's, once, in base32 and in the `otpauth://` uniform resource identifier (URI) that a client shows as a quick-response (QR) code (AUTH-055).
 A signed URL's signature isn't one: it is a keyed hash, under `HMAC_KEY`, which never leaves the API, and proves only its session's download of one file, for an hour (PLATFORM-080, D61). <!-- part: files -->
+The reference deployment gives no credential a value of its own choosing: its operator enters each that another system issued, and the deployment generates each that it sets itself, from the operating system's random source ([deploy.md](../operations/deploy.md#setting-up-a-server)).
 - Why: the standard delivery paths for containers, and no accidental disclosure (D26).
 - Check: `compiler` (`Secret` has no way to print its value), plus `review`.
 
@@ -25,9 +26,9 @@ Access tokens, refresh tokens and verification codes come from the operating sys
 - Check: `test`, plus `review`.
 
 ### SEC-04 Passwords use Argon2id
-Passwords are hashed with Argon2id at the current OWASP parameters, in the string format of the Password Hashing Competition (PHC), on a blocking thread (CODE-05). A successful sign-in rehashes a password stored with older parameters. The auth spec defines the password policy.
+Passwords are hashed with Argon2id at the current OWASP parameters, in the string format of the Password Hashing Competition (PHC), on a blocking thread (CODE-05). A successful sign-in rehashes a password stored with older parameters. The auth spec defines the password policy. A password lasts until its user changes or resets it: nothing expires one, or asks its user for a new one after a time. The API takes no hint of a password, and no answer to a secret question.
 - Why: the recommended algorithm, with parameters that can be raised later (D26).
-- Check: `test`.
+- Check: `test`, plus `review` (that nothing expires a password, and that no route takes a hint or a secret question).
 
 ### SEC-05 Authentication failures reveal nothing
 A failed sign-in gives the same response and the same timing whether the email exists or not, and so does a password reset, as it is asked for and as its code is checked. Enumeration is accepted only on registration and the email-change pre-flight, both rate limited (D7).
@@ -35,11 +36,11 @@ A failed sign-in gives the same response and the same timing whether the email e
 - Check: `test` (identical responses for known and unknown emails), plus `review` (an unknown email runs the same password hash as a known one, and a reset's request does the same work).
 
 ### SEC-06 Sessions are bounded, and lost access ends open streams
-Access tokens are short-lived. Refresh tokens rotate on every use, and reuse is detected. Every session has an absolute maximum lifetime. The auth spec sets the durations.
+A session starts only in a request that carries its user's password, a provider's code for the user, or the challenge of such a sign-in with its second factor. Access tokens are short-lived. Refresh tokens rotate on every use, and reuse is detected. Every session has an absolute maximum lifetime. The auth spec sets the durations.
 
 When a session is revoked, a user is deleted, a membership is removed or a role changes, the affected open streams are closed or re-filtered as soon as the change commits. If that signal is missed, they are closed or re-filtered within the configured re-check interval, 60 seconds by default. [The platform spec](../spec/platform.md#events-and-the-real-time-hub) describes the mechanism.
 - Why: a stolen token has a limited life, and lost access ends at once, or within the re-check interval in the worst case (D5, D35).
-- Check: `test` (PLATFORM-031, and one test per kind of access change).
+- Check: `test` (PLATFORM-031, and one test per kind of access change), plus `review` (what starts a session).
 
 ### SEC-07 Browsers hold tokens only in cookies they can't read, for listed origins
 A browser receives its session's tokens only as cookies that are `Secure`, `HttpOnly` and `SameSite=Strict`, named with the `__Host-` prefix (AUTH-015). A request whose method isn't safe (RFC 9110: `GET`, `HEAD`, `OPTIONS` and `TRACE` are) is served only when it carries no `Origin` or one of the origins that `CORS_ALLOWED_ORIGINS` lists, and, when a session cookie authenticates it, only when it carries a listed one (PLATFORM-059). Only a listed origin gets the headers of cross-origin resource sharing (CORS) that let a browser read a response, or send its cookies (PLATFORM-058).
@@ -102,7 +103,7 @@ Every response carries `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-r
 A public file's download, an avatar's and a workspace's picture's are the only responses without `no-store`: each needs no credential, and names its bytes by their ID and their kind's extension alone (SEC-11), so shared caches may keep it for 5 minutes (FILES-023, FILES-024, FILES-027). <!-- part: files -->
 The reverse proxy in front of the API terminates TLS and sets HTTP Strict Transport Security (HSTS), for a year and for subdomains too, at the API's address and at Grafana's. A page of Grafana's carries `X-Content-Type-Options: nosniff`, `Referrer-Policy: same-origin`, which the proxy sets, and the `Content-Security-Policy` that `deploy/observability/compose.yaml` gives Grafana, with `object-src 'none'`, `frame-ancestors 'none'`, and `base-uri 'self'`, since Grafana's page names a base address.
 - Why: browser-level defenses are on by default.
-- Check: `test`.
+- Check: `test`, plus `ci: e2e` (the headers of what the proxy answers itself at the API's address, and of Grafana's sign-in page).
 
 ### SEC-13 Rate limits protect every route
 An IP limit applies to every route except the health probes, before authentication. A per-user limit applies after it. Per-action limits apply to every action that checks a password or a verification code, or sends an email (D11); the tokens of SEC-03 are too long to guess, so a check of one needs no limit of its own. Every check of a user's current password goes through one `auth` function and shares one bucket per user. The client IP is taken from `X-Forwarded-For` only when the request comes from a configured trusted proxy.
