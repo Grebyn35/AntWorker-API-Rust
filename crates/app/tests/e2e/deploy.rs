@@ -7,7 +7,7 @@ use std::time::Duration;
 use platform::errors::{ErrorCode, RequestError};
 
 use crate::{
-    deployment::{API_ADDRESS, Deployment, Traffic, assert_all_succeeded, get, get_within},
+    deployment::{Deployment, Traffic, assert_all_succeeded, get, get_within, unanswered},
     docker::lossy,
     server::DEPLOYMENT,
 };
@@ -349,21 +349,16 @@ async fn ops_05_while_no_replica_runs_the_proxy_answers_at_once_with_the_api_s_5
 }
 
 #[tokio::test]
-async fn ops_17_the_proxy_answers_http_with_a_redirect_to_https_and_https_with_hsts() {
+async fn ops_17_the_proxy_answers_no_plain_http_at_the_api_s_address_and_https_with_hsts() {
     let deployment = Deployment::managed(&[]);
     let deployed = deployment.apply(&deployment.api, &[]).await;
     assert!(deployed.status.success(), "{}", lossy(&deployed));
     let root = deployment.server.caddy_root();
 
-    let (plain, plain_headers) = get(root.clone(), deployment.url("http", 80, "/v1/capabilities"));
+    let plain = unanswered(root.clone(), deployment.url("http", 80, "/v1/capabilities"));
     let (secure, secure_headers) = get(root, deployment.url("https", 443, "/v1/capabilities"));
 
-    assert_eq!(plain, 308);
-    let location = plain_headers["location"].to_str().unwrap();
-    assert!(
-        location.starts_with(&format!("https://{API_ADDRESS}")),
-        "{location}"
-    );
+    assert!(plain, "plain HTTP got an answer");
     assert_eq!(secure, 200);
     assert_eq!(
         secure_headers["strict-transport-security"],

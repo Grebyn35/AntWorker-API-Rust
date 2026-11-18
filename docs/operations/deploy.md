@@ -21,7 +21,7 @@ flowchart LR
   stack --> grafana
 ```
 
-- **Caddy** is the only service the server publishes, on ports 80 and 443 (SEC-14). It obtains a certificate for each address through the Automatic Certificate Management Environment (ACME), from Let's Encrypt, answers HTTP with a redirect to HTTPS, and sets HTTP Strict Transport Security (HSTS) (OPS-17). It sends each request to a replica that its own health checks find ready (OPS-05).
+- **Caddy** is the only service the server publishes, on ports 80 and 443 (SEC-14). It obtains a certificate for each address through the Automatic Certificate Management Environment (ACME), from Let's Encrypt, answers plain HTTP with nothing at the API's address and with a redirect to HTTPS at Grafana's, and sets HTTP Strict Transport Security (HSTS) (OPS-17). It sends each request to a replica that its own health checks find ready (OPS-05).
 - **The API** runs in two colors, `api-blue` and `api-green`, of `API_REPLICAS` replicas each, every replica limited to `API_CPUS` CPUs and `API_MEMORY` of memory. Between deploys one color runs; a deploy starts the other, then stops the first (D45).
 - **Postgres**, when the deployment bundles it, runs from the release's Postgres image, the official image with pgBackRest (D44). It archives its write-ahead log continuously to a bucket off the server, and the `backup` service takes a base backup every day ([backups.md](backups.md)). Only the deployment's private network reaches it.
 - **The files bucket**, a provider's, holds the bytes of the files that users upload, which the replicas write and read over HTTPS ([below](#the-files-bucket)). <!-- part: files -->
@@ -295,7 +295,9 @@ Users may sign in through an OAuth provider, once the deployment registers a cli
 
 ## TLS and proxies
 
-Caddy obtains and renews the certificates on its own, and keeps them in its `caddy-data` volume. HSTS tells browsers to reach the API over HTTPS only, for a year, and so do its subdomains.
+Caddy obtains and renews the certificates on its own, with keys on the curve P-256, and keeps them in its `caddy-data` volume. It takes TLS 1.2 and 1.3, with the cipher suites that [deploy/caddy/Caddyfile](../../deploy/caddy/Caddyfile) names for 1.2 (OPS-17). HSTS tells browsers to reach the API over HTTPS only, for a year, and so do its subdomains.
+
+A client that sends plain HTTP to the API's address gets no answer: Caddy closes the connection, so the mistake shows at the client's first request, where a redirect to HTTPS would let it go on sending each request, with its credentials, in plain text first. Grafana's address, which a browser opens, answers plain HTTP with a redirect to HTTPS.
 
 Caddy replaces each request's `X-Forwarded-For` with the address it came from, so a client can't pretend to come from elsewhere. When a content delivery network or a load balancer stands in front of the server, list its addresses in `TRUSTED_PROXIES`, and Caddy keeps the header they send (SEC-13).
 

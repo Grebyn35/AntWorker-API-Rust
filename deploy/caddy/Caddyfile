@@ -9,6 +9,8 @@
 	log default {
 		exclude http.handlers.reverse_proxy.health_checker.active
 	}
+	# The key of each certificate that Caddy obtains: an elliptic curve key on P-256 (OPS-17).
+	key_type p256
 	servers {
 		# The addresses whose X-Forwarded-For Caddy keeps, such as a content delivery network in
 		# front of the server. From any other client, Caddy replaces the header with the
@@ -17,6 +19,17 @@
 		timeouts {
 			read_header 10s
 		}
+	}
+}
+
+# The TLS that each site takes (OPS-17): versions 1.2 and 1.3, and, for 1.2, the cipher suites
+# that agree on a key by an ephemeral elliptic curve exchange and encrypt with authentication.
+# TLS 1.3 has only such suites, which no setting chooses. They are Caddy's defaults, named here so
+# that an update of Caddy changes none of them unseen.
+(tls) {
+	tls {
+		protocols tls1.2 tls1.3
+		ciphers TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384 TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
 	}
 }
 

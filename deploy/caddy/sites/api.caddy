@@ -3,6 +3,7 @@
 # fails its check, so the replicas of the color that isn't live get no request (D45). While no
 # replica can answer, Caddy answers itself, with the API's problem (D53).
 {$API_ADDRESS} {
+	import tls
 	# HTTP Strict Transport Security: browsers reach the API over HTTPS only (SEC-12, OPS-17).
 	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
 	header -Server
@@ -87,4 +88,12 @@
 			respond `{"type":"/problems/request.unavailable","title":"No replica can answer","status":503,"code":"request.unavailable","trace_id":"{http.vars.trace_id}"}` 503
 		}
 	}
+}
+
+# Plain HTTP at the API's address gets no answer: Caddy closes the connection, so a client that
+# sends its requests unencrypted fails at its first, where a redirect to HTTPS would let it go on
+# sending each request, with its credentials, in plain text first (OPS-17). A site of its own,
+# since one block that named both addresses would take the name out of Caddy's certificates.
+http://{$API_ADDRESS} {
+	abort
 }

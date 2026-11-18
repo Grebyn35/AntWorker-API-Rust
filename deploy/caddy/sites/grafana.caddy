@@ -1,7 +1,11 @@
 # Grafana's address, when the deployment runs the self-hosted observability stack (D42). Grafana
 # signs every viewer in.
 {$GRAFANA_ADDRESS} {
+	import tls
 	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	# Grafana sets no referrer policy: a link from a dashboard to another site tells that site
+	# nothing of the dashboard's address (SEC-12).
+	header Referrer-Policy same-origin
 	header -Server
 
 	reverse_proxy grafana:3000

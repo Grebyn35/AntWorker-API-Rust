@@ -395,6 +395,17 @@ pub fn get(root: String, url: String) -> (u16, reqwest::header::HeaderMap) {
     .expect("the request")
 }
 
+/// Sends `GET` to `url`, through a client that trusts `root`, and says whether the server took
+/// the connection and closed it without an answer.
+pub fn unanswered(root: String, url: String) -> bool {
+    thread::spawn(move || match client(&root).get(&url).send() {
+        Ok(_) => false,
+        Err(error) => !error.is_connect() && !error.is_timeout(),
+    })
+    .join()
+    .expect("the request")
+}
+
 /// Sends `GET` to `url`, through a client that trusts `root` and waits at most `timeout` for
 /// the answer, and returns the response's status, headers and body.
 pub fn get_within(
