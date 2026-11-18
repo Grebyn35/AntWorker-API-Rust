@@ -119,7 +119,10 @@ mod testing {
         }
 
         /// Completes once a sleep of `duration` is waiting on this clock, so a test advances
-        /// the clock only after the code under test has started that wait.
+        /// the clock only after the code under test has started that wait. Another task's sleep
+        /// of the same duration completes it too, so a test of a wait that may share its
+        /// duration with another first waits for what the code does just before it sleeps, such
+        /// as its request reaching a stand-in.
         pub async fn sleeping(&self, duration: Duration) {
             loop {
                 let slept = self.slept.notified();
