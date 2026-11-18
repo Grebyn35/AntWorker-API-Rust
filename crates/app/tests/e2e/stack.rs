@@ -4,7 +4,9 @@
 use std::time::Duration;
 
 use crate::{
-    deployment::{Deployment, GRAFANA_ADDRESS, get, get_traced, get_within, post},
+    deployment::{
+        Deployment, GRAFANA_ADDRESS, get, get_traced, get_within, post, post_for_cookies,
+    },
     docker::lossy,
     server::DEPLOYMENT,
     support,
@@ -78,6 +80,10 @@ async fn sec_14_a_server_publishes_only_the_proxy_and_grafana_signs_every_viewer
         root.clone(),
         deployment.url_at(GRAFANA_ADDRESS, "https", 443, "/"),
     );
+    let (_, page_headers) = get(
+        root.clone(),
+        deployment.url_at(GRAFANA_ADDRESS, "https", 443, "/login"),
+    );
     let (search, _) = get(
         root.clone(),
         deployment.url_at(GRAFANA_ADDRESS, "https", 443, "/api/search"),
@@ -93,10 +99,15 @@ async fn sec_14_a_server_publishes_only_the_proxy_and_grafana_signs_every_viewer
         deployment.url_at(GRAFANA_ADDRESS, "https", 443, "/metrics"),
         Duration::from_secs(10),
     );
-    let (sign_in, signed_in) = post(
-        root,
+    let (sign_in, cookies) = post_for_cookies(
+        root.clone(),
         deployment.url_at(GRAFANA_ADDRESS, "https", 443, "/login"),
         serde_json::json!({"user": "admin", "password": password}).to_string(),
+    );
+    // Grafana's pages are for a browser, so plain HTTP at its address leads to HTTPS (OPS-17).
+    let (plain, plain_headers) = get(
+        root,
+        deployment.url_at(GRAFANA_ADDRESS, "http", 80, "/login"),
     );
 
     let publishing: Vec<&str> = containers
@@ -110,13 +121,8 @@ async fn sec_14_a_server_publishes_only_the_proxy_and_grafana_signs_every_viewer
     );
     assert!(containers.contains("deployment-grafana-1"), "{containers}");
     assert_eq!(home, 302);
-    assert!(
-        home_headers["location"]
-            .to_str()
-            .unwrap()
-            .ends_with("/login"),
-        "{home_headers:?}"
-    );
+    let login = home_headers["location"].to_str().unwrap();
+    assert!(login.ends_with("/login"), "{login}");
     assert_eq!(
         home_headers["strict-transport-security"],
         "max-age=31536000; includeSubDomains"
@@ -127,7 +133,65 @@ async fn sec_14_a_server_publishes_only_the_proxy_and_grafana_signs_every_viewer
     assert!(!exposition.contains("# TYPE"), "{exposition}");
     assert_eq!(sign_up, 401, "{refusal}");
     assert!(refusal.contains("signup is disabled"), "{refusal}");
-    assert_eq!(sign_in, 200, "{signed_in}");
+    assert_eq!(sign_in, 200, "{cookies:?}");
+    assert_the_session_s_cookie_is_this_host_s_alone(&cookies);
+    assert_a_browser_guards_grafana_s_pages(&page_headers);
+    assert_eq!(plain, 308);
+    let location = plain_headers["location"].to_str().unwrap();
+    assert!(location.starts_with(&format!("https://{GRAFANA_ADDRESS}")));
+}
+
+/// Of the cookies that Grafana's sign-in sets, the session's is `__Host-grafana_session`, for
+/// this host alone and for 30 days, which no script reads and no request of another site
+/// carries, and the only other is Grafana's own, of the time at which the session's token
+/// changes next (SEC-14).
+fn assert_the_session_s_cookie_is_this_host_s_alone(cookies: &[String]) {
+    let session: Vec<&String> = cookies
+        .iter()
+        .filter(|cookie| cookie.starts_with("__Host-grafana_session="))
+        .collect();
+    assert_eq!(session.len(), 1, "{cookies:?}");
+    let attributes: Vec<&str> = session[0].split("; ").skip(1).collect();
+    for attribute in [
+        "Path=/",
+        "Max-Age=2592000",
+        "HttpOnly",
+        "Secure",
+        "SameSite=Lax",
+    ] {
+        assert!(attributes.contains(&attribute), "{attribute}: {cookies:?}");
+    }
+    assert!(
+        !attributes
+            .iter()
+            .any(|attribute| attribute.starts_with("Domain")),
+        "{cookies:?}"
+    );
+    let others: Vec<&str> = cookies
+        .iter()
+        .filter_map(|cookie| cookie.split('=').next())
+        .filter(|name| *name != "__Host-grafana_session")
+        .collect();
+    assert_eq!(others, ["grafana_session_expiry"]);
+}
+
+/// The headers of a page of Grafana's tell a browser to guess no type, to name the page to no
+/// other site, to load no plugin object, to take a base address from Grafana alone, and to show
+/// the page in no frame (SEC-12).
+fn assert_a_browser_guards_grafana_s_pages(headers: &reqwest::header::HeaderMap) {
+    assert_eq!(headers["x-content-type-options"], "nosniff");
+    assert_eq!(headers["referrer-policy"], "same-origin");
+    let policy = headers["content-security-policy"].to_str().unwrap();
+    for directive in [
+        "object-src 'none'",
+        "base-uri 'self'",
+        "frame-ancestors 'none'",
+    ] {
+        assert!(
+            policy.split(';').any(|part| part.trim() == directive),
+            "{directive}: {policy}"
+        );
+    }
 }
 
 #[tokio::test]

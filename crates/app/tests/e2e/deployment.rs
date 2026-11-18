@@ -451,6 +451,28 @@ pub fn post(root: String, url: String, body: String) -> (u16, String) {
     post_as(root, url, None, body)
 }
 
+/// Sends `POST` to `url` with the JSON body `body`, through a client that trusts `root`, and
+/// returns the response's status and each cookie it sets, as its `Set-Cookie` writes it.
+pub fn post_for_cookies(root: String, url: String, body: String) -> (u16, Vec<String>) {
+    thread::spawn(move || {
+        let response = client(&root)
+            .post(&url)
+            .header("content-type", "application/json")
+            .body(body)
+            .send()
+            .expect("an answer");
+        let cookies = response
+            .headers()
+            .get_all("set-cookie")
+            .iter()
+            .map(|cookie| cookie.to_str().expect("a cookie in ASCII").to_owned())
+            .collect();
+        (response.status().as_u16(), cookies)
+    })
+    .join()
+    .expect("the request")
+}
+
 /// Sends `POST` to `url` with the JSON body `body`, with `token` as its Bearer access token if
 /// given, through a client that trusts `root`, and returns the response's status and body.
 pub fn post_as(root: String, url: String, token: Option<String>, body: String) -> (u16, String) {

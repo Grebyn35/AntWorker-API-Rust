@@ -4,8 +4,9 @@
 
 # Writes the secrets the deployment generates, once those the operator holds are there: the
 # passwords of the bundled Postgres's other roles and the URLs made from them, the API's HMAC
-# key, and Grafana's administrator password. The files may be read by every user of a container, as Compose mounts
-# them, so the directory admits only the deployment's owner.
+# key, and Grafana's administrator password and its secret key. The files may be read by every
+# user of a container, as Compose mounts them, so the directory admits only the deployment's
+# owner.
 write_secrets() {
     secrets=$deployment/secrets
     umask 022
@@ -68,6 +69,11 @@ write_secrets() {
         random > "$secrets/grafana_admin_password"
         say "wrote Grafana's administrator password to $secrets/grafana_admin_password"
     fi
+    # The key under which Grafana encrypts what it stores and hashes its sessions' tokens. A
+    # Grafana that ran without the file ends its viewers' sessions once, when it first reads it.
+    if [ "$telemetry" = self-hosted ] && [ ! -s "$secrets/grafana_secret_key" ]; then
+        random > "$secrets/grafana_secret_key"
+    fi
     for name in database_url database_owner_url database_admin_url; do
         if [ ! -f "$secrets/$name" ]; then fail "$secrets/$name is missing (docs/operations/deploy.md)"; fi
     done
@@ -78,7 +84,7 @@ write_secrets() {
     # end part: files
     # Compose checks every secret file it declares, so the ones this choice of services doesn't
     # use exist empty.
-    for name in postgres_password backup_s3_key backup_s3_key_secret backup_cipher_pass grafana_admin_password managed_otlp_token; do
+    for name in postgres_password backup_s3_key backup_s3_key_secret backup_cipher_pass grafana_admin_password grafana_secret_key managed_otlp_token; do
         if [ ! -f "$secrets/$name" ]; then : > "$secrets/$name"; fi
     done
 }

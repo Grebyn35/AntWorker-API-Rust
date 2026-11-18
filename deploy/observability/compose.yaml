@@ -57,8 +57,35 @@ services:
   grafana:
     image: grafana/grafana:13.3.0@sha256:488984b716c0862639f91a698adbe2862677a5a07bad42da5f03f3030883b205
     environment:
+      # Grafana reaches no other system: it reports no usage, checks for no update, fetches no
+      # plugin beside those its image holds, nor the key that signs plugins, and shows no picture
+      # from Gravatar, no news and no snapshot service.
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_PLUGINS_PUBLIC_KEY_RETRIEVAL_DISABLED: "true"
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      GF_SNAPSHOTS_EXTERNAL_ENABLED: "false"
+      # What a browser loads for Grafana's pages, and which pages may frame them: Grafana's own
+      # template, without the hosts of Grafana Labs and of map tiles, which no dashboard here
+      # loads, and with `frame-ancestors`, so no page frames Grafana (SEC-12). A panel that loads
+      # from another host needs the host here. Grafana fills in the nonce and its own address.
+      GF_SECURITY_CONTENT_SECURITY_POLICY: "true"
+      GF_SECURITY_CONTENT_SECURITY_POLICY_TEMPLATE: >-
+        script-src 'self' 'unsafe-eval' 'unsafe-inline' 'strict-dynamic' $$NONCE;
+        object-src 'none';
+        font-src 'self';
+        style-src 'self' 'unsafe-inline' blob:;
+        img-src 'self' data: blob:;
+        base-uri 'self';
+        connect-src 'self' ws://$$ROOT_PATH wss://$$ROOT_PATH;
+        manifest-src 'self';
+        media-src 'none';
+        form-action 'self';
+        frame-ancestors 'none';
+      GF_SECURITY_X_CONTENT_TYPE_OPTIONS: "true"
       # SQLite's write-ahead log, with which Grafana's database waits less on the disk, most of all
       # in the first start, which migrates it one step at a time.
       GF_DATABASE_WAL: "true"
