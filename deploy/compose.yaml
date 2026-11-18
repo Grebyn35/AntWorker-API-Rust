@@ -394,6 +394,11 @@ services:
       - archive_command=pgbackrest --stanza=db archive-push %p
       - -c
       - archive_timeout=60
+      # An error's line in Postgres's log without its detail, which holds the values of the row
+      # or the key that a constraint refused, such as an address that another account holds
+      # (OBS-04).
+      - -c
+      - log_error_verbosity=terse
     environment:
       <<: *backups
       POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password

@@ -756,6 +756,34 @@ async fn ops_14_a_deploy_restarts_the_bundled_database_only_for_other_files_and_
 }
 
 #[tokio::test]
+async fn obs_04_the_bundled_database_logs_no_value_that_a_constraint_refused() {
+    let deployment = Deployment::bundled(&[]);
+    let deployed = deployment.apply(&deployment.api, &[]).await;
+    assert!(deployed.status.success(), "{}", lossy(&deployed));
+    // An insert that binds its value, as each statement of the API's does, twice, so a unique
+    // constraint refuses the second.
+    deployment.server.write(
+        "/root/refused.sql",
+        "CREATE TEMPORARY TABLE refused (address text UNIQUE);\n\
+         INSERT INTO refused VALUES ($1) \\bind 'ada.refused@example.com' \\g\n\
+         INSERT INTO refused VALUES ($1) \\bind 'ada.refused@example.com' \\g\n",
+    );
+
+    let refused = deployment.server.shell(
+        "docker exec --interactive deployment-postgres-1 \
+         psql --username=postgres --dbname=api < /root/refused.sql",
+    );
+    let log = lossy(&deployment.server.shell("docker logs deployment-postgres-1"));
+
+    // The client is told which value the constraint refused, and the log isn't.
+    let told = lossy(&refused);
+    assert!(told.contains("ada.refused@example.com"), "{told}");
+    let violation = "duplicate key value violates unique constraint";
+    assert!(log.contains(violation), "{log}");
+    assert!(!log.contains("ada.refused@example.com"), "{log}");
+}
+
+#[tokio::test]
 async fn ops_14_a_secret_that_the_setup_replaced_recreates_the_services_that_read_it() {
     let deployment = Deployment::bundled(&[]);
     let backend = deployment.server.start_otlp_backend();
