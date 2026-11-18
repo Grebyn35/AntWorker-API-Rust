@@ -115,6 +115,19 @@ The reference deployment publishes only Caddy's ports, 80 and 443. Caddy serves 
 - Why: the database holds everything, and the dashboards, logs and traces show how the system is used (D26, D42).
 - Check: `ci: e2e` (what the server publishes, what Grafana answers without a sign-in, and the cookies that its sign-in sets, the session's for 30 days), plus `review` (the lifetime of a session without a request, Grafana's key, and the origin of its WebSocket).
 
+### SEC-20 A value is decoded once, and encoded where it is written
+An input is decoded once, by the reader of the format it arrives in, such as a JSON body's, a query's or a `filename*`'s, only where its media type, its header or its parameter says that it is so encoded, and before its domain type checks it (API-10). No code decodes it again. A value is kept as it was given, once its domain type has normalized it, and is encoded only where it is written into another format, by that format's own writer:
+- JSON that holds a value is written by `serde_json`, from typed values, never put together as text.
+- An SQL statement's values are bound parameters (DATA-14).
+- An HTML email's values are escaped by its template, and an email's headers are encoded by the mail library ([platform spec](../spec/platform.md#sending-email)).
+- A user's value in a URL is percent-encoded for its place, as the address in an authenticator app's `otpauth://` URI is (AUTH-055).
+- A download's name is written into `Content-Disposition` as RFC 6266 says (PLATFORM-081).
+
+The API starts no process, and its image holds no shell (OPS-13). A task that sends a command to a server's shell sends each value that its operator gave as one quoted word, or as a release's version, which names one of the repository's tags. No code evaluates as code, or as an expression, text that an input holds, and a format string is a literal, whose values are its arguments.
+The one Extensible Markup Language (XML) that the API reads, a bucket's answers, is parsed by the object storage library, which resolves no external entity. <!-- part: files -->
+- Why: a value that is decoded twice, or encoded anywhere but where it is written, is how injection and double encoding come about (D25, D26).
+- Check: `compiler` (a format string of Rust is a literal), plus `test` (the encodings that the behaviors above state, and the word that a task sends a server's shell), plus `review`.
+
 ## Supply chain
 
 ### SEC-15 Advisories block the build

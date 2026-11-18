@@ -95,6 +95,7 @@ What the API and its reference deployment protect, from whom, and which rules an
 | Threat | What stops it |
 |---|---|
 | SQL injection | Queries are checked at compile time, and the functions that take SQL text are banned (DATA-14) |
+| A value that changes the structure of what it is written into: a JSON document, an email, a URL, a header or a task's command | Each value is encoded where it is written, by that format's own writer, and the API starts no process (SEC-20) |
 | Malformed, unexpected or oversized input | Strict bodies and query parameters (API-08, API-09), domain types at the boundary (API-10), and body limits (PLATFORM-048, PLATFORM-050) |
 | An oversized upload | Its limit, which refuses it by its declared length before anything reads it (PLATFORM-074, FILES-004) <!-- part: files --> |
 | A batch of telemetry that inflates far beyond what was sent | The batch's limit, 1,048,576 bytes as sent and once inflated, of which the API inflates no more than one byte past it (PLATFORM-090, CLIENT_TELEMETRY-006) <!-- part: client_telemetry --> |

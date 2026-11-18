@@ -29,19 +29,19 @@ A requirement that applies only to an optional part (ARCH-07) has its row with t
 
 | Requirement | Level | What it asks | How it stands |
 |---|---|---|---|
-| 1.1.1 | 2 | Input decoded into its canonical form once, only where an encoding is expected, and before it is validated | Unstated: each input is decoded once, by the reader of its format, and nothing decodes a value again once its domain type has read it, which no rule or behavior states |
-| 1.1.2 | 2 | Encoding or escaping as the last step before the interpreter that reads the output, or by that interpreter | Unstated: a value is stored as its domain type normalizes it, never encoded, and is encoded only where it is written into an output, such as an email's header, the `otpauth://` link or a task's shell command, which no rule or behavior states |
+| 1.1.1 | 2 | Input decoded into its canonical form once, only where an encoding is expected, and before it is validated | Met: SEC-20, API-10 |
+| 1.1.2 | 2 | Encoding or escaping as the last step before the interpreter that reads the output, or by that interpreter | Met: SEC-20 |
 | 1.2.1 | 1 | Context-fitting encoding of values in HTTP responses, HTML and Extensible Markup Language (XML) documents | Met: PLATFORM-081, [Sending email](../spec/platform.md#sending-email); the one HTML page the API serves, development's reference, holds no value, and no response is XML |
-| 1.2.2 | 1 | URLs built with untrusted data encode it for its place in them, and allow only safe schemes | Unstated: the one address built with a user's value, an authenticator app's `otpauth://` link, percent-encodes the account's address and the issuer, which no rule or behavior states; SEC-10 and AUTH-081 state the schemes |
-| 1.2.3 | 1 | JSON and JavaScript built at run time are encoded, so a value can't change their structure | Unstated: serde_json writes every JSON that the API builds from values, a body, a stream's frame or an export's document among them, and the API builds no JavaScript, which no rule or behavior states |
+| 1.2.2 | 1 | URLs built with untrusted data encode it for its place in them, and allow only safe schemes | Met: SEC-20, SEC-10, AUTH-055, AUTH-081; the one address built with a user's value is an authenticator app's `otpauth://` link, and SEC-10 and AUTH-081 state the schemes |
+| 1.2.3 | 1 | JSON and JavaScript built at run time are encoded, so a value can't change their structure | Met: SEC-20; the API builds no JavaScript |
 | 1.2.4 | 1 | Database queries are parameterized, or otherwise kept from SQL and other database injection, stored procedures included | Met: DATA-07, DATA-14, PLATFORM-047; the identifiers and literals of `platform::db`'s role statements are quoted |
-| 1.2.5 | 1 | Calls to the operating system take their arguments apart, or encode each for the shell | Unstated: the API, whose image holds no shell (OPS-13), starts no process, and a task sends the server's shell an operator's value only as one quoted word, or as the version of a release, which no rule or behavior states |
+| 1.2.5 | 1 | Calls to the operating system take their arguments apart, or encode each for the shell | Met: SEC-20, OPS-13 |
 | 1.2.6 | 2 | Lightweight Directory Access Protocol (LDAP) queries are kept from injection | Not applicable: the API sends no LDAP query; users sign in with a password or through an OAuth provider (AUTH-004, AUTH-073) |
 | 1.2.7 | 2 | XPath queries are parameterized or precompiled, against XPath injection | Not applicable: nothing in the API evaluates an XPath expression |
 | 1.2.8 | 2 | LaTeX processors run without shell escape, under an allowlist of commands | Not applicable: the API runs no LaTeX processor |
 | 1.2.9 | 2 | Special characters of a pattern built from input are escaped, so they match only themselves | Met: PLATFORM-047, [Lists](../spec/platform.md#lists); the one pattern built from input is a search's `ILIKE`, and no regular expression is |
 | 1.3.1 | 1 | Untrusted HTML from rich-text editors is cleaned by a well-known sanitizer | Not applicable: no request takes HTML or rich text: each string of a JSON body is plain text, such as a name, an address or a code |
-| 1.3.2 | 1 | No `eval` or dynamic code execution; where it can't be avoided, user input in it is sanitized | Unstated: the API, its tasks and its scripts evaluate no code, and no expression that input builds, which no rule or behavior states |
+| 1.3.2 | 1 | No `eval` or dynamic code execution; where it can't be avoided, user input in it is sanitized | Met: SEC-20 |
 | 1.3.3 | 2 | Data headed for a dangerous context holds only characters safe there, and its length is bounded | Met: API-10, API-17, ACCOUNTS-002, ACCOUNTS-003, PLATFORM-047, PLATFORM-081 |
 | 1.3.3 | 2 | The same, of a file's name in an export's archive, and of a provider's picture's address | Met: FILES-002, ACCOUNTS-028, [What an export holds](../spec/accounts.md#what-an-export-holds); a name in an archive's path has each character that a file system refuses replaced <!-- part: files --> |
 | 1.3.3 | 2 | The same, of what a client's telemetry hands the collector's stores | Met: CLIENT_TELEMETRY-011, CLIENT_TELEMETRY-012, CLIENT_TELEMETRY-015; the collector keeps only the services, attributes and metrics that its configuration lists <!-- part: client_telemetry --> |
@@ -52,12 +52,12 @@ A requirement that applies only to an optional part (ARCH-07) has its row with t
 | 1.3.7 | 2 | Templates are never built from untrusted input; any input in one is sanitized or strictly validated | Met: [Sending email](../spec/platform.md#sending-email); every template is a file of the repository, which askama compiles into the binary |
 | 1.3.8 | 2 | Input to Java Naming and Directory Interface (JNDI) lookups is sanitized, and JNDI is configured securely | Not applicable: the API is Rust, runs no Java, and makes no JNDI lookup |
 | 1.3.9 | 2 | Content sent to memcache is sanitized against injection | Not applicable: the API uses no memcache or other cache server; Postgres is the only state its replicas share (OPS-08) |
-| 1.3.10 | 2 | Format strings that could resolve unexpectedly or maliciously are sanitized before use | Unstated: every format string of the code and of the scripts is a literal, with each value as an argument, which no rule or behavior states |
+| 1.3.10 | 2 | Format strings that could resolve unexpectedly or maliciously are sanitized before use | Met: SEC-20 |
 | 1.3.11 | 2 | Input that reaches the mail system is sanitized against header and command injection | Met: API-10, ACCOUNTS-002, ACCOUNTS-003, WORKSPACES-002, [Sending email](../spec/platform.md#sending-email); an email's subject is built in code, and a name in it holds no line break |
 | 1.4.1 | 2 | Memory-safe strings, copies and pointer use prevent stack, buffer and heap overflows | Met: CODE-04; the workspace is safe Rust, which checks every index and has no pointer arithmetic |
 | 1.4.2 | 2 | Sign, range and input checks prevent integer overflows | Met: API-10, OPS-01, CODE-03, PLATFORM-046 |
 | 1.4.3 | 2 | Allocated memory and resources are released, with no dangling pointer and no use after free | Met: CODE-04; safe Rust frees each value when its owner drops it, and refuses at compile time a reference that would outlive it |
-| 1.5.1 | 1 | XML parsers run restricted, with external entities off, against external entity attacks | Unstated: the one XML that the API reads, the files bucket's answers, goes through object_store's quick-xml, which resolves no external entity, which no rule or behavior states <!-- part: files --> |
+| 1.5.1 | 1 | XML parsers run restricted, with external entities off, against external entity attacks | Met: SEC-20 <!-- part: files --> |
 | 1.5.2 | 2 | Deserializing untrusted data is safe: the code fixes the types, and no client chooses one | Met: API-08, API-09, PLATFORM-049; serde parses each body into its route's own request type |
 
 ## V2 Validation and business logic

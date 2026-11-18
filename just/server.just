@@ -28,7 +28,7 @@ backup host:
 [doc("Restores a server's bundled database, as it stood at a moment")]
 [group('server')]
 restore host moment="" *options:
-    {{ xtask }} restore {{ host }} "{{ moment }}" {{ options }}
+    {{ xtask }} restore {{ host }} {{ quote(moment) }} {{ options }}
 
 # Sets up the server that SSH reaches at `host`, as root or a user that may run sudo without a
 # password, for the reference deployment of the release `version`, or of the latest release
