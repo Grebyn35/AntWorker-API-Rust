@@ -44,7 +44,7 @@ use platform::{
 use platform::{outbound::Untrusted, scanner::Scanner, signed_urls::SignedUrls, storage::Storage};
 // end part: files
 // part: client_telemetry
-use platform::{rate_limit::ReplicaBudget, telemetry::Relay};
+use platform::telemetry::Relay;
 // end part: client_telemetry
 use sqlx::migrate::Migrator;
 use utoipa::openapi::OpenApi;
@@ -260,23 +260,19 @@ async fn auth_service(
 // part: client_telemetry
 /// The state of `client_telemetry`, on `resources`: with the collector's receiver that `config`
 /// names, if it names one, its proxy, which forwards through a relay to that receiver, within
-/// the two budgets of `config`, the replica's counted here.
+/// the two budgets of `config`, the replica's counted for an ID drawn here.
 fn client_telemetry_state(
     resources: &Resources,
     config: &config::TelemetryProxy,
 ) -> Result<client_telemetry::ClientTelemetry, Internal> {
-    let clock = &resources.clock;
-    let budgets = config.budgets;
+    let replica = platform::random::bytes::<16>()?;
     let proxy = config
         .endpoint
         .as_ref()
-        .map(|endpoint| Relay::new(endpoint, clock.clone()))
+        .map(|endpoint| Relay::new(endpoint, resources.clock.clone()))
         .transpose()
         .map_err(Internal::new)?
-        .map(|relay| {
-            let replica = ReplicaBudget::new(budgets.replica_budget, clock.clone());
-            client_telemetry::Proxy::new(relay, budgets.user_budget, replica)
-        });
+        .map(|relay| client_telemetry::Proxy::new(relay, config.budgets, replica));
     Ok(client_telemetry::ClientTelemetry::new(
         resources.database.clone(),
         resources.workers.clone(),

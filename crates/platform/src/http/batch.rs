@@ -350,6 +350,55 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn platform_090_inflating_stops_at_the_first_byte_past_the_limit() {
+        // Gzip that ends before its trailer, so inflating all of it fails: only an inflation that
+        // stops before the member's end finds the body too large.
+        let whole = gzip(&[0; 4096]);
+        let cut = whole[..whole.len() - 8].to_vec();
+
+        let stopped = read(&[PROTOBUF, GZIP], cut.clone(), 1023).await;
+        let inflated_whole = read(&[PROTOBUF, GZIP], cut, 4096).await;
+
+        assert_eq!(
+            stopped.unwrap_err().code(),
+            "request.payload_too_large",
+            "it inflated past the limit's bytes and one, to the member's missing end"
+        );
+        assert_eq!(inflated_whole.unwrap_err().code(), "request.invalid_body");
+    }
+
+    #[tokio::test]
+    async fn platform_090_extracting_a_batch_reads_nothing_of_its_body() {
+        use std::{
+            sync::atomic::{AtomicBool, Ordering},
+            task::Poll,
+        };
+
+        let polled = Arc::new(AtomicBool::new(false));
+        // A body that records that it was asked for its bytes, and holds none.
+        let body = Body::from_stream(futures_util::stream::poll_fn({
+            let polled = polled.clone();
+            move |_| {
+                polled.store(true, Ordering::SeqCst);
+                Poll::Ready(None::<Result<Bytes, std::io::Error>>)
+            }
+        }));
+        let request = Request::builder()
+            .header(PROTOBUF.0, PROTOBUF.1)
+            .extension(BatchTurns::new())
+            .body(body)
+            .unwrap();
+
+        let batch = Batch::from_request(request, &()).await.unwrap();
+        let read_by_extraction = polled.load(Ordering::SeqCst);
+        let read = batch.read(10, &Workers::new()).await.unwrap();
+
+        assert!(!read_by_extraction);
+        assert!(polled.load(Ordering::SeqCst), "`read` reads the body");
+        assert!(read.bytes.is_empty());
+    }
+
+    #[tokio::test]
     async fn platform_090_gzip_that_does_not_inflate_is_an_invalid_body() {
         let whole = gzip(b"a batch of spans");
         let cut = whole[..whole.len() - 4].to_vec();

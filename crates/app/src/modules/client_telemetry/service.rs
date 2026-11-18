@@ -7,7 +7,7 @@ use platform::{
     blocking::Workers,
     db::Database,
     errors::RequestError,
-    rate_limit::{Bucket, RateLimits, ReplicaBudget},
+    rate_limit::RateLimits,
     telemetry::{Relay, RelayError},
     types::{Client, Version},
 };
@@ -16,7 +16,7 @@ use super::{
     audit::{self, TelemetryConsentChoice},
     error::ClientTelemetryError,
     events::{TELEMETRY_CONSENT_UPDATED, TelemetryConsentUpdated},
-    model::{Current, Sent, TelemetryConsent},
+    model::{Current, Sent, Settings, TelemetryConsent},
     repo,
 };
 use crate::modules::audit::{self as log, Entry};
@@ -32,23 +32,26 @@ pub(crate) struct ClientTelemetry {
     proxy: Option<Proxy>,
 }
 
-/// What the proxy forwards a batch with: the relay to the collector, and the two budgets that
-/// count the batch's bytes first.
+/// What the proxy forwards a batch with: the relay to the collector, the two budgets that count
+/// the batch's bytes first, and what the replica's budget counts for.
 #[derive(Clone)]
 pub(crate) struct Proxy {
     relay: Relay,
-    user_budget: Bucket,
-    replica_budget: ReplicaBudget,
+    budgets: Settings,
+    /// The ID that this replica drew as it started, which its budget counts for
+    /// (CLIENT_TELEMETRY-008).
+    replica: [u8; 16],
 }
 
 impl Proxy {
-    /// The proxy that forwards through `relay`, once the budget of `user_budget`'s kind for the
-    /// batch's caller, and then `replica_budget`, have counted a batch's bytes.
-    pub(crate) fn new(relay: Relay, user_budget: Bucket, replica_budget: ReplicaBudget) -> Self {
+    /// The proxy that forwards through `relay`, once `budgets` have counted a batch's bytes: the
+    /// user's for the batch's caller, and then the replica's for `replica`, an ID that this
+    /// replica alone holds.
+    pub(crate) fn new(relay: Relay, budgets: Settings, replica: [u8; 16]) -> Self {
         Self {
             relay,
-            user_budget,
-            replica_budget,
+            budgets,
+            replica,
         }
     }
 }
@@ -142,9 +145,11 @@ pub(super) async fn forward(
     let bytes = u32::try_from(batch.bytes.len()).unwrap_or(u32::MAX);
     let user = principal.user_id();
     limits
-        .spend(proxy.user_budget, user.uuid().as_bytes(), bytes)
+        .spend(proxy.budgets.user_budget, user.uuid().as_bytes(), bytes)
         .await?;
-    limits.spend_on_replica(&proxy.replica_budget, bytes)?;
+    limits
+        .spend(proxy.budgets.replica_budget, &proxy.replica, bytes)
+        .await?;
     proxy
         .relay
         .forward(batch.signal, batch.media_type, batch.bytes)

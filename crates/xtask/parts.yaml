@@ -216,7 +216,6 @@ parts:
       - users' clients
       - clients.yaml
       - content-bytes
-      - replicabudget
       - user_batch
   # end part: client_telemetry
 

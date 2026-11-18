@@ -1,8 +1,8 @@
 //! Rate limits: buckets that count requests in windows, in the database that every replica shares
 //! (PLATFORM-011, PLATFORM-054 to PLATFORM-057).
 // part: client_telemetry
-//! Budgets, in `bytes`, count the bytes of requests instead: a subject's in that database too,
-//! and a replica's in its own memory (PLATFORM-089).
+//! A budget, in `bytes`, is a bucket whose limit is in bytes, and counts a request's bytes
+//! (PLATFORM-089).
 // end part: client_telemetry
 
 // part: client_telemetry
@@ -14,10 +14,6 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
-
-// part: client_telemetry
-pub use bytes::ReplicaBudget;
-// end part: client_telemetry
 
 use crate::{
     db::Database,
@@ -47,7 +43,7 @@ pub fn address(ip: IpAddr) -> Vec<u8> {
 /// A kind of bucket: its name, which the rate-limit headers carry, and how many requests it
 /// allows in each window.
 // part: client_telemetry
-/// A budget's name, limit and window are held so too, with the limit in bytes (PLATFORM-089).
+/// A budget is one whose limit is how many bytes it allows (PLATFORM-089).
 // end part: client_telemetry
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Bucket {
@@ -64,7 +60,7 @@ pub struct Bucket {
 
 /// A bucket's state after it counted a request.
 // part: client_telemetry
-/// Or a budget's, after it counted a request's bytes (PLATFORM-089).
+/// A budget counted the request's bytes (PLATFORM-089).
 // end part: client_telemetry
 #[derive(Clone, Copy, Debug)]
 pub struct Count {
@@ -78,7 +74,7 @@ pub struct Count {
     /// How long until its window ends.
     pub resets_in: Duration,
     // part: client_telemetry
-    /// Whether this is the state of a budget, which counts bytes, rather than of a bucket
+    /// Whether the bucket is a budget, which counts bytes where another bucket counts requests
     /// (PLATFORM-089).
     pub bytes: bool,
     // end part: client_telemetry
@@ -136,7 +132,7 @@ impl RateLimiter {
 /// The buckets that counted one request, which the pipeline describes in the response's headers
 /// (PLATFORM-056).
 // part: client_telemetry
-/// A budget that refused the request is among them (PLATFORM-089).
+/// Of the budgets, only one that refused the request is among them (PLATFORM-089).
 // end part: client_telemetry
 #[derive(Clone, Debug, Default)]
 pub struct Counted(Arc<Mutex<Vec<Count>>>);

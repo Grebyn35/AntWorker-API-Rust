@@ -168,18 +168,20 @@ async fn client_telemetry_011_a_client_s_spans_and_log_records_reach_tempo_and_l
         &json!({}),
     )
     .await;
-    let stored = fetch_once_it_holds(
-        &format!("http://tempo:3200/api/traces/{trace}"),
-        support::service_name(),
-    );
+    // The client's span and the API's reach Tempo through pipelines of their own, so the test
+    // waits for each: the trace that holds the API's span then still holds the client's.
+    let stored_trace = format!("http://tempo:3200/api/traces/{trace}");
+    let clients = fetch_once_it_holds(&stored_trace, "installation-42");
+    let stored = fetch_once_it_holds(&stored_trace, support::service_name());
     let lines = fetch_once_it_holds(&lines_of(&trace, CLIENT), "the settings opened");
 
     assert_eq!(sent_spans, (200, "{}".to_owned()));
     assert_eq!(sent_records, (200, "{}".to_owned()));
     assert_eq!(failed.0, 404, "{}", failed.1);
     assert!(
-        stored.status.success() && lines.status.success(),
-        "{}\n{}\n{}",
+        clients.status.success() && stored.status.success() && lines.status.success(),
+        "{}\n{}\n{}\n{}",
+        lossy(&clients),
         lossy(&stored),
         lossy(&lines),
         why_nothing_arrived(&server)

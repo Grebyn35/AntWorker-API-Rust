@@ -8,7 +8,7 @@ use flate2::{Compression, write::GzEncoder};
 use http::Method;
 use serde_json::json;
 
-use super::choose;
+use super::{choose, read};
 use crate::support::{
     Api, Options,
     api::{Response, refusal},
@@ -82,21 +82,6 @@ fn gzip(bytes: &[u8]) -> Vec<u8> {
     let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
     encoder.write_all(bytes).unwrap();
     encoder.finish().unwrap()
-}
-
-/// The answer of `call`, a request that waits on `clock` for 5 seconds: the clock moves by as
-/// many each time such a wait is on it, the relay's or another's, such as the hub's check of its
-/// listener, until the request has answered.
-async fn answer_while_the_clock_moves(
-    clock: &platform::clock::TestClock,
-    mut call: tokio::task::JoinHandle<Response>,
-) -> Response {
-    loop {
-        tokio::select! {
-            response = &mut call => return response.unwrap(),
-            () = clock.sleeping(Duration::from_secs(5)) => clock.advance(Duration::from_secs(5)),
-        }
-    }
 }
 
 /// Asserts that `response` is the 429 of the budget `name`, whose window allows `limit` bytes.
@@ -364,7 +349,7 @@ async fn client_telemetry_007_a_gzip_batch_counts_its_inflated_bytes() {
 }
 
 #[tokio::test]
-async fn client_telemetry_008_a_replica_s_budget_counts_every_user_s_batches_in_its_own_memory() {
+async fn client_telemetry_008_a_replica_s_budget_counts_every_user_s_batches_that_it_serves() {
     let collector = collector().await;
     let whole = u32::try_from(MEBIBYTE).unwrap();
     let options = || forwarding(&collector, whole, whole);
@@ -376,21 +361,18 @@ async fn client_telemetry_008_a_replica_s_budget_counts_every_user_s_batches_in_
     let first = send_bytes(&api, &ada, 600 * 1024).await;
     let beyond = send_bytes(&api, &grace, 600 * 1024).await;
     let afterwards = send_bytes(&api, &ada, 1).await;
-    // The other replica's window is its own, and holds the batch; the user's budget, which every
+    // The other replica's budget is its own, and holds a batch; the user's budget, which every
     // replica shares, counted the batch that this replica's refused.
     let elsewhere = send_bytes(&replica, &grace, 600 * 1024).await;
-    let in_its_window = send_bytes(&replica, &ada, 100 * 1024).await;
-    api.clock().advance(Duration::from_secs(60));
-    let next_window = send_bytes(&api, &ada, 1).await;
+    let in_its_own = send_bytes(&replica, &ada, 100 * 1024).await;
 
     assert_eq!(first.status, 200);
     assert_refused_by(&beyond, "telemetry_replica", whole);
     // The refused batch stays counted, so the window refuses the replica's later batches.
     assert_refused_by(&afterwards, "telemetry_replica", whole);
     assert_refused_by(&elsewhere, "telemetry_user", whole);
-    assert_eq!(in_its_window.status, 200);
-    assert_eq!(next_window.status, 200);
-    assert_eq!(collector.received().len(), 3);
+    assert_eq!(in_its_own.status, 200);
+    assert_eq!(collector.received().len(), 2);
 }
 
 #[tokio::test]
@@ -434,7 +416,7 @@ async fn client_telemetry_009_a_collector_that_doesn_t_take_a_batch_answers_503(
 }
 
 #[tokio::test]
-async fn client_telemetry_009_a_collector_that_doesn_t_answer_answers_503_after_5_seconds() {
+async fn client_telemetry_009_a_collector_that_doesn_t_answer_within_5_seconds_answers_503() {
     let (collector, api) = standing().await;
     let ada = consenting(&api, "ada@example.com").await;
     collector.hang("POST", "/v1/traces");
@@ -451,7 +433,15 @@ async fn client_telemetry_009_a_collector_that_doesn_t_answer_answers_503_after_
         })
     };
 
-    let response = answer_while_the_clock_moves(&clock, call).await;
+    // The relay's deadline waits once its request is sent, so the clock moves only then, once,
+    // by the 5 seconds.
+    while collector.received().is_empty() {
+        tokio::task::yield_now().await;
+    }
+    clock.sleeping(Duration::from_secs(5)).await;
+    clock.advance(Duration::from_secs(5));
+
+    let response = call.await.unwrap();
     assert_eq!(response.status, 503);
     assert_eq!(
         response.json()["code"],
@@ -508,6 +498,10 @@ async fn client_telemetry_010_without_the_setting_the_routes_answer_503_and_the_
     }
     let capabilities = api.get("/v1/capabilities").send().await.json();
     assert_eq!(capabilities["features"]["client_telemetry"], false);
+    // The consent's routes serve all the same: the user chose above, and reads the choice.
+    let (status, consent, _) = read(&api, &ada).await;
+    assert_eq!((status, &consent["consented"]), (200, &json!(true)));
+    assert_eq!(choose(&api, &ada, false, None).await.status, 200);
 }
 
 #[test]
@@ -535,10 +529,38 @@ fn client_telemetry_010_serve_refuses_an_endpoint_that_isn_t_an_http_or_https_ur
 #[tokio::test]
 async fn client_telemetry_010_with_the_setting_the_feature_is_on() {
     let (_collector, api) = standing().await;
+    let ada = consenting(&api, "ada@example.com").await;
 
     let capabilities = api.get("/v1/capabilities").send().await.json();
+    let (status, consent, _) = read(&api, &ada).await;
 
     assert_eq!(capabilities["features"]["client_telemetry"], true);
+    assert_eq!((status, &consent["consented"]), (200, &json!(true)));
+}
+
+#[tokio::test]
+async fn platform_089_a_budget_refuses_the_bytes_past_its_limit_and_keeps_them_counted() {
+    let collector = collector().await;
+    let whole = u32::try_from(MEBIBYTE).unwrap();
+    let api = Api::with(forwarding(&collector, whole, UNBOUNDED)).await;
+    let ada = consenting(&api, "ada@example.com").await;
+    let grace = consenting(&api, "grace@example.com").await;
+
+    let first = send_bytes(&api, &ada, 600 * 1024).await;
+    let beyond = send_bytes(&api, &ada, 600 * 1024).await;
+    // One byte, which the window would hold, had it not counted the batch that it refused.
+    let afterwards = send_bytes(&api, &ada, 1).await;
+    let whole_window = send_bytes(&api, &grace, MEBIBYTE).await;
+    let one_more = send_bytes(&api, &grace, 1).await;
+
+    assert_eq!(first.status, 200);
+    assert_refused_by(&beyond, "telemetry_user", whole);
+    assert_refused_by(&afterwards, "telemetry_user", whole);
+    assert_eq!(
+        whole_window.status, 200,
+        "the budget's last byte is within it"
+    );
+    assert_refused_by(&one_more, "telemetry_user", whole);
 }
 
 #[tokio::test]
@@ -550,7 +572,7 @@ async fn platform_089_a_budget_s_window_starts_again_once_it_has_ended() {
     assert_eq!(send_bytes(&api, &ada, MEBIBYTE).await.status, 200);
     let beyond = send_bytes(&api, &ada, 1).await;
 
-    // The window that counted the user's bytes ended: every bucket's did, an hour ago.
+    // The windows that counted the batch's bytes ended: every bucket's did, an hour ago.
     api.database()
         .owner_executes(
             "UPDATE rate_limit_buckets SET window_started_at = now() - interval '1 hour'",
@@ -568,8 +590,8 @@ async fn platform_089_a_budget_s_window_starts_again_once_it_has_ended() {
         .await;
     assert_eq!(
         counts.len(),
-        1,
-        "the new window counts the batch's bytes alone"
+        2,
+        "the new window of the user's budget, and of the replica's, counts the batch's bytes alone"
     );
 }
 
@@ -595,7 +617,7 @@ async fn platform_089_a_budget_s_key_holds_no_user_id() {
     let ada = consenting(&api, "ada@example.com").await;
     assert_eq!(send_bytes(&api, &ada, 4321).await.status, 200);
 
-    // The one row whose window counted the batch's bytes is the user's budget.
+    // The two rows whose windows counted the batch's bytes: the user's budget, and the replica's.
     let keys = api
         .database()
         .owner_reads(
@@ -604,9 +626,11 @@ async fn platform_089_a_budget_s_key_holds_no_user_id() {
         )
         .await;
 
-    assert_eq!(keys.len(), 1);
-    assert!(keys[0].starts_with("32 "), "{}", keys[0]);
-    assert!(!keys[0].contains(&ada.user_id), "{}", keys[0]);
+    assert_eq!(keys.len(), 2);
+    for key in &keys {
+        assert!(key.starts_with("32 "), "{key}");
+        assert!(!key.contains(&ada.user_id), "{key}");
+    }
 }
 
 #[tokio::test]
