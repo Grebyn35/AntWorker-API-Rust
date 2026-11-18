@@ -61,7 +61,14 @@ async fn obs_02_a_json_line_carries_the_service_and_its_trace_context() {
         assert_eq!(line["service.name"], name, "{line}");
         assert_eq!(line["service.version"], env!("CARGO_PKG_VERSION"), "{line}");
         assert_eq!(line["deployment.environment.name"], "production", "{line}");
-        assert!(line["timestamp"].is_string(), "{line}");
+        // The line's time, in UTC, as RFC 3339 writes it.
+        let time = line["timestamp"].as_str().unwrap();
+        assert!(time.ends_with('Z'), "{line}");
+        assert!(
+            time::OffsetDateTime::parse(time, &time::format_description::well_known::Rfc3339)
+                .is_ok(),
+            "{line}"
+        );
     }
     assert!(
         server.listening().get("trace_id").is_none(),

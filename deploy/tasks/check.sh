@@ -70,9 +70,26 @@ check() {
     fi
     # end part: files
     if [ "$settled" = yes ] && [ "$telemetry" = managed ] && [ "$docker_answers" = yes ]; then check_backend; fi
+    check_clock
     noted "whether the disk is encrypted can't be seen from the server; confirm it with the provider (docs/operations/deploy.md#what-a-server-needs)"
     if [ "$findings" -gt 0 ]; then fail "$findings of the checks on the server failed"; fi
     say "every check on the server passed"
+}
+
+# Fails the check unless the server's clock is synchronized, as systemd reports it of the kernel,
+# whatever keeps it so, such as systemd-timesyncd or chrony: the clock stamps each log line, each
+# metric, and, with the bundled database, each stored time. A server without systemd's timedatectl
+# is one the check can't read.
+check_clock() {
+    if ! command -v timedatectl > /dev/null 2>&1; then
+        noted "whether the clock is synchronized can't be seen without systemd's timedatectl; keep it synchronized (docs/operations/deploy.md#what-a-server-needs)"
+        return
+    fi
+    if [ "$(timedatectl show --property=NTPSynchronized --value 2> /dev/null)" = yes ]; then
+        passed "the clock is synchronized"
+    else
+        failed "the clock isn't synchronized: nothing keeps the server's time, so start a service that does, such as systemd-timesyncd or chrony"
+    fi
 }
 
 # Verifies the release $1, as a deploy does first, and sets $api_image and $postgres_image to its

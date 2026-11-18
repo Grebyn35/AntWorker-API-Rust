@@ -222,6 +222,8 @@ fn assert_checked(output: &std::process::Output, holds: &str) {
         // part: files
         "check: ok    the files bucket, files, keeps no versions",
         // end part: files
+        // The tests' server has no systemd.
+        "check: note  whether the clock is synchronized",
         "check: note  whether the disk is encrypted",
         "deploy: every check on the server passed",
     ] {
@@ -304,6 +306,53 @@ async fn ops_19_the_check_finds_what_a_deploy_would_refuse_of_the_buckets_and_th
         &missing_setting,
         false,
         &["check: FAIL  API_ADDRESS is required"],
+    );
+}
+
+#[tokio::test]
+async fn ops_19_the_check_fails_while_the_server_s_clock_isn_t_synchronized() {
+    let (server, settings) = new_server();
+    let api = Pushed::api().in_network();
+    let postgres = Pushed::postgres().in_network();
+    let set_up = server.shell("sh /root/setup/set-up.sh secrets");
+    assert_set_up(
+        &server,
+        &set_up,
+        &settings,
+        &["backup_cipher_pass", "postgres_password"],
+    );
+    // A stand-in for systemd's timedatectl, which the tests' server lacks, that answers the one
+    // question the check asks as systemd does of the kernel's clock, and no other.
+    let answers = |synchronized: &str| {
+        server.write(
+            "/usr/local/bin/timedatectl",
+            &format!(
+                "#!/bin/sh\n[ \"$*\" = 'show --property=NTPSynchronized --value' ] || exit 2\n\
+                 echo {synchronized}\n"
+            ),
+        );
+        server.shell_ok("chmod +x /usr/local/bin/timedatectl");
+        as_deploy(
+            &server,
+            &format!("sh {RELEASE}/deploy.sh check-images {api} {postgres}"),
+        )
+    };
+
+    let unsynchronized = answers("no");
+    let synchronized = answers("yes");
+
+    assert_found(
+        &unsynchronized,
+        false,
+        &[
+            "check: FAIL  the clock isn't synchronized",
+            "1 of the checks on the server failed",
+        ],
+    );
+    assert_found(
+        &synchronized,
+        true,
+        &["check: ok    the clock is synchronized"],
     );
 }
 
