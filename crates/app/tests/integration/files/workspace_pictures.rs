@@ -27,7 +27,7 @@ async fn owned(api: &Api) -> (SignedIn, String) {
 }
 
 /// Sets `bytes` as the picture of `workspace`, as `user`.
-async fn set(api: &Api, user: &SignedIn, workspace: &str, bytes: &[u8]) -> Response {
+pub(super) async fn set(api: &Api, user: &SignedIn, workspace: &str, bytes: &[u8]) -> Response {
     api.request(
         http::Method::PUT,
         &format!("/v1/workspaces/{workspace}/picture"),

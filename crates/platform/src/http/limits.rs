@@ -97,14 +97,12 @@ fn describe(response: &mut Response, counted: &Counted) {
 
 fn policy(count: &Count) -> String {
     let quota = format!("\"{}\";q={}", count.bucket.name, count.bucket.limit);
-    // part: client_telemetry
     // A budget's quota is in bytes, which the draft's quota unit says (PLATFORM-089).
     let quota = if count.bytes {
         format!("{quota};qu=\"content-bytes\"")
     } else {
         quota
     };
-    // end part: client_telemetry
     format!("{quota};w={}", count.bucket.window.as_secs())
 }
 

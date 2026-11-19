@@ -9,9 +9,7 @@
     reason = "this module owns the pool, its connections and its transactions (DATA-15)"
 )]
 
-// part: client_telemetry
 mod budgets;
-// end part: client_telemetry
 mod listener;
 mod migrations;
 mod queue;

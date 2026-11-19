@@ -1,11 +1,14 @@
 //! Routes that only the tests serve, registered the way a module registers its own, for the
 //! behaviors of the pipeline that no route of the API shows, or that only an optional part's
 //! routes show: a request that waits, one that never ends, a panic, an internal error, a keyed
-//! operation that publishes an event, and an email sent (TEST-04).
+//! operation that publishes an event, bytes counted in a budget, and an email sent (TEST-04).
 
-use std::sync::{
-    Arc,
-    atomic::{AtomicU64, Ordering},
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::Duration,
 };
 
 use axum::{Extension, Json, extract::State, http::StatusCode};
@@ -17,6 +20,7 @@ use platform::{
     http::{Idempotent, Json as Body, Routes},
     idempotency::Claimed,
     mail::{Email, Mail},
+    rate_limit::{Bucket, LimitError, RateLimits},
     types::{Client, EmailAddress, WorkspaceId},
 };
 use serde::{Deserialize, Serialize};
@@ -124,6 +128,41 @@ async fn keyed(
     Ok(Json(keyed))
 }
 
+/// The budget of `POST /v1/spend`: 1,000 bytes for each user, in each window of a minute.
+pub const SPENDING: Bucket = Bucket {
+    name: "spending",
+    limit: 1_000,
+    window: Duration::from_secs(60),
+};
+
+/// What `POST /v1/spend` takes.
+#[derive(Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+struct Spent {
+    /// How many bytes the request counts.
+    bytes: u32,
+}
+
+/// Counts `bytes` in its caller's budget of the tests' own, as a module's route counts the bytes
+/// of a request (PLATFORM-089).
+#[utoipa::path(
+    post,
+    path = "/v1/spend",
+    request_body = Spent,
+    responses((status = 204, description = "The budget took the bytes.")),
+)]
+async fn spend(
+    principal: Principal,
+    limits: RateLimits,
+    Body(spent): Body<Spent>,
+) -> Result<StatusCode, Problem<LimitError>> {
+    let user = principal.user_id();
+    limits
+        .spend(SPENDING, user.uuid().as_bytes(), spent.bytes)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 /// What `POST /v1/mail` takes.
 #[derive(Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
@@ -219,6 +258,7 @@ pub fn routes(held: Arc<Gate>) -> Routes {
         .public(routes!(panics), &[])
         .merge(Routes::new().public(routes!(broken), &[]))
         .merge(Routes::new().public(routes!(gate), &[]).with_state(held));
+    let routes = routes.merge(Routes::new().user(routes!(spend), &[]));
     routes.merge(
         Routes::new()
             .events(&[&KEYED_RAN])

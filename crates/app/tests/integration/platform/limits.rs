@@ -1,6 +1,18 @@
-//! The client IP and the rate limits (PLATFORM-011, PLATFORM-053 to PLATFORM-057).
+//! The client IP and the rate limits (PLATFORM-011, PLATFORM-053 to PLATFORM-057), and the
+//! budgets, through a route of the tests' own that counts the bytes its request names in its
+//! caller's budget (PLATFORM-089).
 
-use crate::support::{Api, Options, users};
+use std::sync::Arc;
+
+use serde_json::json;
+
+use crate::support::{
+    Api, Options,
+    api::Response,
+    budgets::assert_refused_by,
+    fixtures::{self, SPENDING},
+    users::{self, SignedIn},
+};
 
 /// The API with an IP limit of `ip` and a user limit of `user` requests a window.
 async fn limited(ip: u32, user: u32) -> Api {
@@ -265,4 +277,106 @@ async fn platform_057_no_bucket_holds_an_ip_address_an_email_or_a_user_id() {
         assert!(!key.contains("198.51.100.20") && !key.contains("ada@example.com"));
         assert!(!key.contains(&ada.user_id));
     }
+}
+
+/// The API with the route that counts in the tests' budget.
+async fn spending() -> Api {
+    Api::with(Options::routes(fixtures::routes(Arc::default()))).await
+}
+
+/// Counts `bytes` in `user`'s budget of the tests' own.
+async fn spend(api: &Api, user: &SignedIn, bytes: u32) -> Response {
+    api.post("/v1/spend", &json!({ "bytes": bytes }))
+        .bearer(&user.access)
+        .send()
+        .await
+}
+
+/// Asserts that `response` is the 429 of the tests' budget.
+fn assert_refused(response: &Response) {
+    let window = SPENDING.window.as_secs();
+    assert_refused_by(response, SPENDING.name, SPENDING.limit, window);
+}
+
+#[tokio::test]
+async fn platform_089_a_budget_refuses_the_bytes_past_its_limit_and_keeps_them_counted() {
+    let api = spending().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+
+    let first = spend(&api, &ada, 600).await;
+    let beyond = spend(&api, &ada, 600).await;
+    // One byte, which the window would hold, had it not counted the bytes that it refused.
+    let afterwards = spend(&api, &ada, 1).await;
+    let whole_window = spend(&api, &grace, SPENDING.limit).await;
+    let one_more = spend(&api, &grace, 1).await;
+
+    assert_eq!(first.status, 204);
+    assert_refused(&beyond);
+    assert_refused(&afterwards);
+    assert_eq!(
+        whole_window.status, 204,
+        "the budget's last byte is within it"
+    );
+    assert_refused(&one_more);
+}
+
+#[tokio::test]
+async fn platform_089_a_budget_s_window_starts_again_once_it_has_ended() {
+    let api = spending().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    assert_eq!(spend(&api, &ada, SPENDING.limit).await.status, 204);
+    let beyond = spend(&api, &ada, 1).await;
+
+    // The window that counted the bytes ended: every bucket's did, an hour ago.
+    api.database()
+        .owner_executes(
+            "UPDATE rate_limit_buckets SET window_started_at = now() - interval '1 hour'",
+        )
+        .await;
+    let next_window = spend(&api, &ada, 999).await;
+
+    assert_refused(&beyond);
+    assert_eq!(next_window.status, 204);
+    let counts = api
+        .database()
+        .owner_reads("SELECT count::text FROM rate_limit_buckets WHERE count >= 999")
+        .await;
+    assert_eq!(counts, ["999"], "the new window counts its own bytes alone");
+}
+
+#[tokio::test]
+async fn platform_089_a_response_that_no_budget_refused_describes_a_bucket_of_requests() {
+    let api = spending().await;
+    let ada = users::register(&api, "ada@example.com").await;
+
+    let taken = spend(&api, &ada, 8).await;
+
+    assert_eq!(taken.status, 204);
+    let policy = taken.header("ratelimit-policy");
+    assert!(
+        policy.starts_with("\"ip\";q=") || policy.starts_with("\"user\";q="),
+        "{policy}"
+    );
+    assert!(!policy.contains("qu="), "{policy}");
+}
+
+#[tokio::test]
+async fn platform_089_a_budget_s_key_holds_no_user_id() {
+    let api = spending().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    assert_eq!(spend(&api, &ada, 432).await.status, 204);
+
+    // The row whose window counted the bytes.
+    let keys = api
+        .database()
+        .owner_reads(
+            "SELECT length(key_hash)::text || ' ' || encode(key_hash, 'escape') \
+             FROM rate_limit_buckets WHERE count = 432",
+        )
+        .await;
+
+    assert_eq!(keys.len(), 1);
+    assert!(keys[0].starts_with("32 "), "{}", keys[0]);
+    assert!(!keys[0].contains(&ada.user_id), "{}", keys[0]);
 }

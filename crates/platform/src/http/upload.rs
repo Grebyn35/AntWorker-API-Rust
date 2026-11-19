@@ -1,9 +1,11 @@
 //! The body of an upload route: a file's bytes, read in one of the replica's turns, of which a
-//! user holds one at most, with the request's idempotency key (PLATFORM-074).
+//! user holds one at most, with the request's idempotency key (PLATFORM-074), and counted in the
+//! user's budget of uploads (PLATFORM-093).
 
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex, PoisonError},
+    time::Duration,
 };
 
 use axum::{
@@ -23,6 +25,7 @@ use crate::{
     blocking::Workers,
     errors::{BodyFault, Internal, PlatformError, Problem, RequestError},
     idempotency::IdempotencyKey,
+    rate_limit::{Bucket, Counted, LimitError, RateLimiter, RateLimits},
     types::UserId,
 };
 
@@ -32,14 +35,21 @@ const OCTET_STREAM: &str = "application/octet-stream";
 /// How many uploads' bodies a replica holds in memory at once (PLATFORM-074).
 const UPLOADS_AT_ONCE: usize = 4;
 
+/// The budget of the bytes of each user's uploads, and its window, a day (PLATFORM-093).
+const UPLOADS_BUDGET: &str = "uploads";
+const UPLOADS_WINDOW: Duration = Duration::from_secs(86_400);
+
 /// The turns of the uploads a replica reads at once, which the stack shares with every request,
-/// and each user's own turn at them, so that no user holds more than one (PLATFORM-074).
+/// and each user's own turn at them, so that no user holds more than one (PLATFORM-074), with
+/// the budget that each user's uploads count their bytes in (PLATFORM-093).
 #[derive(Clone, Debug)]
 pub(super) struct UploadTurns {
     /// The replica's turns.
     all: Arc<Semaphore>,
     /// The own turn of each user whose upload holds a turn or waits for one.
     users: Arc<Mutex<HashMap<UserId, Arc<Semaphore>>>>,
+    /// The budget of one user's uploads.
+    budget: Bucket,
 }
 
 /// A turn at reading an upload's body: its user's own, and one of the replica's, which both go
@@ -51,11 +61,16 @@ struct Turn {
 }
 
 impl UploadTurns {
-    /// Every turn free.
-    pub(super) fn new() -> Self {
+    /// Every turn free, and a budget of `bytes` a day for each user's uploads.
+    pub(super) fn new(bytes: u32) -> Self {
         Self {
             all: Arc::new(Semaphore::new(UPLOADS_AT_ONCE)),
             users: Arc::default(),
+            budget: Bucket {
+                name: UPLOADS_BUDGET,
+                limit: bytes,
+                window: UPLOADS_WINDOW,
+            },
         }
     }
 
@@ -107,6 +122,9 @@ pub struct Upload {
     /// upload's fingerprint (API-12).
     disposition: Option<HeaderValue>,
     turns: UploadTurns,
+    /// The request's rate limits, with which [`Upload::read`] counts the body's bytes: every
+    /// request that the pipeline's IP limit counted has them (PLATFORM-054).
+    limits: Option<RateLimits>,
 }
 
 impl<S: Send + Sync> FromRequest<S> for Upload {
@@ -142,7 +160,12 @@ impl<S: Send + Sync> FromRequest<S> for Upload {
                 .ok()
                 .and_then(|length| length.parse::<usize>().ok())
         });
+        let limiter = request.extensions().get::<RateLimiter>().cloned();
+        let counted = request.extensions().get::<Counted>().cloned();
         Ok(Self {
+            limits: limiter
+                .zip(counted)
+                .map(|(limiter, counted)| RateLimits::new(limiter, counted)),
             declared,
             disposition: request.headers().get(header::CONTENT_DISPOSITION).cloned(),
             method: request.method().as_str().to_owned(),
@@ -181,49 +204,66 @@ impl Upload {
     /// Waits for the turn of `caller`, the user who uploads, and for one of the replica's, then
     /// reads the body, up to `limit` bytes: 413 `request.payload_too_large` for a body that
     /// declares more or grows past it (PLATFORM-048, PLATFORM-050), and 400
-    /// `request.invalid_body` for one that stops before its end. A keyed upload's digest of the
-    /// bytes, for its key's fingerprint, is CPU-heavy work, which runs through `workers`
-    /// (CODE-05).
+    /// `request.invalid_body` for one that stops before its end. It then counts the bytes it
+    /// read in the caller's budget of uploads, among the request's rate limits: 429
+    /// `request.rate_limited` once they take the budget's window beyond its limit
+    /// (PLATFORM-093). A keyed upload's digest of the bytes, for its key's fingerprint, is
+    /// CPU-heavy work, which runs through `workers` (CODE-05).
     pub async fn read(
-        self,
+        mut self,
         caller: UserId,
         limit: usize,
         workers: &Workers,
     ) -> Result<Uploaded, PlatformError> {
+        let Some(limits) = self.limits.take() else {
+            return Err(Internal::new("the upload's request passed no rate limit").into());
+        };
+        let mut uploaded = self.held(caller, limit).await?;
+        let spent = u32::try_from(uploaded.bytes.len()).unwrap_or(u32::MAX);
+        let budget = self.turns.budget;
+        match limits.spend(budget, caller.uuid().as_bytes(), spent).await {
+            Ok(()) => {}
+            Err(LimitError::RateLimited) => return Err(RequestError::RateLimited.into()),
+            Err(LimitError::Internal(error)) => return Err(error.into()),
+        }
+        if let Some(value) = &self.key {
+            let digested = uploaded.bytes.clone();
+            let digest: [u8; 32] = workers
+                .run("upload digest", move || Sha256::digest(&digested).into())
+                .await
+                .map_err(Internal::new)?;
+            let named = self
+                .disposition
+                .as_ref()
+                .map_or(&b""[..], HeaderValue::as_bytes);
+            let key = IdempotencyKey::parse(
+                value.as_bytes(),
+                &self.method,
+                &self.path,
+                &self.query,
+                named,
+                &digest,
+            )
+            .ok_or(RequestError::InvalidIdempotencyKey)?;
+            uploaded.key = Some(key);
+        }
+        Ok(uploaded)
+    }
+
+    /// Waits for `caller`'s turn, and for one of the replica's, then reads the body, up to
+    /// `limit` bytes, into the bytes that hold the turn, with no key yet (PLATFORM-074).
+    async fn held(&mut self, caller: UserId, limit: usize) -> Result<Uploaded, PlatformError> {
         self.refuse_declared(limit)?;
         let turn = self.turns.take(caller).await?;
-        let bytes = match Limited::new(self.body, limit).collect().await {
+        let body = std::mem::take(&mut self.body);
+        let bytes = match Limited::new(body, limit).collect().await {
             Ok(collected) => collected.to_bytes(),
             Err(error) if is_too_large(&*error) => return Err(RequestError::PayloadTooLarge.into()),
             Err(_) => return Err(RequestError::InvalidBody(BodyFault::Syntax).into()),
         };
-        let key = match self.key {
-            None => None,
-            Some(value) => {
-                let digested = bytes.clone();
-                let digest: [u8; 32] = workers
-                    .run("upload digest", move || Sha256::digest(&digested).into())
-                    .await
-                    .map_err(Internal::new)?;
-                let named = self
-                    .disposition
-                    .as_ref()
-                    .map_or(&b""[..], HeaderValue::as_bytes);
-                let key = IdempotencyKey::parse(
-                    value.as_bytes(),
-                    &self.method,
-                    &self.path,
-                    &self.query,
-                    named,
-                    &digest,
-                )
-                .ok_or(RequestError::InvalidIdempotencyKey)?;
-                Some(key)
-            }
-        };
         Ok(Uploaded {
             bytes,
-            key,
+            key: None,
             _turn: turn,
         })
     }
@@ -234,6 +274,17 @@ mod tests {
     use futures_util::FutureExt;
 
     use super::*;
+
+    /// The turns of a replica, with a budget that no test here counts in.
+    fn turns() -> UploadTurns {
+        UploadTurns::new(1)
+    }
+
+    /// Reads `upload`'s one byte in `caller`'s turn, as [`Upload::read`] does before it counts
+    /// the byte.
+    async fn held(mut upload: Upload, caller: UserId) -> Uploaded {
+        upload.held(caller, 1).await.unwrap()
+    }
 
     /// An upload of `body`, sharing `turns`, as the extractor makes it.
     fn upload(body: &'static str, turns: &UploadTurns) -> Upload {
@@ -246,6 +297,7 @@ mod tests {
             key: None,
             disposition: None,
             turns: turns.clone(),
+            limits: None,
         }
     }
 
@@ -253,7 +305,7 @@ mod tests {
     async fn platform_074_an_upload_by_another_method_than_post_reads_no_key() {
         use crate::errors::ErrorCode;
 
-        let turns = UploadTurns::new();
+        let turns = turns();
         for method in ["PUT", "POST"] {
             let request = Request::builder()
                 .method(method)
@@ -283,19 +335,17 @@ mod tests {
 
     #[tokio::test]
     async fn platform_074_a_replica_reads_four_uploads_at_once_and_a_fifth_waits_for_a_turn() {
-        let turns = UploadTurns::new();
-        let workers = Workers::new();
+        let turns = turns();
         let mut read = Vec::new();
         for number in 0..4 {
-            let upload = upload("x", &turns).read(user(number), 1, &workers);
-            read.push(upload.await.unwrap());
+            read.push(held(upload("x", &turns), user(number)).await);
         }
 
         // Every turn is held while its bytes are, so a fifth user's upload waits, unread.
-        let mut fifth = std::pin::pin!(upload("y", &turns).read(user(4), 1, &workers));
+        let mut fifth = std::pin::pin!(held(upload("y", &turns), user(4)));
         assert!((&mut fifth).now_or_never().is_none());
         drop(read.pop());
-        let fifth = fifth.await.unwrap();
+        let fifth = fifth.await;
 
         assert_eq!(&fifth.bytes[..], b"y");
         assert_eq!(turns.all.available_permits(), 0);
@@ -305,27 +355,26 @@ mod tests {
 
     #[tokio::test]
     async fn platform_074_a_user_s_next_upload_waits_for_their_first_holding_no_turn() {
-        let turns = UploadTurns::new();
-        let workers = Workers::new();
+        let turns = turns();
         let (ada, bob) = (user(1), user(2));
-        let first = upload("x", &turns).read(ada, 1, &workers).await.unwrap();
+        let first = held(upload("x", &turns), ada).await;
 
         // Ada's next upload waits for her first, and takes none of the replica's turns
         // meanwhile, so another user's upload is read.
-        let mut next = std::pin::pin!(upload("y", &turns).read(ada, 1, &workers));
+        let mut next = std::pin::pin!(held(upload("y", &turns), ada));
         assert!((&mut next).now_or_never().is_none());
         assert_eq!(turns.all.available_permits(), UPLOADS_AT_ONCE - 1);
-        let others = upload("z", &turns).read(bob, 1, &workers).await.unwrap();
+        let others = held(upload("z", &turns), bob).await;
         assert!((&mut next).now_or_never().is_none());
         drop(first);
-        let next = next.await.unwrap();
+        let next = next.await;
 
         assert_eq!(&next.bytes[..], b"y");
         assert_eq!(turns.all.available_permits(), UPLOADS_AT_ONCE - 2);
         drop((next, others));
         assert_eq!(turns.all.available_permits(), UPLOADS_AT_ONCE);
         // A user's own turn stays only while an upload of theirs holds it or waits for it.
-        let last = upload("w", &turns).read(bob, 1, &workers).await.unwrap();
+        let last = held(upload("w", &turns), bob).await;
         let users: Vec<UserId> = turns.users.lock().unwrap().keys().copied().collect();
         assert_eq!(users, [bob]);
         drop(last);

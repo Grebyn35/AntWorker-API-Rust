@@ -22,6 +22,7 @@ pub mod audit;
 // part: files
 pub mod bucket;
 // end part: files
+pub mod budgets;
 pub mod cleanup;
 mod contract;
 pub mod events;

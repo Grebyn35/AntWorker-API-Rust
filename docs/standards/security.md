@@ -108,6 +108,7 @@ The reverse proxy in front of the API terminates TLS and sets HTTP Strict Transp
 
 ### SEC-13 Rate limits protect every route
 An IP limit applies to every route except the health probes, before authentication. A per-user limit applies after it. Per-action limits apply to every action that checks a password or a verification code, or sends an email (D11); the tokens of SEC-03 are too long to guess, so a check of one needs no limit of its own. Every check of a user's current password goes through one `auth` function and shares one bucket per user. The client IP is taken from `X-Forwarded-For` only when the request comes from a configured trusted proxy.
+A user's uploads count their bytes in a budget of a day, whatever their number (PLATFORM-093, D196). <!-- part: files -->
 - Why: brute force and abuse are bounded, and the IP can't be spoofed.
 - Check: `test`.
 

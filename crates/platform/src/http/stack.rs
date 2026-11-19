@@ -128,6 +128,10 @@ pub(super) struct Stack {
     pub(super) ip_limit: Arc<IpLimit>,
     pub(super) authenticator: Authenticator,
     pub(super) authorizer: Authorizer,
+    // part: files
+    /// How many bytes one user's uploads may hold in a day (PLATFORM-093).
+    pub(super) upload_bytes: u32,
+    // end part: files
 }
 
 /// The stack every request below the security headers passes, health probes aside, in the order
@@ -151,7 +155,7 @@ pub(super) fn request(router: Router, stack: Stack) -> Router {
         .layer(Extension(stack.authenticator))
         .layer(Extension(stack.authorizer));
     // part: files
-    let layers = layers.layer(Extension(UploadTurns::new()));
+    let layers = layers.layer(Extension(UploadTurns::new(stack.upload_bytes)));
     // end part: files
     // part: client_telemetry
     let layers = layers.layer(Extension(BatchTurns::new()));

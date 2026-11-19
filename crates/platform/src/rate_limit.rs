@@ -1,13 +1,8 @@
 //! Rate limits: buckets that count requests in windows, in the database that every replica shares
-//! (PLATFORM-011, PLATFORM-054 to PLATFORM-057).
-// part: client_telemetry
-//! A budget, in `bytes`, is a bucket whose limit is in bytes, and counts a request's bytes
-//! (PLATFORM-089).
-// end part: client_telemetry
+//! (PLATFORM-011, PLATFORM-054 to PLATFORM-057). A budget, in `bytes`, is a bucket whose limit is
+//! in bytes, and counts a request's bytes (PLATFORM-089).
 
-// part: client_telemetry
 mod bytes;
-// end part: client_telemetry
 
 use std::{
     net::IpAddr,
@@ -41,43 +36,30 @@ pub fn address(ip: IpAddr) -> Vec<u8> {
 }
 
 /// A kind of bucket: its name, which the rate-limit headers carry, and how many requests it
-/// allows in each window.
-// part: client_telemetry
-/// A budget is one whose limit is how many bytes it allows (PLATFORM-089).
-// end part: client_telemetry
+/// allows in each window. A budget is one whose limit is how many bytes it allows (PLATFORM-089).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Bucket {
     /// The name, such as `ip` or `sign_in` (PLATFORM-056).
     pub name: &'static str,
-    /// How many requests a window allows.
-    // part: client_telemetry
-    /// A budget's window allows as many bytes.
-    // end part: client_telemetry
+    /// How many requests a window allows, or, for a budget, how many bytes.
     pub limit: u32,
     /// The window's length.
     pub window: Duration,
 }
 
-/// A bucket's state after it counted a request.
-// part: client_telemetry
-/// A budget counted the request's bytes (PLATFORM-089).
-// end part: client_telemetry
+/// A bucket's state after it counted a request, or, for a budget, the request's bytes
+/// (PLATFORM-089).
 #[derive(Clone, Copy, Debug)]
 pub struct Count {
     /// The bucket that counted.
     pub bucket: Bucket,
-    /// The requests its window has counted, this one included.
-    // part: client_telemetry
-    /// A budget's window has counted as many bytes.
-    // end part: client_telemetry
+    /// The requests its window has counted, this one included, or, for a budget, the bytes.
     pub count: u32,
     /// How long until its window ends.
     pub resets_in: Duration,
-    // part: client_telemetry
     /// Whether the bucket is a budget, which counts bytes where another bucket counts requests
     /// (PLATFORM-089).
     pub bytes: bool,
-    // end part: client_telemetry
 }
 
 impl Count {
@@ -86,10 +68,7 @@ impl Count {
         self.count > self.bucket.limit
     }
 
-    /// The requests the window still allows.
-    // part: client_telemetry
-    /// A budget's window still allows as many bytes.
-    // end part: client_telemetry
+    /// The requests the window still allows, or, for a budget, the bytes.
     pub fn remaining(&self) -> u32 {
         self.bucket.limit.saturating_sub(self.count)
     }
@@ -118,9 +97,7 @@ impl RateLimiter {
             bucket,
             count,
             resets_in,
-            // part: client_telemetry
             bytes: false,
-            // end part: client_telemetry
         };
         if count.refused() {
             REFUSALS.add(1, [bucket.name.into()]);
@@ -130,10 +107,8 @@ impl RateLimiter {
 }
 
 /// The buckets that counted one request, which the pipeline describes in the response's headers
-/// (PLATFORM-056).
-// part: client_telemetry
-/// Of the budgets, only one that refused the request is among them (PLATFORM-089).
-// end part: client_telemetry
+/// (PLATFORM-056). Of the budgets, only one that refused the request is among them
+/// (PLATFORM-089).
 #[derive(Clone, Debug, Default)]
 pub struct Counted(Arc<Mutex<Vec<Count>>>);
 
@@ -170,6 +145,12 @@ impl Counted {
 pub struct RateLimits {
     limiter: RateLimiter,
     counted: Counted,
+}
+
+impl std::fmt::Debug for RateLimits {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.debug_struct("RateLimits").finish_non_exhaustive()
+    }
 }
 
 impl RateLimits {
@@ -239,9 +220,7 @@ mod tests {
             bucket,
             count,
             resets_in: Duration::from_secs(resets_in),
-            // part: client_telemetry
             bytes: false,
-            // end part: client_telemetry
         }
     }
 

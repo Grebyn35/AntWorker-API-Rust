@@ -59,7 +59,7 @@ What `workspaces` uses to keep a workspace's picture (Design: Workspace pictures
 | `GET /v1/public/avatars/{avatar_id}` | public | FILES-012, FILES-024 |
 | `GET /v1/public/workspace-pictures/{picture_id}` | public | FILES-012, FILES-027 |
 
-Both upload routes accept an `Idempotency-Key` (API-12). Each one's body is the file's bytes, the only kind of request body that isn't JSON (API-08), which it reads through `Upload` with a limit of `FILE_MAX_BYTES` (PLATFORM-074). A workspace's upload route is added through `Routes::workspace_upload`, and a user's through `Routes::user_upload`. A private file's download route is added through `Routes::workspace_signed_download` or `Routes::user_signed_download`, which let a signed URL authenticate it (PLATFORM-080), and a public file's through `Routes::public_download`. Each documents what PLATFORM-081 serves.
+Both upload routes accept an `Idempotency-Key` (API-12). Each one's body is the file's bytes, the only kind of request body that isn't JSON (API-08), which it reads through `Upload` with a limit of `FILE_MAX_BYTES` (PLATFORM-074), and which count in the caller's budget of a day's uploads (PLATFORM-093). A workspace's upload route is added through `Routes::workspace_upload`, and a user's through `Routes::user_upload`. A private file's download route is added through `Routes::workspace_signed_download` or `Routes::user_signed_download`, which let a signed URL authenticate it (PLATFORM-080), and a public file's through `Routes::public_download`. Each documents what PLATFORM-081 serves.
 
 ## Behaviors
 
@@ -126,7 +126,7 @@ An object's key is 128 random bits from the operating system's source, in hexade
 ### Uploading
 
 1. The handler refuses a body whose `Content-Length` declares more than `FILE_MAX_BYTES` (FILES-004), and a `visibility` that is neither value (FILES-020). An upload to a workspace then checks that the caller may upload, in a short unit of work of its own that authorizes them and commits nothing, and records a refusal as any workspace route does (FILES-006, D96). An upload to the caller's own files has authenticated them already, as every user route does.
-2. It reads the name from `Content-Disposition` (FILES-002), then the body, in one of the replica's turns (PLATFORM-074).
+2. It reads the name from `Content-Disposition` (FILES-002), then the body, in one of the replica's turns (PLATFORM-074), whose bytes count in the caller's budget of a day's uploads, which refuses the upload with 429 once they pass it (PLATFORM-093, The allowance).
 3. It finds the kind from the name's extension, and checks the bytes against it through `Workers`, since a text's check reads every byte (FILES-003, CODE-05), then has the scanner scan them (FILES-005).
 4. It writes the object, outside any transaction (DATA-21).
 5. The unit of work opens, claims the `Idempotency-Key`, inserts the row, records the entry and publishes the event, then commits (FILES-001, FILES-016). For a workspace's file, it opens with `Authorize<FilesUpload>`, which authorizes the caller again.
@@ -134,6 +134,14 @@ An object's key is 128 random bits from the operating system's source, in hexade
 An upload that stops after its object is written, whether a refusal at step 5, a failed commit or a stopped replica, leaves an object no row names, which FILES-011 deletes. The handler doesn't delete it itself: when a commit's answer is lost, the row may exist, and deleting its object would leave a row without bytes. A retry whose `Idempotency-Key` already committed writes its object, then answers the first result, leaving its own object to FILES-011 too.
 
 The fingerprint of a keyed upload covers a SHA-256 digest of its body, as of any keyed route, its query, which holds its `visibility`, and its `Content-Disposition`, so a retry under another name, or as another visibility, is another request (API-12). The stored result is the file without its links, which the route adds to each answer, the first and every replay, for the session that sent it (FILES-021).
+
+### The allowance
+
+What a user uploads is bounded by the day: each upload's bytes count in its user's budget, `UPLOAD_USER_BYTES_PER_DAY`, 1 GiB unless the setting says otherwise, for a file, an avatar and a workspace's picture alike, and an upload that takes the count past the budget answers 429, as every later one does until the window of 24 hours that counted them ends (PLATFORM-093, D196). So an account's uploads, however it automates them, hand the scanner and the bucket at most the budget in a window, where the user limit and `FILE_MAX_BYTES` alone allow, at their defaults, 300 uploads of 10 MiB a minute. A workspace's files grow by what its members' budgets let each of them upload, and the bytes of the avatars and pictures that are replaced, which stay for `FILE_DELETION_DELAY_DAYS`, count as they are uploaded.
+
+Nothing caps the total that a user's own files or a workspace's hold (D196). How much a customer stores is a product's pricing, which differs between forks, so a product that sells storage adds its own cap, in the unit of work that records an upload's row, from the `size_bytes` of the rows that the user or the workspace holds. What every account of a deployment stores together has no bound of the API's either: the bucket's provider shows it, and bills it.
+
+The copy of the picture that a sign-in provider gives for a new account counts in no budget: no request of the user's sends its bytes, and a registration copies one picture, of at most 1 MiB ([accounts spec](accounts.md#avatars)).
 
 ### Scanning
 
@@ -206,6 +214,4 @@ A file's row may go while its export lasts, as when the user deletes it, but its
 
 ## Open design questions
 
-| Question | Settled by |
-|---|---|
-| How the bytes that a user uploads in a day are bounded, of files, avatars and workspaces' pictures, beside the rate limits and `FILE_MAX_BYTES`: the owner decided on 2026-11-19 that an allowance of a day's uploads bounds them, and that nothing caps the total that a user's own files or a workspace's hold, which a product that sells storage adds for itself | the pass against ASVS Level 2, at step 6, which builds the allowance |
+None.

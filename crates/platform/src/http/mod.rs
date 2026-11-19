@@ -467,6 +467,9 @@ pub fn app(routes: Routes, pipeline: Pipeline) -> Router {
                 },
             },
             authorizer: pipeline.authorizer,
+            // part: files
+            upload_bytes: limits.upload_bytes,
+            // end part: files
         },
     );
     let app = Router::new()

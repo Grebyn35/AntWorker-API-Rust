@@ -1,6 +1,6 @@
 //! The telemetry proxy: the batches of a consenting user's clients, which the API forwards to the
 //! collector, here a stand-in (the client_telemetry spec, CLIENT_TELEMETRY-004 to
-//! CLIENT_TELEMETRY-010 and CLIENT_TELEMETRY-013, and PLATFORM-089 and PLATFORM-091).
+//! CLIENT_TELEMETRY-010 and CLIENT_TELEMETRY-013, and PLATFORM-091).
 
 use std::{io::Write, time::Duration};
 
@@ -13,6 +13,7 @@ use super::{choose, read};
 use crate::support::{
     Api, Options,
     api::{Response, refusal},
+    budgets,
     upstream::Upstream,
     users::{self, SignedIn},
 };
@@ -103,18 +104,10 @@ fn forwarded(signal: &str) -> f64 {
         .sum()
 }
 
-/// Asserts that `response` is the 429 of the budget `name`, whose window allows `limit` bytes.
+/// Asserts that `response` is the 429 of the budget `name`, whose window of a minute allows
+/// `limit` bytes.
 fn assert_refused_by(response: &Response, name: &str, limit: u32) {
-    assert_eq!(response.status, 429);
-    assert_eq!(response.json()["code"], "request.rate_limited");
-    assert_eq!(
-        response.header("ratelimit-policy"),
-        format!("\"{name}\";q={limit};qu=\"content-bytes\";w=60")
-    );
-    let state = response.header("ratelimit");
-    assert!(state.starts_with(&format!("\"{name}\";r=0;t=")), "{state}");
-    let seconds: u64 = response.header("retry-after").parse().unwrap();
-    assert!((1..=60).contains(&seconds), "{seconds}");
+    budgets::assert_refused_by(response, name, limit, 60);
 }
 
 #[tokio::test]
@@ -653,101 +646,6 @@ async fn client_telemetry_013_a_batch_that_the_collector_refused_or_didn_t_take_
     assert_eq!(untaken.status, 503);
     let counted = forwarded("metrics") - before;
     assert!(counted < 900_000.0, "{counted}");
-}
-
-#[tokio::test]
-async fn platform_089_a_budget_refuses_the_bytes_past_its_limit_and_keeps_them_counted() {
-    let collector = collector().await;
-    let whole = u32::try_from(MEBIBYTE).unwrap();
-    let api = Api::with(forwarding(&collector, whole, UNBOUNDED)).await;
-    let ada = consenting(&api, "ada@example.com").await;
-    let grace = consenting(&api, "grace@example.com").await;
-
-    let first = send_bytes(&api, &ada, 600 * 1024).await;
-    let beyond = send_bytes(&api, &ada, 600 * 1024).await;
-    // One byte, which the window would hold, had it not counted the batch that it refused.
-    let afterwards = send_bytes(&api, &ada, 1).await;
-    let whole_window = send_bytes(&api, &grace, MEBIBYTE).await;
-    let one_more = send_bytes(&api, &grace, 1).await;
-
-    assert_eq!(first.status, 200);
-    assert_refused_by(&beyond, "telemetry_user", whole);
-    assert_refused_by(&afterwards, "telemetry_user", whole);
-    assert_eq!(
-        whole_window.status, 200,
-        "the budget's last byte is within it"
-    );
-    assert_refused_by(&one_more, "telemetry_user", whole);
-}
-
-#[tokio::test]
-async fn platform_089_a_budget_s_window_starts_again_once_it_has_ended() {
-    let collector = collector().await;
-    let whole = u32::try_from(MEBIBYTE).unwrap();
-    let api = Api::with(forwarding(&collector, whole, UNBOUNDED)).await;
-    let ada = consenting(&api, "ada@example.com").await;
-    assert_eq!(send_bytes(&api, &ada, MEBIBYTE).await.status, 200);
-    let beyond = send_bytes(&api, &ada, 1).await;
-
-    // The windows that counted the batch's bytes ended: every bucket's did, an hour ago.
-    api.database()
-        .owner_executes(
-            "UPDATE rate_limit_buckets SET window_started_at = now() - interval '1 hour'",
-        )
-        .await;
-    let next_window = send_bytes(&api, &ada, MEBIBYTE).await;
-
-    assert_refused_by(&beyond, "telemetry_user", whole);
-    assert_eq!(next_window.status, 200);
-    let counts = api
-        .database()
-        .owner_reads(&format!(
-            "SELECT count::text FROM rate_limit_buckets WHERE count = {MEBIBYTE}"
-        ))
-        .await;
-    assert_eq!(
-        counts.len(),
-        2,
-        "the new window of the user's budget, and of the replica's, counts the batch's bytes alone"
-    );
-}
-
-#[tokio::test]
-async fn platform_089_a_response_that_no_budget_refused_describes_a_bucket_of_requests() {
-    let (_collector, api) = standing().await;
-    let ada = consenting(&api, "ada@example.com").await;
-
-    let taken = send_bytes(&api, &ada, 8).await;
-
-    assert_eq!(taken.status, 200);
-    let policy = taken.header("ratelimit-policy");
-    assert!(
-        policy.starts_with("\"ip\";q=") || policy.starts_with("\"user\";q="),
-        "{policy}"
-    );
-    assert!(!policy.contains("qu="), "{policy}");
-}
-
-#[tokio::test]
-async fn platform_089_a_budget_s_key_holds_no_user_id() {
-    let (_collector, api) = standing().await;
-    let ada = consenting(&api, "ada@example.com").await;
-    assert_eq!(send_bytes(&api, &ada, 4321).await.status, 200);
-
-    // The two rows whose windows counted the batch's bytes: the user's budget, and the replica's.
-    let keys = api
-        .database()
-        .owner_reads(
-            "SELECT length(key_hash)::text || ' ' || encode(key_hash, 'escape') \
-             FROM rate_limit_buckets WHERE count = 4321",
-        )
-        .await;
-
-    assert_eq!(keys.len(), 2);
-    for key in &keys {
-        assert!(key.starts_with("32 "), "{key}");
-        assert!(!key.contains(&ada.user_id), "{key}");
-    }
 }
 
 #[tokio::test]

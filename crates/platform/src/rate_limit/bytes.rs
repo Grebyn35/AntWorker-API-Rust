@@ -1,6 +1,6 @@
 //! Budgets: buckets whose limit is in bytes, and whose windows count the bytes of a kind of
-//! request, such as the batches of telemetry that a user's clients send (PLATFORM-089). A
-//! budget's name, limit and window are a [`Bucket`]'s.
+//! request, such as those of the bodies that a user sends to a route (PLATFORM-089). A budget's
+//! name, limit and window are a [`Bucket`]'s.
 
 use super::{Bucket, Count, LimitError, REFUSALS, RateLimiter, RateLimits};
 use crate::errors::Internal;

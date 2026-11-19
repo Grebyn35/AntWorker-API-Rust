@@ -1,13 +1,13 @@
 //! The settings of the API's web clients and of the requests that reach it: the origins of web
 //! clients, the proxies in front of it, the key of its keyed hashes, and its rate limits.
 
-use std::{fmt, net::IpAddr, str::FromStr, time::Duration};
+use std::{ffi::OsString, fmt, io, net::IpAddr, path::Path, str::FromStr, time::Duration};
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use ipnet::IpNet;
 use url::{Host, Url};
 
-use super::Environment;
+use super::{ConfigError, Environment, Settings};
 use crate::hashing::{self, HmacKey};
 
 /// The limits on the requests of one client IP, and of one user (PLATFORM-054).
@@ -19,11 +19,51 @@ pub struct RateLimitConfig {
     /// How many requests one client IP may send in a window under the public prefix, public
     /// files' downloads, which count there in place of the IP's other limit (PLATFORM-082).
     pub public_requests: u32,
+    /// How many bytes one user's uploads may hold in a day (PLATFORM-093).
+    pub upload_bytes: u32,
     // end part: files
     /// How many requests one user may send in a window.
     pub user_requests: u32,
     /// The window's length.
     pub window: Duration,
+}
+
+// part: files
+/// The least that a day's uploads of one user may hold: the largest `FILE_MAX_BYTES`, 20 MiB, so
+/// a window that has counted nothing takes an upload of any size that a deployment allows
+/// (D107).
+const UPLOAD_BYTES_LEAST: u32 = 20_971_520;
+
+/// The most: one byte below the count at which a bucket's window stops, so a window's count can
+/// still pass it (PLATFORM-089).
+const UPLOAD_BYTES_MOST: u32 = 2_147_483_646;
+
+/// What a day's uploads of one user may hold unless the setting says otherwise: 1 GiB.
+const UPLOAD_BYTES: u32 = 1_073_741_824;
+// end part: files
+
+impl<E, F> Settings<E, F>
+where
+    E: Fn(&str) -> Option<OsString>,
+    F: Fn(&Path) -> io::Result<String>,
+{
+    /// The limits on the requests of one client IP and of one user, and their window
+    /// (PLATFORM-054).
+    pub(super) fn rate_limits(&self) -> Result<RateLimitConfig, ConfigError> {
+        Ok(RateLimitConfig {
+            ip_requests: self.number("RATE_LIMIT_IP_REQUESTS", 600, 1..=1_000_000)?,
+            // part: files
+            public_requests: self.number("RATE_LIMIT_PUBLIC_REQUESTS", 1_200, 1..=1_000_000)?,
+            upload_bytes: self.number(
+                "UPLOAD_USER_BYTES_PER_DAY",
+                UPLOAD_BYTES,
+                UPLOAD_BYTES_LEAST..=UPLOAD_BYTES_MOST,
+            )?,
+            // end part: files
+            user_requests: self.number("RATE_LIMIT_USER_REQUESTS", 300, 1..=1_000_000)?,
+            window: self.duration("RATE_LIMIT_WINDOW_SECONDS", 60, 1..=86_400)?,
+        })
+    }
 }
 
 /// The origin of a web client, such as `https://app.example.com` (PLATFORM-058): a scheme, a

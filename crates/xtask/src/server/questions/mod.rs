@@ -434,12 +434,13 @@ mod tests {
         // No email, so no question about a mail server.
         "off",
         // part: files
-        // The files bucket, then Enter for the uploads' limit, the scanner's CPUs and the
-        // deletion's delay.
+        // The files bucket, then Enter for the uploads' limit, a user's budget of a day's
+        // uploads, the scanner's CPUs and the deletion's delay.
         "files.example.com",
         "",
         "eu-1",
         "files",
+        "",
         "",
         "",
         "",

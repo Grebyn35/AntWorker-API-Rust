@@ -130,7 +130,7 @@ A caller who is no superadmin gets 403 from a superadmin's route, whose access l
 
 ### API-15 Rate limits are visible
 Rate-limited responses carry the `RateLimit` and `RateLimit-Policy` headers of the IETF's draft-ietf-httpapi-ratelimit-headers-11, which isn't an RFC yet. Each holds one item, for the bucket that decided the response, named by the bucket's kind: `RateLimit-Policy: "ip";q=600;w=60` gives its quota and window in seconds, and `RateLimit: "ip";r=598;t=41` the requests left and the seconds until the window ends. A 429 also carries `Retry-After`.
-A budget, which counts bytes, says so with the draft's quota unit, as `RateLimit-Policy: "telemetry_user";q=1048576;qu="content-bytes";w=60`, and its `RateLimit` gives the bytes left (PLATFORM-089). <!-- part: client_telemetry -->
+A budget, which counts bytes, says so with the draft's quota unit, as `RateLimit-Policy: "<name>";q=1048576;qu="content-bytes";w=60`, and its `RateLimit` gives the bytes left (PLATFORM-089).
 - Why: clients can back off correctly (D11).
 - Check: `test`.
 

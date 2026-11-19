@@ -20,7 +20,7 @@ use crate::support::{
 };
 
 /// Sets `bytes` as `user`'s avatar.
-async fn set(api: &Api, user: &SignedIn, bytes: &[u8]) -> Response {
+pub(super) async fn set(api: &Api, user: &SignedIn, bytes: &[u8]) -> Response {
     api.request(http::Method::PUT, "/v1/users/me/avatar")
         .header("content-type", "application/octet-stream")
         .body(bytes.to_vec())

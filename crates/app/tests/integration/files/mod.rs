@@ -1,6 +1,7 @@
 //! A workspace's files (the files spec), and in its modules a user's own, the links to files'
 //! bytes, public files, ranges of a download's bytes, users' avatars, and workspaces' pictures.
 
+mod allowance;
 mod avatars;
 mod exports;
 mod links;

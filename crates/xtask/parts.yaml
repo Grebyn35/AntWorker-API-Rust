@@ -200,9 +200,7 @@ parts:
       - crates/app/tests/e2e/client_telemetry.rs
       - crates/app/tests/integration/client_telemetry
       - crates/app/tests/integration/client_telemetry.rs
-      - crates/platform/src/db/budgets.rs
       - crates/platform/src/http/batch.rs
-      - crates/platform/src/rate_limit
       - crates/platform/src/telemetry/relay.rs
       - deploy/observability/collector/clients.yaml
       - deploy/observability/grafana/dashboards/client-telemetry.json
@@ -221,7 +219,6 @@ parts:
       - clients' batches
       - users' clients
       - clients.yaml
-      - content-bytes
       - user_batch
   # end part: client_telemetry
 

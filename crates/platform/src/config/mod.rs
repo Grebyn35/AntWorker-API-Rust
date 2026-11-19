@@ -313,14 +313,7 @@ where
                 .optional_with("TRUSTED_PROXIES", PROXIES_EXPECTED, web::proxies)?
                 .unwrap_or_default(),
             cors_allowed_origins: self.origins()?,
-            rate_limits: RateLimitConfig {
-                ip_requests: self.number("RATE_LIMIT_IP_REQUESTS", 600, 1..=1_000_000)?,
-                // part: files
-                public_requests: self.number("RATE_LIMIT_PUBLIC_REQUESTS", 1_200, 1..=1_000_000)?,
-                // end part: files
-                user_requests: self.number("RATE_LIMIT_USER_REQUESTS", 300, 1..=1_000_000)?,
-                window: self.duration("RATE_LIMIT_WINDOW_SECONDS", 60, 1..=86_400)?,
-            },
+            rate_limits: self.rate_limits()?,
             job_dead_letter_retention: Duration::from_secs(
                 u64::from(self.number("JOB_DEAD_LETTER_RETENTION_DAYS", 14, 1..=365)?) * 86_400,
             ),
