@@ -1,0 +1,4 @@
+{{- /* What `just third-party-scan` asks Grype to write: a line for each match rated critical or high, its fields separated by tabs. */ -}}
+{{- range .Matches }}{{ if or (eq .Vulnerability.Severity "Critical") (eq .Vulnerability.Severity "High") -}}
+{{ .Vulnerability.Severity }}	{{ .Vulnerability.ID }}	{{ .Artifact.Name }}	{{ .Artifact.Version }}	{{ join ", " .Vulnerability.Fix.Versions }}
+{{ end }}{{ end -}}

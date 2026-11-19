@@ -167,7 +167,8 @@ The integrity of what the levels hold rests on the database, whose constraints a
 
 | Threat | What stops it |
 |---|---|
-| A dependency with a known vulnerability | Advisories block the build, and the images are scanned before each release and after it (SEC-15) |
+| A dependency with a known vulnerability | Advisories block the build, and the images that the repository builds are scanned before each release and after it (SEC-15) |
+| A third-party image of the deployment with a known vulnerability | Each is pinned by digest (OPS-11), a weekly pull request proposes its newer releases ([dependency updates](ci.md#dependency-updates)), and a weekly job lists the vulnerabilities that have a fix and are rated high or critical, and fails on none: only the image's maker fixes one (SEC-15, D200) |
 | A tampered build or image | Everything pinned (OPS-11), one build of each image, signed, whose tested digest is what ships (OPS-12), on a minimal, unprivileged image (OPS-13) |
 | Cryptography that is weak or home-made | Only vetted cryptography (SEC-16) |
 | A role with more privilege than its task | Two database roles, and startup refuses an unsafe one (DATA-12, DATA-13) |

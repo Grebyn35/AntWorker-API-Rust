@@ -1,5 +1,6 @@
 # The tasks of releases: `just release`, and the steps CI runs to publish, release, verify and
-# rescan the images. The justfile imports this file.
+# rescan the images, and to list the third-party images' vulnerabilities. The justfile imports
+# this file.
 
 # Pushes each image in target to the registry as sha-<commit>, under the name of `repository`,
 # such as owner/name, or that name with `-postgres` for the Postgres image, and moves `edge` to it
@@ -126,3 +127,32 @@ image-rescan repository:
             done
         done
     done
+
+# Lists, as Markdown, the vulnerabilities that have a fix and are rated critical or high in each
+# third-party image of the reference deployment, for each platform: the images that a line
+# `image: <name>@sha256:<digest>` of a compose.yaml under deploy/ names. It fails on none of
+# them, since only an image's maker fixes one (SEC-15), and fails when a scan can't run. Grype
+# writes a line for each, as just/third-party-scan.tmpl says. The scheduled workflow runs it
+# every week, and writes the list to its job's summary.
+[unix]
+[private]
+third-party-scan:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    grype() { docker compose run --rm -T --volume "$PWD/just/third-party-scan.tmpl:/list.tmpl:ro" grype "$@"; }
+    images=$(grep -rhoE --include=compose.yaml 'image: [^ $]+@sha256:[0-9a-f]{64}' deploy | sed 's/^image: //' | sort -u)
+    summary="" details=""
+    for image in $images; do
+        for platform in linux/amd64 linux/arm64; do
+            found=$(grype "registry:$image" --platform "$platform" --only-fixed --output template --template /list.tmpl | sort)
+            critical=$(grep -c '^Critical' <<< "$found" || true)
+            high=$(grep -c '^High' <<< "$found" || true)
+            summary+="| ${image%@*} | $platform | $critical | $high |"$'\n'
+            if [ -n "$found" ]; then
+                details+=$'\n'"## ${image%@*}, $platform"$'\n\n'"| Severity | Vulnerability | Package | Installed | Fixed in |"$'\n'"|---|---|---|---|---|"$'\n'
+                details+=$(awk -F '\t' '{ print "| " $1 " | " $2 " | " $3 " | " $4 " | " $5 " |" }' <<< "$found")$'\n'
+            fi
+        done
+    done
+    printf '%s\n\n%s\n%s\n%s%s' "# Third-party images: the vulnerabilities that have a fix, rated critical or high" \
+        "| Image | Platform | Critical | High |" "|---|---|---|---|" "$summary" "$details"
