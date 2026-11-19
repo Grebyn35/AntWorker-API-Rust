@@ -21,9 +21,9 @@ const QUERY_PARAMETERS: [&str; 5] = [
 
 /// A PostgreSQL connection URL, such as `postgres://app:password@localhost:5432/api`.
 ///
-/// It names a user, a password, a host and a database, and a port unless it is 5432, and sets
-/// no query parameter outside `QUERY_PARAMETERS`. The password is a secret (SEC-01): `Debug`
-/// leaves it out.
+/// It names a user, a password, a host and a database, and a port unless it is 5432, sets no
+/// query parameter outside `QUERY_PARAMETERS`, and none twice, and has no fragment. The password
+/// is a secret (SEC-01): `Debug` leaves it out.
 #[derive(Clone)]
 pub struct DatabaseUrl {
     options: PgConnectOptions,
@@ -79,8 +79,8 @@ impl DatabaseUrl {
 }
 
 /// The URL isn't a PostgreSQL URL with a user, a password, a host and a database, or it sets a
-/// query parameter outside `QUERY_PARAMETERS`. It says nothing more, because the URL holds a
-/// password.
+/// query parameter outside `QUERY_PARAMETERS`, or one twice, or has a fragment. It says nothing
+/// more, because the URL holds a password.
 #[derive(Debug, PartialEq, Eq)]
 pub struct InvalidDatabaseUrl;
 
@@ -91,11 +91,19 @@ impl FromStr for DatabaseUrl {
         let url = Url::parse(value).map_err(|_| InvalidDatabaseUrl)?;
         if !matches!(url.scheme(), "postgres" | "postgresql")
             || url.host_str().is_none()
-            || url
-                .query_pairs()
-                .any(|(name, _)| !QUERY_PARAMETERS.contains(&name.as_ref()))
+            || url.fragment().is_some()
         {
             return Err(InvalidDatabaseUrl);
+        }
+        // A parameter named twice would be read by its last value, where a check of the URL's
+        // text, such as a deploy's of `sslmode`, may read its first.
+        let mut named: Vec<String> = Vec::new();
+        for (name, _) in url.query_pairs() {
+            if !QUERY_PARAMETERS.contains(&name.as_ref()) || named.iter().any(|seen| *seen == name)
+            {
+                return Err(InvalidDatabaseUrl);
+            }
+            named.push(name.into_owned());
         }
         let user = decode(url.username())?;
         let password = decode(url.password().unwrap_or_default())?;
@@ -156,6 +164,9 @@ mod tests {
             "postgres://app:secret@localhost:5432/",
             "mysql://app:secret@localhost:3306/api",
             "not a url",
+            // A fragment, which no connection reads, and which may hold what reads as a query.
+            "postgres://app:secret@localhost:5432/api#?sslmode=verify-full",
+            "postgres://app:secret@localhost:5432/api?sslmode=disable#",
         ] {
             assert_eq!(
                 value.parse::<DatabaseUrl>().err(),
@@ -186,6 +197,24 @@ mod tests {
                 url.parse::<DatabaseUrl>().err(),
                 Some(InvalidDatabaseUrl),
                 "{parameter}"
+            );
+        }
+    }
+
+    #[test]
+    fn ops_01_a_database_url_names_no_query_parameter_twice() {
+        for query in [
+            "sslmode=verify-full&sslmode=disable",
+            "sslmode=verify-full&sslmode=verify-full",
+            // The same name, percent-encoded, which the URL's reader decodes.
+            "sslmode=verify-full&ssl%6Dode=disable",
+            "application_name=api&sslmode=require&application_name=other",
+        ] {
+            let url = format!("postgres://app:secret@db:5432/api?{query}");
+            assert_eq!(
+                url.parse::<DatabaseUrl>().err(),
+                Some(InvalidDatabaseUrl),
+                "{query}"
             );
         }
     }

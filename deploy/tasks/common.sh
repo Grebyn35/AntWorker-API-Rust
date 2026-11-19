@@ -231,6 +231,13 @@ read_settings() {
     whole_number DATABASE_MAX_CONNECTIONS "$pool" 1 1000
     whole_number POSTGRES_MAX_CONNECTIONS "$connections" 20 10000
     if [ -z "$(setting API_ADDRESS)" ]; then fail "API_ADDRESS is required"; fi
+    # Email goes unencrypted only to a mail server on this server itself, at one of its own
+    # addresses, since every connection that leaves the server uses TLS (OPS-17): an email
+    # holds the code that proves an address, or resets a password.
+    if [ "$(setting EMAIL)" = smtp ] && [ "$(setting SMTP_SECURITY starttls)" = none ] \
+        && ! ip -o addr 2> /dev/null | awk '{ print $4 }' | cut -d/ -f1 | grep -qxF -- "$(setting SMTP_HOST)"; then
+        fail "SMTP_SECURITY=none sends email unencrypted, which only a mail server at one of this server's own addresses may take, and SMTP_HOST is none of them: set SMTP_SECURITY to starttls or tls (docs/operations/deploy.md#email)"
+    fi
     # part: files
     for name in FILES_S3_ENDPOINT FILES_S3_REGION FILES_S3_BUCKET; do
         if [ -z "$(setting "$name")" ]; then fail "$name is required, for the bucket of files' bytes (docs/operations/deploy.md#the-files-bucket)"; fi

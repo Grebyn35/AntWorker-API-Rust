@@ -107,6 +107,13 @@ replace_key() {
     say "wrote a new key to $secrets/$1, which the next deploy gives the services that read it"
 }
 
+# The values that the query of the URL on standard input gives the parameter $1, one per line,
+# as the URL writes them: what stands between the URL's first `?` and its first `#`, if any,
+# split at each `&`.
+query_values() {
+    tr -d '\n' | sed 's/#.*//' | sed -n 's/^[^?]*?//p' | tr '&' '\n' | sed -n "s/^$1=//p"
+}
+
 # Fails unless secrets/ holds each secret that the operator holds for these settings, which
 # `just server-setup` writes.
 check_secrets() {
@@ -121,6 +128,14 @@ check_secrets() {
         if grep -q '@postgres:5432/api$' "$secrets/database_url"; then
             fail "$secrets/database_url names the bundled database; write the managed database's URLs into database_admin_url, database_owner_url and database_url first (docs/operations/deploy.md)"
         fi
+        # A managed database is reached over TLS that checks its certificate and its name
+        # (OPS-17): without `sslmode`, the driver falls back to plain text. The API refuses a
+        # URL that names a parameter twice, so the one this reads is the one the driver reads.
+        for name in database_url database_owner_url database_admin_url; do
+            if [ "$(query_values sslmode < "$secrets/$name")" != verify-full ]; then
+                fail "$secrets/$name doesn't set sslmode=verify-full, once, without which the connection to a managed database may go unencrypted and unverified (docs/operations/deploy.md#setting-up-a-server)"
+            fi
+        done
     fi
     if [ "$database" = bundled ]; then
         for name in postgres_password backup_s3_key backup_s3_key_secret backup_cipher_pass; do

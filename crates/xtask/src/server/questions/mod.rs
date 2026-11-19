@@ -629,9 +629,9 @@ mod tests {
             ],
             certs: Vec::new(),
         };
-        // An empty answer to every setting, every secret, the key ring among them, and the
-        // registry's token.
-        let asked = setting_questions(held) + 1 + 3 + 1;
+        // An empty answer to every setting, every secret, the key ring among them, the managed
+        // database's authority, and the registry's token.
+        let asked = setting_questions(held) + 1 + 3 + 1 + 1;
         // part: files
         // The files bucket's key pair and its authority.
         let asked = asked + 2 + 1;
@@ -703,7 +703,8 @@ mod tests {
         // Enter for the files bucket's authority.
         answers.push("");
         // end part: files
-        answers.push("");
+        // Enter for the managed database's authority, then for the registry's token.
+        answers.extend(["", ""]);
         let mut script = Script::new(&answers);
 
         let setup = ask(&release(&example()), &state, &[], &mut script, no_file).unwrap();
@@ -769,7 +770,8 @@ mod tests {
         // Enter for the files bucket's authority.
         answers.push("");
         // end part: files
-        answers.push("");
+        // Enter for the managed database's authority, then for the registry's token.
+        answers.extend(["", ""]);
         let mut script = Script::new(&answers);
 
         let setup = ask(&alerting, &state, &[], &mut script, no_file).unwrap();

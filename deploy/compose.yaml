@@ -179,6 +179,8 @@ x-operator: &operator
     SMTP_USERNAME: ${SMTP_USERNAME:-}
     SMTP_PASSWORD_FILE: /run/secrets/smtp_password
     EMAIL_FROM: ${EMAIL_FROM:-}
+  volumes:
+    - ./certs:/etc/deployment-certs:ro
   secrets: [database_url, smtp_password]
   networks: [data, telemetry]
 
@@ -313,6 +315,9 @@ services:
       DATABASE_ADMIN_URL_FILE: /run/secrets/database_admin_url
       DATABASE_OWNER_URL_FILE: /run/secrets/database_owner_url
       DATABASE_URL_FILE: /run/secrets/database_url
+    # The authority of a managed database's certificate, which its URLs name as `sslrootcert`.
+    volumes:
+      - ./certs:/etc/deployment-certs:ro
     secrets: [database_admin_url, database_owner_url, database_url]
     networks: [data, telemetry]
 
@@ -341,6 +346,8 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${API_TELEMETRY_ENDPOINT:-}
       DATABASE_OWNER_URL_FILE: /run/secrets/database_owner_url
+    volumes:
+      - ./certs:/etc/deployment-certs:ro
     secrets: [database_owner_url]
     networks: [data, telemetry]
 

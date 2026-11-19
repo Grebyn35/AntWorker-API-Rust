@@ -75,8 +75,13 @@ impl Deployment {
         let mut server = Server::start();
         let database = database_server(server.in_memory());
         let host = database.inspect("{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}");
+        let authority = take_tls(&database, &host);
         server.hold_database(database);
         let deployment = Self::on(server, &[("DATABASE", "managed")], changes);
+        deployment.server.write(
+            &format!("{DEPLOYMENT}/certs/database-ca.crt"),
+            &format!("{authority}\n"),
+        );
         for (secret, setting) in [
             ("database_admin_url", "DATABASE_ADMIN_URL"),
             ("database_owner_url", "DATABASE_OWNER_URL"),
@@ -85,6 +90,9 @@ impl Deployment {
             let mut url = url::Url::parse(&std::env::var(setting).expect(setting)).expect(setting);
             url.set_host(Some(&host)).expect("a host");
             url.set_port(Some(5432)).expect("a port");
+            // As deploy.md asks of a managed database's URLs (OPS-17), with the authority that
+            // signed this one's certificate.
+            url.set_query(Some(MANAGED_TLS));
             deployment
                 .server
                 .write(&format!("{DEPLOYMENT}/secrets/{secret}"), url.as_str());
@@ -560,6 +568,42 @@ pub fn delete_as(root: String, url: String, token: String) -> u16 {
 /// answer after `timeout`, for a stream whose answer never ends.
 pub fn streaming_client(root: &str, timeout: Duration) -> reqwest::blocking::Client {
     client_within(root, timeout)
+}
+
+/// The query of a managed database's URL in the tests: TLS that checks the server's certificate
+/// and its address, against the authority that `Deployment::managed` gives the deployment.
+pub const MANAGED_TLS: &str =
+    "sslmode=verify-full&sslrootcert=/etc/deployment-certs/database-ca.crt";
+
+/// Has the managed database's server `database` take TLS connections, as a provider's does, with
+/// a certificate for `host`, the address that the deployment reaches it at, which an authority
+/// of the test's own signs, and returns that authority's certificate, in PEM.
+fn take_tls(database: &Container, host: &str) -> String {
+    let script = format!(
+        "set -e
+        mkdir /tmp/tls && cd /tmp/tls
+        openssl req -x509 -newkey rsa:2048 -nodes -keyout ca.key -out ca.crt -days 1 -subj /CN=e2e-database-authority 2> /dev/null
+        openssl req -newkey rsa:2048 -nodes -keyout server.key -out server.csr -subj /CN={host} 2> /dev/null
+        echo subjectAltName=IP:{host} > san
+        openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out server.crt -days 1 -extfile san 2> /dev/null
+        chmod 600 server.key
+        psql --username=postgres --dbname=api -qAt -v ON_ERROR_STOP=1 \
+            -c \"ALTER SYSTEM SET ssl_cert_file = '/tmp/tls/server.crt'\" \
+            -c \"ALTER SYSTEM SET ssl_key_file = '/tmp/tls/server.key'\" \
+            -c 'ALTER SYSTEM SET ssl = on' -c 'SELECT pg_reload_conf()' > /dev/null
+        cat ca.crt"
+    );
+    let authority = docker(&[
+        "exec",
+        "--user",
+        "postgres",
+        database.id(),
+        "sh",
+        "-c",
+        &script,
+    ]);
+    assert!(authority.contains("BEGIN CERTIFICATE"), "{authority}");
+    authority
 }
 
 /// Starts the server of a managed database: another server of the development Postgres, for the reason

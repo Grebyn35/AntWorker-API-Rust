@@ -85,7 +85,7 @@ The argument is the server as SSH names it, signed in as `root`, or as a user th
   - In every deployment: `encryption_keys`, the ring of the keys that encrypt the secrets the database holds, which the setup generates the first time and shows once; type a lost server's to restore its backups, or a ring with a new key to replace one ([the encryption keys](#the-encryption-keys)).
   - In every deployment: `files_s3_key` and `files_s3_key_secret`, the files bucket's key pair, which reaches only that bucket ([the files bucket](#the-files-bucket)). <!-- part: files -->
   - With the bundled database: `backup_s3_key` and `backup_s3_key_secret`, the bucket's key pair; `backup_cipher_pass`, the passphrase that encrypts the backups, which the setup generates the first time and shows once; and `postgres_password`, the database's superuser password, which the setup also generates the first time and shows once, unless you give a lost server's, whose backups the new server restores. Keep a copy of the passphrase off the server: without it, no backup can be restored ([backups.md](backups.md#what-to-keep-off-the-server)).
-  - With a managed database: `database_admin_url`, `database_owner_url` and `database_url`, as `.env.example` describes `DATABASE_ADMIN_URL`, `DATABASE_OWNER_URL` and `DATABASE_URL`, each with `sslmode=verify-full` (OPS-17). Give the roles `owner` and `app` random passwords, as a password manager generates them: `bootstrap` stores each as a verifier of 4,096 iterations (SEC-16), which protects a random password, and not one that a person made up.
+  - With a managed database: `database_admin_url`, `database_owner_url` and `database_url`, as `.env.example` describes `DATABASE_ADMIN_URL`, `DATABASE_OWNER_URL` and `DATABASE_URL`, each with `sslmode=verify-full`, without which a deploy refuses it, since the driver would otherwise fall back to a connection that checks nothing, or encrypts nothing (OPS-17). When an authority of the provider's own signed the database's certificate, each URL also names that authority's certificate, which the setup asks for below, as `sslrootcert=/etc/deployment-certs/database-ca.crt`, the path at which the API's containers read it. Give the roles `owner` and `app` random passwords, as a password manager generates them: `bootstrap` stores each as a verifier of 4,096 iterations (SEC-16), which protects a random password, and not one that a person made up.
   - With a managed backend: `managed_otlp_token`, the token the collector signs in with, and with `MANAGED_GRAFANA_URL`, `managed_grafana_token`, the token of a service account of that Grafana with the Admin role, which imports the dashboards and the alert rules ([observability.md](observability.md#a-managed-backend)).
   - With the self-hosted stack: `grafana_admin_password`, the password that Grafana's administrator signs in with, under the name in `GRAFANA_ADMIN_USER`: one of your own, of 15 characters or more ([Grafana](#grafana)); and each credential of an alert integration that the release's `alertmanager.yaml` names, in `secrets/alertmanager/` ([observability.md](observability.md#alerts)).
   - With `EMAIL=smtp` and an `SMTP_USERNAME`: `smtp_password`, the mail server's password ([Email](#email)). Without one, the deploy writes the file empty, which the API reads as no password.
@@ -93,7 +93,7 @@ The argument is the server as SSH names it, signed in as `root`, or as a user th
     `github_client_secret`, with `GITHUB_CLIENT_ID`. <!-- part: github -->
     `google_client_secret`, with `GOOGLE_CLIENT_ID`, and `google_desktop_client_secret`, with `GOOGLE_DESKTOP_CLIENT_ID`. <!-- part: google -->
     `openid_connect_client_secret`, with `OPENID_CONNECT_CLIENT_ID`. <!-- part: openid_connect -->
-- For the certificate of a private authority, as a file on your machine, when one signed the certificate of a bucket of your own or of a managed backend.
+- For the certificate of a private authority, as a file on your machine, when one signed the certificate of a managed database, of a bucket of your own or of a managed backend.
 - For a token that can read the repository's packages, through which the server pulls the release's images; a public repository's images need none.
 
 Then, on the server, it:
@@ -156,6 +156,7 @@ What a deploy refuses, and what to do:
 | The release doesn't verify | Read the error: the registry login on the server, or a release whose images aren't signed by your repository's CI |
 | A setting is missing or invalid | Set it with `just server-setup`, which asks for it, as `deploy/settings.env.example` describes it |
 | A secret that the settings need is missing | Give it with `just server-setup`, which asks for each one |
+| A managed database's URL doesn't set `sslmode=verify-full` | Give the URL again with `just server-setup`, with `sslmode=verify-full` in its query, and `sslrootcert` for a provider whose authority is its own ([above](#setting-up-a-server)) |
 | The connections wouldn't fit | Lower `API_REPLICAS` or `DATABASE_MAX_CONNECTIONS`, or raise `POSTGRES_MAX_CONNECTIONS` (below) |
 | The deploy changes a service that runs once, such as Postgres or Caddy, through the release, a setting, a secret or a file it reads | Deploy it again with `--allow-restart` when what its restart interrupts is acceptable (below) |
 | The new replicas don't become ready | Nothing to undo: the deploy removed them, and the live replicas never stopped. Its output ends with their last log lines |
@@ -320,7 +321,7 @@ The API sends email through a provider's mail server, over the Simple Mail Trans
 
 Any provider with an SMTP relay works. From it, take:
 
-1. **The relay's host and port, and its security.** Most providers offer port 587, where the connection upgrades to TLS before anything else is sent, which `SMTP_SECURITY=starttls`, the default, requires; with a connection that starts with TLS, usually on port 465, set `tls`.
+1. **The relay's host and port, and its security.** Most providers offer port 587, where the connection upgrades to TLS before anything else is sent, which `SMTP_SECURITY=starttls`, the default, requires; with a connection that starts with TLS, usually on port 465, set `tls`. `none` encrypts nothing, and is for a mail server on the server itself: a deploy refuses it unless `SMTP_HOST` is one of the server's own addresses, as `ip addr` shows them (OPS-17).
 2. **The SMTP credentials**, which providers often issue apart from their API keys: the user name goes in `SMTP_USERNAME`, and the password in the secret file `smtp_password`, which `just server-setup` asks for once the user name is set.
 3. **A sender on a domain of yours.** The provider asks you to add DNS records to the domain, usually for the Sender Policy Framework (SPF) and DomainKeys Identified Mail (DKIM), and recommends one for Domain-based Message Authentication, Reporting and Conformance (DMARC); until they verify, the provider refuses or holds the email, and receiving servers file what does arrive as spam. Set the sender, with a name, in `EMAIL_FROM`, such as `AntWorker <noreply@example.com>`.
 
@@ -388,7 +389,7 @@ A new `grafana_secret_key` ends its viewers' sessions, and each signs in again (
 |---|---|---|
 | `settings.env` | The deployment's settings | `just server-setup` |
 | `secrets/` | One secret per file | `just server-setup`, the first deploy that needs each one that it generates, and `just replace-key` |
-| `certs/backup-ca.crt`, `certs/managed-otlp-ca.crt`, `certs/managed-grafana-ca.crt` | The authority of a private bucket's certificate, for backups, and of a managed backend's and its Grafana's, if any | `just server-setup` |
+| `certs/database-ca.crt`, `certs/backup-ca.crt`, `certs/managed-otlp-ca.crt`, `certs/managed-grafana-ca.crt` | The authority of a managed database's certificate, of a private bucket's, for backups, and of a managed backend's and its Grafana's, if any | `just server-setup` |
 | `certs/files-ca.crt` | The authority of the files bucket's certificate, for a bucket of your own | `just server-setup` <!-- part: files --> |
 | `compose.yaml`, `deploy.sh`, `tasks/`, `verify-release.sh`, `import-grafana.sh`, `settings.env.example`, `caddy/`, `observability/`, `tools/` | The deployment files of the last deploy whose replicas served, once one has: a deploy that refuses or fails before its own serve puts these back, as [Deploying a release](#deploying-a-release) says | each deploy |
 | `scanner/` | The scanner's files, of the same deploy | each deploy <!-- part: files --> |

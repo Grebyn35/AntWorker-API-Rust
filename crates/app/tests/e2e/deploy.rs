@@ -7,7 +7,9 @@ use std::time::Duration;
 use platform::errors::{ErrorCode, RequestError};
 
 use crate::{
-    deployment::{Deployment, Traffic, assert_all_succeeded, get, get_within, unanswered},
+    deployment::{
+        Deployment, MANAGED_TLS, Traffic, assert_all_succeeded, get, get_within, unanswered,
+    },
     docker::lossy,
     server::DEPLOYMENT,
 };
@@ -268,6 +270,54 @@ async fn ops_18_a_deploy_refuses_replicas_whose_connections_would_not_fit() {
         "{}",
         lossy(&refused)
     );
+    assert!(deployment.server.running("caddy").is_empty());
+    assert!(deployment.server.running("api-blue").is_empty());
+}
+
+#[tokio::test]
+async fn ops_17_a_deploy_refuses_a_connection_that_would_leave_the_server_unencrypted() {
+    let deployment = Deployment::managed(&[]);
+    let secret = format!("{DEPLOYMENT}/secrets/database_owner_url");
+    let url = deployment.server.shell_ok(&format!("cat {secret}"));
+    let verified = format!("?{MANAGED_TLS}");
+    assert!(
+        url.ends_with(&verified),
+        "the tests' URL of a managed database"
+    );
+    let plain = url.trim_end_matches(&verified);
+    let mut refusals = Vec::new();
+    // A managed database's URL without `sslmode`, with which the driver falls back to plain
+    // text, with one that checks no certificate, and with `verify-full` only in its fragment.
+    for query in ["", "?sslmode=require", "#?sslmode=verify-full"] {
+        deployment.server.write(&secret, &format!("{plain}{query}"));
+        refusals.push((
+            deployment.apply(&deployment.api, &[]).await,
+            "database_owner_url doesn't set sslmode=verify-full",
+        ));
+    }
+    deployment.server.write(&secret, &url);
+    // Email without encryption to a mail server that isn't on the server itself.
+    deployment.set(&[
+        ("EMAIL", "smtp"),
+        ("SMTP_HOST", "192.0.2.25"),
+        ("SMTP_SECURITY", "none"),
+        ("EMAIL_FROM", "AntWorker <noreply@example.com>"),
+    ]);
+    refusals.push((
+        deployment.apply(&deployment.api, &[]).await,
+        "SMTP_SECURITY=none sends email unencrypted",
+    ));
+
+    for (refused, why) in &refusals {
+        assert!(!refused.status.success(), "{why}: {}", lossy(refused));
+        assert!(lossy(refused).contains(why), "{why}: {}", lossy(refused));
+        // A refusal names the file, and never what it holds.
+        assert!(
+            !lossy(refused).contains("postgres://"),
+            "{}",
+            lossy(refused)
+        );
+    }
     assert!(deployment.server.running("caddy").is_empty());
     assert!(deployment.server.running("api-blue").is_empty());
 }

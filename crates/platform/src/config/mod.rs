@@ -195,7 +195,7 @@ const ORIGINS_EXPECTED: &str = "origins separated by commas, such as https://app
 
 const DATABASE_URL_EXPECTED: &str = "a PostgreSQL URL with a user, a password, a host and a \
      database, and no query parameters but sslmode, sslrootcert, sslcert, sslkey and \
-     application_name";
+     application_name, each at most once, and no fragment";
 
 /// The environment variables of libpq that the Postgres driver reads, and that would change a
 /// connection whose URL leaves them out. The URL always sets the host, user, password and

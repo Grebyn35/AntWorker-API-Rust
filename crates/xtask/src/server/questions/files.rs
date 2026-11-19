@@ -219,6 +219,14 @@ pub(super) const CERTS: &[File] = &[
     },
     // end part: files
     File {
+        name: "database-ca.crt",
+        what: "The certificate of the private authority that signed the managed database's \
+               certificate, if one did; the database's URLs then name it, as \
+               sslrootcert=/etc/deployment-certs/database-ca.crt.",
+        generated: false,
+        needed: managed_database,
+    },
+    File {
         name: "backup-ca.crt",
         what: "The certificate of the private authority that signed the backup bucket's \
                certificate, for a bucket of your own; none for a provider's.",

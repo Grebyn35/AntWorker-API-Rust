@@ -216,7 +216,7 @@ write() {
                 ;;
             cert)
                 case $first in
-                    backup-ca.crt | managed-otlp-ca.crt | managed-grafana-ca.crt) ;;
+                    database-ca.crt | backup-ca.crt | managed-otlp-ca.crt | managed-grafana-ca.crt) ;;
                     # part: files
                     files-ca.crt) ;;
                     # end part: files
