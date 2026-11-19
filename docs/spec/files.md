@@ -208,4 +208,4 @@ A file's row may go while its export lasts, as when the user deletes it, but its
 
 | Question | Settled by |
 |---|---|
-| Whether a user's own files, or a workspace's, are bounded in their count or their bytes, beside the rate limits and `FILE_MAX_BYTES`, and the bytes of the avatars a user replaces, and of the pictures a workspace's owner and admins replace, which each stay for `FILE_DELETION_DELAY_DAYS`: a capability, so the owner's | the pass against ASVS Level 2, at step 6 |
+| How the bytes that a user uploads in a day are bounded, of files, avatars and workspaces' pictures, beside the rate limits and `FILE_MAX_BYTES`: the owner decided on 2026-11-19 that an allowance of a day's uploads bounds them, and that nothing caps the total that a user's own files or a workspace's hold, which a product that sells storage adds for itself | the pass against ASVS Level 2, at step 6, which builds the allowance |
