@@ -11,7 +11,10 @@
 //! hold the most shares a test takes beside the reserve, every server keeps its store on disk,
 //! and the heavy turn still goes one at a time, which bounds the disk the suite takes.
 
-use std::sync::{Condvar, Mutex, OnceLock, PoisonError};
+use std::{
+    io::Write,
+    sync::{Condvar, Mutex, OnceLock, PoisonError},
+};
 
 use tokio::sync::Semaphore;
 
@@ -21,18 +24,20 @@ use crate::{
 };
 
 /// What a server may hold in memory, its store and its processes together, in mebibytes, its
-/// limit in its share: a
-/// bundled database's server that restores twice holds up to 2.2 gibibytes that its kernel can't
-/// reclaim, its store's files and its processes' memory, beside a cache that it can. The limit is
-/// Docker's, so a process on a server that would take more ends, and its test fails, while the
-/// machine keeps the rest.
-pub const SERVER_MIB: u64 = 3_072;
+/// limit in its share. Of the servers that take no heavy turn, a bundled database's that also
+/// holds the collector's image, for the stand-in of a managed backend, holds up to 3.2 gibibytes
+/// that its kernel can't reclaim: 2.5 of its store's files and 0.6 of its processes' and the
+/// kernel's memory, beside a cache that it can; one that restores twice holds up to 2.8. The
+/// limit is Docker's, so a process on a server that would take more ends, and its test fails,
+/// while the machine keeps the rest.
+pub const SERVER_MIB: u64 = 4_096;
 /// What a managed database's server may hold in memory, its limit in its deployment's share: its
-/// data and its processes, up to 160 mebibytes.
+/// data and its processes, up to 180 mebibytes.
 pub const DATABASE_MIB: u64 = 512;
 /// What the server that holds the heavy turn may hold beyond its own limit: a bundled database's
-/// server with the self-hosted stack holds up to 6.1 gibibytes.
-pub const HEAVY_MIB: u64 = 4_096;
+/// server with the self-hosted stack holds up to 6.2 gibibytes that its kernel can't reclaim, 5.3
+/// of them its store's files.
+pub const HEAVY_MIB: u64 = 3_584;
 /// What the machine keeps beside the servers, for the tests' own processes.
 const HEADROOM_MIB: u64 = 1_024;
 /// The most shares that a test takes, for its two servers (`Server::start_two`).
@@ -45,10 +50,34 @@ pub fn shares() -> Option<&'static Turns> {
         .get_or_init(|| {
             // What an earlier run left goes first, with the memory it holds.
             machine::claim();
-            let shares = shares_in(available_mib());
+            let available = available_mib();
+            let shares = shares_in(available);
+            report(available, shares);
             (shares > 0).then(|| Turns::new(shares))
         })
         .as_ref()
+}
+
+/// Says once, as the first server starts, where the run's servers keep their stores, with the
+/// memory that decided it. It writes to the process's standard error itself, since a test's
+/// captured output is shown only when the test fails.
+fn report(available: u64, shares: u64) {
+    let line = if shares > 0 {
+        format!(
+            "the servers keep their stores in memory, {shares} at once: the machine has \
+             {available} MiB available\n"
+        )
+    } else {
+        let needed =
+            HEAVY_MIB + HEADROOM_MIB + MOST_SHARES_A_TEST_TAKES * (SERVER_MIB + DATABASE_MIB);
+        format!(
+            "the servers keep their stores on disk: the machine has {available} MiB available, \
+             and {MOST_SHARES_A_TEST_TAKES} servers at once take {needed}\n"
+        )
+    };
+    std::io::stderr()
+        .write_all(line.as_bytes())
+        .expect("the run's standard error");
 }
 
 /// How many shares `available` mebibytes hold beside the heavy turn's reserve and the headroom,
