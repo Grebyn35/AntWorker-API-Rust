@@ -131,9 +131,9 @@ image-rescan repository:
 # Lists, as Markdown, the vulnerabilities that have a fix and are rated critical or high in each
 # third-party image of the reference deployment, for each platform: the images that a line
 # `image: <name>@sha256:<digest>` of a compose.yaml under deploy/ names. It fails on none of
-# them, since only an image's maker fixes one (SEC-15), and fails when a scan can't run. Grype
-# writes a line for each, as just/third-party-scan.tmpl says. The scheduled workflow runs it
-# every week, and writes the list to its job's summary.
+# them, since the deployment runs each as its maker built it (SEC-15), and fails when a scan
+# can't run. Grype writes a line for each, as just/third-party-scan.tmpl says. The scheduled
+# workflow runs it every week, and writes the list to its job's summary.
 [unix]
 [private]
 third-party-scan:
