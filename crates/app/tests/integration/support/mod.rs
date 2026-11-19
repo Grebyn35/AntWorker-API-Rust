@@ -645,7 +645,10 @@ pub async fn execute_on(executor: &mut PgConnection, sql: &str) {
 
 /// Waits until at least `count` queries of the test database wait on a lock, as the
 /// administrator sees them: other roles see only their own sessions' waits. The requests the test
-/// sent lead there, so the wait has no bound of its own (TEST-06).
+/// sent lead there, so the wait has no bound of its own (TEST-06). A request that is refused
+/// before it reaches its lock never leads there, and the test then hangs rather than failing: one
+/// sent with the tokens that a proof replaced answers 401 first (AUTH-095), so a test that
+/// re-authenticates, or changes the password, sends what follows with the tokens of that answer.
 pub async fn queries_wait_on_locks(db: &TestDatabase, count: usize) {
     let sql = format!(
         "SELECT count(*)::text FROM pg_stat_activity \
