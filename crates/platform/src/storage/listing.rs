@@ -115,7 +115,9 @@ mod tests {
             .iter()
             .map(|object| format!("<Contents>{object}</Contents>"))
             .collect();
-        // S3's namespace, whose last segment is on a line of its own.
+        // S3's namespace, whose last segment, a date, is on a line of its own: `check-docs` reads
+        // what follows a line's first two slashes as a comment, and refuses a date in one
+        // (DOC-01).
         format!(
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<ListBucketResult \
              xmlns=\"http://s3.amazonaws.com/doc/\

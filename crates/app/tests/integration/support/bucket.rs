@@ -194,6 +194,7 @@ pub async fn listing(objects: &[(&str, &str)]) -> Scripted {
             )
         })
         .collect();
+    // The namespace's last segment, a date, is on a line of its own, as in the storage's tests.
     let body = format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\
          <ListBucketResult xmlns=\"http://s3.amazonaws.com/doc/\
