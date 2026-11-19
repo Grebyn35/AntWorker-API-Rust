@@ -190,6 +190,18 @@ pub fn remove_second_factor(host: &str, email: &str) -> ExitCode {
     )
 }
 
+/// Writes a new key in place of `key`, one of the two that a deploy generated on the deployment
+/// that SSH reaches at `host`, which refuses any other name (OPS-19).
+pub fn replace_key(host: &str, key: &str) -> ExitCode {
+    on_server(
+        host,
+        &format!(
+            "DEPLOYMENT={DEPLOYMENT} sh {DEPLOYMENT}/deploy.sh replace-key {}",
+            quoted(key)
+        ),
+    )
+}
+
 /// Ends every session of the account that holds the address `whose` on the deployment that SSH
 /// reaches at `host`, or, when `whose` is `--all`, of every account, through the API's subcommand
 /// `end-sessions` (AUTH-094).

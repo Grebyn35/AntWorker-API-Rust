@@ -6,7 +6,7 @@ use std::time::Duration;
 use crate::{
     deployment::{
         Deployment, GRAFANA_ADDRESS, GRAFANA_ADMIN_PASSWORD, GRAFANA_ADMIN_USER, get, get_traced,
-        get_within, post, post_for_cookies,
+        get_with_cookie, get_within, post, post_for_cookies,
     },
     docker::lossy,
     server::DEPLOYMENT,
@@ -258,6 +258,120 @@ fn assert_a_browser_guards_grafana_s_pages(headers: &reqwest::header::HeaderMap)
             "{directive}: {policy}"
         );
     }
+}
+
+/// What Grafana answers a request for the signed-in user with `session`, its session's cookie as
+/// a sign-in set it, once Docker reports Grafana healthy, which a deploy that recreates it
+/// doesn't wait for.
+fn grafana_user(deployment: &Deployment, root: &str, session: &str) -> u16 {
+    deployment.server.shell_ok(
+        "timeout 60 sh -c 'until [ \"$(docker inspect --format \"{{ .State.Health.Status }}\" \
+         deployment-grafana-1)\" = healthy ]; do sleep 1; done'",
+    );
+    get_with_cookie(
+        root.to_owned(),
+        deployment.url_at(GRAFANA_ADDRESS, "https", 443, "/api/user"),
+        session.split(';').next().expect("a cookie").to_owned(),
+    )
+}
+
+/// The keys of the rate limits' buckets that the deployment's database holds, each a keyed hash
+/// of what it counts (PLATFORM-057), once a request from the tests' address has counted in its
+/// own.
+fn bucket_keys_after_a_request(deployment: &Deployment) -> Vec<String> {
+    let (status, _) = get(
+        deployment.server.caddy_root(),
+        deployment.url("https", 443, "/v1/capabilities"),
+    );
+    assert_eq!(status, 200);
+    deployment
+        .sql("SELECT encode(key_hash, 'hex') FROM rate_limit_buckets ORDER BY 1")
+        .lines()
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Asserts that `replace-key` refused, changing nothing, with a line that holds `why`.
+fn assert_no_key_was_replaced(refused: &std::process::Output, why: &str) {
+    assert_eq!(refused.status.code(), Some(1), "{}", lossy(refused));
+    assert!(lossy(refused).contains(why), "{}", lossy(refused));
+}
+
+#[tokio::test]
+async fn ops_19_a_key_that_the_operator_replaced_reaches_its_services_at_the_next_deploy() {
+    let deployment = Deployment::bundled(&[("TELEMETRY", "self-hosted")]);
+    let secret = |name: &str| {
+        deployment
+            .server
+            .shell_ok(&format!("cat {DEPLOYMENT}/secrets/{name}"))
+    };
+    let replace = |name: &str| deployment.server.deploy(&["replace-key", name]);
+    let administrator = (GRAFANA_ADMIN_USER, GRAFANA_ADMIN_PASSWORD);
+    // No deploy has generated a key yet, so none is there to replace.
+    assert_no_key_was_replaced(&replace("hmac_key"), "holds no key to replace");
+    let first = deployment.apply(&deployment.api, &[]).await;
+    assert!(first.status.success(), "{}", lossy(&first));
+    let root = deployment.server.caddy_root();
+    let (hmac, grafana_key) = (secret("hmac_key"), secret("grafana_secret_key"));
+    let ring = secret("encryption_keys");
+    let grafana = deployment.server.running("grafana");
+    let (signed_in, cookies) = grafana_sign_in(&deployment, &root, administrator);
+    assert_eq!(signed_in, 200, "{cookies:?}");
+    let session = cookies
+        .iter()
+        .find(|cookie| cookie.starts_with("__Host-grafana_session="))
+        .expect("the session's cookie");
+    let before = bucket_keys_after_a_request(&deployment);
+    assert_eq!(grafana_user(&deployment, &root, session), 200);
+
+    // The ring is the operator's, which the setup writes: the task replaces only the two keys
+    // that a deploy generates.
+    let not_generated = replace("encryption_keys");
+    let (replaced_hmac, replaced_grafana) = (replace("hmac_key"), replace("grafana_secret_key"));
+    let (new_hmac, new_grafana_key) = (secret("hmac_key"), secret("grafana_secret_key"));
+    // The services that run keep the keys they started with: the replicas count the tests'
+    // address in the bucket they counted it in, and Grafana knows its viewer's session.
+    let kept = bucket_keys_after_a_request(&deployment);
+    let kept_session = grafana_user(&deployment, &root, session);
+    let deployed = deployment.apply(&deployment.api, &[]).await;
+    let after = bucket_keys_after_a_request(&deployment);
+    let ended_session = grafana_user(&deployment, &root, session);
+    let (again, _) = grafana_sign_in(&deployment, &root, administrator);
+
+    assert_no_key_was_replaced(
+        &not_generated,
+        "replace-key takes hmac_key or grafana_secret_key",
+    );
+    assert_eq!(secret("encryption_keys"), ring);
+    assert!(replaced_hmac.status.success(), "{}", lossy(&replaced_hmac));
+    assert!(
+        replaced_grafana.status.success(),
+        "{}",
+        lossy(&replaced_grafana)
+    );
+    // A key of the keyed hashes is the base64 of 32 bytes, and Grafana's 24 bytes in hex.
+    assert_ne!(new_hmac, hmac);
+    assert_eq!(
+        new_hmac.trim_end().len(),
+        44,
+        "{} characters",
+        new_hmac.len()
+    );
+    assert_ne!(new_grafana_key, grafana_key);
+    assert_eq!(new_grafana_key.trim_end().len(), 48);
+    assert_eq!(kept, before);
+    assert_eq!(kept_session, 200);
+    // The deploy's replicas hash under the new key, so they count the same address in a bucket
+    // that no request counted in before, and the Grafana that the deploy recreated knows no
+    // session that the old key hashed, while its administrator signs in again.
+    assert!(deployed.status.success(), "{}", lossy(&deployed));
+    assert!(
+        after.iter().any(|key| !before.contains(key)),
+        "{before:?} then {after:?}"
+    );
+    assert_ne!(deployment.server.running("grafana"), grafana);
+    assert_eq!(ended_session, 401);
+    assert_eq!(again, 200);
 }
 
 #[tokio::test]

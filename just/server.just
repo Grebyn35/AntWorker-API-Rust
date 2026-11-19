@@ -67,6 +67,16 @@ status host:
 logs host *services:
     {{ xtask }} logs {{ host }} {{ services }}
 
+# Writes a new key in place of `key`, one of the two that a deploy of the reference deployment on
+# `host` generated (OPS-19): `hmac_key`, the key of the API's keyed hashes, or
+# `grafana_secret_key`, the one under which Grafana encrypts what it stores. The next deploy
+# gives the new key to the services that read it. docs/operations/deploy.md says what each
+# replacement ends.
+[doc("Writes a new key in place of one that a deploy generated on a server")]
+[group('server')]
+replace-key host key:
+    {{ xtask }} replace-key {{ host }} {{ quote(key) }}
+
 # Removes the authenticator app and the recovery codes of the account that holds `email` on the
 # reference deployment on `host`, ends every session of the account, and tells the address, for a
 # user who lost both, once you have checked, your own way, that the person who asks owns the

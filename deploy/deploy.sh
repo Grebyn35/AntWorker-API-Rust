@@ -2,12 +2,12 @@
 # The reference deployment's tasks on its server (D45): deploys a release with no downtime
 # (OPS-14), and with a managed backend, imports its dashboards and alert rules into the backend's
 # Grafana through import-grafana.sh (D42), takes and restores the bundled database's backups
-# (OPS-15), shows the deployment's state and its services' logs (OPS-19), removes a lost second
-# factor from an account (AUTH-072), and ends an account's sessions, or every account's
-# (AUTH-094). `just deploy`, `just backup`, `just restore`, `just status`, `just logs`,
-# `just remove-second-factor` and `just end-sessions` run it over SSH from a developer's machine;
-# docs/operations/deploy.md describes the deployment. Each task's code is a file of tasks/, which
-# this script sources.
+# (OPS-15), shows the deployment's state and its services' logs, and writes a new key in place of
+# one that a deploy generated (OPS-19), removes a lost second factor from an account (AUTH-072),
+# and ends an account's sessions, or every account's (AUTH-094). `just deploy`, `just backup`,
+# `just restore`, `just status`, `just logs`, `just replace-key`, `just remove-second-factor` and
+# `just end-sessions` run it over SSH from a developer's machine; docs/operations/deploy.md
+# describes the deployment. Each task's code is a file of tasks/, which this script sources.
 # It also sets up a workspace (WORKSPACES-023), which `just setup-workspace` runs. # part: workspace_setup
 # It also makes an account a superadmin, ends one, or lists them (SUPERADMINS-001), which `just superadmin` runs. # part: superadmins
 #
@@ -45,6 +45,11 @@
 #       Shows the last 100 lines of each service's log, of every service without one, and with
 #       --follow, the lines that follow. `api` names both colors' replicas. With caddy, or every
 #       service, Caddy's lines of the requests it answered itself follow too (D53).
+#   deploy.sh replace-key <hmac_key|grafana_secret_key>
+#       Writes a new key in place of one that a deploy generated: the key of the API's keyed
+#       hashes, or the one under which Grafana encrypts what it stores. The services that run
+#       keep the key they started with, until the next deploy. Fails, changing nothing, while
+#       the deployment holds no such key yet.
 #   deploy.sh remove-second-factor <email>
 #       Removes the authenticator app and the recovery codes of the account that holds <email>,
 #       ends every session of the account, and tells the address, through the API's subcommand of
@@ -97,6 +102,7 @@ project=deployment
 
 # Each task's code, a file of tasks/ that shares this script's variables (CODE-08).
 . "$here/tasks/common.sh"
+. "$here/tasks/secrets.sh"
 . "$here/tasks/apply.sh"
 . "$here/tasks/backups.sh"
 . "$here/tasks/status.sh"
@@ -113,7 +119,7 @@ allowed() {
 }
 
 # The tasks, for the usage that an unknown one gets.
-tasks="deploy|apply|backup|restore|restore-inputs|status|logs|remove-second-factor|end-sessions|check|check-images"
+tasks="deploy|apply|backup|restore|restore-inputs|status|logs|replace-key|remove-second-factor|end-sessions|check|check-images"
 # part: workspace_setup
 tasks="$tasks|setup-workspace"
 # end part: workspace_setup
@@ -144,6 +150,10 @@ case $command in
     logs)
         shift
         logs "$@"
+        ;;
+    replace-key)
+        if [ "$#" -ne 2 ]; then fail "usage: deploy.sh replace-key <hmac_key|grafana_secret_key>"; fi
+        replace_key "$2"
         ;;
     remove-second-factor)
         if [ "$#" -ne 2 ]; then fail "usage: deploy.sh remove-second-factor <email>"; fi

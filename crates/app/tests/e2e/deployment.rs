@@ -441,6 +441,21 @@ pub fn get_within(
     .expect("the request")
 }
 
+/// Sends `GET` to `url` with `cookie` as its `Cookie` header, through a client that trusts
+/// `root`, and returns the response's status.
+pub fn get_with_cookie(root: String, url: String, cookie: String) -> u16 {
+    thread::spawn(move || {
+        let response = client(&root)
+            .get(&url)
+            .header("cookie", cookie)
+            .send()
+            .expect("an answer");
+        response.status().as_u16()
+    })
+    .join()
+    .expect("the request")
+}
+
 /// Sends `GET` to `url` with the trace context `traceparent`, through a client that trusts
 /// `root`, and returns the response's status and headers.
 pub fn get_traced(

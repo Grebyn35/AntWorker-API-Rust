@@ -68,6 +68,16 @@ pub enum ServerTask {
         /// The release's version, such as 1.4.0.
         version: Option<String>,
     },
+    /// Writes a new key in place of one that a deploy generated on the deployment at `host`,
+    /// which the next deploy gives the services that read it (OPS-19).
+    #[command(name = "replace-key")]
+    ReplaceKey {
+        /// The server, as SSH names it.
+        host: String,
+        /// The key's file: `hmac_key`, the key of the API's keyed hashes, or
+        /// `grafana_secret_key`, the one under which Grafana encrypts what it stores.
+        key: String,
+    },
     /// Removes the authenticator app and the recovery codes of the account that holds `email`
     /// on the deployment at `host`, through the subcommand of the image that serves, for a user
     /// who lost both, once the operator has checked that they own the account (AUTH-072, D135).
@@ -176,6 +186,7 @@ impl ServerTask {
             } => deploy::restore(&host, moment.as_deref(), allow_unarchived),
             Self::Status { host } => deploy::status(&host),
             Self::Logs { host, arguments } => deploy::logs(&host, &arguments),
+            Self::ReplaceKey { host, key } => deploy::replace_key(&host, &key),
             Self::RemoveSecondFactor { host, email } => deploy::remove_second_factor(&host, &email),
             Self::EndSessions { host, whose } => deploy::end_sessions(&host, &whose),
             // part: workspace_setup

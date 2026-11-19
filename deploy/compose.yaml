@@ -569,6 +569,9 @@ services:
       # The key under which Grafana encrypts what it stores and hashes its sessions' tokens, in
       # place of the one its image holds, which is public.
       GF_SECURITY_SECRET_KEY__FILE: /run/secrets/grafana_secret_key
+      # The key's fingerprint, so a deploy after `just replace-key` wrote a new one recreates
+      # Grafana, which reads the key as it starts.
+      SECRETS_FINGERPRINT: ${GRAFANA_SECRETS:-}
       # The session cookie: sent over HTTPS alone, to this host alone, and with a link on another
       # site, such as an alert's, but with nothing that another site's page sends of its own
       # (SEC-14).

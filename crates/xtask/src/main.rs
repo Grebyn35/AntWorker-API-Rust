@@ -453,6 +453,18 @@ mod tests {
     }
 
     #[test]
+    fn ops_19_a_key_s_replacement_takes_a_server_and_the_key_s_file() {
+        let cli = Cli::try_parse_from(["xtask", "replace-key", "production", "hmac_key"]).unwrap();
+
+        assert!(matches!(
+            cli.command,
+            Command::Server(ServerTask::ReplaceKey { host, key })
+                if host == "production" && key == "hmac_key"
+        ));
+        assert!(Cli::try_parse_from(["xtask", "replace-key", "production"]).is_err());
+    }
+
+    #[test]
     fn auth_072_the_operator_s_removal_takes_a_server_and_an_address() {
         let cli = Cli::try_parse_from([
             "xtask",

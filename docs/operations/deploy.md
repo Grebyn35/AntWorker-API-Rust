@@ -112,7 +112,7 @@ Host production
 
 With them, every task names the server `production`, as the rest of this document does, and `ssh production` signs in. Choose any name, and add a `Host` for each server, such as `staging` beside `production`.
 
-Run it again to change a setting, a secret or the login: it asks again, starting from what the server holds, and keeps any setting the example doesn't list; the next deploy applies what changed. The deploy writes the other secrets the first time the services need them: the bundled database's other passwords and the URLs made from them, and the key under which Grafana encrypts what it stores ([Grafana](#grafana)). When `DATABASE` moves from `managed` to `bundled`, the deploy moves the managed database's URLs aside, to `<name>.before-bundled`, and writes the bundled one's. Compose mounts each secret file into the containers that read it, where any user of the container can read it, so each file is readable by every user, while the directory admits only the deployment's user. A container keeps the files it started with, and the setup writes each secret as a new file, so a deploy recreates each service whose secrets changed since it started, as it records their fingerprints, the SHA-256 of each file's SHA-256, in the environments of the containers that mount them, which only those who can read the files themselves can read (D103): the backups, the collector of a managed backend and Alertmanager restart, and Postgres only with `--allow-restart` ([below](#restarting-a-service-that-runs-once)).
+Run it again to change a setting, a secret or the login: it asks again, starting from what the server holds, and keeps any setting the example doesn't list; the next deploy applies what changed. The deploy writes the other secrets the first time the services need them: the bundled database's other passwords and the URLs made from them, and [the two keys that it generates](#the-keys-that-a-deploy-generates), the key of the API's keyed hashes and the one under which Grafana encrypts what it stores. When `DATABASE` moves from `managed` to `bundled`, the deploy moves the managed database's URLs aside, to `<name>.before-bundled`, and writes the bundled one's. Compose mounts each secret file into the containers that read it, where any user of the container can read it, so each file is readable by every user, while the directory admits only the deployment's user. A container keeps the files it started with, and the setup writes each secret as a new file, so a deploy recreates each service whose secrets changed since it started, as it records their fingerprints, the SHA-256 of each file's SHA-256, in the environments of the containers that mount them, which only those who can read the files themselves can read (D103): the backups, the collector of a managed backend, Alertmanager and Grafana restart, and Postgres only with `--allow-restart` ([below](#restarting-a-service-that-runs-once)).
 
 ### Checking a server
 
@@ -347,7 +347,7 @@ Caddy replaces each request's `X-Forwarded-For` with the address it came from, s
 
 With the self-hosted stack, Grafana answers at `https://<GRAFANA_ADDRESS>`. Sign in under the name that you gave `just server-setup` as `GRAFANA_ADMIN_USER`, with the password that you typed there: Grafana creates its administrator with them the first time it starts, in place of the `admin` that every Grafana starts with, and a deploy refuses the name `admin`, and a password that is missing or shorter than 15 characters, since it generates none (SEC-14). Grafana reads both only that first time, so change either in Grafana afterwards; a Grafana that started before a release asked for them keeps the account it has, `admin`, which you rename there. Add every other viewer as a user in Grafana: nobody views it anonymously, and nobody signs up (SEC-14). A viewer signs in again after 7 days without a request, and after 30 days in any case. The dashboards are read-only, and change only through their files (OBS-13).
 
-Grafana hashes its sessions' tokens, and encrypts what it stores, under the key in `~/deployment/secrets/grafana_secret_key`, which the same deploy wrote. A Grafana that ran before a release wrote the key ends its viewers' sessions once, when it first starts with it; replacing the key later does the same, and leaves Grafana unable to read a secret that it stored under the old one, of which the deployment's own files give it none.
+Grafana hashes its sessions' tokens, and encrypts what it stores, under the key in `~/deployment/secrets/grafana_secret_key`, which the same deploy wrote. A Grafana that ran before a release wrote the key ends its viewers' sessions once, when it first starts with it; [replacing the key](#the-keys-that-a-deploy-generates) later does the same, and leaves Grafana unable to read a secret that it stored under the old one, of which the deployment's own files give it none.
 
 Grafana's settings turn off what it would reach beyond the deployment: it reports no usage, checks for no update, and fetches no plugin, picture or news, so it holds the plugins of its image alone. Its pages load only from its own address, by the `Content-Security-Policy` in [deploy/observability/compose.yaml](../../deploy/observability/compose.yaml) (SEC-12): a panel that your fork adds and that loads from another host, such as a map's tiles, needs that host there. Grafana shows the alerts that fire, but no alert notifies anyone until your fork's `alertmanager.yaml` names an integration, such as email or a chat webhook, and every deploy warns until then ([observability.md](observability.md#alerts)).
 
@@ -361,12 +361,33 @@ The API encrypts each secret that it must read back, such as an authenticator ap
 2. Run `just server-setup` again, and give `ENCRYPTION_KEY_VERSION` the new version, 2, since Enter keeps the version the server holds; then deploy. Each check that accepts an app's code, and the hourly job `auth.reencrypt_secrets`, stores its secret again under the new key (AUTH-066). While the deploy's old replicas still serve, one of them may store a secret under the old key again, which the next run moves back.
 3. Once no restore reaches a moment before that deploy, `BACKUP_RETENTION_DAYS` after it, or a managed database's recovery window after it, run `just server-setup`, and give `encryption_keys` the ring without the old key, such as `2:<new key>`; then deploy. A restore to a moment before the move brings back secrets under the old key, which a ring without it opens nowhere ([restoring](backups.md#restoring)). A replica refuses to start while a stored secret still needs the old key, so the deploy keeps the replicas that serve until the job has moved every secret.
 
+## The keys that a deploy generates
+
+A deploy generates two keys, each the first time a service needs it, and nobody needs a copy of either: a new server's first deploy generates new ones.
+
+- **`secrets/hmac_key`**, the key of the API's keyed hashes, 32 random bytes (SEC-03). Under it the API stores the hash of each code that an email carries, and of a device token's email, and names the buckets of its rate limits and the cookie that holds a browser's device token (PLATFORM-057, AUTH-015).
+  It signs a private file's signed URL too (PLATFORM-080). <!-- part: files -->
+- **`secrets/grafana_secret_key`**, with the self-hosted stack: the key under which Grafana hashes its sessions' tokens and encrypts what it stores, 24 random bytes ([Grafana](#grafana)).
+
+To replace one, such as when someone else may have read the server's files, run
+
+```
+just replace-key production hmac_key
+```
+
+or the same with `grafana_secret_key`, then deploy. The task writes a new key in the old one's place, and refuses any other secret's name; the services that run keep the key they started with, and the deploy starts its replicas, or recreates Grafana, with the new one.
+
+A new `hmac_key` ends what the old one made. A code that an email carried before the deploy stops working, and its user asks for another. A device token stops counting for its email, so its device's next sign-in counts in the email's own limits, and one that succeeds gives the device a new token (AUTH-006, AUTH-019). The rate limits' counts start afresh. While the deploy's two colors both serve, a code that a replica of one stored is one that a replica of the other refuses.
+A private file's signed URL from before the deploy stops working too, and its client asks for another (PLATFORM-080). <!-- part: files -->
+
+A new `grafana_secret_key` ends its viewers' sessions, and each signs in again ([Grafana](#grafana)).
+
 ## The files on the server
 
 | Path in `~/deployment` | Holds | Written by |
 |---|---|---|
 | `settings.env` | The deployment's settings | `just server-setup` |
-| `secrets/` | One secret per file | `just server-setup`, and the first deploy that needs each generated one |
+| `secrets/` | One secret per file | `just server-setup`, the first deploy that needs each one that it generates, and `just replace-key` |
 | `certs/backup-ca.crt`, `certs/managed-otlp-ca.crt`, `certs/managed-grafana-ca.crt` | The authority of a private bucket's certificate, for backups, and of a managed backend's and its Grafana's, if any | `just server-setup` |
 | `certs/files-ca.crt` | The authority of the files bucket's certificate, for a bucket of your own | `just server-setup` <!-- part: files --> |
 | `compose.yaml`, `deploy.sh`, `tasks/`, `verify-release.sh`, `import-grafana.sh`, `settings.env.example`, `caddy/`, `observability/`, `tools/` | The deployment files of the last deploy whose replicas served, once one has: a deploy that refuses or fails before its own serve puts these back, as [Deploying a release](#deploying-a-release) says | each deploy |
