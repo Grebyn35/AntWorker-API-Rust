@@ -275,4 +275,5 @@ The certificates are those that Let's Encrypt issues Caddy, above, and those of 
 | The digests that pin an image, and that name a release's | SHA-256 | OPS-11, OPS-12 |
 | What names a thing and authenticates nothing: an idempotency record's fingerprint, the tag of a cursor's route, and the fingerprint of the secret files that a deploy gives a service | SHA-256, of which the tag and the fingerprint keep the first bytes | PLATFORM-036, [lists](../spec/platform.md#lists), [setting up a server](deploy.md#setting-up-a-server) |
 | A private file's signed URL | HMAC-SHA-256 under `HMAC_KEY` | PLATFORM-080 <!-- part: files --> |
+| The requests to the files bucket | Signature Version 4 of Amazon Web Services (AWS), an HMAC-SHA-256 under a key that the key pair's secret derives, in each request's URL | SEC-16, PLATFORM-094 <!-- part: files --> |
 | A file's checksum, which tells a copy that changed by accident, and protects against no one | CRC-32 (cyclic redundancy check) | FILES-025 <!-- part: files --> |

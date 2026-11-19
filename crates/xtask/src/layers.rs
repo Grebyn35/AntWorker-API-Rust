@@ -48,7 +48,7 @@ const HTTP_CRATES: [&str; 9] = [
 
 /// The libraries that reach other systems, whose errors stay in their adapter (ERR-04): the
 /// database driver, and the clients of HTTP, email and object storage.
-const INFRASTRUCTURE: [&str; 12] = [
+const INFRASTRUCTURE: [&str; 13] = [
     "sqlx",
     "sqlx_core",
     "sqlx_postgres",
@@ -57,6 +57,7 @@ const INFRASTRUCTURE: [&str; 12] = [
     "hyper",
     "hyper_util",
     "lettre",
+    "rusty_s3",
     "object_store",
     "aws_sdk_s3",
     "aws_smithy_runtime_api",

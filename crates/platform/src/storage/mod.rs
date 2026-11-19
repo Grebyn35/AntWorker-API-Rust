@@ -1,8 +1,11 @@
 //! The client of the S3-compatible bucket that holds files' bytes (D1, D14, the files spec's
-//! "Storage"). It reports a bucket that doesn't answer as unavailable, and every other failure as
-//! internal, neither naming the key, so no error of the library leaves it (ERR-04).
+//! "Storage"). It signs each request as a URL, with `rusty-s3`, and sends it through a `reqwest`
+//! client of its own. It reports a bucket that doesn't answer as unavailable, and every other
+//! failure as internal, neither naming the key, so no error of a library leaves it (ERR-04).
 
 mod failures;
+mod key;
+mod listing;
 
 use std::{ops::Range, path::PathBuf, sync::Arc, time::Duration};
 
@@ -12,21 +15,16 @@ use futures_util::{
     future::{Either, select},
     stream::{self, BoxStream},
 };
-use object_store::{
-    Attribute, Attributes, ClientOptions, GetOptions, GetRange, ObjectStore, ObjectStoreExt,
-    PutOptions, PutPayload, RetryConfig,
-    aws::{AmazonS3, AmazonS3Builder},
-    client::{HttpClient, HttpConnector},
-    path::Path,
-};
+use reqwest::header::{CONTENT_RANGE, CONTENT_TYPE, RANGE};
+use rusty_s3::{Bucket, Credentials, S3Action, UrlStyle};
 use tracing::Instrument;
 use url::Url;
 
-use self::failures::classify;
+use self::failures::{answered_with, sent};
+pub use self::key::ObjectKey;
 use crate::{
     clock::SharedClock,
     errors::Internal,
-    random,
     telemetry::{metrics::Counter, names},
     types::Secret,
 };
@@ -44,13 +42,10 @@ const ANSWER_TIMEOUT: Duration = Duration::from_secs(4);
 /// seconds, after the body and its scan (PLATFORM-074, the files spec's "Scanning").
 const WRITE_TIMEOUT: Duration = Duration::from_secs(15);
 
-/// How long a failed request is retried, from its first attempt: long enough for the failures
-/// that come at once, such as a refused connection or a busy bucket's 503: the waits above bound
-/// each call, its retries included.
-const RETRY_TIMEOUT: Duration = Duration::from_secs(2);
-
-/// How many times a request is retried.
-const RETRIES: usize = 2;
+/// How long the bucket takes a request's signed URL for, from its signing: longer than the
+/// longest wait for an answer, so no request that the client still waits on is signed too long
+/// ago.
+const URL_LIFETIME: Duration = Duration::from_secs(60);
 
 static REQUESTS: Counter<1> = Counter::new(
     "platform.storage_requests",
@@ -86,7 +81,9 @@ pub struct StorageConfig {
 /// The bucket.
 #[derive(Clone)]
 pub struct Storage {
-    store: Arc<AmazonS3>,
+    client: reqwest::Client,
+    bucket: Arc<Bucket>,
+    credentials: Arc<Credentials>,
     clock: SharedClock,
     host: Arc<str>,
     port: u16,
@@ -109,37 +106,12 @@ pub enum StorageError {
     #[error("the bucket holds no object of the key")]
     NotFound,
     /// The bucket didn't answer in time, the connection to it failed, or it answered that it
-    /// can't serve now, with a 5xx or a 429, after the client's retries (FILES-012).
+    /// can't serve now, with a 5xx or a 429 (FILES-012).
     #[error("the bucket didn't answer")]
     Unavailable(#[source] Internal),
     /// The bucket refused the request, or answered what the client couldn't read.
     #[error("the bucket's request failed")]
     Failed(#[source] Internal),
-}
-
-/// The key of an object: random, so it names no row and reveals nothing, under a prefix of its
-/// module's (the files spec's "Storage").
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ObjectKey(String);
-
-impl ObjectKey {
-    /// A new key under `prefix`: 128 bits from the operating system's secure random source, in
-    /// hexadecimal (CODE-06).
-    pub fn random(prefix: &str) -> Result<Self, Internal> {
-        let bits = random::bytes::<16>()?;
-        let hex: String = bits.iter().map(|byte| format!("{byte:02x}")).collect();
-        Ok(Self(format!("{prefix}{hex}")))
-    }
-
-    /// A key that the database holds.
-    pub fn from_stored(key: &str) -> Self {
-        Self(key.to_owned())
-    }
-
-    /// The key.
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
 }
 
 /// An object that a listing gives: its key, and when the bucket wrote it, by the bucket's clock.
@@ -199,34 +171,30 @@ impl Storage {
     /// answer at startup keeps no route from serving. Building it reads the certificates it
     /// trusts from their files, once (the platform spec's Storage).
     pub fn new(config: &StorageConfig, clock: SharedClock) -> Result<Self, Internal> {
-        let options = ClientOptions::new().with_allow_http(config.endpoint.scheme() == "http");
-        let retry = RetryConfig {
-            max_retries: RETRIES,
-            retry_timeout: RETRY_TIMEOUT,
-            ..RetryConfig::default()
+        let style = if config.path_style {
+            UrlStyle::Path
+        } else {
+            UrlStyle::VirtualHost
         };
-        let store = AmazonS3Builder::new()
-            .with_endpoint(config.endpoint.as_str().trim_end_matches('/'))
-            .with_region(&config.region)
-            .with_bucket_name(&config.bucket)
-            .with_access_key_id(&config.access_key_id)
-            .with_secret_access_key(config.secret_access_key.expose())
-            .with_virtual_hosted_style_request(!config.path_style)
-            .with_disable_tagging(true)
-            .with_disable_bulk_delete(true)
-            .with_client_options(options)
-            .with_retry(retry)
-            .with_http_connector(Connector {
-                ca_path: config.ca_path.clone(),
-            })
-            .build()
-            .map_err(Internal::new)?;
+        let bucket = Bucket::new(
+            config.endpoint.clone(),
+            style,
+            config.bucket.clone(),
+            config.region.clone(),
+        )
+        .map_err(|error| Internal::new(format!("the bucket's address: {error}")))?;
+        let credentials = Credentials::new(
+            config.access_key_id.clone(),
+            config.secret_access_key.expose().clone(),
+        );
         let host = config
             .endpoint
             .host_str()
             .ok_or_else(|| Internal::new("the bucket's endpoint has no host"))?;
         Ok(Self {
-            store: Arc::new(store),
+            client: client(config.ca_path.as_deref())?,
+            bucket: Arc::new(bucket),
+            credentials: Arc::new(credentials),
             clock,
             host: host.into(),
             port: config.endpoint.port_or_known_default().unwrap_or(443),
@@ -240,17 +208,13 @@ impl Storage {
         bytes: Bytes,
         media_type: &str,
     ) -> Result<(), StorageError> {
-        let mut attributes = Attributes::new();
-        attributes.insert(Attribute::ContentType, media_type.to_owned().into());
-        let options = PutOptions {
-            attributes,
-            ..PutOptions::default()
-        };
-        let path = path(key);
-        let put = self
-            .store
-            .put_opts(&path, PutPayload::from_bytes(bytes), options);
-        self.answer(Call::Put, put).await.map(drop)
+        let request = key.addressed().map(|object| {
+            self.client
+                .put(writing(&self.bucket, &self.credentials, object, media_type))
+                .header(CONTENT_TYPE, media_type)
+                .body(bytes)
+        });
+        self.answer(Call::Put, request).await.map(drop)
     }
 
     /// The object `key`'s bytes, or those of `range` alone, offsets of its bytes that it holds,
@@ -262,18 +226,33 @@ impl Storage {
         key: &ObjectKey,
         range: Option<Range<u64>>,
     ) -> Result<Object, StorageError> {
-        let path = path(key);
-        let options = GetOptions {
-            range: range.map(GetRange::Bounded),
-            ..GetOptions::default()
-        };
-        let found = self
-            .answer(Call::Get, self.store.get_opts(&path, options))
-            .await?;
-        let size = found.meta.size;
+        let request = key.addressed().and_then(|object| {
+            let action = self.bucket.get_object(Some(&self.credentials), object);
+            let request = self.client.get(action.sign(URL_LIFETIME));
+            match &range {
+                None => Ok(request),
+                Some(range) if range.start < range.end => {
+                    // S3's `Range` names its last byte, where the range names the one after it.
+                    let bytes = format!("bytes={}-{}", range.start, range.end - 1);
+                    Ok(request.header(RANGE, bytes))
+                }
+                Some(_) => Err(StorageError::Failed(Internal::new(
+                    "a read asked the bucket for a range of no bytes",
+                ))),
+            }
+        });
+        let found = self.answer(Call::Get, request).await?;
+        let size = size(&found, range.is_some()).inspect_err(|unread| count(Some(unread)))?;
+        let chunks = stream::unfold(found, |mut found| async move {
+            match found.chunk().await {
+                Ok(Some(chunk)) => Some((Ok(chunk), found)),
+                Ok(None) => None,
+                Err(error) => Some((Err(sent(&error, Call::Get)), found)),
+            }
+        });
         // A stream that the bucket stops sending, or that fails, counts again, by its failure,
         // so a bucket that answers and then stalls still shows (OBS-14).
-        let bytes = answered(found.into_stream(), self.clock.clone(), Call::Get)
+        let bytes = answered(chunks, self.clock.clone(), Call::Get)
             .map(|chunk| {
                 chunk.map_err(|failure| {
                     count(Some(&failure));
@@ -287,29 +266,27 @@ impl Storage {
     /// Deletes the object `key`. An object that isn't there counts as deleted, so a second
     /// deletion of it succeeds.
     pub async fn delete(&self, key: &ObjectKey) -> Result<(), StorageError> {
-        let path = path(key);
-        match self.answer(Call::Delete, self.store.delete(&path)).await {
-            Ok(()) | Err(StorageError::NotFound) => Ok(()),
+        let request = key.addressed().map(|object| {
+            let action = self.bucket.delete_object(Some(&self.credentials), object);
+            self.client.delete(action.sign(URL_LIFETIME))
+        });
+        match self.answer(Call::Delete, request).await {
+            Ok(_) | Err(StorageError::NotFound) => Ok(()),
             Err(error) => Err(error),
         }
     }
 
-    /// The objects under `prefix`, as the bucket lists them, a page at a time, in the listing's
-    /// client span (OBS-06). The bucket has as long for each page as for any other answer, and
-    /// the listing counts once, as it ends or fails.
+    /// The objects whose keys start with `prefix`, as the bucket lists them, a page at a time, in
+    /// the listing's client span (OBS-06). The bucket has as long for each page as for any other
+    /// answer, and the listing counts once, as it ends or fails.
     pub fn list(&self, prefix: &str) -> BoxStream<'static, Result<Listed, StorageError>> {
-        let prefix = Path::from(prefix.trim_end_matches('/'));
-        let listed = self.store.list(Some(&prefix)).map(|listed| {
-            listed.map(|meta| Listed {
-                key: ObjectKey(meta.location.to_string()),
-                // A time S3 gives is a whole second's, which a timestamp in seconds always holds.
-                written_at: time::OffsetDateTime::from_unix_timestamp(
-                    meta.last_modified.timestamp(),
-                )
-                .unwrap_or(time::OffsetDateTime::UNIX_EPOCH),
+        let pages = listing::pages(self.clone(), prefix.to_owned());
+        let keys = answered(pages, self.clock.clone(), Call::List)
+            .flat_map(|page| match page {
+                Ok(listed) => stream::iter(listed.into_iter().map(Ok)).left_stream(),
+                Err(error) => stream::iter([Err(error)]).right_stream(),
             })
-        });
-        let keys = answered(listed, self.clock.clone(), Call::List);
+            .boxed();
         stream::unfold(Some((keys, self.span(Call::List))), |state| async move {
             let (mut keys, span) = state?;
             match keys.next().instrument(span.clone()).await {
@@ -327,17 +304,19 @@ impl Storage {
         .boxed()
     }
 
-    /// Waits for the bucket's answer to `call`, which `answering` awaits, in the call's client
-    /// span (OBS-06), for at most the call's timeout on the clock, and counts how it ended.
-    async fn answer<T>(
+    /// Sends `request` for `call`, unless building it already failed, and waits for the bucket's
+    /// answer, in the call's client span (OBS-06), for at most the call's timeout on the clock,
+    /// and counts how it ended. An answer whose status isn't a success is a failure.
+    async fn answer(
         &self,
         call: Call,
-        answering: impl Future<Output = object_store::Result<T>> + Send,
-    ) -> Result<T, StorageError> {
+        request: Result<reqwest::RequestBuilder, StorageError>,
+    ) -> Result<reqwest::Response, StorageError> {
         let wait = self.clock.sleep(call.timeout());
         let answered = async {
+            let answering = async { answered_with(request?.send().await, call) };
             match select(std::pin::pin!(answering), wait).await {
-                Either::Left((answer, _)) => answer.map_err(|error| classify(&error, call)),
+                Either::Left((answer, _)) => answer,
                 Either::Right(((), _)) => Err(StorageError::Unavailable(Internal::new(format!(
                     "the bucket didn't answer a {} within {} seconds",
                     call.operation(),
@@ -373,6 +352,15 @@ impl StorageError {
     }
 }
 
+/// The signed URL of a write of `object` to `bucket`, under `credentials`, which signs
+/// `media_type` as the request's `Content-Type`, so the bucket stores the one that the request
+/// sends.
+fn writing(bucket: &Bucket, credentials: &Credentials, object: &str, media_type: &str) -> Url {
+    let mut action = bucket.put_object(Some(credentials), object);
+    action.headers_mut().insert("content-type", media_type);
+    action.sign(URL_LIFETIME)
+}
+
 /// Counts a call to the bucket that ended with `failure`, or with none.
 fn count(failure: Option<&StorageError>) {
     let outcome = match failure {
@@ -384,11 +372,50 @@ fn count(failure: Option<&StorageError>) {
     REQUESTS.add(1, [outcome.into()]);
 }
 
+/// How many bytes the whole object of the answer `found` holds: what follows the slash of its
+/// `Content-Range`, when the read asked for a range, which the bucket answers with a 206, and
+/// its `Content-Length` otherwise.
+fn size(found: &reqwest::Response, ranged: bool) -> Result<u64, StorageError> {
+    let unread = |what: &str| {
+        StorageError::Failed(Internal::new(format!(
+            "the bucket answered {} with {what}",
+            Call::Get.operation()
+        )))
+    };
+    if !ranged {
+        return found
+            .content_length()
+            .ok_or_else(|| unread("no length of its bytes"));
+    }
+    if found.status() != reqwest::StatusCode::PARTIAL_CONTENT {
+        return Err(unread("the whole object, where a range was asked for"));
+    }
+    found
+        .headers()
+        .get(CONTENT_RANGE)
+        .and_then(|range| range.to_str().ok())
+        .and_then(whole)
+        .ok_or_else(|| unread("a range that names no size of the whole"))
+}
+
+/// The size of the whole that a `Content-Range` names, such as the 1000 of `bytes 10-19/1000`.
+fn whole(content_range: &str) -> Option<u64> {
+    let (range, whole) = content_range.strip_prefix("bytes ")?.split_once('/')?;
+    let (first, last) = range.split_once('-')?;
+    let number = |text: &str| {
+        (!text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit()))
+            .then(|| text.parse::<u64>().ok())
+            .flatten()
+    };
+    let (first, last, whole) = (number(first)?, number(last)?, number(whole)?);
+    (first <= last && last < whole).then_some(whole)
+}
+
 /// `items`, the answers of `call`, each of which the bucket has `ANSWER_TIMEOUT` on `clock` to
 /// give, counted from when it is asked for, so a stream that waits on its reader isn't cut short.
 /// The stream ends after its first failure.
 fn answered<T: Send + 'static>(
-    items: impl futures_util::Stream<Item = object_store::Result<T>> + Send + 'static,
+    items: impl futures_util::Stream<Item = Result<T, StorageError>> + Send + 'static,
     clock: SharedClock,
     call: Call,
 ) -> BoxStream<'static, Result<T, StorageError>> {
@@ -402,7 +429,8 @@ fn answered<T: Send + 'static>(
                 Either::Right(((), _)) => {
                     return Some((
                         Err(StorageError::Unavailable(Internal::new(format!(
-                            "the bucket sent nothing more within {} seconds",
+                            "the bucket sent nothing more of a {} within {} seconds",
+                            call.operation(),
                             ANSWER_TIMEOUT.as_secs()
                         )))),
                         None,
@@ -411,43 +439,70 @@ fn answered<T: Send + 'static>(
             };
             match next? {
                 Ok(item) => Some((Ok(item), Some(items))),
-                Err(error) => Some((Err(classify(&error, call)), None)),
+                Err(error) => Some((Err(error), None)),
             }
         }
     })
     .boxed()
 }
 
-/// The bucket's path of `key`.
-fn path(key: &ObjectKey) -> Path {
-    Path::from(key.0.as_str())
+/// The HTTP client of the bucket's requests, with TLS through rustls with its ring provider
+/// (SEC-16), which verifies an `https` bucket against the operating system's certificates, or the
+/// files that `SSL_CERT_FILE` and `SSL_CERT_DIR` name, as a verified database connection does
+/// (D38), and against those of `ca_path`, if it names a file. Its only timeout is the
+/// connection's: the waits for the bucket's answers are the clock's, in [`Storage`]. It follows
+/// no redirect, so a request reaches the endpoint that the settings name, or fails (SEC-10).
+fn client(ca_path: Option<&std::path::Path>) -> Result<reqwest::Client, Internal> {
+    let tls = crate::tls::client_config(true, ca_path).map_err(Internal::new)?;
+    reqwest::Client::builder()
+        .connect_timeout(CONNECT_TIMEOUT)
+        .redirect(reqwest::redirect::Policy::none())
+        .tls_backend_preconfigured(tls)
+        .build()
+        .map_err(|error| Internal::new(format!("the bucket's client: {}", error.without_url())))
 }
 
-/// The library's HTTP client, with TLS through rustls with its ring provider (SEC-16), which
-/// verifies an `https` bucket against the operating system's certificates, or the files that
-/// `SSL_CERT_FILE` and `SSL_CERT_DIR` name, as a verified database connection does (D38), and
-/// against those of `S3_CA_PATH`, if it names a file. Its only timeout is the connection's: the
-/// waits for the bucket's answers are the clock's, in [`Storage`]. It follows no redirect, so a
-/// request reaches the endpoint that the settings name, or fails (SEC-10).
-#[derive(Debug)]
-struct Connector {
-    ca_path: Option<PathBuf>,
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-impl HttpConnector for Connector {
-    fn connect(&self, _: &ClientOptions) -> object_store::Result<HttpClient> {
-        let failed =
-            |source: Box<dyn std::error::Error + Send + Sync>| object_store::Error::Generic {
-                store: "S3",
-                source,
-            };
-        let tls = crate::tls::client_config(true, self.ca_path.as_deref()).map_err(failed)?;
-        let client = reqwest::Client::builder()
-            .connect_timeout(CONNECT_TIMEOUT)
-            .redirect(reqwest::redirect::Policy::none())
-            .tls_backend_preconfigured(tls)
-            .build()
-            .map_err(|error| failed(Box::new(error)))?;
-        Ok(HttpClient::new(client))
+    #[test]
+    fn platform_094_a_write_s_url_signs_its_media_type_and_lasts_a_minute() {
+        let endpoint = "https://s3.example.com".parse().unwrap();
+        let bucket = Bucket::new(endpoint, UrlStyle::VirtualHost, "files", "eu-1").unwrap();
+        let credentials = Credentials::new("an-id", "a-secret");
+
+        let url = writing(&bucket, &credentials, "avatars/0a", "image/png");
+
+        assert_eq!(url.host_str(), Some("files.s3.example.com"));
+        assert_eq!(url.path(), "/avatars/0a");
+        let query: std::collections::HashMap<_, _> = url.query_pairs().into_owned().collect();
+        assert_eq!(query["X-Amz-Algorithm"], "AWS4-HMAC-SHA256");
+        assert_eq!(query["X-Amz-Expires"], "60");
+        assert_eq!(query["X-Amz-SignedHeaders"], "content-type;host");
+        assert!(query["X-Amz-Credential"].starts_with("an-id/"));
+        assert_eq!(query["X-Amz-Signature"].len(), 64);
+        assert!(!url.as_str().contains("a-secret"));
+    }
+
+    #[test]
+    fn platform_094_a_ranged_answer_names_the_size_of_the_whole_after_its_slash() {
+        assert_eq!(whole("bytes 10-19/1000"), Some(1000));
+        assert_eq!(whole("bytes 0-0/1"), Some(1));
+        for unread in [
+            "bytes 10-19/*",
+            "bytes */1000",
+            "bytes 10-19",
+            "bytes 19-10/1000",
+            "bytes 10-1000/1000",
+            "bytes -19/1000",
+            "bytes 10-/1000",
+            "bytes +1-+2/1000",
+            "items 10-19/1000",
+            "10-19/1000",
+            "",
+        ] {
+            assert_eq!(whole(unread), None, "{unread}");
+        }
     }
 }

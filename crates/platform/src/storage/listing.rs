@@ -1,0 +1,193 @@
+//! A listing of the bucket's objects, a page at a time, as S3's `ListObjectsV2` gives it
+//! (PLATFORM-094).
+
+use futures_util::{
+    StreamExt,
+    stream::{self, BoxStream},
+};
+use rusty_s3::{S3Action, actions::ListObjectsV2};
+
+use super::{
+    Call, Listed, ObjectKey, Storage, StorageError, URL_LIFETIME,
+    failures::{answered_with, sent},
+};
+use crate::{errors::Internal, types::Timestamp};
+
+/// The most bytes of a page that the client reads: more than the 1,000 objects of a page take,
+/// each with a key of S3's longest, 1,024 bytes, encoded.
+const PAGE_MAX_BYTES: usize = 8 << 20;
+
+/// The pages of the listing of the objects whose keys start with `prefix`, each asked of
+/// `storage`'s bucket once the one before it is read, until a page names none after it.
+pub(super) fn pages(
+    storage: Storage,
+    prefix: String,
+) -> BoxStream<'static, Result<Vec<Listed>, StorageError>> {
+    // The token of the page to ask for: none for the first, and no page left once it is `None`.
+    stream::unfold(Some(None::<String>), move |token| {
+        let (storage, prefix) = (storage.clone(), prefix.clone());
+        async move {
+            let token = token?;
+            match page(&storage, &prefix, token.as_deref()).await {
+                Ok((listed, next)) => Some((Ok(listed), next.map(Some))),
+                Err(error) => Some((Err(error), None)),
+            }
+        }
+    })
+    .boxed()
+}
+
+/// The page of the listing that `token` continues, or its first, and the token of the page after
+/// it, if the listing goes on.
+async fn page(
+    storage: &Storage,
+    prefix: &str,
+    token: Option<&str>,
+) -> Result<(Vec<Listed>, Option<String>), StorageError> {
+    let url = {
+        let mut action = storage.bucket.list_objects_v2(Some(&storage.credentials));
+        action.with_prefix(prefix);
+        if let Some(token) = token {
+            action.with_continuation_token(token);
+        }
+        action.sign(URL_LIFETIME)
+    };
+    let mut answer = answered_with(storage.client.get(url).send().await, Call::List)?;
+    let mut page = Vec::new();
+    while let Some(chunk) = answer
+        .chunk()
+        .await
+        .map_err(|error| sent(&error, Call::List))?
+    {
+        if page.len() + chunk.len() > PAGE_MAX_BYTES {
+            return Err(unread("a page of more than 8 MiB"));
+        }
+        page.extend_from_slice(&chunk);
+    }
+    read(&page)
+}
+
+/// The objects that the page `xml` lists, and the token of the page after it, if the listing goes
+/// on. The parser refuses a document type, so it resolves no entity of a document's own
+/// (SEC-20). An object whose key no URL addresses, or whose time of writing the page doesn't
+/// give as S3 writes it, fails the page: the deletion of unreferenced objects would act on it.
+fn read(xml: &[u8]) -> Result<(Vec<Listed>, Option<String>), StorageError> {
+    let text = std::str::from_utf8(xml).map_err(|_| unread("a page that isn't UTF-8"))?;
+    let parsed =
+        ListObjectsV2::parse_response(text).map_err(|_| unread("a page that isn't a listing"))?;
+    let mut listed = Vec::with_capacity(parsed.contents.len());
+    for object in parsed.contents {
+        let key = ObjectKey::from_stored(&object.key);
+        if !key.is_addressed() {
+            return Err(unread(
+                "a key with a segment that a URL's path doesn't keep",
+            ));
+        }
+        let written_at = object
+            .last_modified
+            .as_deref()
+            .and_then(|at| Timestamp::read(at).ok())
+            .ok_or_else(|| unread("an object without a time of writing that it reads"))?;
+        listed.push(Listed {
+            key,
+            written_at: written_at.at(),
+        });
+    }
+    Ok((listed, parsed.next_continuation_token))
+}
+
+/// The failure of a listing whose page holds `what`.
+fn unread(what: &str) -> StorageError {
+    StorageError::Failed(Internal::new(format!(
+        "the bucket answered {} with {what}",
+        Call::List.operation()
+    )))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A page that lists `objects`, each given as the elements of its `Contents`, and `rest`
+    /// after them.
+    fn listing(objects: &[&str], rest: &str) -> String {
+        let contents: String = objects
+            .iter()
+            .map(|object| format!("<Contents>{object}</Contents>"))
+            .collect();
+        // S3's namespace, whose last segment is on a line of its own.
+        format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<ListBucketResult \
+             xmlns=\"http://s3.amazonaws.com/doc/\
+             2006-03-01/\"><Name>files</Name>{contents}{rest}</ListBucketResult>"
+        )
+    }
+
+    const WRITTEN: &str = "<LastModified>2026-11-19T11:48:17.000Z</LastModified>";
+
+    #[test]
+    fn platform_094_a_page_gives_its_objects_and_the_token_of_the_next() {
+        let first = format!("<Key>avatars/0a</Key>{WRITTEN}<Size>3</Size>");
+        let second = format!("<Key>avatars/a+b%25c</Key>{WRITTEN}");
+        let more = "<IsTruncated>true</IsTruncated>\
+                    <NextContinuationToken>avatars/0b</NextContinuationToken>\
+                    <EncodingType>url</EncodingType>";
+
+        let (listed, next) = read(listing(&[&first, &second], more).as_bytes()).unwrap();
+        let (last, end) = read(listing(&[&first], "").as_bytes()).unwrap();
+
+        let keys: Vec<&str> = listed.iter().map(|object| object.key.as_str()).collect();
+        assert_eq!(keys, ["avatars/0a", "avatars/a b%c"]);
+        assert_eq!(listed[0].written_at.unix_timestamp(), 1_795_088_897);
+        assert_eq!(next.as_deref(), Some("avatars/0b"));
+        assert_eq!((last.len(), end), (1, None));
+    }
+
+    #[test]
+    fn platform_094_a_page_with_a_document_type_or_an_entity_of_its_own_fails() {
+        let object = format!("<Key>a</Key>{WRITTEN}");
+        let page = listing(&[&object], "");
+        let typed = page.replacen(
+            "<ListBucketResult",
+            "<!DOCTYPE r [<!ENTITY x SYSTEM \"file:///etc/hostname\">]><ListBucketResult",
+            1,
+        );
+        let entity = page.replacen("<Key>a</Key>", "<Key>a&x;</Key>", 1);
+
+        assert!(read(page.as_bytes()).is_ok());
+        for refused in [typed, entity] {
+            assert!(
+                matches!(read(refused.as_bytes()), Err(StorageError::Failed(_))),
+                "{refused}"
+            );
+        }
+    }
+
+    #[test]
+    fn platform_094_a_page_fails_on_a_key_no_url_addresses_and_on_a_time_it_can_t_read() {
+        for object in [
+            format!("<Key>avatars/../pictures/0a</Key>{WRITTEN}"),
+            format!("<Key>avatars//0a</Key>{WRITTEN}"),
+            "<Key>avatars/0a</Key>".to_owned(),
+            "<Key>avatars/0a</Key><LastModified>yesterday</LastModified>".to_owned(),
+            "<Key>avatars/0a</Key><LastModified>2026-11-19T11:48:17+00:00</LastModified>"
+                .to_owned(),
+        ] {
+            let page = listing(&[&object], "");
+            assert!(
+                matches!(read(page.as_bytes()), Err(StorageError::Failed(_))),
+                "{object}"
+            );
+        }
+        // A page that is cut short, and one that says more follows without saying where.
+        let whole = listing(&[&format!("<Key>a</Key>{WRITTEN}")], "");
+        let cut = &whole[..whole.len() - 10];
+        let lost = listing(&[], "<IsTruncated>true</IsTruncated>");
+        for refused in [cut, &lost, "", "not a listing"] {
+            assert!(
+                matches!(read(refused.as_bytes()), Err(StorageError::Failed(_))),
+                "{refused}"
+            );
+        }
+    }
+}

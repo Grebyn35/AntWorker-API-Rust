@@ -181,8 +181,9 @@ pub async fn redirecting(location: &'static str) -> Scripted {
     .await
 }
 
-/// A bucket that answers every request with a listing of `objects`, each a key and when the
-/// bucket wrote it, as S3 writes a time: in UTC, to the millisecond, as RFC 3339 allows.
+/// A bucket that answers every request with a listing of `objects`, in S3's namespace, each a
+/// key and when the bucket wrote it, as S3 writes a time: in UTC, to the millisecond, as RFC 3339
+/// allows.
 pub async fn listing(objects: &[(&str, &str)]) -> Scripted {
     let contents: String = objects
         .iter()
@@ -194,8 +195,9 @@ pub async fn listing(objects: &[(&str, &str)]) -> Scripted {
         })
         .collect();
     let body = format!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><ListBucketResult>\
-         <IsTruncated>false</IsTruncated>{contents}</ListBucketResult>"
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\
+         <ListBucketResult xmlns=\"http://s3.amazonaws.com/doc/\
+         2006-03-01/\"><IsTruncated>false</IsTruncated>{contents}</ListBucketResult>"
     );
     serve(Some(Answer::of(200, body))).await
 }

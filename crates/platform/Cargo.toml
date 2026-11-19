@@ -21,8 +21,6 @@ ipnet.workspace = true
 json-subscriber.workspace = true
 # The SMTP transport of the `mail` area.
 lettre.workspace = true
-# The client of the bucket of the `storage` area. # part: files
-object_store.workspace = true # part: files
 opentelemetry.workspace = true
 opentelemetry-appender-tracing.workspace = true
 opentelemetry-otlp.workspace = true
@@ -37,6 +35,8 @@ prost = { workspace = true, optional = true }
 reqwest.workspace = true
 rustls.workspace = true
 rustls-native-certs.workspace = true
+# The signed requests of the bucket of the `storage` area. # part: files
+rusty-s3.workspace = true # part: files
 serde.workspace = true
 serde_json.workspace = true
 serde_path_to_error.workspace = true

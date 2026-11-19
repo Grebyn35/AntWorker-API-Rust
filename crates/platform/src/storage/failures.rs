@@ -1,67 +1,65 @@
 //! What a call to the bucket's failure stands for: an object that isn't there, a bucket that
-//! didn't answer, or a request it refused, each with a cause written here, never the library's
-//! text, which names the request's URL, and with it the key (ERR-04).
+//! didn't answer, or a request it refused, each with a cause written here, never the HTTP
+//! client's text, which names the request's URL, and with it the key and the signature (ERR-04).
 
-use object_store::client::{HttpError, HttpErrorKind};
+use reqwest::StatusCode;
 
 use super::{Call, StorageError};
 use crate::errors::Internal;
 
-/// The failure `error` stands for, with a cause written here, since the library's own text names
-/// the request's URL, and with it the key (ERR-04): an object that isn't there; a bucket that
-/// didn't answer, as the library's error of a connection, a request, a timeout or an interruption
-/// says, or that answered a 5xx or a 429, which say it can't serve now; or a request it refused,
-/// or an answer the client couldn't read.
-pub(super) fn classify(error: &object_store::Error, call: Call) -> StorageError {
-    let operation = call.operation();
-    if let object_store::Error::NotFound { .. } = error {
-        return StorageError::NotFound;
+/// What the bucket's `answer` to `call`, or the failure to get one, stands for: the answer, when
+/// its status is a success; an object that isn't there, for a 404; a bucket that can't serve now,
+/// for a 5xx or a 429; and a request that it refused, for any other status, a redirect's among
+/// them, which the client doesn't follow.
+pub(super) fn answered_with(
+    answer: Result<reqwest::Response, reqwest::Error>,
+    call: Call,
+) -> Result<reqwest::Response, StorageError> {
+    let answer = answer.map_err(|error| sent(&error, call))?;
+    let status = answer.status();
+    if status.is_success() {
+        return Ok(answer);
     }
-    if let Some(kind) = transport(error) {
-        let failure = format!("the request {operation} to the bucket failed: {kind:?}");
-        return match kind {
-            HttpErrorKind::Connect
-            | HttpErrorKind::Request
-            | HttpErrorKind::Timeout
-            | HttpErrorKind::Interrupted => StorageError::Unavailable(Internal::new(failure)),
-            _ => StorageError::Failed(Internal::new(failure)),
-        };
+    if status == StatusCode::NOT_FOUND {
+        return Err(StorageError::NotFound);
     }
-    if let Some(status) = status(error) {
-        let failure = Internal::new(format!("the bucket answered {operation} with {status}"));
-        return if status >= 500 || status == 429 {
+    let failure = Internal::new(format!(
+        "the bucket answered {} with {}",
+        call.operation(),
+        status.as_u16()
+    ));
+    Err(
+        if status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS {
             StorageError::Unavailable(failure)
         } else {
             StorageError::Failed(failure)
-        };
-    }
-    let what = match error {
-        object_store::Error::PermissionDenied { .. } => "refused the key pair's permission",
-        object_store::Error::Unauthenticated { .. } => "refused the key pair",
-        object_store::Error::Precondition { .. } => "refused a precondition",
-        object_store::Error::AlreadyExists { .. } => "answered that the object exists",
-        _ => "gave an answer the client couldn't read",
+        },
+    )
+}
+
+/// What `error`, the HTTP client's, of a request of `call` or of its answer's bytes, stands for:
+/// a bucket that didn't answer, when the connection failed, the request couldn't be sent, or the
+/// answer's bytes stopped; and a failed request otherwise. The cause is written here, from the
+/// kind of the failure alone (ERR-04).
+pub(super) fn sent(error: &reqwest::Error, call: Call) -> StorageError {
+    let (kind, answering) = if error.is_timeout() {
+        ("the connection timed out", false)
+    } else if error.is_connect() {
+        ("no connection opened", false)
+    } else if error.is_body() || error.is_decode() {
+        ("the bytes stopped coming", false)
+    } else if error.is_request() {
+        ("it couldn't be sent", false)
+    } else {
+        ("the client couldn't make it", true)
     };
-    StorageError::Failed(Internal::new(format!("the bucket {what}, for {operation}")))
-}
-
-/// The kind of the connection's failure that `error` holds, if any.
-fn transport(error: &object_store::Error) -> Option<HttpErrorKind> {
-    let mut source: Option<&(dyn std::error::Error + 'static)> = Some(error);
-    while let Some(error) = source {
-        if let Some(failed) = error.downcast_ref::<HttpError>() {
-            return Some(failed.kind());
-        }
-        source = error.source();
+    let failure = Internal::new(format!(
+        "the request {} to the bucket failed: {kind}",
+        call.operation()
+    ));
+    if answering {
+        StorageError::Failed(failure)
+    } else {
+        StorageError::Unavailable(failure)
     }
-    None
-}
-
-/// The status of the bucket's answer that `error` reports, if it reports one. The library keeps
-/// the status in a type it doesn't export, so it is read from the error's text, `status code:`
-/// and three digits, which the tests of FILES-012 pin.
-fn status(error: &object_store::Error) -> Option<u16> {
-    let text = error.to_string();
-    let (_, after) = text.split_once("status code: ")?;
-    after.get(..3)?.parse().ok()
 }

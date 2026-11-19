@@ -41,12 +41,6 @@ json-subscriber = { version = "0.3.1", default-features = false, features = ["tr
 # The SMTP transport on Tokio, with rustls on ring and the system's certificates (SEC-16, D38).
 lettre = { version = "0.11.24", default-features = false, features = ["builder", "pool", "smtp-transport", "tokio1", "tokio1-rustls", "ring", "rustls-native-certs"] }
 mimalloc = { version = "0.1.52", default-features = false }
-# part: files
-# The client of the S3-compatible bucket that holds files' bytes, signing with ring and sending
-# through reqwest with a rustls configuration built with ring, as the telemetry exporters' client
-# does, since its `aws` feature brings aws-lc-rs, which SEC-16 bans.
-object_store = { version = "0.14.2", default-features = false, features = ["aws-base", "reqwest", "ring"] }
-# end part: files
 opentelemetry = { version = "0.33.1", default-features = false, features = ["trace", "metrics", "logs"] }
 opentelemetry-appender-tracing = { version = "0.33.1", default-features = false }
 opentelemetry-otlp = { version = "0.33.1", default-features = false, features = ["http-proto", "reqwest-blocking-client", "trace", "metrics", "logs"] }
@@ -63,6 +57,12 @@ pulldown-cmark = { version = "0.13.6", default-features = false }
 reqwest = { version = "0.13.5", default-features = false, features = ["blocking", "rustls-no-provider"] }
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std"] }
 rustls-native-certs = "0.8.5"
+# part: files
+# The requests of the S3-compatible bucket that holds files' bytes, each signed as a URL with
+# RustCrypto's `hmac` and `sha2` (SEC-16), and the reading of a listing's XML, which `platform`
+# sends through a reqwest client of its own (the platform spec's Storage).
+rusty-s3 = { version = "0.12.0", default-features = false, features = ["rustcrypto", "xml"] }
+# end part: files
 # `just server-setup` asks for each secret without showing what is typed, which the standard
 # library can't do and the workspace's ban on unsafe code keeps xtask from doing itself.
 rpassword = "7.5.4"

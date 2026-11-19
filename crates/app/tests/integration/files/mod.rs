@@ -1389,6 +1389,21 @@ async fn files_012_a_bucket_that_answers_it_can_t_serve_counts_as_not_answering(
 }
 
 #[tokio::test]
+async fn platform_094_a_call_reaches_the_bucket_once_whatever_answers_it() {
+    for status in [503, 500, 429] {
+        let bucket = bucket::scripted(Some(status)).await;
+        let api = Api::with(Options::default().set("S3_ENDPOINT", &bucket.endpoint)).await;
+        let (workspace, ada, _) = acme(&api, "member").await;
+        let id = files::arrange_row(api.database(), &workspace, "Blue").await;
+
+        let downloaded = download(&api, &ada, &workspace, &id).await;
+
+        assert_eq!(downloaded.status, 503, "{status}");
+        assert_eq!(bucket.paths().len(), 1, "{status}: {:?}", bucket.paths());
+    }
+}
+
+#[tokio::test]
 async fn sec_10_the_bucket_s_client_follows_no_redirect() {
     let bucket = bucket::redirecting("/elsewhere").await;
     let api = Api::with(Options::default().set("S3_ENDPOINT", &bucket.endpoint)).await;
