@@ -8,7 +8,7 @@ use crate::{
         Deployment, GRAFANA_ADDRESS, GRAFANA_ADMIN_PASSWORD, GRAFANA_ADMIN_USER, get, get_traced,
         get_with_cookie, get_within, post, post_for_cookies,
     },
-    docker::lossy,
+    docker::{compose, lossy},
     server::DEPLOYMENT,
     support,
 };
@@ -119,6 +119,81 @@ fn grafana_sign_in(
     )
 }
 
+/// Asserts that Prometheus, Loki, Tempo and Alertmanager, which ask no credential, join one
+/// network, which the collector and Grafana join beside them and neither the proxy nor a replica
+/// does, and that Prometheus answers on that network and on none of the proxy's and the
+/// replicas' (SEC-14).
+fn assert_the_stores_answer_the_collector_and_grafana_alone(deployment: &Deployment) {
+    let networks = |service: &str| {
+        let mut joined: Vec<String> = deployment
+            .server
+            .running(service)
+            .iter()
+            .flat_map(|container| {
+                let names = deployment.server.shell_ok(&format!(
+                    "docker inspect --format \
+                     '{{{{ range $name, $network := .NetworkSettings.Networks }}}}{{{{ $name }}}} {{{{ end }}}}' \
+                     {container}"
+                ));
+                names
+                    .split_whitespace()
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        joined.sort();
+        joined.dedup();
+        joined
+    };
+    for store in ["prometheus", "loki", "tempo", "alertmanager"] {
+        assert_eq!(networks(store), ["deployment_stack"], "{store}");
+    }
+    assert_eq!(
+        networks("collector"),
+        ["deployment_stack", "deployment_telemetry"]
+    );
+    assert_eq!(networks("grafana"), ["deployment_edge", "deployment_stack"]);
+    let mut senders = [
+        networks("caddy"),
+        networks("api-blue"),
+        networks("api-green"),
+    ]
+    .concat();
+    senders.sort();
+    senders.dedup();
+    assert!(
+        senders
+            .iter()
+            .any(|network| network == "deployment_telemetry"),
+        "{senders:?}"
+    );
+    let curl = compose(&[
+        "--file",
+        "../../deploy/tools/compose.yaml",
+        "config",
+        "--images",
+        "curl",
+    ]);
+    let healthy = |network: &str| {
+        format!(
+            "docker run --rm --quiet --network {network} {curl} --silent --fail --max-time 5 \
+             http://prometheus:9090/-/healthy"
+        )
+    };
+    deployment.server.shell_ok(&format!(
+        "timeout 60 sh -c 'until {}; do sleep 1; done'",
+        healthy("deployment_stack")
+    ));
+    for network in &senders {
+        let answered = deployment.server.shell(&healthy(network));
+        assert!(
+            !answered.status.success(),
+            "{network}: {}",
+            lossy(&answered)
+        );
+    }
+}
+
 #[tokio::test]
 async fn sec_14_a_server_publishes_only_the_proxy_and_grafana_signs_every_viewer_in() {
     // The bundled database, and a stack that a later deploy adds, after one that ran without it.
@@ -202,6 +277,7 @@ async fn sec_14_a_server_publishes_only_the_proxy_and_grafana_signs_every_viewer
     assert_eq!(as_default, 401);
     assert_the_session_s_cookie_is_this_host_s_alone(&cookies);
     assert_a_browser_guards_grafana_s_pages(&page_headers);
+    assert_the_stores_answer_the_collector_and_grafana_alone(&deployment);
     assert_eq!(plain, 308);
     let location = plain_headers["location"].to_str().unwrap();
     assert!(location.starts_with(&format!("https://{GRAFANA_ADDRESS}")));

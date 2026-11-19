@@ -182,6 +182,14 @@ x-operator: &operator
   secrets: [database_url, smtp_password]
   networks: [data, telemetry]
 
+# What confines the collector, which reads the host's filesystem for the host's metrics
+# (observability/compose.yaml): beside its image's user, which isn't root, it has no capability
+# and no way to gain one, and it writes only its state's volume.
+x-confined: &confined
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+
 # pgBackRest's settings, from the deployment's (deploy/postgres/pgbackrest.conf has the rest).
 x-backups: &backups
   PGBACKREST_REPO1_S3_ENDPOINT: ${BACKUP_S3_ENDPOINT:-}
@@ -478,7 +486,10 @@ services:
       # end part: files
       - caddy-logs:/var/log/caddy:ro
       - collector-state:/var/lib/collector
-    networks: [telemetry]
+    <<: *confined
+    # With the replicas, Caddy and the one-shot subcommands, which send it telemetry, and with
+    # the stores it writes to, which those don't reach (SEC-14).
+    networks: [telemetry, stack]
     restart: unless-stopped
 
   # The collector with a managed backend in place of the self-hosted stack (D42): the same
@@ -514,6 +525,7 @@ services:
       # A state of its own, since both collectors run for a moment while a deploy moves from one
       # to the other, and each locks its state.
       - collector-managed-state:/var/lib/collector
+    <<: *confined
     secrets: [managed_otlp_token]
     networks:
       telemetry:
@@ -524,7 +536,7 @@ services:
     extends: { file: observability/compose.yaml, service: prometheus }
     logging: *logging
     profiles: [observability]
-    networks: [telemetry]
+    networks: [stack]
     restart: unless-stopped
 
   alertmanager:
@@ -538,21 +550,21 @@ services:
       SECRETS_FINGERPRINT: ${ALERTMANAGER_SECRETS:-}
     volumes:
       - ./secrets/alertmanager:/etc/alertmanager-secrets:ro
-    networks: [telemetry]
+    networks: [stack]
     restart: unless-stopped
 
   loki:
     extends: { file: observability/compose.yaml, service: loki }
     logging: *logging
     profiles: [observability]
-    networks: [telemetry]
+    networks: [stack]
     restart: unless-stopped
 
   tempo:
     extends: { file: observability/compose.yaml, service: tempo }
     logging: *logging
     profiles: [observability]
-    networks: [telemetry]
+    networks: [stack]
     restart: unless-stopped
 
   # Grafana, at its own address behind Caddy, where every viewer signs in (D42).
@@ -589,7 +601,7 @@ services:
       # sign-in: nothing of the stack scrapes them (SEC-14).
       GF_METRICS_ENABLED: "false"
     secrets: [grafana_admin_password, grafana_secret_key]
-    networks: [edge, telemetry]
+    networks: [edge, stack]
     restart: unless-stopped
 
 networks:
@@ -601,8 +613,11 @@ networks:
   # The replicas and the scanner, which reaches ClamAV's mirrors through it.
   scanning:
   # end part: files
-  # Everything that sends or stores telemetry.
+  # The collector, and what sends it telemetry: Caddy, the replicas and the one-shot subcommands.
   telemetry:
+  # The collector, the stores it writes to, Alertmanager and Grafana. Prometheus, Loki, Tempo and
+  # Alertmanager ask no credential, so nothing else joins it (SEC-14).
+  stack:
 
 volumes:
   caddy-data:

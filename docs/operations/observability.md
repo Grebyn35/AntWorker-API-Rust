@@ -44,7 +44,7 @@ flowchart LR
 
 - **The API** exports its spans, log records and metrics over the OpenTelemetry Protocol (OTLP), on HTTP, to the collector named by `OTEL_EXPORTER_OTLP_ENDPOINT`. Every signal carries the service's name, its version, the environment, and the instance's own `service.instance.id`, so instances running side by side stay apart. The [platform spec](../spec/platform.md#telemetry-export) says how the API exports.
 - **The proxy**, Caddy, in the reference deployment, exports a span for each request but the probes, to the same collector, and the API's server span is its child, so a trace starts at the proxy (OBS-06). It writes a line for each request it answers itself, while no replica can (D53), to a file the collector reads; the API writes the line of every other request. The collector keeps only those of the span's attributes whose names `platform::telemetry` lists, and the line's method and status, so neither holds a client's address or user agent (OBS-04, [proxy.yaml](../../deploy/observability/collector/proxy.yaml)).
-- **The collector** ([config](../../deploy/observability/collector/config.yaml)) refuses data before it runs out of memory, and passes each signal to its store. It also reads the times of the bundled database's backup status files, for the backups' alerts, and the host's CPU, memory and filesystems, from the host's filesystem mounted read-only, for the server's: a filesystem it reports is one mounted whole, not a bind mount of part of one.
+- **The collector** ([config](../../deploy/observability/collector/config.yaml)) refuses data before it runs out of memory, and passes each signal to its store. It also reads the times of the bundled database's backup status files, for the backups' alerts, and the host's CPU, memory and filesystems, from the host's filesystem mounted read-only, for the server's: a filesystem it reports is one mounted whole, not a bind mount of part of one. On a server, it reads that mount as its image's user, which isn't root, with no capability and a root filesystem that it can't write, so the host's own permissions bound what it reads: `secrets/`, which admits only the deployment's user, stays closed to it.
   It reads the time of the malware scanner's daily signatures too, for the alert on their age. <!-- part: files -->
   Its tail sampling waits 15 seconds for a trace's spans, then keeps the trace if any policy keeps it (OBS-08):
   - every trace with an error status, or a response of 400 or above
@@ -68,6 +68,10 @@ flowchart LR
 
 Prometheus keeps metrics for 15 days, and Loki and Tempo keep logs and traces for 14 days.
 They keep the clients' spans and log records as long (D178), and Prometheus the series of the clients' metrics. <!-- part: client_telemetry -->
+
+### On a server
+
+Prometheus, Loki, Tempo and Alertmanager ask no credential of what reaches them. Beside its own API, each answers Go's profiling endpoints, under `/debug/pprof/`: Loki's and Tempo's `register_instrumentation` keeps its default, since the one setting registers those endpoints and the `/metrics` that Prometheus scrapes, and each answers 404 at both with it off. So on a server the four join a network of their own, `stack`, which only the collector and Grafana join beside them (SEC-14). The replicas, Caddy and the API's one-shot subcommands join `telemetry`, where the collector takes what they send, and reach none of the four. Grafana, which Caddy reaches on the network that it shares with the replicas, signs each viewer in.
 
 <!-- part: client_telemetry -->
 ### What the clients' telemetry adds
@@ -94,7 +98,7 @@ Each part of a deployment writes a log of its own, and this is what each holds, 
 
 The scanner's log holds its start, the signatures it loaded, and each signature that it finds in an upload, as text with the time of each line, in UTC without naming the zone, in its container's output ([platform spec](../spec/platform.md#scanner)). <!-- part: files -->
 
-Docker keeps a container's output, its last 100 megabytes, and the operator reads it over SSH, with `just logs` ([deploy.md](deploy.md#checking-on-a-deployment)), as whoever is in the server's `docker` group can. Grafana's viewers read what Loki holds, once they have signed in (SEC-14). Inside the deployment, each container of the `telemetry` network reaches Loki without a credential.
+Docker keeps a container's output, its last 100 megabytes, and the operator reads it over SSH, with `just logs` ([deploy.md](deploy.md#checking-on-a-deployment)), as whoever is in the server's `docker` group can. Grafana's viewers read what Loki holds, once they have signed in (SEC-14). Inside the deployment, Loki asks no credential, and answers the collector and Grafana alone ([on a server](#on-a-server)).
 
 ## A managed backend
 
