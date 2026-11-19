@@ -97,7 +97,7 @@ A deployment pins a release by the digests its tags name. The glossary in [archi
 
 ## Signing
 
-A release's signatures are keyless. Sigstore's certificate authority issues a certificate for the identity of the run on `main` that releases it, which GitHub's identity token proves, and Sigstore's transparency log records each signature. Both are public: each release makes the repository's name, the workflow's path, the commit and the images' digests public, even for a private repository. They reveal nothing else: not the code, and not the image, which only those with access to the repository can pull.
+A release's signatures are keyless: cosign signs each image by the Elliptic Curve Digital Signature Algorithm (ECDSA), with a key on the curve P-256 that it makes for that one signature, so the repository holds no signing key, and none is there to keep or to replace. Sigstore's certificate authority issues a certificate for that key, valid for 10 minutes, to the identity of the run on `main` that releases it, which GitHub's identity token proves, and Sigstore's transparency log records each signature. Both are public: each release makes the repository's name, the workflow's path, the commit and the images' digests public, even for a private repository. They reveal nothing else: not the code, and not the image, which only those with access to the repository can pull.
 
 ## Verifying a release
 
