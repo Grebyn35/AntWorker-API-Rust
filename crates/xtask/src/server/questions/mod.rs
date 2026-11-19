@@ -493,6 +493,10 @@ mod tests {
         "",
         "",
         "",
+        // part: files
+        // Nor a host of its users' pictures.
+        "",
+        // end part: files
         // end part: openid_connect
         // part: client_telemetry
         // Enter for the two budgets of the telemetry that users' clients send.

@@ -17,6 +17,12 @@ pub(super) const ENTRY: Entry = Entry {
     clients: &["GITHUB_"],
     settings: &[],
     build: |_| Ok(Box::new(GitHub)),
+    // part: files
+    pictures: super::pictures::Pictures {
+        hosts: &["avatars.githubusercontent.com"],
+        setting: None,
+    },
+    // end part: files
 };
 
 const API: &str = "https://api.github.com";

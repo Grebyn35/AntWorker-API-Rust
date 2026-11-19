@@ -231,7 +231,7 @@ impl Auth {
             self.enqueue_code(&mut uow, &principal).await?;
         }
         // part: files
-        if let Some(picture) = &identity.picture {
+        if let Some(picture) = provider.picture(&identity) {
             accounts::copy_picture(&mut uow, &principal, picture).await?;
         }
         // end part: files

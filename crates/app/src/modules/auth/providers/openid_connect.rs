@@ -31,6 +31,12 @@ pub(super) const ENTRY: Entry = Entry {
         USERINFO_ENDPOINT,
     ],
     build,
+    // part: files
+    pictures: super::pictures::Pictures {
+        hosts: &[],
+        setting: Some("OPENID_CONNECT_PICTURE_HOSTS"),
+    },
+    // end part: files
 };
 
 /// The longest the provider's name is, in characters.

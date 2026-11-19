@@ -1,12 +1,14 @@
 //! The untrusted client (SEC-10): it calls URLs that come from a third party. It fetches over
-//! HTTPS only, from public addresses only, which it checks once DNS has resolved a name, so a
-//! name that resolves to a private address reaches nothing, re-checks every redirect and follows
-//! at most [`MAX_REDIRECTS`], and caps each answer's size and time. It sends no credential, no
-//! cookie and no proxy's request, so every address it reaches is one it checked.
+//! HTTPS only, at HTTPS's own port, from the hosts alone that it is built with, and from their
+//! public addresses only, which it checks once DNS has resolved a name, so a name that resolves
+//! to a private address reaches nothing. It re-checks every redirect and follows at most
+//! [`MAX_REDIRECTS`], and caps each answer's size and time. It sends no credential, no cookie
+//! and no proxy's request, so every address it reaches is one it checked.
 
 use std::{
     error::Error,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
+    sync::Arc,
     time::Duration,
 };
 
@@ -30,6 +32,7 @@ const MAX_REDIRECTS: usize = 3;
 #[derive(Clone, Debug)]
 pub struct Untrusted {
     client: reqwest::Client,
+    hosts: Arc<[String]>,
     test_origin: Option<url::Url>,
 }
 
@@ -37,8 +40,9 @@ pub struct Untrusted {
 #[derive(Debug, thiserror::Error)]
 pub enum FetchError {
     /// The client never fetches the URL, or never takes its answer, so every attempt would end
-    /// the same: a URL that isn't HTTPS, an address that isn't public, too many redirects, an
-    /// answer over the size the fetch allows, or a status that says the URL gives nothing.
+    /// the same: a URL that isn't HTTPS, or names a port, a host that isn't one of the client's,
+    /// an address that isn't public, too many redirects, an answer over the size the fetch
+    /// allows, or a status that says the URL gives nothing.
     #[error("{0}")]
     Refused(String),
     /// No answer came in time, or the server failed: another attempt may get one.
@@ -53,23 +57,26 @@ pub enum FetchError {
 struct Forbidden(String);
 
 impl Untrusted {
-    /// The untrusted client, which accepts `config`'s test origin, a loopback address over
-    /// `http`, as the one address that isn't public, in the test environment alone (SEC-10).
+    /// The untrusted client, which fetches from `hosts` alone, each the name of a host as a URL
+    /// holds it, in lower case, and a redirect's too. It accepts `config`'s test origin, a
+    /// loopback address over `http`, as the one address that isn't public and that `hosts`
+    /// needn't name, in the test environment alone (SEC-10).
     ///
     /// # Errors
     ///
     /// When the TLS configuration, which trusts the operating system's certificates, can't be
     /// built.
-    pub fn new(config: &OutboundConfig) -> Result<Self, OutboundError> {
+    pub fn new(config: &OutboundConfig, hosts: Vec<String>) -> Result<Self, OutboundError> {
         let tls = crate::tls::client_config(true, None)
             .map_err(|error| OutboundError(format!("the TLS configuration: {error}")))?;
+        let hosts: Arc<[String]> = hosts.into();
         let test_origin = config.test_origin.clone();
-        let allowed = test_origin.clone();
+        let (listed, allowed) = (hosts.clone(), test_origin.clone());
         let redirects = reqwest::redirect::Policy::custom(move |attempt| {
             if attempt.previous().len() > MAX_REDIRECTS {
                 return attempt.error(Forbidden(format!("more than {MAX_REDIRECTS} redirects")));
             }
-            match permitted(attempt.url(), allowed.as_ref()) {
+            match permitted(attempt.url(), &listed, allowed.as_ref()) {
                 Ok(()) => attempt.follow(),
                 Err(forbidden) => attempt.error(forbidden),
             }
@@ -85,6 +92,7 @@ impl Untrusted {
             .map_err(|error| OutboundError(format!("the client: {error}")))?;
         Ok(Self {
             client,
+            hosts,
             test_origin,
         })
     }
@@ -100,7 +108,7 @@ impl Untrusted {
     pub async fn get(&self, url: &str, max_bytes: usize) -> Result<Bytes, FetchError> {
         let url = url::Url::parse(url)
             .map_err(|_| FetchError::Refused("the address isn't a URL".to_owned()))?;
-        permitted(&url, self.test_origin.as_ref())
+        permitted(&url, &self.hosts, self.test_origin.as_ref())
             .map_err(|forbidden| FetchError::Refused(forbidden.0))?;
         let host = url.host_str().unwrap_or_default().to_owned();
         let span = tracing::info_span!(
@@ -166,10 +174,15 @@ impl Untrusted {
     }
 }
 
-/// Whether the client fetches `url`: an `https` URL without credentials, whose host, when it is
-/// an address, is public. A name's addresses are checked once it resolves ([`PublicAddresses`]).
-/// The one other URL it fetches is one of `test_origin`, the tests' loopback origin.
-fn permitted(url: &url::Url, test_origin: Option<&url::Url>) -> Result<(), Forbidden> {
+/// Whether the client fetches `url`: an `https` URL without credentials and without a port, so
+/// at HTTPS's own, whose host is one of `hosts`, by its name, so none that is an IP address. The
+/// name's addresses are checked once it resolves ([`PublicAddresses`]). The one other URL it
+/// fetches is one of `test_origin`, the tests' loopback origin.
+fn permitted(
+    url: &url::Url,
+    hosts: &[String],
+    test_origin: Option<&url::Url>,
+) -> Result<(), Forbidden> {
     if !url.username().is_empty() || url.password().is_some() {
         return Err(Forbidden("the URL holds credentials".to_owned()));
     }
@@ -179,17 +192,14 @@ fn permitted(url: &url::Url, test_origin: Option<&url::Url>) -> Result<(), Forbi
     if url.scheme() != "https" {
         return Err(Forbidden("the URL isn't HTTPS".to_owned()));
     }
-    let address = match url.host() {
-        Some(url::Host::Ipv4(address)) => Some(IpAddr::V4(address)),
-        Some(url::Host::Ipv6(address)) => Some(IpAddr::V6(address)),
-        Some(url::Host::Domain(_)) => None,
-        None => return Err(Forbidden("the URL names no host".to_owned())),
-    };
-    match address {
-        Some(address) if !public(address) => {
-            Err(Forbidden("the URL's address isn't public".to_owned()))
-        }
-        _ => Ok(()),
+    if url.port().is_some() {
+        return Err(Forbidden("the URL names a port".to_owned()));
+    }
+    match url.host() {
+        Some(url::Host::Domain(name)) if hosts.iter().any(|host| host == name) => Ok(()),
+        _ => Err(Forbidden(
+            "the URL's host is none that the client fetches from".to_owned(),
+        )),
     }
 }
 
@@ -282,8 +292,14 @@ fn public_v6(address: Ipv6Addr) -> bool {
 mod tests {
     use super::*;
 
+    /// Whether a client that fetches from `pictures.example.com` and `cdn.example.com` refuses
+    /// `url`.
     fn refused(url: &str) -> bool {
-        permitted(&url::Url::parse(url).unwrap(), None).is_err()
+        let hosts = [
+            "pictures.example.com".to_owned(),
+            "cdn.example.com".to_owned(),
+        ];
+        permitted(&url::Url::parse(url).unwrap(), &hosts, None).is_err()
     }
 
     #[test]
@@ -338,24 +354,73 @@ mod tests {
     #[test]
     fn sec_10_the_untrusted_client_fetches_https_urls_without_credentials_alone() {
         assert!(!refused("https://pictures.example.com/ada.png"));
-        assert!(!refused("https://8.8.8.8/ada.png"));
         assert!(refused("http://pictures.example.com/ada.png"));
         assert!(refused("ftp://pictures.example.com/ada.png"));
         assert!(refused("https://ada:secret@pictures.example.com/ada.png"));
-        assert!(refused("https://127.0.0.1/ada.png"));
-        assert!(refused("https://[::1]/ada.png"));
-        assert!(refused("https://169.254.169.254/latest/meta-data"));
-        assert!(refused("https://[fd00::1]/ada.png"));
+        assert!(refused("https://ada@pictures.example.com/ada.png"));
+    }
+
+    #[test]
+    fn sec_10_the_untrusted_client_fetches_from_its_hosts_alone_at_https_s_own_port() {
+        for fetched in [
+            "https://pictures.example.com/ada.png",
+            "https://cdn.example.com/u/1?v=4",
+            // A name in capitals is the name, and so is HTTPS's own port, named.
+            "https://PICTURES.example.com/ada.png",
+            "https://pictures.example.com:443/ada.png",
+        ] {
+            assert!(!refused(fetched), "{fetched}");
+        }
+        // The host is the one that the parser reads, which the client connects to: an encoded dot
+        // is a dot, and a backslash ends the host as a slash does.
+        for written in [
+            "https://pictures%2Eexample.com/ada.png",
+            "https://pictures.example.com\\@elsewhere.example.com/ada.png",
+        ] {
+            let parsed = url::Url::parse(written).unwrap();
+            assert_eq!(parsed.host_str(), Some("pictures.example.com"), "{written}");
+            assert!(!refused(written), "{written}");
+        }
+        for other in [
+            "https://elsewhere.example.com/ada.png",
+            "https://example.com/ada.png",
+            "https://a.pictures.example.com/ada.png",
+            "https://pictures.example.com.evil.example/ada.png",
+            "https://pictures.example.com./ada.png",
+            "https://elsewhere.example.com/#@pictures.example.com",
+            "https://elsewhere.example.com/?pictures.example.com",
+            "https://elsewhere.example.com/pictures.example.com",
+            "https://pictures.example.com@elsewhere.example.com/ada.png",
+            "https://pictures.example.com:8443/ada.png",
+            // An address, public or not, is no host's name.
+            "https://8.8.8.8/ada.png",
+            "https://127.0.0.1/ada.png",
+            "https://[::1]/ada.png",
+            "https://169.254.169.254/latest/meta-data",
+            "https://[fd00::1]/ada.png",
+        ] {
+            assert!(refused(other), "{other}");
+        }
+        // A client that is built with no host fetches from none.
+        let none = permitted(
+            &url::Url::parse("https://pictures.example.com/ada.png").unwrap(),
+            &[],
+            None,
+        );
+        assert!(none.is_err());
     }
 
     #[test]
     fn sec_10_the_untrusted_client_accepts_the_tests_loopback_origin_alone() {
         let origin = url::Url::parse("http://127.0.0.1:4000").unwrap();
-        let permits = |url: &str| permitted(&url::Url::parse(url).unwrap(), Some(&origin)).is_ok();
+        let hosts = ["pictures.example.com".to_owned()];
+        let permits =
+            |url: &str| permitted(&url::Url::parse(url).unwrap(), &hosts, Some(&origin)).is_ok();
         assert!(permits("http://127.0.0.1:4000/ada.png"));
         assert!(!permits("http://127.0.0.1:4001/ada.png"));
         assert!(!permits("http://127.0.0.2:4000/ada.png"));
         assert!(!permits("http://pictures.example.com/ada.png"));
         assert!(permits("https://pictures.example.com/ada.png"));
+        assert!(!permits("https://elsewhere.example.com/ada.png"));
     }
 }

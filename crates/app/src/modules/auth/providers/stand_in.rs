@@ -19,6 +19,12 @@ pub(super) const ENTRY: Entry = Entry {
     clients: &["STAND_IN_", "STAND_IN_SECOND_"],
     settings: &[NAME],
     build,
+    // part: files
+    pictures: super::pictures::Pictures {
+        hosts: &[],
+        setting: Some("STAND_IN_PICTURE_HOSTS"),
+    },
+    // end part: files
 };
 
 struct StandIn {

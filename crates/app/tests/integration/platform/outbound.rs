@@ -12,12 +12,17 @@ use tokio::{
     net::TcpListener,
 };
 
+/// The host that the untrusted client of [`serving`] fetches from, beside the tests' origin: a
+/// name that resolves on the machine alone, to a loopback address.
+const HOST: &str = "localhost";
+
 /// A server on a loopback address, the tests' origin, that answers each request with what
 /// `answer` gives for its path, or never, when it gives none; and the untrusted client, which
-/// accepts it.
+/// accepts it, and fetches from [`HOST`] besides.
 async fn serving(answer: impl Fn(&str) -> Option<Vec<u8>> + Send + 'static) -> (Untrusted, String) {
     let (config, origin) = origin(answer).await;
-    (Untrusted::new(&config).unwrap(), origin)
+    let client = Untrusted::new(&config, vec![HOST.to_owned()]).unwrap();
+    (client, origin)
 }
 
 /// The configured client of the test environment, which sends each request to a server that
@@ -146,13 +151,56 @@ async fn sec_10_the_untrusted_client_checks_every_redirect_and_follows_three() {
 }
 
 #[tokio::test]
+async fn sec_10_the_untrusted_client_follows_a_redirect_to_one_of_its_hosts_alone() {
+    let (client, origin) = serving(|path| {
+        Some(match path {
+            "/listed" => redirect("https://localhost/ada.png"),
+            "/port" => redirect("https://localhost:8443/ada.png"),
+            _ => redirect("https://elsewhere.example.com/ada.png"),
+        })
+    })
+    .await;
+
+    let listed = client.get(&format!("{origin}/listed"), 16).await;
+    let port = client.get(&format!("{origin}/port"), 16).await;
+    let other = client.get(&format!("{origin}/other"), 16).await;
+
+    // The redirect to its host is followed, as far as the host's addresses, which aren't public.
+    assert!(
+        matches!(&listed, Err(FetchError::Refused(reason)) if reason.contains("no public")),
+        "{listed:?}"
+    );
+    assert!(
+        matches!(&port, Err(FetchError::Refused(reason)) if reason.contains("names a port")),
+        "{port:?}"
+    );
+    assert!(
+        matches!(&other, Err(FetchError::Refused(reason)) if reason.contains("host is none")),
+        "{other:?}"
+    );
+}
+
+#[tokio::test]
 async fn sec_10_the_untrusted_client_reaches_no_name_that_resolves_to_a_private_address() {
-    let client = Untrusted::new(&OutboundConfig::default()).unwrap();
+    let hosts = vec![HOST.to_owned()];
+    let client = Untrusted::new(&OutboundConfig::default(), hosts).unwrap();
 
     let refused = client.get("https://localhost/ada.png", 16).await;
 
     assert!(
         matches!(&refused, Err(FetchError::Refused(reason)) if reason.contains("no public")),
+        "{refused:?}"
+    );
+}
+
+#[tokio::test]
+async fn sec_10_the_untrusted_client_fetches_from_no_host_that_it_wasn_t_built_with() {
+    let client = Untrusted::new(&OutboundConfig::default(), Vec::new()).unwrap();
+
+    let refused = client.get("https://localhost/ada.png", 16).await;
+
+    assert!(
+        matches!(&refused, Err(FetchError::Refused(reason)) if reason.contains("host is none")),
         "{refused:?}"
     );
 }

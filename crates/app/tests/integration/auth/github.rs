@@ -148,7 +148,7 @@ async fn auth_083_a_deletion_that_fails_refuses_nothing() {
 #[tokio::test]
 async fn auth_083_github_gives_its_user_s_picture_for_the_new_account() {
     let (upstream, api) = github().await;
-    let picture = "https://avatars.example.com/u/583231";
+    let picture = "https://avatars.githubusercontent.com/u/583231?v=4";
     gives(
         &upstream,
         json!({ "id": 583231, "login": "octo-ada", "name": null, "avatar_url": picture }),

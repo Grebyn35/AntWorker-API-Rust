@@ -142,7 +142,7 @@ pub async fn compose(
         database.clone(),
         files.clone(),
         workers.clone(),
-        Untrusted::new(&server.outbound).map_err(Internal::new)?,
+        Untrusted::new(&server.outbound, providers.picture_hosts()).map_err(Internal::new)?,
     );
     avatars.register(&mut jobs).map_err(Internal::new)?;
     let pictures = workspaces::Pictures::new(files.clone(), workers.clone());

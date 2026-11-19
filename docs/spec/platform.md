@@ -65,7 +65,7 @@ This spec covers what the modules built so far need. The remaining areas are spe
   - `authz::refuse(uow, &Authorized<P>)`: for a refusal inside an operation, rolls its unit of work back, records the refusal as a security event, and gives the 403 `request.permission_denied` (PLATFORM-010).
 - **Services:**
   - the job registry and scheduler
-  - the outbound HTTP clients (SEC-10): `outbound::Configured`, whose `send` sends a `Request` to a URL of the configuration or of the code and gives its `Response`, and `outbound::Untrusted`, whose `get` fetches a URL that a third party gave, from a public address alone, and gives its body, or a `FetchError` that says whether another fetch may get it
+  - the outbound HTTP clients (SEC-10): `outbound::Configured`, whose `send` sends a `Request` to a URL of the configuration or of the code and gives its `Response`, and `outbound::Untrusted`, whose `get` fetches a URL that a third party gave, from the hosts alone that it is built with, at a public address alone, and gives its body, or a `FetchError` that says whether another fetch may get it
   - the clock and the random source (CODE-06)
   - the metric declarations: `Counter`, `Histogram` and `Gauge` (OBS-11)
   - the relay of clients' batches of telemetry: `telemetry::Relay`, built for the receiver that an `OtlpEndpoint` names, whose `forward` sends a batch of a `Signal` to the collector, and fails with `RelayError`, which says whether the collector refused the batch or couldn't take it (PLATFORM-091) <!-- part: client_telemetry -->

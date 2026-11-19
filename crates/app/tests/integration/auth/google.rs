@@ -154,3 +154,25 @@ async fn auth_082_google_is_listed_by_its_key_name_scopes_and_two_clients() {
         .collect();
     assert_eq!(clients, ["google-web", "google-desktop"]);
 }
+
+// part: files
+#[tokio::test]
+async fn auth_082_google_names_a_host_of_its_users_pictures_so_a_registration_hands_one_on() {
+    let (upstream, api) = google().await;
+    let picture = "https://lh3.googleusercontent.com/a/ada=s96-c";
+    gives(
+        &upstream,
+        json!({ "sub": "1098", "email": "ada@gmail.com", "name": "Ada", "picture": picture }),
+    );
+
+    let response = sign_in(&api, "https://app.example.com/callback/google").await;
+
+    assert_eq!(response.status, 201, "{}", response.json());
+    assert_eq!(
+        api.database()
+            .owner_reads("SELECT payload->>'url' FROM jobs WHERE kind = 'accounts.copy_picture'")
+            .await,
+        [picture]
+    );
+}
+// end part: files

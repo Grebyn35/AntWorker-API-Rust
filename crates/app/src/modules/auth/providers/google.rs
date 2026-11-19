@@ -12,6 +12,12 @@ pub(super) const ENTRY: Entry = Entry {
     clients: &["GOOGLE_", "GOOGLE_DESKTOP_"],
     settings: &[],
     build: |_| Ok(Box::new(Google)),
+    // part: files
+    pictures: super::pictures::Pictures {
+        hosts: &["lh3.googleusercontent.com"],
+        setting: None,
+    },
+    // end part: files
 };
 
 /// The domain of the addresses that Google hosts for anyone, which it is the authority for

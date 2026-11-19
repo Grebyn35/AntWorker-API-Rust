@@ -1,12 +1,13 @@
 //! The picture that a provider gives for a new account, copied as the account's avatar
-//! (ACCOUNTS-028, AUTH-092), through the tests' stand-in provider, which also serves the picture.
+//! (ACCOUNTS-028, AUTH-092), from the hosts that the provider names (AUTH-097), through the tests'
+//! stand-in provider, which also serves the picture.
 
 use platform::telemetry::testing;
 use serde_json::{Value, json};
 
 use crate::support::{
     Api,
-    api::Options,
+    api::{self, Options},
     files,
     providers::{self, gives, grant, sign_in, signed_in},
     scanner::{self, Script},
@@ -18,10 +19,19 @@ use crate::support::{
 /// The path of Ada's picture at the stand-in.
 const PICTURE: &str = "/pictures/ada.png";
 
-/// A stand-in provider, and an API that signs in through it, with `options`.
+/// The setting that lists the hosts of the pictures of the stand-in's users.
+const HOSTS_SETTING: &str = "STAND_IN_PICTURE_HOSTS";
+
+/// The hosts that the stand-in's settings list here: a name that never resolves, and one that
+/// resolves on the machine alone, to a loopback address. The untrusted client accepts the tests'
+/// origin, which serves the picture, beside them (SEC-10).
+const HOSTS: &str = "pictures.provider.test, localhost";
+
+/// A stand-in provider, which lists [`HOSTS`], and an API that signs in through it, with
+/// `options`.
 async fn standing(options: Options) -> (Upstream, Api) {
     let upstream = Upstream::start().await;
-    let mut settings = providers::stand_in(&upstream);
+    let mut settings = providers::stand_in(&upstream).set(HOSTS_SETTING, HOSTS);
     settings.settings.extend(options.settings);
     let api = Api::with(settings).await;
     (upstream, api)
@@ -227,12 +237,15 @@ async fn accounts_028_a_picture_in_which_the_scanner_finds_malware_leaves_no_ava
 
 #[tokio::test]
 async fn accounts_028_an_address_that_the_untrusted_client_refuses_is_never_fetched() {
-    // A loopback address that isn't the tests' origin, a name that resolves to one, and an
-    // address that isn't HTTPS (SEC-10).
+    // A loopback address that isn't the tests' origin, a listed name that resolves to one, a
+    // listed host over plain HTTP and at a port, and a host that the provider doesn't list
+    // (SEC-10).
     for picture in [
         "https://127.0.0.1/pictures/ada.png",
         "https://localhost/pictures/ada.png",
-        "http://pictures.example.com/ada.png",
+        "http://pictures.provider.test/ada.png",
+        "https://pictures.provider.test:8443/ada.png",
+        "https://elsewhere.example.com/ada.png",
     ] {
         let (upstream, api) = standing(Options::default()).await;
         upstream.set_bytes("GET", PICTURE, 200, files::PNG);
@@ -404,4 +417,79 @@ async fn auth_092_a_provider_that_gives_no_picture_hands_none_on() {
 
     assert_eq!(response.status, 201, "{}", response.json());
     assert!(copies(&api).await.is_empty());
+}
+
+#[tokio::test]
+async fn auth_092_a_provider_that_names_no_host_of_its_pictures_hands_none_on() {
+    // The stand-in's file names no host, and here its setting lists none.
+    let upstream = Upstream::start().await;
+    let api = Api::with(providers::stand_in(&upstream)).await;
+    pictured(&upstream, &upstream.url(PICTURE));
+
+    let response = sign_in(&api, &grant()).await;
+
+    assert_eq!(response.status, 201, "{}", response.json());
+    assert!(copies(&api).await.is_empty());
+}
+
+#[tokio::test]
+async fn auth_097_the_copy_fetches_from_the_hosts_that_the_configured_providers_name() {
+    // A host that the stand-in's setting lists, and one that it doesn't.
+    let (upstream, api) = standing(Options::default()).await;
+    pictured(&upstream, "https://localhost/pictures/ada.png");
+    signed_in(&api).await;
+    api.run_jobs().await;
+    let (other, apart) = standing(Options::default()).await;
+    pictured(&other, "https://elsewhere.example.com/pictures/ada.png");
+    signed_in(&apart).await;
+    apart.run_jobs().await;
+
+    // The client took the listed host as far as its addresses, and never resolved the other.
+    let causes: Vec<String> = testing::all_logged()
+        .into_iter()
+        .filter(|line| line["error.type"] == "picture_not_copied")
+        .filter_map(|line| line["exception.message"].as_str().map(str::to_owned))
+        .collect();
+    let resolved = "GET of localhost: the name resolves to no public address";
+    assert!(causes.iter().any(|cause| cause == resolved), "{causes:?}");
+    assert!(
+        !causes.iter().any(|cause| cause.contains("elsewhere")),
+        "{causes:?}"
+    );
+    assert!(copies(&api).await.is_empty() && copies(&apart).await.is_empty());
+}
+
+#[tokio::test]
+async fn auth_097_a_list_of_hosts_is_set_with_a_client_or_not_at_all() {
+    let alone = Options::default().set(HOSTS_SETTING, "pictures.provider.test");
+    assert_eq!(api::refusal(&alone), "STAND_IN_CLIENT_ID is required");
+
+    let upstream = Upstream::start().await;
+    api::configuration(&providers::stand_in(&upstream));
+    api::configuration(&providers::stand_in(&upstream).set(HOSTS_SETTING, HOSTS));
+}
+
+#[tokio::test]
+async fn auth_097_startup_refuses_a_list_that_holds_more_than_the_names_of_hosts() {
+    let upstream = Upstream::start().await;
+    for wrong in [
+        "https://pictures.provider.test",
+        "pictures.provider.test:443",
+        "pictures.provider.test/ada.png",
+        "Pictures.provider.test",
+        "*.provider.test",
+        "pictures.provider.test,",
+        "pictures.provider.test,,localhost",
+        "pictures.provider.test localhost",
+        "203.0.113.7",
+        "[2001:db8::1]",
+    ] {
+        let listed = providers::stand_in(&upstream).set(HOSTS_SETTING, wrong);
+        assert_eq!(
+            api::refusal(&listed),
+            "STAND_IN_PICTURE_HOSTS must be the names of hosts, separated by commas, each in \
+             lower case, with no scheme, port or path (AUTH-097)",
+            "{wrong}"
+        );
+    }
 }

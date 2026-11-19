@@ -25,6 +25,9 @@ mod google;
 // part: openid_connect
 mod openid_connect;
 // end part: openid_connect
+// part: files
+mod pictures;
+// end part: files
 #[cfg(feature = "test-support")]
 mod stand_in;
 
@@ -63,6 +66,10 @@ struct Entry {
     settings: &'static [&'static str],
     /// The provider, from the values of `settings`, in their order.
     build: fn(&[String]) -> Built,
+    // part: files
+    /// Where its users' pictures come from (AUTH-097).
+    pictures: pictures::Pictures,
+    // end part: files
 }
 
 /// The provider that an entry builds, or the setting whose value it refuses.
@@ -215,6 +222,10 @@ pub(super) struct On {
     pub(super) key: &'static str,
     clients: Vec<Client>,
     provider: Box<dyn Provider>,
+    // part: files
+    /// The hosts that its users' pictures come from (AUTH-097).
+    picture_hosts: Vec<String>,
+    // end part: files
 }
 
 impl On {
@@ -322,11 +333,17 @@ impl Providers {
             for prefix in entry.clients {
                 clients.extend(client(settings, prefix)?);
             }
+            // part: files
+            let picture_hosts = pictures::hosts(settings, entry, !clients.is_empty())?;
+            // end part: files
             if let Some(values) = values(settings, entry, !clients.is_empty())? {
                 on.push(On {
                     key: entry.key,
                     clients,
                     provider: (entry.build)(&values)?,
+                    // part: files
+                    picture_hosts,
+                    // end part: files
                 });
             }
         }

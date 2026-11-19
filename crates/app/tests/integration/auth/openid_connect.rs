@@ -280,3 +280,51 @@ async fn auth_084_startup_refuses_a_name_that_is_longer_than_100_characters_or_h
     }
     api::configuration(&named(&"n".repeat(100)));
 }
+
+// part: files
+/// The address of the picture that the provider gives for its user here.
+const PICTURE: &str = "https://pictures.example.com/ada.png";
+
+/// The addresses of the pictures that the registrations of `api` handed on.
+async fn handed_on(api: &Api) -> Vec<String> {
+    api.database()
+        .owner_reads("SELECT payload->>'url' FROM jobs WHERE kind = 'accounts.copy_picture'")
+        .await
+}
+
+#[tokio::test]
+async fn auth_084_a_registration_hands_its_picture_on_once_a_setting_lists_the_pictures_hosts() {
+    let pictured = json!({ "sub": "7", "email": "ada@example.com", "picture": PICTURE });
+    let (upstream, api) = named().await;
+    gives(&upstream, pictured.clone());
+    let listing = Upstream::start().await;
+    let options = settings(listing.options(), ISSUER)
+        .set("OPENID_CONNECT_PICTURE_HOSTS", "pictures.example.com");
+    let listed = Api::with(options).await;
+    gives(&listing, pictured);
+
+    let without = sign_in(&api).await;
+    let with = sign_in(&listed).await;
+
+    assert_eq!(without.status, 201, "{}", without.json());
+    assert!(handed_on(&api).await.is_empty());
+    assert_eq!(with.status, 201, "{}", with.json());
+    assert_eq!(handed_on(&listed).await, [PICTURE]);
+}
+
+#[tokio::test]
+async fn auth_084_its_list_of_pictures_hosts_is_set_with_its_client_or_not_at_all() {
+    let alone = Options::default().set("OPENID_CONNECT_PICTURE_HOSTS", "pictures.example.com");
+    assert_eq!(api::refusal(&alone), "OPENID_CONNECT_CLIENT_ID is required");
+
+    let named = settings(Options::default(), ISSUER);
+    assert_eq!(
+        api::refusal(&named.set(
+            "OPENID_CONNECT_PICTURE_HOSTS",
+            "https://pictures.example.com"
+        )),
+        "OPENID_CONNECT_PICTURE_HOSTS must be the names of hosts, separated by commas, each in \
+         lower case, with no scheme, port or path (AUTH-097)"
+    );
+}
+// end part: files
