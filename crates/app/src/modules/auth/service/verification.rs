@@ -65,7 +65,7 @@ impl Auth {
         if !self.mail.is_on() {
             return Err(RequestError::FeatureDisabled.into());
         }
-        let mut uow = self.database.begin(client).await?;
+        let mut uow = self.database.begin(client, Some(principal)).await?;
         let address = caller_address(&mut uow, principal).await?;
         drop(uow);
         if address.verified {
@@ -77,7 +77,7 @@ impl Auth {
                 address.email.as_str().as_bytes(),
             )
             .await?;
-        let mut uow = self.database.begin(client).await?;
+        let mut uow = self.database.begin(client, Some(principal)).await?;
         self.enqueue_code(&mut uow, principal).await?;
         uow.commit().await?;
         Ok(address.email)
@@ -143,7 +143,7 @@ impl Auth {
         limits
             .check(buckets::CODE_CHECK, user_id.uuid().as_bytes())
             .await?;
-        let mut uow = self.database.begin(client).await?;
+        let mut uow = self.database.begin(client, Some(principal)).await?;
         // The user's row first, as a deletion of the account locks it first, so the two take
         // turns, and of two checks the second reads the address as the first left it (DATA-20).
         // A deletion of the account that committed meanwhile took the session with the user.

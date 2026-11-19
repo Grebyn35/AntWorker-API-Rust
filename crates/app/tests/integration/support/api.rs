@@ -331,7 +331,7 @@ impl Api {
     /// the request that published it doesn't wait for. What the test did leads there, so the
     /// wait has no bound of its own (TEST-06).
     pub async fn hub_holds_what_committed(&self) {
-        let mut uow = self.pool.begin(&super::client()).await.unwrap();
+        let mut uow = self.pool.begin(&super::client(), None).await.unwrap();
         let newest =
             sqlx::query_scalar!(r#"SELECT coalesce(max(position), 0) AS "newest!" FROM events"#)
                 .fetch_one(uow.executor())
@@ -500,6 +500,47 @@ impl Api {
         })
     }
 
+    /// Checks who published the events of the request that `response` answers, as its trace ID
+    /// names them: its caller, when it carried a bearer token, which proved one, and no one when
+    /// it carried no credential, so that an operation that publishes from a unit of work that it
+    /// opened without its caller's `Principal` fails a test that runs it with a bearer token
+    /// (PLATFORM-095). A request that carried only a cookie may have proved a caller or none, and
+    /// isn't checked, and nor is the deletion of the caller's own account, whose events lose
+    /// their publisher with the user's row.
+    async fn check_publishers(
+        &self,
+        method: &Method,
+        path: &str,
+        response: &Response,
+        bearer: bool,
+        credential: bool,
+    ) {
+        let deletes_its_caller = method == Method::DELETE && path == "/v1/users/me";
+        if bearer != credential || deletes_its_caller {
+            return;
+        }
+        let published = self
+            .database
+            .owner_reads(&format!(
+                "SELECT (publisher_id IS NOT NULL)::text FROM events \
+                 WHERE split_part(traceparent, '-', 2) = '{}'",
+                response.trace_id()
+            ))
+            .await;
+        let expected = if bearer { "true" } else { "false" };
+        assert!(
+            published.iter().all(|published| published == expected),
+            "{method} {path} published {} events, and {} of them name a publisher, where {}",
+            published.len(),
+            published.iter().filter(|named| *named == "true").count(),
+            if bearer {
+                "its bearer token proved its caller"
+            } else {
+                "it carried no credential"
+            },
+        );
+    }
+
     /// A request with `method` to `path`, which may hold a query.
     pub fn request(&self, method: Method, path: &str) -> Call<'_> {
         Call {
@@ -581,6 +622,11 @@ impl Call<'_> {
             .uri(&self.path)
             .body(body)
             .unwrap();
+        let bearer = self
+            .headers
+            .get("authorization")
+            .is_some_and(|value| value.as_bytes().starts_with(b"Bearer "));
+        let credential = bearer || self.headers.contains_key("cookie");
         *request.headers_mut() = self.headers;
         request.extensions_mut().insert(ConnectInfo(self.peer));
         let response = self.api.router.clone().oneshot(request).await.unwrap();
@@ -596,11 +642,17 @@ impl Call<'_> {
         self.api
             .contract
             .check(&self.method, &self.path, status, &headers, &body);
-        Response {
+        let response = Response {
             status,
             headers,
             body,
+        };
+        if status.is_success() && !self.method.is_safe() {
+            self.api
+                .check_publishers(&self.method, &self.path, &response, bearer, credential)
+                .await;
         }
+        response
     }
 }
 
@@ -615,6 +667,12 @@ impl Response {
     /// The body as JSON.
     pub fn json(&self) -> Value {
         serde_json::from_slice(&self.body).unwrap()
+    }
+
+    /// The trace ID of the request, from `server-timing: trace;desc=00-<trace ID>-<span
+    /// ID>-<flags>` (API-16).
+    pub fn trace_id(&self) -> &str {
+        self.header("server-timing").split('-').nth(1).unwrap()
     }
 
     /// The value of the header `name`, which the response must have.

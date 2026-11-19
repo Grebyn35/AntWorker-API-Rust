@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id AS \"id!\", name AS \"name!\", payload AS \"payload!\", traceparent,\n            position AS \"position!\", user_id, workspace_id, permission, xact, snapshot\n        FROM (\n            SELECT id, name, payload, traceparent, position, user_id, workspace_id, permission,\n                xact::text AS xact, snapshot::text AS snapshot\n            FROM events\n            WHERE user_id = $3 AND position > $1 AND position <= $2\n            UNION ALL\n            SELECT e.id, e.name, e.payload, e.traceparent, e.position, e.user_id, e.workspace_id,\n                e.permission, e.xact::text, e.snapshot::text\n            FROM unnest($4::uuid[], $5::text[], $6::text[])\n                AS m(workspace_id, permission, joined)\n            JOIN events AS e ON e.workspace_id = m.workspace_id\n                AND e.permission = m.permission\n                AND (m.joined::xid8 = e.xact OR pg_visible_in_snapshot(m.joined::xid8, e.snapshot))\n                AND e.position > $1 AND e.position <= $2\n        ) AS visible\n        ORDER BY position\n        LIMIT $7",
+  "query": "SELECT id AS \"id!\", name AS \"name!\", payload AS \"payload!\", traceparent, publisher_id,\n            position AS \"position!\", user_id, workspace_id, permission, xact, snapshot\n        FROM (\n            SELECT id, name, payload, traceparent, publisher_id, position, user_id, workspace_id,\n                permission, xact::text AS xact, snapshot::text AS snapshot\n            FROM events\n            WHERE user_id = $3 AND position > $1 AND position <= $2\n            UNION ALL\n            SELECT e.id, e.name, e.payload, e.traceparent, e.publisher_id, e.position, e.user_id,\n                e.workspace_id, e.permission, e.xact::text, e.snapshot::text\n            FROM unnest($4::uuid[], $5::text[], $6::text[])\n                AS m(workspace_id, permission, joined)\n            JOIN events AS e ON e.workspace_id = m.workspace_id\n                AND e.permission = m.permission\n                AND (m.joined::xid8 = e.xact OR pg_visible_in_snapshot(m.joined::xid8, e.snapshot))\n                AND e.position > $1 AND e.position <= $2\n        ) AS visible\n        ORDER BY position\n        LIMIT $7",
   "describe": {
     "columns": [
       {
@@ -29,36 +29,42 @@
       },
       {
         "ordinal": 4,
+        "name": "publisher_id",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
         "name": "position!",
         "type_info": "Int8",
         "origin": "Expression"
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "user_id",
         "type_info": "Uuid",
         "origin": "Expression"
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "workspace_id",
         "type_info": "Uuid",
         "origin": "Expression"
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "permission",
         "type_info": "Text",
         "origin": "Expression"
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "xact",
         "type_info": "Text",
         "origin": "Expression"
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "snapshot",
         "type_info": "Text",
         "origin": "Expression"
@@ -85,8 +91,9 @@
       null,
       null,
       null,
+      null,
       null
     ]
   },
-  "hash": "44eca7952002073d702ff106c1cd5cd0b499e2c3493990c9e1fb3597afe53dd3"
+  "hash": "dedd72349ebcfd41ba1cca3ecd018b1275ab4ca6c848634fa93acfd04895e095"
 }

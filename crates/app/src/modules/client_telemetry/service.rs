@@ -76,7 +76,7 @@ pub(super) async fn consent(
     client: &Client,
     principal: &Principal,
 ) -> Result<Current, ClientTelemetryError> {
-    let mut uow = database.begin(client).await?;
+    let mut uow = database.begin(client, Some(principal)).await?;
     let current = repo::current(&mut uow, principal.user_id()).await?;
     Ok(current.unwrap_or(Current {
         consent: TelemetryConsent { consented: false },
@@ -95,7 +95,7 @@ pub(super) async fn choose(
     consented: bool,
     versions: Option<&[Version]>,
 ) -> Result<Current, ClientTelemetryError> {
-    let mut uow = database.begin(client).await?;
+    let mut uow = database.begin(client, Some(principal)).await?;
     let user = principal.user_id();
     // The row that the update changes, which a caller who never chose has once the first
     // statement inserts it, locked before the update reads its version, so that a deletion of

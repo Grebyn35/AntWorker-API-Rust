@@ -666,6 +666,10 @@ async fn auth_046_a_session_s_start_and_end_reach_the_user_s_other_streams() {
     );
     assert_eq!(ended.event.as_deref(), Some("session.ended"));
     assert_eq!(ended.payload(), &json!({ "session_id": phone.session_id }));
+    // No session proved the caller of the sign-in, so its event carries no trace ID, and the
+    // sign-out's carries its request's (REALTIME-002).
+    assert_eq!(started.data.unwrap()["trace_id"], json!(null));
+    assert_eq!(ended.data.unwrap()["trace_id"], signed_out.trace_id());
 }
 
 #[tokio::test]

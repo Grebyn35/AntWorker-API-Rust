@@ -28,7 +28,7 @@ impl Auth {
         client: &Client,
         principal: &Principal,
     ) -> Result<(), AuthError> {
-        let mut uow = self.database.begin(client).await?;
+        let mut uow = self.database.begin(client, Some(principal)).await?;
         let address = accounts::address(&mut uow, principal.user_id()).await?;
         drop(uow);
         let Some(accounts::Address { email, .. }) = address else {
@@ -37,7 +37,7 @@ impl Auth {
         limits
             .check(buckets::DELETION_EMAIL, email.as_str().as_bytes())
             .await?;
-        let mut uow = self.database.begin(client).await?;
+        let mut uow = self.database.begin(client, Some(principal)).await?;
         require_recent_proof(&mut uow, principal).await?;
         match self.deletion.delete(&mut uow, principal).await? {
             DeletionOutcome::Deleted => Ok(uow.commit().await?),

@@ -94,7 +94,7 @@ impl Auth {
         // The turn at hashing before the unit of work, so that a sign-in that waits for it holds
         // no connection of the pool, which the other requests need (AUTH-093).
         let hashing = self.workers.turn().await.map_err(Internal::new)?;
-        let mut uow = self.database.begin(client).await?;
+        let mut uow = self.database.begin(client, None).await?;
         let Some(user_id) = accounts::find_by_email(&mut uow, &input.email).await? else {
             verify_in(hashing, self.dummy_hash.clone(), input.password).await?;
             return Err(AuthError::InvalidCredentials);

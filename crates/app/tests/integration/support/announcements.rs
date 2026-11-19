@@ -99,7 +99,7 @@ async fn to_caller(
 ) -> Result<StatusCode, Problem<PlatformError>> {
     let mut uow = authorizer
         .database
-        .begin(&client)
+        .begin(&client, Some(&principal))
         .await
         .map_err(PlatformError::from)?;
     for n in 1..=announcement.count {

@@ -69,7 +69,7 @@ impl Auth {
             .count_registration(limits, client, provider, &identity)
             .await?;
         loop {
-            let mut uow = self.database.begin(client).await?;
+            let mut uow = self.database.begin(client, None).await?;
             if let Some(user) = linked(&mut uow, provider, &identity).await? {
                 return self.sign_in_linked(uow, user, &identity, input).await;
             }
@@ -106,7 +106,7 @@ impl Auth {
         let Some(email) = self.counted_address(identity) else {
             return Ok(true);
         };
-        let mut read = self.database.begin(client).await?;
+        let mut read = self.database.begin(client, None).await?;
         let linked = repo::user_of_subject(&mut read, provider.key, &identity.subject).await?;
         drop(read);
         if linked.is_some() {
@@ -265,7 +265,7 @@ impl Auth {
             .check(buckets::PASSWORD_CHECK, user_id.uuid().as_bytes())
             .await?;
         let (provider, identity) = self.identify_signed_in(provider, &grant).await?;
-        let mut uow = self.database.begin(client).await?;
+        let mut uow = self.database.begin(client, Some(principal)).await?;
         take_turn(&mut uow, principal).await?;
         let subject = repo::provider_subject(&mut uow, user_id, provider.key).await?;
         if subject.as_deref() != Some(identity.subject.as_str()) {

@@ -278,12 +278,12 @@ async fn platform_028_events_reach_a_stream_and_its_replay_in_the_order_their_un
     let before = stream.last_event_id.clone();
 
     // The first unit of work publishes first and commits last.
-    let mut first = api.pool().begin(&client()).await.unwrap();
+    let mut first = api.pool().begin(&client(), None).await.unwrap();
     first
         .publish_to_user(&NOTED, user, &note("first"))
         .await
         .unwrap();
-    let mut second = api.pool().begin(&client()).await.unwrap();
+    let mut second = api.pool().begin(&client(), None).await.unwrap();
     second
         .publish_to_user(&NOTED, user, &note("second"))
         .await
@@ -615,7 +615,7 @@ async fn platform_033_a_re_check_that_fails_is_tried_again_at_the_next_check() {
     // Every pooled connection is held, so the re-check waits out the pool and fails.
     let mut held = Vec::new();
     for _ in 0..crate::support::TestDatabase::POOL_SIZE {
-        held.push(api.pool().begin(&client()).await.unwrap());
+        held.push(api.pool().begin(&client(), None).await.unwrap());
     }
     clock.sleeping(RECHECK).await;
     clock.advance(RECHECK);
@@ -651,7 +651,7 @@ async fn ops_18_checks_that_time_out_open_no_connection_beyond_the_pool_and_the_
     let clock = api.clock();
     let mut held = Vec::new();
     for _ in 0..crate::support::TestDatabase::POOL_SIZE {
-        held.push(api.pool().begin(&client()).await.unwrap());
+        held.push(api.pool().begin(&client(), None).await.unwrap());
     }
     clock.sleeping(CHECK_INTERVAL).await;
     let budget = connections(&api).await;
@@ -879,6 +879,134 @@ async fn sec_19_member_removed_reaches_every_member_and_no_replay_from_before_jo
     assert_eq!(after_joining.event.as_deref(), Some("announcement.made"));
 }
 
+/// Publishes one event to every member of `workspace` as `user`, and returns the trace ID of
+/// the request that did.
+async fn published(api: &Api, user: &SignedIn, workspace: &str) -> String {
+    let response = api
+        .post(
+            &format!("/v1/workspaces/{workspace}/announcements"),
+            &json!({ "count": 1 }),
+        )
+        .bearer(&user.access)
+        .send()
+        .await;
+    assert_eq!(
+        response.status,
+        StatusCode::NO_CONTENT,
+        "{}",
+        response.json()
+    );
+    response.trace_id().to_owned()
+}
+
+#[tokio::test]
+async fn platform_095_an_event_s_trace_id_reaches_its_publisher_s_streams_alone_live_and_replayed()
+{
+    let api = api().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let workspace = workspaces::arrange(
+        api.database(),
+        "Analytical",
+        &[(&ada.user_id, "admin"), (&grace.user_id, "member")],
+    )
+    .await;
+    // Another session of the publisher's, as on another of her devices.
+    let elsewhere = users::new_session(&api, "ada@example.com").await;
+    let callers = [&ada, &elsewhere, &grace];
+    let mut live = Vec::new();
+    for caller in callers {
+        live.push(streams::opened(&api, caller).await);
+    }
+
+    let first = published(&api, &ada, &workspace).await;
+    let mut delivered = Vec::new();
+    let mut resume = Vec::new();
+    for stream in &mut live {
+        let frame = stream.event().await;
+        delivered.push(frame.data.unwrap()["trace_id"].clone());
+        resume.push(frame.id.unwrap());
+    }
+    // A second event, which each caller's reconnect after the first replays.
+    let second = published(&api, &ada, &workspace).await;
+    let mut replayed = Vec::new();
+    for (caller, after) in callers.iter().zip(&resume) {
+        let mut stream = streams::connect(&api, &caller.access, Some(after)).await;
+        stream.opened().await;
+        replayed.push(stream.event().await.data.unwrap()["trace_id"].clone());
+    }
+
+    assert_ne!(first, second);
+    assert_eq!(delivered, [json!(first), json!(first), json!(null)]);
+    assert_eq!(replayed, [json!(second), json!(second), json!(null)]);
+}
+
+#[tokio::test]
+async fn platform_095_an_event_of_a_unit_of_work_that_no_principal_opened_has_no_publisher() {
+    let api = api().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let user = UserId::from_uuid(ada.user_id.parse().unwrap());
+
+    announce(&api, &ada, 1).await;
+    let mut uow = api.pool().begin(&client(), None).await.unwrap();
+    uow.publish_to_user(&NOTED, user, &note("unattributed"))
+        .await
+        .unwrap();
+    uow.commit().await.unwrap();
+
+    let publishers = api
+        .database()
+        .owner_reads("SELECT name || ' ' || coalesce(publisher_id::text, 'no one') FROM events ORDER BY position")
+        .await;
+    // Registering published `session.created` too, in a request that no session proved the
+    // caller of.
+    assert_eq!(
+        publishers,
+        [
+            "session.created no one".to_owned(),
+            format!("announcement.made {}", ada.user_id),
+            "note.made no one".to_owned(),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn platform_095_deleting_a_publisher_s_account_leaves_their_events_to_others_without_one() {
+    let api = api().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let workspace = workspaces::arrange(
+        api.database(),
+        "Analytical",
+        &[(&ada.user_id, "member"), (&grace.user_id, "admin")],
+    )
+    .await;
+    published(&api, &ada, &workspace).await;
+    let publishers = async || {
+        api.database()
+            .owner_reads(
+                "SELECT name || ' ' || coalesce(publisher_id::text, 'no one') FROM events \
+                 WHERE workspace_id IS NOT NULL ORDER BY position",
+            )
+            .await
+    };
+    let before = publishers().await;
+
+    // The deletion's own event, that she left the workspace, loses its publisher with her row.
+    let deleted = api
+        .request(http::Method::DELETE, "/v1/users/me")
+        .bearer(&ada.access)
+        .send()
+        .await;
+
+    assert_eq!(deleted.status, StatusCode::NO_CONTENT, "{}", deleted.json());
+    assert_eq!(before, [format!("announcement.posted {}", ada.user_id)]);
+    assert_eq!(
+        publishers().await,
+        ["announcement.posted no one", "member.left no one"]
+    );
+}
+
 #[tokio::test]
 async fn obs_07_an_event_s_delivery_links_to_the_trace_that_published_it() {
     let collector = testing::collector::Collector::start().await.unwrap();
@@ -980,7 +1108,7 @@ async fn platform_033_a_load_that_fails_is_tried_again_at_the_next_check() {
     // Every pooled connection is held, so the hub's load waits out the pool and fails.
     let mut held = Vec::new();
     for _ in 0..crate::support::TestDatabase::POOL_SIZE {
-        held.push(api.pool().begin(&client()).await.unwrap());
+        held.push(api.pool().begin(&client(), None).await.unwrap());
     }
     api.database()
         .owner_executes(&events::statement(
@@ -1020,7 +1148,7 @@ async fn platform_035_the_hub_records_the_events_it_owes_while_its_loads_fail() 
     // Every pooled connection is held, so the hub's load waits out the pool and fails.
     let mut held = Vec::new();
     for _ in 0..crate::support::TestDatabase::POOL_SIZE {
-        held.push(api.pool().begin(&client()).await.unwrap());
+        held.push(api.pool().begin(&client(), None).await.unwrap());
     }
     api.database()
         .owner_executes(&events::statement(

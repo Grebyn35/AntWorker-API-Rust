@@ -76,7 +76,7 @@ pub(crate) async fn own_entries(
     filter: &EntryFilter,
     page: &Page,
 ) -> Result<List<LoggedEntry>, AuditError> {
-    let mut uow = database.begin(client).await?;
+    let mut uow = database.begin(client, Some(principal)).await?;
     let rows = repo::reading::own(&mut uow, principal.user_id(), filter, page).await?;
     Ok(page.list(rows, |row| key(row.created_at, row.id)))
 }
@@ -121,7 +121,7 @@ impl Sink {
             },
         );
         let admitted = entry.admitted(scope)?;
-        let mut uow = self.database.begin(refusal.client()).await?;
+        let mut uow = self.database.begin(refusal.client(), None).await?;
         match repo::insert(&mut uow, admitted, &telemetry::trace_id()).await? {
             Inserted::Recorded => {
                 uow.commit().await?;
@@ -158,7 +158,7 @@ impl SecurityEventSink for Sink {
                 },
             };
             let admitted = entry.admitted(scope)?;
-            let mut uow = self.database.begin(client).await?;
+            let mut uow = self.database.begin(client, None).await?;
             match repo::insert(&mut uow, admitted, &telemetry::trace_id()).await? {
                 Inserted::Recorded => uow.commit().await,
                 Inserted::LogGone => Ok(()),

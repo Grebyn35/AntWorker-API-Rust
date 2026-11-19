@@ -150,9 +150,11 @@ fn frame_schema(entry: &Entry) -> RefOr<Schema> {
             ObjectBuilder::new()
                 .schema_type(SchemaType::from_iter([Type::String, Type::Null]))
                 .description(Some(
-                    "The trace ID of the request or job that published the event, or of the \
-                     request that opened the stream, for a frame of the stream's own; null for \
-                     an event published outside a trace (REALTIME-002).",
+                    "For an event, the trace ID of the request that published it, on a stream \
+                     of that request's user; null on every other stream, and for an event that \
+                     no request of a signed-in user published, such as a job's. For a frame of \
+                     the stream's own, the trace ID of the request that opened the stream \
+                     (REALTIME-002).",
                 )),
         )
         .required("trace_id");
@@ -161,7 +163,8 @@ fn frame_schema(entry: &Entry) -> RefOr<Schema> {
         .content_media_type("application/json")
         .content_schema(Some(envelope))
         .description(Some(
-            "JSON: the payload, and the trace ID of what sent it (REALTIME-002).",
+            "JSON: the payload, and the trace ID that the stream reads of what sent it, or null \
+             (REALTIME-002).",
         ));
     let mut frame = ObjectBuilder::new()
         .schema_type(Type::Object)

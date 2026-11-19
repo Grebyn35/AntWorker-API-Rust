@@ -44,7 +44,7 @@ impl Auth {
         client: &Client,
         principal: &Principal,
     ) -> Result<Session, AuthError> {
-        let mut uow = self.database.begin(client).await?;
+        let mut uow = self.database.begin(client, Some(principal)).await?;
         let session = repo::session(&mut uow, principal.user_id(), principal.session_id())
             .await?
             .ok_or(RequestError::Unauthenticated)?;
@@ -60,7 +60,7 @@ impl Auth {
         search: Option<&Search>,
         page: &Page,
     ) -> Result<List<SessionItem>, AuthError> {
-        let mut uow = self.database.begin(client).await?;
+        let mut uow = self.database.begin(client, Some(principal)).await?;
         let current = principal.session_id();
         let items = repo::page(&mut uow, principal.user_id(), search, page)
             .await?
@@ -77,7 +77,7 @@ impl Auth {
         client: &Client,
         principal: &Principal,
     ) -> Result<(), AuthError> {
-        let mut uow = self.database.begin(client).await?;
+        let mut uow = self.database.begin(client, Some(principal)).await?;
         let (user_id, session_id) = (principal.user_id(), principal.session_id());
         if repo::delete_session(&mut uow, user_id, session_id).await? {
             end_sessions(&mut uow, principal.audit_scope(), user_id, &[session_id]).await?;
@@ -99,7 +99,7 @@ impl Auth {
             self.sign_out(client, principal).await?;
             return Ok(Ended::Own);
         }
-        let mut uow = self.database.begin(client).await?;
+        let mut uow = self.database.begin(client, Some(principal)).await?;
         take_turn(&mut uow, principal).await?;
         require_recent_proof(&mut uow, principal).await?;
         let user_id = principal.user_id();
@@ -122,7 +122,7 @@ impl Auth {
         client: &Client,
         principal: &Principal,
     ) -> Result<(), AuthError> {
-        let mut uow = self.database.begin(client).await?;
+        let mut uow = self.database.begin(client, Some(principal)).await?;
         take_turn(&mut uow, principal).await?;
         require_recent_proof(&mut uow, principal).await?;
         let user_id = principal.user_id();

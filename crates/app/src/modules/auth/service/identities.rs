@@ -51,7 +51,7 @@ impl Auth {
         client: &Client,
         principal: &Principal,
     ) -> Result<Identities, AuthError> {
-        let mut uow = self.database.begin(client).await?;
+        let mut uow = self.database.begin(client, Some(principal)).await?;
         Ok(read(&mut uow, principal.user_id()).await?)
     }
 
@@ -68,7 +68,7 @@ impl Auth {
         self.count_identity_change(limits, user_id).await?;
         // Hashed before the unit of work opens, so no transaction waits for a turn at hashing.
         let password_hash = hash(&self.workers, password).await?;
-        let mut uow = self.database.begin(client).await?;
+        let mut uow = self.database.begin(client, Some(principal)).await?;
         let address = take_turn(&mut uow, principal).await?;
         require_recent_proof(&mut uow, principal).await?;
         let id = repo::add_password(&mut uow, user_id, &password_hash)
@@ -102,7 +102,7 @@ impl Auth {
         let user_id = principal.user_id();
         self.count_identity_change(limits, user_id).await?;
         let (provider, identity) = self.identify_signed_in(provider, &grant).await?;
-        let mut uow = self.database.begin(client).await?;
+        let mut uow = self.database.begin(client, Some(principal)).await?;
         let address = take_turn(&mut uow, principal).await?;
         require_recent_proof(&mut uow, principal).await?;
         // The user's turn keeps their own identities as this reads them; the unique index of
@@ -144,7 +144,7 @@ impl Auth {
     ) -> Result<(), AuthError> {
         let user_id = principal.user_id();
         self.count_identity_change(limits, user_id).await?;
-        let mut uow = self.database.begin(client).await?;
+        let mut uow = self.database.begin(client, Some(principal)).await?;
         let address = take_turn(&mut uow, principal).await?;
         require_recent_proof(&mut uow, principal).await?;
         // The user's turn keeps their identities as this reads them, so of two removals at once,

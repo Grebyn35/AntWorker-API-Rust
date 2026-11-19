@@ -142,7 +142,7 @@ pub(crate) async fn me(
     client: &Client,
     principal: &Principal,
 ) -> Result<Current, AccountsError> {
-    let mut uow = database.begin(client).await?;
+    let mut uow = database.begin(client, Some(principal)).await?;
     current(&mut uow, principal).await
 }
 
@@ -183,7 +183,7 @@ pub(crate) async fn rename(
     rename: Rename,
     versions: Option<&[Version]>,
 ) -> Result<Current, AccountsError> {
-    let mut uow = database.begin(client).await?;
+    let mut uow = database.begin(client, Some(principal)).await?;
     let user = principal.user_id();
     lock_caller(&mut uow, principal).await?;
     if !repo::rename(&mut uow, user, &rename.name, versions).await? {

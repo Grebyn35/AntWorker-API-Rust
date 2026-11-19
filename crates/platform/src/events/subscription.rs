@@ -61,6 +61,8 @@ pub struct Event {
     pub(crate) payload: serde_json::Value,
     pub(crate) trace_id: Option<String>,
     pub(crate) traceparent: Option<String>,
+    /// The user whose request published the event, if a `Principal` opened its unit of work.
+    pub(crate) publisher: Option<UserId>,
     pub(crate) position: i64,
     pub(crate) audience: Audience,
     /// The transactions that had committed when the event did, which a workspace event's
@@ -84,10 +86,15 @@ impl Event {
         &self.payload
     }
 
-    /// The trace ID of the request or job that published the event, if it published inside a
-    /// trace (D10).
-    pub fn trace_id(&self) -> Option<&str> {
-        self.trace_id.as_deref()
+    /// The trace ID of the request that published the event, as a stream of `user`'s reads it:
+    /// the event's publisher alone, and no one when no `Principal` opened the event's unit of
+    /// work, as for a job's, or when it published outside a trace (PLATFORM-095, D10).
+    pub fn trace_id_for(&self, user: UserId) -> Option<&str> {
+        if self.publisher == Some(user) {
+            self.trace_id.as_deref()
+        } else {
+            None
+        }
     }
 }
 
@@ -174,5 +181,47 @@ impl Drop for Registration {
         if let Err(error) = self.commands.send(Command::Unregister { id: self.id }) {
             errors::ignore(&error, "hub_stopped");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Audience, Event};
+    use crate::types::UserId;
+
+    /// An event to `publisher`'s own streams, which `publisher` published, if any, under
+    /// `traceparent`, if any.
+    fn event(publisher: Option<UserId>, traceparent: Option<&str>) -> Event {
+        Event {
+            id: uuid::Uuid::nil(),
+            name: "note.made".to_owned(),
+            payload: serde_json::json!({}),
+            trace_id: traceparent
+                .and_then(|traceparent| traceparent.split('-').nth(1))
+                .map(str::to_owned),
+            traceparent: traceparent.map(str::to_owned),
+            publisher,
+            position: 1,
+            audience: Audience::User(UserId::from_uuid(uuid::Uuid::from_u128(1))),
+            committed: None,
+        }
+    }
+
+    #[test]
+    fn platform_095_an_event_gives_its_trace_id_to_its_publisher_and_to_no_one_else() {
+        let ada = UserId::from_uuid(uuid::Uuid::from_u128(1));
+        let grace = UserId::from_uuid(uuid::Uuid::from_u128(2));
+        let traceparent = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
+        let trace_id = Some("0af7651916cd43dd8448eb211c80319c");
+
+        let hers = event(Some(ada), Some(traceparent));
+        let no_one_s = event(None, Some(traceparent));
+        let untraced = event(Some(ada), None);
+
+        assert_eq!(hers.trace_id_for(ada), trace_id);
+        assert_eq!(hers.trace_id_for(grace), None);
+        // The event's audience, the user it goes to, doesn't make her its publisher.
+        assert_eq!(no_one_s.trace_id_for(ada), None);
+        assert_eq!(untraced.trace_id_for(ada), None);
     }
 }

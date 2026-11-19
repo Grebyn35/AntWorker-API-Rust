@@ -39,7 +39,7 @@ impl Auth {
         else {
             return Ok(None);
         };
-        let mut uow = self.database.begin(client).await?;
+        let mut uow = self.database.begin(client, None).await?;
         let valid = self.valid(&mut uow, &input.email, token).await?;
         drop(uow);
         Ok(valid)

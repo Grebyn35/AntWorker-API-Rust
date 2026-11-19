@@ -74,7 +74,11 @@ impl AuthorizeSuperadmin {
     /// `request.second_factor_setup_required` for a superadmin whose account has no second
     /// factor (SUPERADMINS-005).
     pub async fn open(self) -> Result<(UnitOfWork, Superadmin), PlatformError> {
-        let mut uow = self.authorizer.database.begin(&self.client).await?;
+        let mut uow = self
+            .authorizer
+            .database
+            .begin(&self.client, Some(&self.principal))
+            .await?;
         let user = self.principal.user_id();
         match self.authorizer.superadmins.admits(&mut uow, user).await? {
             Admission::Admitted => Ok((

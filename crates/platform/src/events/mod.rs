@@ -122,11 +122,13 @@ impl UnitOfWork {
             "user"
         };
         // The event carries its trace context, so its delivery joins the trace that published it
-        // (OBS-07).
+        // (OBS-07), and its publisher, whose streams alone read that trace's ID (PLATFORM-095).
         let traceparent = telemetry::traceparent(&tracing::Span::current());
+        let publisher = self.publisher().map(UserId::uuid);
         let id = sqlx::query_scalar!(
-            "INSERT INTO events (scope, user_id, workspace_id, name, permission, payload, traceparent)
-            VALUES ($1::text::event_scope, $2, $3, $4, $5, $6, $7)
+            "INSERT INTO events
+                (scope, user_id, workspace_id, name, permission, payload, traceparent, publisher_id)
+            VALUES ($1::text::event_scope, $2, $3, $4, $5, $6, $7, $8)
             RETURNING id",
             scope,
             user.map(UserId::uuid),
@@ -135,6 +137,7 @@ impl UnitOfWork {
             permission,
             payload,
             traceparent,
+            publisher,
         )
         .fetch_one(self.executor())
         .await?;

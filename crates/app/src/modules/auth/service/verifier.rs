@@ -31,7 +31,7 @@ impl SessionVerifier for Verifier {
             let mut uow = self
                 .0
                 .database
-                .begin(client)
+                .begin(client, None)
                 .await
                 .map_err(Unverified::Failed)?;
             let found = repo::by_access_token(&mut uow, &sha256(token.as_bytes()))
@@ -61,7 +61,7 @@ impl SessionVerifier for Verifier {
             let mut uow = self
                 .0
                 .database
-                .begin(client)
+                .begin(client, None)
                 .await
                 .map_err(Unverified::Failed)?;
             let (user_id, passed) = repo::lasting_session(&mut uow, session, until)

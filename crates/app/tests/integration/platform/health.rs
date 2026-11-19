@@ -79,7 +79,7 @@ async fn platform_061_a_pool_with_every_connection_in_use_stays_ready() {
 
     let mut held = Vec::new();
     for _ in 0..TestDatabase::POOL_SIZE {
-        held.push(pool.begin(&crate::support::client()).await.unwrap());
+        held.push(pool.begin(&crate::support::client(), None).await.unwrap());
     }
     clock.advance(CHECK_INTERVAL);
     clock.sleeping(CHECK_INTERVAL).await;

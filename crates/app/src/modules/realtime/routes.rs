@@ -19,6 +19,7 @@ use platform::{
     events::{Closed, Delivery, FrameId, Hub, StreamFrame, Subscription},
     http::Routes,
     telemetry,
+    types::UserId,
 };
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -133,6 +134,7 @@ async fn events(
             let frames = Frames {
                 beat: realtime.clock.sleep(realtime.heartbeat),
                 subscription,
+                user: principal.user_id(),
                 clock: realtime.clock,
                 heartbeat: realtime.heartbeat,
                 trace_id: telemetry::trace_id(),
@@ -160,6 +162,9 @@ async fn events(
 /// A stream's frames: what the subscription delivers, and `stream.beat` at every heartbeat.
 struct Frames {
     subscription: Subscription,
+    /// The stream's caller, who reads an event's trace ID only when their own request published
+    /// it (REALTIME-002).
+    user: UserId,
     clock: SharedClock,
     heartbeat: Duration,
     beat: Sleep,
@@ -209,7 +214,10 @@ impl Frames {
             Delivery::Event(event) => Frame::default()
                 .id(event.id().to_string())
                 .event(event.name())
-                .data(envelope(event.payload().clone(), event.trace_id())),
+                .data(envelope(
+                    event.payload().clone(),
+                    event.trace_id_for(self.user),
+                )),
             Delivery::Opened { truncated, resume } => {
                 let opened = StreamOpened {
                     truncated,
@@ -234,7 +242,8 @@ impl Frames {
     }
 }
 
-/// An event's `data`: its payload, and the trace ID of what published it (REALTIME-002).
+/// A frame's `data`: its payload, and the trace ID that its stream reads of what sent it, if any
+/// (REALTIME-002).
 fn envelope(payload: Value, trace_id: Option<&str>) -> String {
     json!({ "data": payload, "trace_id": trace_id }).to_string()
 }

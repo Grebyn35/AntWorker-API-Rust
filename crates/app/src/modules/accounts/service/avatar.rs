@@ -164,7 +164,7 @@ pub(in crate::modules::accounts) async fn set(
     versions: Option<&[Version]>,
 ) -> Result<Current, AccountsError> {
     files::upload_avatar(&avatars.files, bytes, async |avatar: NewAvatar| {
-        let mut uow = avatars.database.begin(client).await?;
+        let mut uow = avatars.database.begin(client, Some(principal)).await?;
         let user = principal.user_id();
         lock_caller(&mut uow, principal).await?;
         if !repo::avatar::touch(&mut uow, user, versions).await? {
@@ -192,7 +192,7 @@ pub(in crate::modules::accounts) async fn remove(
     principal: &Principal,
     versions: Option<&[Version]>,
 ) -> Result<(), AccountsError> {
-    let mut uow = avatars.database.begin(client).await?;
+    let mut uow = avatars.database.begin(client, Some(principal)).await?;
     let user = principal.user_id();
     lock_caller(&mut uow, principal).await?;
     if !repo::avatar::touch(&mut uow, user, versions).await? {

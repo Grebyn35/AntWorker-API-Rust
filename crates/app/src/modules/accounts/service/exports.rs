@@ -113,7 +113,7 @@ impl Exports {
     ) -> Result<Export, AccountsError> {
         let user = principal.user_id();
         limits.check(EXPORT_BUCKET, user.uuid().as_bytes()).await?;
-        let mut uow = self.database.begin(client).await?;
+        let mut uow = self.database.begin(client, Some(principal)).await?;
         let export = stored::insert(&mut uow, user, LIFETIME).await?;
         let entry = Entry::new(audit::EXPORT_REQUESTED, audit::EXPORT, export.id);
         log::record(&mut uow, principal.audit_scope(), entry).await?;
@@ -135,7 +135,7 @@ impl Exports {
         principal: &Principal,
         page: &Page,
     ) -> Result<List<Export>, AccountsError> {
-        let mut uow = self.database.begin(client).await?;
+        let mut uow = self.database.begin(client, Some(principal)).await?;
         let rows = stored::page(&mut uow, principal.user_id(), page).await?;
         Ok(page.list(rows, |export| key(export.created_at, export.id)))
     }
@@ -147,7 +147,7 @@ impl Exports {
         principal: &Principal,
         id: uuid::Uuid,
     ) -> Result<Export, AccountsError> {
-        let mut uow = self.database.begin(client).await?;
+        let mut uow = self.database.begin(client, Some(principal)).await?;
         stored::read(&mut uow, principal.user_id(), id)
             .await?
             .ok_or(AccountsError::ExportNotFound)
@@ -165,7 +165,7 @@ impl Exports {
         wanted: &Wanted,
     ) -> Result<Download, AccountsError> {
         let user = principal.user_id();
-        let mut uow = self.database.begin(client).await?;
+        let mut uow = self.database.begin(client, Some(principal)).await?;
         let export = stored::read(&mut uow, user, id)
             .await?
             .ok_or(AccountsError::ExportNotFound)?;
@@ -428,7 +428,7 @@ impl Sources {
     /// The bytes at `offsets` of the document at `position` that the next few of its chunks
     /// hold, joined, with the offset after them.
     async fn read(&self, position: u32, offsets: Range<u64>) -> Result<(Bytes, u64), Internal> {
-        let mut uow = self.database.begin(&self.client).await?;
+        let mut uow = self.database.begin(&self.client, None).await?;
         let chunks = stored::chunks(
             &mut uow,
             self.user,

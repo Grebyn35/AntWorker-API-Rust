@@ -22,7 +22,7 @@ impl Auth {
         client: &Client,
         principal: &Principal,
     ) -> Result<Export, AuthError> {
-        let mut read = self.database.begin(client).await?;
+        let mut read = self.database.begin(client, Some(principal)).await?;
         require_recent_proof(&mut read, principal).await?;
         drop(read);
         Ok(exports.request(limits, client, principal).await?)

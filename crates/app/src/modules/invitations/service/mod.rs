@@ -221,7 +221,7 @@ pub(crate) async fn received(
     search: Option<&Search>,
     page: &Page,
 ) -> Result<List<ReceivedInvitation>, InvitationsError> {
-    let mut uow = database.begin(client).await?;
+    let mut uow = database.begin(client, Some(principal)).await?;
     let email = accounts::profile(&mut uow, principal).await?.email;
     let only = match search {
         None => None,
@@ -284,7 +284,7 @@ pub(crate) async fn accept(
     id: Option<uuid::Uuid>,
 ) -> Result<Accepted, InvitationsError> {
     let id = id.ok_or(InvitationsError::NotFound)?;
-    let mut uow = database.begin(client).await?;
+    let mut uow = database.begin(client, Some(principal)).await?;
     let email = accounts::profile(&mut uow, principal).await?.email;
     let workspace = repo::workspace_of(&mut uow, id, &email)
         .await?
@@ -344,7 +344,7 @@ pub(crate) async fn decline(
     id: Option<uuid::Uuid>,
 ) -> Result<(), InvitationsError> {
     let id = id.ok_or(InvitationsError::NotFound)?;
-    let mut uow = database.begin(client).await?;
+    let mut uow = database.begin(client, Some(principal)).await?;
     let email = accounts::profile(&mut uow, principal).await?.email;
     let workspace = repo::workspace_of(&mut uow, id, &email)
         .await?

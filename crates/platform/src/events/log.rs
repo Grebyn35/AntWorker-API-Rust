@@ -49,7 +49,7 @@ pub(super) async fn load(
     through: i64,
 ) -> Result<Vec<(Arc<Event>, f64)>, Internal> {
     let rows = sqlx::query!(
-        r#"SELECT id, user_id, workspace_id, name, permission, payload, traceparent,
+        r#"SELECT id, user_id, workspace_id, name, permission, payload, traceparent, publisher_id,
             position AS "position!", xact::text AS xact, snapshot::text AS snapshot,
             extract(epoch FROM clock_timestamp() - created_at)::float8 AS "lag!"
         FROM events
@@ -81,6 +81,7 @@ pub(super) async fn load(
             payload: row.payload,
             trace_id: trace_id(row.traceparent.as_deref()),
             traceparent: row.traceparent,
+            publisher: row.publisher_id.map(UserId::from_uuid),
             position: row.position,
             audience,
             committed: committed(row.xact.as_deref(), row.snapshot.as_deref()),
@@ -118,16 +119,16 @@ pub(super) async fn replay(
 ) -> Result<Vec<Arc<Event>>, Internal> {
     let (workspaces, permissions, joined) = memberships.rows();
     let rows = sqlx::query!(
-        r#"SELECT id AS "id!", name AS "name!", payload AS "payload!", traceparent,
+        r#"SELECT id AS "id!", name AS "name!", payload AS "payload!", traceparent, publisher_id,
             position AS "position!", user_id, workspace_id, permission, xact, snapshot
         FROM (
-            SELECT id, name, payload, traceparent, position, user_id, workspace_id, permission,
-                xact::text AS xact, snapshot::text AS snapshot
+            SELECT id, name, payload, traceparent, publisher_id, position, user_id, workspace_id,
+                permission, xact::text AS xact, snapshot::text AS snapshot
             FROM events
             WHERE user_id = $3 AND position > $1 AND position <= $2
             UNION ALL
-            SELECT e.id, e.name, e.payload, e.traceparent, e.position, e.user_id, e.workspace_id,
-                e.permission, e.xact::text, e.snapshot::text
+            SELECT e.id, e.name, e.payload, e.traceparent, e.publisher_id, e.position, e.user_id,
+                e.workspace_id, e.permission, e.xact::text, e.snapshot::text
             FROM unnest($4::uuid[], $5::text[], $6::text[])
                 AS m(workspace_id, permission, joined)
             JOIN events AS e ON e.workspace_id = m.workspace_id
@@ -162,6 +163,7 @@ pub(super) async fn replay(
                 payload: row.payload,
                 trace_id: trace_id(row.traceparent.as_deref()),
                 traceparent: row.traceparent,
+                publisher: row.publisher_id.map(UserId::from_uuid),
                 position: row.position,
                 audience,
                 committed: committed(row.xact.as_deref(), row.snapshot.as_deref()),

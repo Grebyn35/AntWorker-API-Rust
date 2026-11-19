@@ -94,7 +94,7 @@ impl Auth {
         let token = sha256(completion.challenge.expose().as_bytes());
         // The challenge names the bucket that counts the check, so it is read first, in a unit
         // of work of its own that writes nothing (ARCH-11).
-        let mut read = self.database.begin(client).await?;
+        let mut read = self.database.begin(client, None).await?;
         let found = factors::challenge(&mut read, &token).await?;
         drop(read);
         let challenge = match found {
@@ -113,7 +113,7 @@ impl Auth {
                 .await?
             }
         }
-        let mut uow = self.database.begin(client).await?;
+        let mut uow = self.database.begin(client, None).await?;
         // The password identity first, when the account has one, as a sign-in locks it, so the
         // completion takes turns with sign-ins, a reset and a deletion of the account (the auth
         // spec's "Second factors"). A sign-in with the password whose identity a deletion erased

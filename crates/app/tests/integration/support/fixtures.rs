@@ -108,7 +108,7 @@ async fn keyed(
 ) -> Result<Json<Keyed>, Problem<PlatformError>> {
     let mut uow = authorizer
         .database
-        .begin(&client)
+        .begin(&client, Some(&principal))
         .await
         .map_err(PlatformError::from)?;
     if let Claimed::Replay(keyed) = uow.claim(principal.user_id(), request.key.as_ref()).await? {
@@ -190,7 +190,7 @@ async fn send(
 ) -> Result<StatusCode, Problem<PlatformError>> {
     let mut uow = authorizer
         .database
-        .begin(&client)
+        .begin(&client, Some(&principal))
         .await
         .map_err(PlatformError::from)?;
     let email = fixture_email(mailed)?;

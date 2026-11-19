@@ -241,7 +241,7 @@ impl Auth {
                 .await?;
         }
         let password_hash = hash(&self.workers, input.password).await?;
-        let mut uow = self.database.begin(client).await?;
+        let mut uow = self.database.begin(client, None).await?;
         let user_id = match accounts::create(&mut uow, &input.email, &input.name).await? {
             Creation::Created(id) => id,
             Creation::EmailInUse => return Err(AuthError::EmailInUse),
@@ -276,7 +276,7 @@ impl Auth {
         token: &str,
     ) -> Result<(Session, Tokens), AuthError> {
         let presented = sha256(token.as_bytes());
-        let mut uow = self.database.begin(client).await?;
+        let mut uow = self.database.begin(client, None).await?;
         let Some(found) = repo::by_refresh_token(&mut uow, &presented).await? else {
             // A session that another request ended first, as a deletion of its account does, or
             // that the hourly job deleted, leaves the token naming none, which records nothing

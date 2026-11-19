@@ -35,6 +35,7 @@ pub use url::{DatabaseUrl, InvalidDatabaseUrl};
 use serde::{Serialize, de::DeserializeOwned};
 
 use crate::{
+    authn::Principal,
     errors::{Internal, PlatformError, RequestError},
     events,
     idempotency::{self, Claimed, IdempotencyKey, Outcome},
@@ -118,11 +119,18 @@ impl Database {
     }
 
     /// Opens a unit of work for a request from `client`, whose audit entries record it
-    /// (AUDIT-003).
-    pub async fn begin(&self, client: &Client) -> Result<UnitOfWork, Internal> {
+    /// (AUDIT-003), and of `principal`, when a session proved the request's caller: the events
+    /// it publishes then name that user as their publisher, whose streams alone read the
+    /// request's trace ID in their frames (PLATFORM-095).
+    pub async fn begin(
+        &self,
+        client: &Client,
+        principal: Option<&Principal>,
+    ) -> Result<UnitOfWork, Internal> {
         Ok(UnitOfWork {
             tx: self.pool.begin().await?,
             client: Some(client.clone()),
+            publisher: principal.map(Principal::user_id),
             claimed: None,
             published: Vec::new(),
             ordered: false,
@@ -163,6 +171,7 @@ impl Database {
         Ok(UnitOfWork {
             tx: self.pool.begin().await?,
             client: None,
+            publisher: None,
             claimed: None,
             published: Vec::new(),
             ordered: false,
@@ -210,6 +219,7 @@ impl Database {
 pub struct UnitOfWork {
     tx: Transaction<'static, Postgres>,
     client: Option<Client>,
+    publisher: Option<UserId>,
     claimed: Option<(UserId, String)>,
     published: Vec<uuid::Uuid>,
     ordered: bool,
@@ -219,6 +229,12 @@ impl UnitOfWork {
     /// The client of the request that opened the unit of work, or `None` for a job's.
     pub fn client(&self) -> Option<&Client> {
         self.client.as_ref()
+    }
+
+    /// The user whose `Principal` opened the unit of work, the publisher of its events, or
+    /// `None` when none did, as for a job's (PLATFORM-095).
+    pub(crate) fn publisher(&self) -> Option<UserId> {
+        self.publisher
     }
 
     /// The connection to run this unit of work's queries on, inside its transaction:

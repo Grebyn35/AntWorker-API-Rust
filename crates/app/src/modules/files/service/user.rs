@@ -47,7 +47,7 @@ pub(in crate::modules::files) async fn upload(
         name,
         bytes,
         async move |written: Written| {
-            let mut uow = files.database.begin(client).await?;
+            let mut uow = files.database.begin(client, Some(principal)).await?;
             let user = principal.user_id();
             // The claim is the unit of work's first statement (the platform spec's
             // Idempotency).
@@ -93,7 +93,7 @@ pub(in crate::modules::files) async fn list(
     search: Option<&Search>,
     page: &Page,
 ) -> Result<List<UserFile>, FilesError> {
-    let mut uow = files.database.begin(client).await?;
+    let mut uow = files.database.begin(client, Some(principal)).await?;
     let rows = repo::page(&mut uow, principal.user_id(), search, page).await?;
     let until = link_expiry(&mut uow).await?;
     let list = page.list(rows, |file| key(file.created_at, file.id));
@@ -118,7 +118,7 @@ pub(in crate::modules::files) async fn read(
     principal: &Principal,
     id: uuid::Uuid,
 ) -> Result<UserFile, FilesError> {
-    let mut uow = files.database.begin(client).await?;
+    let mut uow = files.database.begin(client, Some(principal)).await?;
     let stored = repo::read(&mut uow, principal.user_id(), id)
         .await?
         .ok_or(FilesError::NotFound)?;
@@ -137,7 +137,7 @@ pub(in crate::modules::files) async fn download(
     id: uuid::Uuid,
     wanted: &Wanted,
 ) -> Result<Downloaded, FilesError> {
-    let mut uow = files.database.begin(client).await?;
+    let mut uow = files.database.begin(client, Some(principal)).await?;
     let stored = repo::read(&mut uow, principal.user_id(), id).await?;
     drop(uow);
     let stored = stored.ok_or(FilesError::NotFound)?;
@@ -162,7 +162,7 @@ pub(in crate::modules::files) async fn delete(
     principal: &Principal,
     id: uuid::Uuid,
 ) -> Result<(), FilesError> {
-    let mut uow = files.database.begin(client).await?;
+    let mut uow = files.database.begin(client, Some(principal)).await?;
     let user = principal.user_id();
     if !repo::delete(&mut uow, user, id).await? {
         return Err(FilesError::NotFound);

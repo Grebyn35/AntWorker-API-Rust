@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, user_id, workspace_id, name, permission, payload, traceparent,\n            position AS \"position!\", xact::text AS xact, snapshot::text AS snapshot,\n            extract(epoch FROM clock_timestamp() - created_at)::float8 AS \"lag!\"\n        FROM events\n        WHERE position > $1 AND position <= $2\n        ORDER BY position\n        LIMIT $3",
+  "query": "SELECT id, user_id, workspace_id, name, permission, payload, traceparent, publisher_id,\n            position AS \"position!\", xact::text AS xact, snapshot::text AS snapshot,\n            extract(epoch FROM clock_timestamp() - created_at)::float8 AS \"lag!\"\n        FROM events\n        WHERE position > $1 AND position <= $2\n        ORDER BY position\n        LIMIT $3",
   "describe": {
     "columns": [
       {
@@ -82,6 +82,17 @@
       },
       {
         "ordinal": 7,
+        "name": "publisher_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "publisher_id"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
         "name": "position!",
         "type_info": "Int8",
         "origin": {
@@ -92,19 +103,19 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "xact",
         "type_info": "Text",
         "origin": "Expression"
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "snapshot",
         "type_info": "Text",
         "origin": "Expression"
       },
       {
-        "ordinal": 10,
+        "ordinal": 11,
         "name": "lag!",
         "type_info": "Float8",
         "origin": "Expression"
@@ -126,10 +137,11 @@
       false,
       true,
       true,
+      true,
       null,
       null,
       null
     ]
   },
-  "hash": "05b4fa43458733c749e4f461432b6cd08dcb36bbca396a4a64b463492cba9b17"
+  "hash": "647ed2a29fdde7cfb4f266a0535353cdafe73dd44db3b9d0542c0425b779c06d"
 }

@@ -80,7 +80,7 @@ impl Auth {
         principal: &Principal,
     ) -> Result<SecondFactors, AuthError> {
         let user_id = principal.user_id();
-        let mut uow = self.database.begin(client).await?;
+        let mut uow = self.database.begin(client, Some(principal)).await?;
         let app = factors::app(&mut uow, user_id).await?;
         let recovery_codes_left = factors::count_recovery_codes(&mut uow, user_id).await?;
         drop(uow);
@@ -102,7 +102,7 @@ impl Auth {
         principal: &Principal,
     ) -> Result<Setup, AuthError> {
         let user_id = principal.user_id();
-        let mut uow = self.database.begin(client).await?;
+        let mut uow = self.database.begin(client, Some(principal)).await?;
         reauthentication::require_recent_proof(&mut uow, principal).await?;
         let address = reauthentication::take_turn(&mut uow, principal).await?;
         let secret = AppSecret::generate()?;
@@ -142,7 +142,7 @@ impl Auth {
             user_id.uuid().as_bytes(),
         )
         .await?;
-        let mut uow = self.database.begin(client).await?;
+        let mut uow = self.database.begin(client, Some(principal)).await?;
         let address = reauthentication::take_turn(&mut uow, principal).await?;
         let setup = factors::lasting_setup(&mut uow, user_id)
             .await?
@@ -201,7 +201,7 @@ impl Auth {
         limits
             .check(buckets::SECOND_FACTOR_CHANGE, user_id.uuid().as_bytes())
             .await?;
-        let mut uow = self.database.begin(client).await?;
+        let mut uow = self.database.begin(client, Some(principal)).await?;
         reauthentication::require_recent_proof(&mut uow, principal).await?;
         let address = reauthentication::take_turn(&mut uow, principal).await?;
         if !factors::has_app(&mut uow, user_id).await? {
@@ -245,7 +245,7 @@ impl Auth {
         if self.settings.second_factor_required {
             return Err(AuthError::SecondFactorMandatory);
         }
-        let mut uow = self.database.begin(client).await?;
+        let mut uow = self.database.begin(client, Some(principal)).await?;
         reauthentication::require_recent_proof(&mut uow, principal).await?;
         let address = reauthentication::take_turn(&mut uow, principal).await?;
         let Some(id) = factors::delete_app(&mut uow, user_id).await? else {
@@ -324,7 +324,7 @@ pub(in crate::modules::auth::service) async fn refuse_missing_versions(
         ip: std::net::Ipv4Addr::LOCALHOST.into(),
         user_agent: None,
     };
-    let mut uow = database.begin(&startup).await?;
+    let mut uow = database.begin(&startup, None).await?;
     let versions = factors::stored_key_versions(&mut uow).await?;
     drop(uow);
     match versions

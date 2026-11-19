@@ -97,14 +97,17 @@ pub trait PersonalData: Send + Sync {
 }
 
 /// The contract of `platform`'s own tables: the jobs enqueued for the user, whose payloads may
-/// hold personal data, such as an email's address, which its erasure deletes, and their events
-/// and idempotency records, which go with the user's row through their foreign keys (DATA-23).
+/// hold personal data, such as an email's address, which its erasure deletes; their events and
+/// idempotency records, which go with the user's row through their foreign keys; and the events
+/// that their requests published to others, whose publisher the user's row sets to null as it
+/// goes (DATA-23).
 pub struct Contract;
 
 impl PersonalData for Contract {
     fn columns(&self) -> &'static [Column] {
         const COLUMNS: &[Column] = &[
             Column::new("events", "user_id"),
+            Column::new("events", "publisher_id"),
             Column::new("idempotency_records", "user_id"),
             Column::new("idempotency_records", "result"),
             Column::new("jobs", "payload"),

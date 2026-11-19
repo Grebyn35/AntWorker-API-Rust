@@ -36,7 +36,7 @@ pub(in crate::modules::files) async fn download(
     id: uuid::Uuid,
     wanted: &Wanted,
 ) -> Result<Downloaded, FilesError> {
-    let mut uow = files.database.begin(client).await?;
+    let mut uow = files.database.begin(client, None).await?;
     let found = match owner {
         Owner::Workspace => repo::workspace_file(&mut uow, id).await?,
         Owner::User => repo::user_file(&mut uow, id).await?,

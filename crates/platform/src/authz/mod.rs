@@ -275,7 +275,11 @@ impl<P: Permission> Authorize<P> {
         let Some(workspace_id) = self.workspace_id else {
             return Err(RequestError::NotFound.into());
         };
-        let mut uow = self.authorizer.database.begin(&self.client).await?;
+        let mut uow = self
+            .authorizer
+            .database
+            .begin(&self.client, Some(&self.principal))
+            .await?;
         let decision = self
             .authorizer
             .policy

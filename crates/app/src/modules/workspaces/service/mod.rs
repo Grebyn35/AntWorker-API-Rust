@@ -111,7 +111,7 @@ pub(crate) async fn list(
     search: Option<&Search>,
     page: &Page,
 ) -> Result<List<WorkspaceItem>, WorkspacesError> {
-    let mut uow = database.begin(client).await?;
+    let mut uow = database.begin(client, Some(principal)).await?;
     let only = match search {
         None => None,
         Some(search) => {

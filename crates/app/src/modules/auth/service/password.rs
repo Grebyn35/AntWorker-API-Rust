@@ -63,7 +63,7 @@ impl Auth {
         limits
             .check(buckets::RESET_EMAIL, email.as_str().as_bytes())
             .await?;
-        let mut uow = self.database.begin(client).await?;
+        let mut uow = self.database.begin(client, None).await?;
         let user_id = accounts::find_by_email(&mut uow, &email).await?;
         #[expect(
             clippy::disallowed_methods,
@@ -126,7 +126,7 @@ impl Auth {
             self.count_reset_factor(limits, client, &confirmation.email, &confirmation.code)
                 .await?;
         }
-        let mut uow = self.database.begin(client).await?;
+        let mut uow = self.database.begin(client, None).await?;
         let Some(user_id) = accounts::find_by_email(&mut uow, &confirmation.email).await? else {
             return Err(AuthError::InvalidResetCode);
         };
@@ -212,7 +212,7 @@ impl Auth {
         email: &EmailAddress,
         code: &ResetCode,
     ) -> Result<(), AuthError> {
-        let mut read = self.database.begin(client).await?;
+        let mut read = self.database.begin(client, None).await?;
         let mut matched = None;
         if let Some(user_id) = accounts::find_by_email(&mut read, email).await?
             && let Some(address) = accounts::address(&mut read, user_id).await?

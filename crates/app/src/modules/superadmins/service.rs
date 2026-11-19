@@ -55,7 +55,7 @@ pub(super) async fn standing(
     client: &Client,
     principal: &Principal,
 ) -> Result<SuperadminStanding, SuperadminsError> {
-    let mut uow = database.begin(client).await?;
+    let mut uow = database.begin(client, Some(principal)).await?;
     let superadmin = repo::is_one(&mut uow, principal.user_id()).await?;
     Ok(SuperadminStanding { superadmin })
 }

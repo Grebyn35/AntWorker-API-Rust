@@ -56,7 +56,7 @@ impl Auth {
         limits
             .check(buckets::CHANGE_EMAIL, email.as_str().as_bytes())
             .await?;
-        let mut uow = self.database.begin(client).await?;
+        let mut uow = self.database.begin(client, Some(principal)).await?;
         require_recent_proof(&mut uow, principal).await?;
         // An address that an account holds, the caller's own among them, is the enumeration that
         // SEC-05 accepts, behind the proof.
@@ -118,7 +118,7 @@ impl Auth {
         limits
             .check(buckets::CODE_CHECK, user_id.uuid().as_bytes())
             .await?;
-        let mut uow = self.database.begin(client).await?;
+        let mut uow = self.database.begin(client, Some(principal)).await?;
         // The user's row first, as a deletion of the account and a reset lock it first, so they
         // take turns, and of two confirmations the second finds the code the first claimed gone
         // (DATA-20). A deletion that committed meanwhile took the session with the user.

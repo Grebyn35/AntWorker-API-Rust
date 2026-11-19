@@ -134,7 +134,7 @@ fn registry(database: &Database, steering: &Arc<Steering>) -> Jobs {
 
 /// Enqueues `job` for `scope` in a unit of work of its own, which commits.
 async fn enqueue<J: Job>(database: &Database, scope: JobScope, job: &J) {
-    let mut uow = database.begin(&support::client()).await.unwrap();
+    let mut uow = database.begin(&support::client(), None).await.unwrap();
     uow.enqueue(scope, job).await.unwrap();
     uow.commit().await.unwrap();
 }
@@ -161,7 +161,7 @@ fn start(
 async fn platform_012_a_job_exists_only_if_its_unit_of_work_commits() {
     let db = TestDatabase::migrated().await;
     let database = db.app().await;
-    let mut rolled_back = database.begin(&support::client()).await.unwrap();
+    let mut rolled_back = database.begin(&support::client(), None).await.unwrap();
     rolled_back
         .enqueue(JobScope::for_tests(), &probe("rolled back"))
         .await

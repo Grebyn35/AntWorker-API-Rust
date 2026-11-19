@@ -25,7 +25,7 @@ pub(crate) async fn create(
     key: Option<&IdempotencyKey>,
     input: NewWorkspace,
 ) -> Result<Current, WorkspacesError> {
-    let mut uow = database.begin(client).await?;
+    let mut uow = database.begin(client, Some(principal)).await?;
     if let Claimed::Replay(created) = uow.claim(principal.user_id(), key).await? {
         return Ok(created);
     }

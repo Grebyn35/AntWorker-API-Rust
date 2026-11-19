@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO events (scope, user_id, workspace_id, name, permission, payload, traceparent)\n            VALUES ($1::text::event_scope, $2, $3, $4, $5, $6, $7)\n            RETURNING id",
+  "query": "INSERT INTO events\n                (scope, user_id, workspace_id, name, permission, payload, traceparent, publisher_id)\n            VALUES ($1::text::event_scope, $2, $3, $4, $5, $6, $7, $8)\n            RETURNING id",
   "describe": {
     "columns": [
       {
@@ -23,12 +23,13 @@
         "Text",
         "Text",
         "Jsonb",
-        "Text"
+        "Text",
+        "Uuid"
       ]
     },
     "nullable": [
       false
     ]
   },
-  "hash": "e2d17a07adeeb4210ed1d1c36d379586de35c99071178da6b64e9c7cace52a2e"
+  "hash": "d6c419e314709a443fd2c1f7cbfc603211947e521cd06632587d381bfb780b9a"
 }

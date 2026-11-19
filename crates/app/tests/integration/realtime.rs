@@ -191,13 +191,7 @@ async fn realtime_002_an_event_s_frame_carries_its_id_its_name_and_the_trace_of_
         .await;
     let frame = stream.event().await;
 
-    // `server-timing: trace;desc=00-<trace ID>-<span ID>-<flags>` (API-16).
-    let trace_id = published
-        .header("server-timing")
-        .split('-')
-        .nth(1)
-        .unwrap()
-        .to_owned();
+    let trace_id = published.trace_id();
     let id = api
         .database()
         .owner_reads("SELECT id::text FROM events WHERE name = 'announcement.made'")
@@ -237,6 +231,62 @@ async fn realtime_002_an_event_carries_the_trace_id_of_the_traceparent_its_reque
     assert_eq!(published.status, StatusCode::NO_CONTENT);
     assert_eq!(caused.data.unwrap()["trace_id"], own);
     assert_ne!(other.data.unwrap()["trace_id"], own);
+}
+
+#[tokio::test]
+async fn realtime_002_an_event_s_frame_carries_its_trace_id_on_its_publisher_s_streams_alone() {
+    let api = api().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let workspace = workspaces::arrange(
+        api.database(),
+        "Analytical",
+        &[(&ada.user_id, "admin"), (&grace.user_id, "member")],
+    )
+    .await;
+    let mut publisher = streams::opened(&api, &ada).await;
+    let mut member = streams::opened(&api, &grace).await;
+    // The trace ID that the publisher's client chose, which a member who knew it could send
+    // requests of their own under.
+    let chosen = "0af7651916cd43dd8448eb211c80319c";
+    let traceparent = format!("00-{chosen}-b7ad6b7169203331-01");
+
+    let path = format!("/v1/workspaces/{workspace}/announcements");
+    let hers = api
+        .post(&path, &json!({ "count": 1 }))
+        .bearer(&ada.access)
+        .header("traceparent", &traceparent)
+        .send()
+        .await;
+    let theirs = api
+        .post(&path, &json!({ "count": 1 }))
+        .bearer(&grace.access)
+        .header("traceparent", &traceparent)
+        .send()
+        .await;
+    let to_publisher = [publisher.event().await, publisher.event().await];
+    let to_member = [member.event().await, member.event().await];
+
+    assert_eq!(hers.status, StatusCode::NO_CONTENT);
+    assert_eq!(theirs.status, StatusCode::NO_CONTENT);
+    assert_eq!(theirs.trace_id(), chosen);
+    let payload = json!({ "workspace_id": workspace, "n": 1 });
+    // Each reads the trace ID of her own request's event, and none of the other's, though both
+    // events were published under one trace.
+    assert_eq!(
+        to_publisher.map(|frame| frame.data.unwrap()),
+        [
+            json!({ "data": payload, "trace_id": chosen }),
+            json!({ "data": payload, "trace_id": null }),
+        ]
+    );
+    assert_eq!(
+        to_member.map(|frame| frame.data.unwrap()),
+        [
+            json!({ "data": payload, "trace_id": null }),
+            json!({ "data": payload, "trace_id": chosen }),
+        ]
+    );
 }
 
 #[tokio::test]
@@ -520,7 +570,7 @@ async fn realtime_006_a_user_holds_at_most_10_streams_on_a_replica() {
 }
 
 #[tokio::test]
-async fn realtime_002_an_event_published_outside_a_trace_has_no_trace_id_and_the_stream_s_frames_its_request_s()
+async fn realtime_002_an_event_that_no_request_published_has_no_trace_id_and_the_stream_s_frames_its_request_s()
  {
     let api = api().await;
     let clock = api.clock();
@@ -529,7 +579,11 @@ async fn realtime_002_an_event_published_outside_a_trace_has_no_trace_id_and_the
     let mut stream = streams::connect(&api, &ada.access, None).await;
     let opened = stream.opened().await;
 
-    let mut uow = api.pool().begin(&crate::support::client()).await.unwrap();
+    let mut uow = api
+        .pool()
+        .begin(&crate::support::client(), None)
+        .await
+        .unwrap();
     uow.publish_to_user(&NOTED, user, &Note { label: None })
         .await
         .unwrap();
@@ -618,7 +672,7 @@ impl platform::jobs::Job for Publish {
 }
 
 #[tokio::test]
-async fn realtime_002_an_event_a_job_publishes_carries_the_trace_id_of_the_job_s_run() {
+async fn realtime_002_an_event_a_job_publishes_carries_no_trace_id() {
     let api = api().await;
     let ada = users::register(&api, "ada@example.com").await;
     let mut jobs = platform::jobs::Jobs::new(api.pool(), Duration::from_secs(86_400));
@@ -640,7 +694,11 @@ async fn realtime_002_an_event_a_job_publishes_carries_the_trace_id_of_the_job_s
     let mut stream = streams::connect(&api, &ada.access, None).await;
     stream.opened().await;
 
-    let mut uow = api.pool().begin(&crate::support::client()).await.unwrap();
+    let mut uow = api
+        .pool()
+        .begin(&crate::support::client(), None)
+        .await
+        .unwrap();
     uow.enqueue(
         platform::jobs::JobScope::for_tests(),
         &Publish {
@@ -654,9 +712,10 @@ async fn realtime_002_an_event_a_job_publishes_carries_the_trace_id_of_the_job_s
     jobs.run_pending(api.pool(), &clock).await;
     let published = stream.event().await;
 
+    // The job ran in a trace, whose ID its event's payload holds, and which no stream reads.
     let run = published.payload()["label"].as_str().unwrap().to_owned();
     assert_eq!(run.len(), 32);
-    assert_eq!(published.data.unwrap()["trace_id"], run.as_str());
+    assert_eq!(published.data.unwrap()["trace_id"], json!(null));
 }
 
 #[tokio::test]
