@@ -262,6 +262,15 @@ read_settings() {
         self-hosted)
             profiles="$profiles --profile telemetry --profile observability"
             if [ -z "$(setting GRAFANA_ADDRESS)" ]; then fail "GRAFANA_ADDRESS is required with TELEMETRY=self-hosted"; fi
+            # The name of Grafana's administrator, which is the operator's own choice, and never
+            # the one that every Grafana starts with (SEC-14).
+            administrator=$(setting GRAFANA_ADMIN_USER)
+            case $administrator in
+                '') fail "GRAFANA_ADMIN_USER is required with TELEMETRY=self-hosted: the name that Grafana's administrator signs in with (docs/operations/deploy.md#grafana)" ;;
+                *[!A-Za-z0-9._@-]*) fail "GRAFANA_ADMIN_USER is 1 to 64 letters, digits, dots, underscores, hyphens and at signs" ;;
+                [Aa][Dd][Mm][Ii][Nn]) fail "GRAFANA_ADMIN_USER is the name that every Grafana starts with: choose another (docs/operations/deploy.md#grafana)" ;;
+            esac
+            if [ "${#administrator}" -gt 64 ]; then fail "GRAFANA_ADMIN_USER is 1 to 64 letters, digits, dots, underscores, hyphens and at signs"; fi
             ;;
         managed)
             profiles="$profiles --profile managed-telemetry"

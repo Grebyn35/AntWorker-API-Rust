@@ -33,6 +33,14 @@ pub const API_ADDRESS: &str = "api.localhost";
 /// Grafana's address in the tests, under `localhost` as the API's is.
 pub const GRAFANA_ADDRESS: &str = "grafana.localhost";
 
+/// The name that the deployments' Grafana's administrator signs in with, which the operator
+/// chooses at the setup.
+pub const GRAFANA_ADMIN_USER: &str = "operator";
+
+/// The password that the deployments' Grafana's administrator signs in with, which the operator
+/// chooses at the setup.
+pub const GRAFANA_ADMIN_PASSWORD: &str = "the password of the e2e tests' Grafana";
+
 /// The xtask binary, which `just e2e` builds before the tests run, in the target directory and
 /// profile the tests' own binary is in: target/<profile>/deps/e2e-<hash> beside
 /// target/<profile>/xtask.
@@ -148,6 +156,7 @@ impl Deployment {
             ("SOURCE", "https://example.invalid/e2e"),
             ("API_ADDRESS", API_ADDRESS),
             ("GRAFANA_ADDRESS", GRAFANA_ADDRESS),
+            ("GRAFANA_ADMIN_USER", GRAFANA_ADMIN_USER),
             ("TELEMETRY", "off"),
             // A test that sends email starts a mail server on the server, and sets its own.
             ("EMAIL", "off"),
@@ -167,6 +176,12 @@ impl Deployment {
         base.extend(server.start_files_bucket());
         // end part: files
         base.sort();
+        // The password of Grafana's administrator, which the operator chooses at the setup, for
+        // the deploys that run the self-hosted stack.
+        server.write(
+            &format!("{DEPLOYMENT}/secrets/grafana_admin_password"),
+            GRAFANA_ADMIN_PASSWORD,
+        );
         let deployment = Self {
             server,
             api: Pushed::api().in_network(),

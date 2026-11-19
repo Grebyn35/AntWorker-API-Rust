@@ -36,6 +36,10 @@ fn managed_telemetry(settings: &[(String, String)]) -> bool {
     get(settings, "TELEMETRY") == "managed"
 }
 
+fn self_hosted(settings: &[(String, String)]) -> bool {
+    matches!(get(settings, "TELEMETRY"), "self-hosted" | "")
+}
+
 fn managed_grafana(settings: &[(String, String)]) -> bool {
     managed_telemetry(settings) && !get(settings, "MANAGED_GRAFANA_URL").is_empty()
 }
@@ -154,6 +158,14 @@ pub(super) const SECRETS: &[File] = &[
                imports the dashboards and the alert rules.",
         generated: false,
         needed: managed_grafana,
+    },
+    File {
+        name: "grafana_admin_password",
+        what: "The password that Grafana's administrator signs in with, as GRAFANA_ADMIN_USER: \
+               15 characters or more, which nothing else uses. Grafana reads it the first time \
+               it starts, and never again.",
+        generated: false,
+        needed: self_hosted,
     },
     File {
         name: "smtp_password",

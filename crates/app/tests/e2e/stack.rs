@@ -5,7 +5,8 @@ use std::time::Duration;
 
 use crate::{
     deployment::{
-        Deployment, GRAFANA_ADDRESS, get, get_traced, get_within, post, post_for_cookies,
+        Deployment, GRAFANA_ADDRESS, GRAFANA_ADMIN_PASSWORD, GRAFANA_ADMIN_USER, get, get_traced,
+        get_within, post, post_for_cookies,
     },
     docker::lossy,
     server::DEPLOYMENT,
@@ -56,22 +57,81 @@ fn trace_of_a_request_no_replica_answers(deployment: &Deployment) -> String {
         .to_owned()
 }
 
+/// Asserts that a deploy of `deployment` with the self-hosted stack takes only an administrator
+/// of Grafana's that its operator chose: a name of 1 to 64 of its characters that isn't the one
+/// every Grafana starts with, and a password of 15 characters or more, of which the deploy
+/// generates none (SEC-14). It
+/// leaves the settings with the stack, and the password that the setup wrote.
+async fn assert_a_deploy_takes_only_the_operator_s_administrator(deployment: &Deployment) {
+    let secret = format!("{DEPLOYMENT}/secrets/grafana_admin_password");
+    let long = "a".repeat(65);
+    for (name, refusal) in [
+        (
+            "Admin",
+            "GRAFANA_ADMIN_USER is the name that every Grafana starts with",
+        ),
+        ("", "GRAFANA_ADMIN_USER is required"),
+        ("ada lovelace", "GRAFANA_ADMIN_USER is 1 to 64 letters"),
+        (long.as_str(), "GRAFANA_ADMIN_USER is 1 to 64 letters"),
+    ] {
+        deployment.set(&[("TELEMETRY", "self-hosted"), ("GRAFANA_ADMIN_USER", name)]);
+        let named = deployment
+            .apply(&deployment.api, &["--allow-restart"])
+            .await;
+        assert!(!named.status.success(), "{name}: {}", lossy(&named));
+        assert!(lossy(&named).contains(refusal), "{name}: {}", lossy(&named));
+    }
+    deployment.set(&[("TELEMETRY", "self-hosted")]);
+    deployment.server.write(&secret, "too short");
+    let short = deployment
+        .apply(&deployment.api, &["--allow-restart"])
+        .await;
+    deployment.server.shell_ok(&format!("rm {secret}"));
+    let missing = deployment
+        .apply(&deployment.api, &["--allow-restart"])
+        .await;
+    deployment.server.write(&secret, GRAFANA_ADMIN_PASSWORD);
+    assert!(!short.status.success(), "{}", lossy(&short));
+    assert!(
+        lossy(&short).contains("grafana_admin_password holds fewer than 15 characters"),
+        "{}",
+        lossy(&short)
+    );
+    assert!(!missing.status.success(), "{}", lossy(&missing));
+    assert!(
+        lossy(&missing).contains("grafana_admin_password is missing"),
+        "{}",
+        lossy(&missing)
+    );
+}
+
+/// What `deployment`'s Grafana answers a sign-in with the name and the password `as_whom`, and
+/// the cookies it sets, through a client that trusts `root`.
+fn grafana_sign_in(
+    deployment: &Deployment,
+    root: &str,
+    as_whom: (&str, &str),
+) -> (u16, Vec<String>) {
+    post_for_cookies(
+        root.to_owned(),
+        deployment.url_at(GRAFANA_ADDRESS, "https", 443, "/login"),
+        serde_json::json!({"user": as_whom.0, "password": as_whom.1}).to_string(),
+    )
+}
+
 #[tokio::test]
 async fn sec_14_a_server_publishes_only_the_proxy_and_grafana_signs_every_viewer_in() {
     // The bundled database, and a stack that a later deploy adds, after one that ran without it.
     let deployment = Deployment::bundled(&[]);
     let without = deployment.apply(&deployment.api, &[]).await;
     assert!(without.status.success(), "{}", lossy(&without));
+    assert_a_deploy_takes_only_the_operator_s_administrator(&deployment).await;
     // TELEMETRY from off, which Caddy reads, so it restarts.
-    deployment.set(&[("TELEMETRY", "self-hosted")]);
     let deployed = deployment
         .apply(&deployment.api, &["--allow-restart"])
         .await;
     assert!(deployed.status.success(), "{}", lossy(&deployed));
     let root = deployment.server.caddy_root();
-    let password = deployment
-        .server
-        .shell_ok(&format!("cat {DEPLOYMENT}/secrets/grafana_admin_password"));
 
     let containers = deployment.server.shell_ok(
         "docker ps --filter label=com.docker.compose.project=deployment --format '{{.Names}} {{.Ports}}'",
@@ -99,11 +159,15 @@ async fn sec_14_a_server_publishes_only_the_proxy_and_grafana_signs_every_viewer
         deployment.url_at(GRAFANA_ADDRESS, "https", 443, "/metrics"),
         Duration::from_secs(10),
     );
-    let (sign_in, cookies) = post_for_cookies(
-        root.clone(),
-        deployment.url_at(GRAFANA_ADDRESS, "https", 443, "/login"),
-        serde_json::json!({"user": "admin", "password": password}).to_string(),
+    let (sign_in, cookies) = grafana_sign_in(
+        &deployment,
+        &root,
+        (GRAFANA_ADMIN_USER, GRAFANA_ADMIN_PASSWORD),
     );
+    // Grafana's own `admin`, in whose place the operator's administrator stands, signs nobody
+    // in.
+    let (as_admin, _) = grafana_sign_in(&deployment, &root, ("admin", GRAFANA_ADMIN_PASSWORD));
+    let (as_default, _) = grafana_sign_in(&deployment, &root, ("admin", "admin"));
     // Grafana's pages are for a browser, so plain HTTP at its address leads to HTTPS (OPS-17).
     let (plain, plain_headers) = get(
         root,
@@ -134,6 +198,8 @@ async fn sec_14_a_server_publishes_only_the_proxy_and_grafana_signs_every_viewer
     assert_eq!(sign_up, 401, "{refusal}");
     assert!(refusal.contains("signup is disabled"), "{refusal}");
     assert_eq!(sign_in, 200, "{cookies:?}");
+    assert_eq!(as_admin, 401);
+    assert_eq!(as_default, 401);
     assert_the_session_s_cookie_is_this_host_s_alone(&cookies);
     assert_a_browser_guards_grafana_s_pages(&page_headers);
     assert_eq!(plain, 308);

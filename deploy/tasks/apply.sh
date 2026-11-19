@@ -4,7 +4,7 @@
 
 # Writes the secrets the deployment generates, once those the operator holds are there: the
 # passwords of the bundled Postgres's other roles and the URLs made from them, the API's HMAC
-# key, and Grafana's administrator password and its secret key. The files may be read by every
+# key, and Grafana's secret key. The files may be read by every
 # user of a container, as Compose mounts them, so the directory admits only the deployment's
 # owner.
 write_secrets() {
@@ -63,14 +63,10 @@ write_secrets() {
         : > "$secrets/openid_connect_client_secret"
     fi
     # end part: openid_connect
-    # A file that exists empty stands in for a secret the services didn't use before, so it counts
-    # as missing.
-    if [ "$telemetry" = self-hosted ] && [ ! -s "$secrets/grafana_admin_password" ]; then
-        random > "$secrets/grafana_admin_password"
-        say "wrote Grafana's administrator password to $secrets/grafana_admin_password"
-    fi
     # The key under which Grafana encrypts what it stores and hashes its sessions' tokens. A
     # Grafana that ran without the file ends its viewers' sessions once, when it first reads it.
+    # A file that exists empty stands in for a secret the services didn't use before, so it
+    # counts as missing.
     if [ "$telemetry" = self-hosted ] && [ ! -s "$secrets/grafana_secret_key" ]; then
         random > "$secrets/grafana_secret_key"
     fi
@@ -108,6 +104,17 @@ check_secrets() {
         for name in postgres_password backup_s3_key backup_s3_key_secret backup_cipher_pass; do
             if [ ! -s "$secrets/$name" ]; then fail "$secrets/$name is missing (docs/operations/deploy.md)"; fi
         done
+    fi
+    # The password of Grafana's administrator, which its operator chooses: the deployment
+    # generates none, since nothing would make its holder change it (SEC-14). A file that exists
+    # empty stands in for a secret the services didn't use before, so it counts as missing.
+    if [ "$telemetry" = self-hosted ]; then
+        if [ ! -s "$secrets/grafana_admin_password" ]; then
+            fail "$secrets/grafana_admin_password is missing: just server-setup asks for it (docs/operations/deploy.md#grafana)"
+        fi
+        if [ "$(wc -m < "$secrets/grafana_admin_password")" -lt 15 ]; then
+            fail "$secrets/grafana_admin_password holds fewer than 15 characters: just server-setup asks for another (docs/operations/deploy.md#grafana)"
+        fi
     fi
     if [ "$telemetry" = managed ] && [ ! -s "$secrets/managed_otlp_token" ]; then
         fail "$secrets/managed_otlp_token is missing (docs/operations/observability.md)"

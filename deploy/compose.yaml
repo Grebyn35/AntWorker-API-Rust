@@ -562,6 +562,9 @@ services:
     profiles: [observability]
     environment:
       GF_SERVER_ROOT_URL: https://${GRAFANA_ADDRESS:-}/
+      # The administrator that Grafana creates the first time it starts, under the name and
+      # with the password that the operator chose, in place of its own `admin` (SEC-14).
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-}
       GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
       # The key under which Grafana encrypts what it stores and hashes its sessions' tokens, in
       # place of the one its image holds, which is public.
@@ -617,8 +620,8 @@ volumes:
   grafana:
 
 # The secret files, in secrets/ of the deployment's directory. deploy.sh writes the URLs of the
-# bundled Postgres, the API's HMAC key, and Grafana's password and its key, and an empty file for each secret
-# that the settings leave unused, such as the SMTP password when the mail server takes none;
+# bundled Postgres, the API's HMAC key and Grafana's key, and an empty file for each secret that
+# the settings leave unused, such as the SMTP password when the mail server takes none;
 # `just server-setup` writes the others (docs/operations/deploy.md).
 secrets:
   database_url:

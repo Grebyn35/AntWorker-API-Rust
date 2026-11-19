@@ -429,6 +429,8 @@ mod tests {
         "",
         "",
         "grafana.example.com",
+        // The name that Grafana's administrator signs in with.
+        "ada",
         // No email, so no question about a mail server.
         "off",
         // part: files
@@ -510,6 +512,8 @@ mod tests {
         "secret",
         "",
         "",
+        // The password of Grafana's administrator, which the operator chooses.
+        "a password of Grafana's own",
         // No private authority for the bucket, then the registry's token and its user.
         "",
         // part: files
@@ -550,6 +554,7 @@ mod tests {
         assert_eq!(get(&settings, "SOURCE"), "https://github.com/Owner/Name");
         assert_eq!(get(&settings, "API_ADDRESS"), "api.example.com");
         assert_eq!(get(&settings, "GRAFANA_ADDRESS"), "grafana.example.com");
+        assert_eq!(get(&settings, "GRAFANA_ADMIN_USER"), "ada");
         // part: files
         assert_eq!(get(&settings, "FILES_S3_ENDPOINT"), "files.example.com");
         assert_eq!(get(&settings, "FILES_S3_BUCKET"), "files");
@@ -575,6 +580,10 @@ mod tests {
                 // end part: files
                 ("backup_s3_key".to_owned(), "key".to_owned()),
                 ("backup_s3_key_secret".to_owned(), "secret".to_owned()),
+                (
+                    "grafana_admin_password".to_owned(),
+                    "a password of Grafana's own".to_owned()
+                ),
             ]
         );
         assert_eq!(
@@ -719,7 +728,7 @@ mod tests {
         let held = concat!(
             "IMAGE_REPOSITORY=ghcr.io/owner/name\nSOURCE=https://github.com/owner/name\n",
             "API_ADDRESS=api.example.com\nGRAFANA_ADDRESS=grafana.example.com\n",
-            "DATABASE=managed\nTELEMETRY=self-hosted\nEMAIL=off\n",
+            "GRAFANA_ADMIN_USER=ada\nDATABASE=managed\nTELEMETRY=self-hosted\nEMAIL=off\n",
             // part: files
             "FILES_S3_ENDPOINT=s3.example.com\nFILES_S3_REGION=eu-1\nFILES_S3_BUCKET=files\n",
             // end part: files
@@ -735,6 +744,7 @@ mod tests {
                 "files_s3_key".to_owned(),
                 "files_s3_key_secret".to_owned(),
                 // end part: files
+                "grafana_admin_password".to_owned(),
                 "alertmanager/held_url".to_owned(),
             ],
             certs: Vec::new(),
@@ -745,9 +755,10 @@ mod tests {
                            \x20     - url_file: /etc/alertmanager-secrets/new_url\n\
                            \x20     - url_file: /etc/alertmanager-secrets/held_url\n",
         };
-        // Enter for every setting, the key ring and the database's URLs, a new credential and Enter
-        // for the held one, then Enter for the registry's token.
-        let asked = setting_questions(held) + 1 + 3;
+        // Enter for every setting, the key ring, the database's URLs and the password of
+        // Grafana's administrator, a new credential and Enter for the held one, then Enter for
+        // the registry's token.
+        let asked = setting_questions(held) + 1 + 3 + 1;
         // part: files
         // The files bucket's key pair.
         let asked = asked + 2;
