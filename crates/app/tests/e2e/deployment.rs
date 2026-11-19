@@ -4,7 +4,7 @@
 
 use std::{
     io::Write,
-    path::{Path, PathBuf},
+    path::PathBuf,
     process::{Command, Output, Stdio},
     sync::{
         Arc,
@@ -41,16 +41,25 @@ pub const GRAFANA_ADMIN_USER: &str = "operator";
 /// chooses at the setup.
 pub const GRAFANA_ADMIN_PASSWORD: &str = "the password of the e2e tests' Grafana";
 
-/// The xtask binary, which `just e2e` builds before the tests run, in the target directory and
-/// profile the tests' own binary is in: target/<profile>/deps/e2e-<hash> beside
-/// target/<profile>/xtask.
+/// The xtask binary, which `just e2e` builds before the tests run, into the profile's directory of
+/// the target directory, target/<profile>/xtask: the one in the nearest directory above the
+/// tests' own binary that holds one. Cargo keeps a test's binary under that directory, at a depth
+/// that differs between its versions: target/<profile>/deps/e2e-<hash> up to 1.99, and
+/// target/<profile>/build/app/<hash>/out/e2e-<hash> from 1.100 on. Where none is found, the path
+/// beside the tests' binary, which names no file, so that starting it says so.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "tests may block, each on a runtime of its own (CODE-05)"
+)]
 fn xtask() -> PathBuf {
-    std::env::current_exe()
-        .expect("the tests' binary")
-        .parent()
-        .and_then(Path::parent)
-        .expect("the target directory's profile")
-        .join(format!("xtask{}", std::env::consts::EXE_SUFFIX))
+    let name = format!("xtask{}", std::env::consts::EXE_SUFFIX);
+    let tests = std::env::current_exe().expect("the tests' binary");
+    tests
+        .ancestors()
+        .skip(1)
+        .map(|directory| directory.join(&name))
+        .find(|candidate| candidate.is_file())
+        .unwrap_or_else(|| tests.with_file_name(&name))
 }
 
 /// A deployment on a server of its own.

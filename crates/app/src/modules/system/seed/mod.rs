@@ -354,12 +354,8 @@ impl Api {
         request
             .extensions_mut()
             .insert(ConnectInfo(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))));
-        let answer = self
-            .router
-            .clone()
-            .oneshot(request)
-            .await
-            .map_err(|error| SystemError::Internal(Internal::new(error.to_string())))?;
+        // The router's error is `Infallible`: it answers every request.
+        let Ok(answer) = self.router.clone().oneshot(request).await;
         let status = answer.status();
         let bytes = body::to_bytes(answer.into_body(), ANSWER_LIMIT)
             .await

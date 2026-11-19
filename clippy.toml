@@ -133,8 +133,8 @@ disallowed-methods = [
     { path = "platform::authn::Principal::leaver_scope", reason = "only the personal data contract of workspaces records a deleted user leaving (the workspaces spec)" },
     { path = "platform::authn::Principal::invitee_scope", reason = "only accepting and declining an invitation record in its workspace's log as its invitee (the invitations spec)" }, # part: invitations
     { path = "platform::authn::AuditScope::setup", reason = "only the operator's setup of a workspace records in the log of a workspace that no member's proof names (the workspaces spec)" }, # part: workspace_setup
-    { path = "platform::authz::Superadmin::owner_scope", reason = "only a superadmin's creation of a workspace records them in its log as the owner it creates it for (the workspaces spec)" }, # part: superadmins
-    { path = "platform::jobs::JobScope::attempt", reason = "only a password reset and an operator's subcommand enqueue a job for an account that no proof scopes (PLATFORM-013)" },
+    { path = "platform::authz::superadmin::Superadmin::owner_scope", reason = "only a superadmin's creation of a workspace records them in its log as the owner it creates it for (the workspaces spec)" }, # part: superadmins
+    { path = "platform::jobs::context::JobScope::attempt", reason = "only a password reset and an operator's subcommand enqueue a job for an account that no proof scopes (PLATFORM-013)" },
     { path = "platform::db::Database::for_operator", reason = "only the function of a subcommand that an operator runs opens a unit of work for no request and no job (ARCH-14)" },
     { path = "platform::mail::Mail::send_now", reason = "only a job's handler sends an email at once, one that holds a secret it made (the platform spec's Sending email)" },
     { path = "platform::mail::Mail::with_inbox", reason = "only the seed reads the API's emails in process (the system spec's Seed)" },
