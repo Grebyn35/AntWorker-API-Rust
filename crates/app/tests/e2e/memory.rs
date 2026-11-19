@@ -3,8 +3,9 @@
 //! machine's disk. Each server holds a share of it: its own limit and its managed database's
 //! server's, which Docker enforces. The shares fit in what the machine had available when the
 //! first server started, beside the reserve of the heavy turn: the turn of a deployment whose
-//! telemetry runs on its server, the self-hosted stack or a stand-in for a managed Grafana, whose
-//! images are the largest. One deployment holds that turn at a time, in addition to its share. A
+//! telemetry runs on its server, the self-hosted stack, a stand-in for a managed Grafana, or a
+//! stand-in for a managed backend beside the bundled database, whose images take more than a
+//! share. One deployment holds that turn at a time, in addition to its share. A
 //! test takes every share it needs at once, before any other turn, and then the heavy turn, if it
 //! needs it, holding only its share: so the only test that waits while it holds a turn waits for
 //! the heavy turn, whose holder waits for nothing, and every wait ends. Where the machine can't
@@ -24,20 +25,19 @@ use crate::{
 };
 
 /// What a server may hold in memory, its store and its processes together, in mebibytes, its
-/// limit in its share. Of the servers that take no heavy turn, a bundled database's that also
-/// holds the collector's image, for the stand-in of a managed backend, holds up to 3.2 gibibytes
-/// that its kernel can't reclaim: 2.5 of its store's files and 0.6 of its processes' and the
-/// kernel's memory, beside a cache that it can; one that restores twice holds up to 2.8. The
-/// limit is Docker's, so a process on a server that would take more ends, and its test fails,
-/// while the machine keeps the rest.
-pub const SERVER_MIB: u64 = 4_096;
+/// limit in its share. Of the servers that take no heavy turn, a bundled database's that restores
+/// twice holds up to 2.8 gibibytes that its kernel can't reclaim: 2.3 of its store's files and
+/// 0.5 of its processes' and the kernel's memory, beside a cache that it can. The limit is
+/// Docker's, so a process on a server that would take more ends, and its test fails, while the
+/// machine keeps the rest.
+pub const SERVER_MIB: u64 = 3_584;
 /// What a managed database's server may hold in memory, its limit in its deployment's share: its
 /// data and its processes, up to 180 mebibytes.
 pub const DATABASE_MIB: u64 = 512;
 /// What the server that holds the heavy turn may hold beyond its own limit: a bundled database's
 /// server with the self-hosted stack holds up to 6.2 gibibytes that its kernel can't reclaim, 5.3
-/// of them its store's files.
-pub const HEAVY_MIB: u64 = 3_584;
+/// of them its store's files, and one with a managed backend's stand-in up to 3.2.
+pub const HEAVY_MIB: u64 = 3_840;
 /// What the machine keeps beside the servers, for the tests' own processes.
 const HEADROOM_MIB: u64 = 1_024;
 /// The most shares that a test takes, for its two servers (`Server::start_two`).

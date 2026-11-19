@@ -71,8 +71,10 @@ pub struct Deployment {
     pub postgres: String,
     /// The settings of its kind of deployment, which `changes` of `set` add to or replace.
     base: Vec<(String, String)>,
-    /// Whether the settings that `set` last wrote run the self-hosted stack.
-    runs_stack: AtomicBool,
+    /// Whether the settings that `set` last wrote make its server hold more than a share: they
+    /// run the self-hosted stack, or the bundled database with telemetry that goes to a managed
+    /// backend, whose stand-in is the collector's image on the server (memory.rs).
+    heavy: AtomicBool,
 }
 
 impl Deployment {
@@ -154,7 +156,7 @@ impl Deployment {
             api: self.api.clone(),
             postgres: self.postgres.clone(),
             base: self.base.clone(),
-            runs_stack: AtomicBool::new(false),
+            heavy: AtomicBool::new(false),
         };
         deployment.set(&[]);
         self.server
@@ -204,7 +206,7 @@ impl Deployment {
             api: Pushed::api().in_network(),
             postgres: Pushed::postgres().in_network(),
             base,
-            runs_stack: AtomicBool::new(false),
+            heavy: AtomicBool::new(false),
         };
         deployment.set(changes);
         deployment
@@ -217,10 +219,14 @@ impl Deployment {
             settings.retain(|(existing, _)| existing != name);
             settings.push(((*name).to_owned(), (*value).to_owned()));
         }
-        let runs_stack = settings
-            .iter()
-            .any(|(name, value)| name == "TELEMETRY" && value == "self-hosted");
-        self.runs_stack.store(runs_stack, Ordering::Relaxed);
+        let is = |setting: &str, wanted: &str| {
+            settings
+                .iter()
+                .any(|(name, value)| name == setting && value == wanted)
+        };
+        let heavy = is("TELEMETRY", "self-hosted")
+            || (is("TELEMETRY", "managed") && is("DATABASE", "bundled"));
+        self.heavy.store(heavy, Ordering::Relaxed);
         let text: String = settings
             .iter()
             .map(|(name, value)| format!("{name}={value}\n"))
@@ -229,8 +235,8 @@ impl Deployment {
             .write(&format!("{DEPLOYMENT}/settings.env"), &text);
     }
 
-    /// Deploys `api`, the API's image, with `options`. A deploy that runs the self-hosted stack
-    /// first waits for the heavy turn (memory.rs).
+    /// Deploys `api`, the API's image, with `options`. A deploy whose settings make its server
+    /// hold more than a share first waits for the heavy turn (memory.rs).
     pub async fn apply(&self, api: &str, options: &[&str]) -> Output {
         self.apply_images(api, &self.postgres, options).await
     }
@@ -252,9 +258,9 @@ impl Deployment {
             .deploy_until(&["apply", api, &self.postgres], line)
     }
 
-    /// Waits for the heavy turn, once the settings run the self-hosted stack.
+    /// Waits for the heavy turn, once the settings make the server hold more than a share.
     async fn take_the_heavy_turn(&self) {
-        if self.runs_stack.load(Ordering::Relaxed) {
+        if self.heavy.load(Ordering::Relaxed) {
             self.server.take_the_heavy_turn().await;
         }
     }
