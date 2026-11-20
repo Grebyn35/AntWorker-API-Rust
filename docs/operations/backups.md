@@ -100,6 +100,28 @@ After losing the server, set up a new one with `just server-setup`, as [deploy.m
 The answers hold its files bucket's key pair too, since the restored rows' files are in that bucket. <!-- part: files -->
 The deploy stops before its replicas start, because the new server's database, which Postgres has just created empty, isn't the one whose backups the bucket holds: pgBackRest refuses it. Then run `just restore` without a moment, and `just deploy` again. CI does the same, on a new server of its own set up from a lost one's settings, secrets and bucket, and checks that the first deploy stops before any replica starts, and that the deploy after the restore serves the lost server's data (OPS-15).
 
+### Restoring from backups that were deleted
+
+Whoever holds the server holds the key pair of the backups' bucket, and can delete what the bucket holds, or replace it, but not the versions that the bucket keeps of it for `BUCKETS_KEEP_DELETED_DAYS` days ([deploy.md](deploy.md#what-a-server-needs), OPS-22). Within those days,
+
+```
+just restore production "" --bucket-as-of "2026-10-25 10:30:00+00"
+```
+
+restores the database from the backups as the bucket held them at that time, whatever it holds now: the latest state that they hold, or, with a moment in place of `""`, the database as it stood at that moment. The time has its offset from UTC, as a moment has, and is read to the second, by the bucket's clock, which stamps each object as it is written. Choose one before the first deletion.
+
+It restores as [Restoring](#restoring) says, but for what follows from reading backups that the bucket doesn't hold now:
+
+- It refuses, before anything stops, a time that the server's clock hasn't reached, a moment after the time, a time at which the bucket held no backup, and a deployment whose `BUCKETS_KEEP_DELETED_DAYS` is 0. `--allow-unarchived` has nothing to allow beside it, and is refused.
+- It checks nothing of the database that it replaces, marks no backup and records no timeline's beginning in the bucket, and names no moment that undoes it. The data that it replaces moves aside, as step 2 says.
+- Once pgBackRest has restored the data, and before Postgres starts on it, pgBackRest deletes its stanza, its record of the database with the backups and the log, from the bucket, by name, so the bucket keeps what it held as it kept what was deleted before. Once Postgres has replayed the log, pgBackRest creates the stanza again, and the full backup of step 5 is the first that the bucket holds. Postgres numbers the timeline that the restore begins one past the newest that the bucket held at the time, and an earlier restore may have begun a timeline of that number in what the bucket holds now, to whose log pgBackRest refuses to add another's.
+- The restores that follow reach back to that full backup. A moment before it is reached by another restore with `--bucket-as-of`, from what the bucket held before this one, for as long as the bucket keeps it.
+- If pgBackRest can't create the stanza, as when the bucket stops answering, the restore stops there, with the API down and Postgres running the restored database: once the bucket answers, deploy the live release again, which creates the stanza and takes the first backup.
+
+After the loss of the server too, set up a new one as [Restoring onto a new server](#restoring-onto-a-new-server) says, and give its buckets new key pairs, since whoever held the lost server held the old ones. A bucket whose backups were all deleted holds none of another database, so the new server's first deploy doesn't stop: it serves a database of the new server's own, and begins its backups in the bucket. The restore with `--bucket-as-of` then replaces that database, and runs `bootstrap` before `migrate`, as a deploy does, which sets the passwords of the restored database's roles from the new server's URLs.
+
+CI drops a deployment's table, and deletes its backups and its log with the bucket's key pair, restores from the backups as the bucket held them before, to a moment and then to the latest state that they hold, and restores to a later moment from the backups that the bucket then holds; and it restores them on a new server, whose first deploy served a database of its own (OPS-22).
+
 ## What to keep off the server
 
 Keep a copy of these where the server's loss doesn't reach them, such as a password manager:

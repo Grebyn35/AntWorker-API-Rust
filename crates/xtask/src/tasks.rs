@@ -42,6 +42,13 @@ pub enum ServerTask {
         /// changes that the bucket lacks only in the data that the restore moves aside.
         #[arg(long)]
         allow_unarchived: bool,
+        /// Restores from the backups as their bucket held them at this time, whatever it holds
+        /// now, as after someone who holds the server deleted them (OPS-22): a time with its
+        /// offset from UTC, as Postgres writes it, in one word or as its date and its time. Such
+        /// a restore checks nothing of the database it replaces, so `--allow-unarchived` has
+        /// nothing to allow beside it.
+        #[arg(long, value_name = "TIME", num_args = 1..=2, conflicts_with = "allow_unarchived")]
+        bucket_as_of: Vec<String>,
     },
     /// Shows the state of the deployment at `host`: which color serves, its containers, its
     /// backups, and the server's free disk and memory (OPS-19).
@@ -184,7 +191,11 @@ impl ServerTask {
                 host,
                 moment,
                 allow_unarchived,
-            } => deploy::restore(&host, moment.as_deref(), allow_unarchived),
+                bucket_as_of,
+            } => {
+                let held = (!bucket_as_of.is_empty()).then(|| bucket_as_of.join(" "));
+                deploy::restore(&host, moment.as_deref(), allow_unarchived, held.as_deref())
+            }
             Self::Status { host } => deploy::status(&host),
             Self::Logs { host, arguments } => deploy::logs(&host, &arguments),
             Self::ReplaceKey { host, key } => deploy::replace_key(&host, &key),

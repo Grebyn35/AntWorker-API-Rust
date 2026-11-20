@@ -24,7 +24,7 @@ use std::{
 
 use crate::{
     release::{Version, releases},
-    restore::planned,
+    restore::{bucket_time, planned},
     server::on_server_output,
 };
 
@@ -131,13 +131,32 @@ pub fn backup(host: &str) -> ExitCode {
 /// Restores the database of the deployment that SSH reaches at `host`, as it stood at `moment`,
 /// or at the latest moment its backups hold. It first reads what the backup bucket records, and
 /// plans the backup the restore starts from and the timeline it replays along. With
-/// `allow_unarchived`, it restores although the database's log doesn't reach the bucket.
-pub fn restore(host: &str, moment: Option<&str>, allow_unarchived: bool) -> ExitCode {
+/// `allow_unarchived`, it restores although the database's log doesn't reach the bucket. With
+/// `bucket_as_of`, it reads what the bucket recorded at that time, and restores from the backups
+/// that it held then (OPS-22).
+pub fn restore(
+    host: &str,
+    moment: Option<&str>,
+    allow_unarchived: bool,
+    bucket_as_of: Option<&str>,
+) -> ExitCode {
     let moment = moment.filter(|moment| !moment.is_empty());
-    let inputs = match on_server_output(
-        host,
-        &format!("DEPLOYMENT={DEPLOYMENT} sh {DEPLOYMENT}/deploy.sh restore-inputs"),
-    ) {
+    let held = match bucket_as_of.map(|time| bucket_time(time).ok_or(time)) {
+        None => None,
+        Some(Ok(held)) => Some(held),
+        Some(Err(time)) => {
+            return refuse(&format!(
+                "{time} isn't a time. A time is a date and a time with its offset from UTC, as \
+                 Postgres writes one, such as 2026-10-25 10:41:31+00."
+            ));
+        }
+    };
+    let mut inputs = format!("DEPLOYMENT={DEPLOYMENT} sh {DEPLOYMENT}/deploy.sh restore-inputs");
+    if let Some(held) = &held {
+        inputs.push(' ');
+        inputs.push_str(&quoted(held));
+    }
+    let inputs = match on_server_output(host, &inputs) {
         Ok(inputs) => inputs,
         Err(error) => {
             return refuse(&format!(
@@ -145,18 +164,22 @@ pub fn restore(host: &str, moment: Option<&str>, allow_unarchived: bool) -> Exit
             ));
         }
     };
-    let plan = match planned(moment, &inputs) {
+    let plan = match planned(moment, held.as_deref(), &inputs) {
         Ok(plan) => plan,
         Err(refused) => return refuse(&refused),
     };
+    let source = match &held {
+        Some(held) => format!("the backup {}, which the bucket held at {held}", plan.set),
+        None => format!("the backup {}", plan.set),
+    };
     note(&match moment {
         Some(moment) => format!(
-            "Restoring from the backup {}, along timeline {}, the one live at {moment}.",
-            plan.set, plan.timeline
+            "Restoring from {source}, along timeline {}, the one live at {moment}.",
+            plan.timeline
         ),
         None => format!(
-            "Restoring the latest state from the backup {}, along timeline {}.",
-            plan.set, plan.timeline
+            "Restoring the latest state from {source}, along timeline {}.",
+            plan.timeline
         ),
     });
     let mut command = format!("DEPLOYMENT={DEPLOYMENT} sh {DEPLOYMENT}/deploy.sh restore");
@@ -166,6 +189,10 @@ pub fn restore(host: &str, moment: Option<&str>, allow_unarchived: bool) -> Exit
     }
     if allow_unarchived {
         command.push_str(" --allow-unarchived");
+    }
+    if let Some(held) = &held {
+        command.push_str(" --bucket-as-of ");
+        command.push_str(&quoted(held));
     }
     on_server(host, &command)
 }

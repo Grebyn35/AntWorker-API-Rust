@@ -249,7 +249,7 @@ fn timestamp(repo: &Repo) -> Result<String, String> {
         .duration_since(UNIX_EPOCH)
         .map_err(|error| format!("the system's clock is before 1970: {error}"))?
         .as_secs();
-    let now: u64 = civil(now)
+    let now: u64 = crate::calendar::civil(now)
         .parse()
         .map_err(|_| "the time isn't a number".to_owned())?;
     let newest = repo
@@ -259,35 +259,6 @@ fn timestamp(repo: &Repo) -> Result<String, String> {
         .max()
         .unwrap_or(0);
     Ok(now.max(newest + 1).to_string())
-}
-
-/// The moment `seconds` after the Unix epoch, in UTC, as `YYYYMMDDhhmmss`, by the proleptic
-/// Gregorian calendar.
-fn civil(seconds: u64) -> String {
-    let days = seconds / 86_400;
-    let of_day = seconds % 86_400;
-    // Howard Hinnant's algorithm from days to the civil calendar, whose years start in March, so
-    // a leap day ends one.
-    let z = days + 719_468;
-    let era = z / 146_097;
-    let day_of_era = z - era * 146_097;
-    let year_of_era =
-        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
-    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
-    let month_index = (5 * day_of_year + 2) / 153;
-    let day = day_of_year - (153 * month_index + 2) / 5 + 1;
-    let month = if month_index < 10 {
-        month_index + 3
-    } else {
-        month_index - 9
-    };
-    let year = year_of_era + era * 400 + u64::from(month <= 2);
-    format!(
-        "{year:04}{month:02}{day:02}{:02}{:02}{:02}",
-        of_day / 3_600,
-        of_day % 3_600 / 60,
-        of_day % 60
-    )
 }
 
 /// The files under `directory`, with their text, so a failure puts them back.
@@ -414,6 +385,7 @@ mod tests {
 
     #[test]
     fn arch_03_a_migration_s_timestamp_is_the_utc_time_it_was_written() {
+        let civil = crate::calendar::civil;
         assert_eq!(civil(0), "19700101000000");
         assert_eq!(civil(951_782_400), "20000229000000");
         assert_eq!(civil(1_793_532_345), "20261101112545");

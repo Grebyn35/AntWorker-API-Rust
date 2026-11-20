@@ -5,6 +5,7 @@
 mod acronyms;
 mod alerts;
 mod boards;
+mod calendar;
 mod cargo;
 mod catalog;
 mod copy;
@@ -221,6 +222,10 @@ enum Command {
         /// The moment: a time with its offset from UTC, as Postgres writes it; without one, the
         /// latest state.
         moment: Option<String>,
+        /// The time at which the bucket recorded what the input holds, for a restore from the
+        /// backups that it held then (OPS-22).
+        #[arg(long)]
+        bucket_as_of: Option<String>,
     },
     /// Warns of each setting of `.env.example` that `.env` lacks, or still sets to an earlier
     /// value of the example's, which `just setup` and `just dev` run (OPS-20).
@@ -308,7 +313,10 @@ fn main() -> ExitCode {
         Command::LoadTest { route } => return load::run(&route),
         Command::EnvDrift => return env_drift::run(),
         Command::Mirror { platform } => return mirror::run(&platform),
-        Command::RestorePlan { moment } => return restore::run(moment.as_deref()),
+        Command::RestorePlan {
+            moment,
+            bucket_as_of,
+        } => return restore::run(moment.as_deref(), bucket_as_of.as_deref()),
         command => command,
     };
     let repo = match repo::Repo::load() {
@@ -450,6 +458,50 @@ mod tests {
             restore(&[moment, "--allow-unarchived"]),
             Some((Some(moment.to_owned()), true))
         );
+    }
+
+    #[test]
+    fn ops_22_a_restore_takes_the_bucket_s_time_in_one_word_or_as_its_date_and_its_time() {
+        // The time of a restore on `production` with `args`, which the justfile passes as the
+        // words of its options, so a time that holds a space arrives as two.
+        let held = |args: &[&str]| {
+            let cli = Cli::try_parse_from([&["xtask", "restore", "production"], args].concat());
+            match cli.map(|cli| cli.command) {
+                Ok(Command::Server(ServerTask::Restore { bucket_as_of, .. })) => {
+                    Some(bucket_as_of.join(" "))
+                }
+                _ => None,
+            }
+        };
+
+        assert_eq!(held(&[""]), Some(String::new()));
+        assert_eq!(
+            held(&["", "--bucket-as-of", "2026-10-25T10:41:31+00"]),
+            Some("2026-10-25T10:41:31+00".to_owned())
+        );
+        assert_eq!(
+            held(&["", "--bucket-as-of", "2026-10-25", "10:41:31+00"]),
+            Some("2026-10-25 10:41:31+00".to_owned())
+        );
+        assert_eq!(
+            held(&[
+                "2026-10-25 10:00:00+00",
+                "--bucket-as-of=2026-10-25T10:41:31Z"
+            ]),
+            Some("2026-10-25T10:41:31Z".to_owned())
+        );
+        // It checks nothing of the database it replaces, so the option that lets a restore go on
+        // past that check is refused beside it; and it takes a time.
+        assert_eq!(
+            held(&[
+                "",
+                "--bucket-as-of",
+                "2026-10-25T10:41:31Z",
+                "--allow-unarchived"
+            ]),
+            None
+        );
+        assert_eq!(held(&["", "--bucket-as-of"]), None);
     }
 
     #[test]

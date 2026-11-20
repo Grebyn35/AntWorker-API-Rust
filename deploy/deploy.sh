@@ -31,10 +31,19 @@
 #       refuses, unless --allow-unarchived lets it go on. Postgres still replaying the log, as
 #       after a restore that failed during its replay, isn't checked. Before it stops Postgres, it
 #       records in the bucket when the timeline it begins begins, and refuses if it can't.
-#   deploy.sh restore-inputs
+#   deploy.sh restore <moment> <backup> <timeline> --bucket-as-of <time>
+#       Restores the bundled database from the backups as their bucket held them at <time>, a
+#       time in UTC, to the second, as pgBackRest takes one and `just restore` writes it,
+#       whatever the bucket holds now (OPS-22). It checks nothing of the database it replaces,
+#       and records nothing in the bucket before it stops Postgres. Once it has restored the
+#       data, it deletes pgBackRest's stanza in the bucket by name, and creates it again once
+#       Postgres has replayed the log, so the full backup that ends it is the bucket's first;
+#       it runs bootstrap before migrate. It refuses while BUCKETS_KEEP_DELETED_DAYS is 0.
+#   deploy.sh restore-inputs [<time>]
 #       Prints what a restore plans from: the server's clock, and what the backup bucket records
-#       of the bundled database's timelines: pgBackRest's info, whose annotations record when
-#       each timeline began, and each history file's branches. It changes nothing.
+#       of the bundled database's timelines, or, with <time>, recorded then: pgBackRest's info,
+#       whose annotations record when each timeline began, and each history file's branches. It
+#       changes nothing.
 #   deploy.sh status
 #       Shows whether a deploy, backup or restore runs, or a deploy stopped before its replicas
 #       served, which color serves, each of the deployment's containers with its state and its
@@ -143,10 +152,18 @@ case $command in
         ;;
     backup) backup ;;
     restore)
-        unarchived=$(allowed --allow-unarchived "${5:-}")
-        restore "${2:-}" "${3:-}" "${4:-}" "$unarchived"
+        case ${5:-} in
+            --bucket-as-of)
+                if [ "$#" -ne 6 ] || [ -z "$6" ]; then fail "usage: deploy.sh restore <moment> <backup> <timeline> --bucket-as-of <time>"; fi
+                restore "$2" "$3" "$4" no "$6"
+                ;;
+            *)
+                unarchived=$(allowed --allow-unarchived "${5:-}")
+                restore "${2:-}" "${3:-}" "${4:-}" "$unarchived" ""
+                ;;
+        esac
         ;;
-    restore-inputs) restore_inputs ;;
+    restore-inputs) restore_inputs "${2:-}" ;;
     status) status ;;
     logs)
         shift

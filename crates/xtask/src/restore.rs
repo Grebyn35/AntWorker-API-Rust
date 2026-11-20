@@ -140,8 +140,12 @@ pub fn plan(moment: i64, backups: &[Backup], timelines: &[Timeline]) -> Result<P
 }
 
 /// The plan of a restore to the moment `text` names, or without one, to the latest state, from
-/// `inputs`, which deploy.sh's `restore-inputs` printed; or why there is none.
-pub fn planned(text: Option<&str>, inputs: &str) -> Result<Plan, String> {
+/// `inputs`, which deploy.sh's `restore-inputs` printed; or why there is none. With `held`, the
+/// time at which the bucket recorded what `inputs` holds, as `bucket_time` writes one, the
+/// restore reads the backups that the bucket held then (OPS-22): a time that the server's clock
+/// hasn't reached is refused, since the bucket hasn't stood at it yet, and so is a moment after
+/// it, which nothing that the bucket held then reaches, and a time at which it held no backup.
+pub fn planned(text: Option<&str>, held: Option<&str>, inputs: &str) -> Result<Plan, String> {
     let at = match text {
         Some(text) => moment(text).ok_or_else(|| {
             format!(
@@ -160,10 +164,48 @@ pub fn planned(text: Option<&str>, inputs: &str) -> Result<Plan, String> {
              restore takes the latest state."
         ));
     }
+    if let Some(held) = held {
+        let stood = moment(held).ok_or_else(|| format!("{held} isn't a time of the bucket."))?;
+        if stood > now {
+            return Err(format!(
+                "Can't read the bucket as it stood at {held}: the server's clock hasn't reached \
+                 it."
+            ));
+        }
+        if let Some(text) = text
+            && at > stood
+        {
+            return Err(format!(
+                "Can't restore to {text} from the backups that the bucket held at {held}: they \
+                 reach no later moment. Without a moment, the restore takes the latest state \
+                 that they hold."
+            ));
+        }
+        if backups.is_empty() {
+            return Err(format!("The bucket held no backup at {held}."));
+        }
+    }
     plan(at, &backups, &timelines).map_err(|reason| match text {
         Some(text) => format!("Can't restore to {text}: {reason}."),
         None => format!("Can't restore the latest state: {reason}."),
     })
+}
+
+/// The time `text` names, as pgBackRest takes the time at which it reads a bucket: in UTC, to the
+/// second, the bucket's own times being whole seconds, as `YYYY-MM-DD HH:MM:SS+00`. `text` is
+/// a time as `moment` reads one, after the Unix epoch.
+pub fn bucket_time(text: &str) -> Option<String> {
+    let seconds = u64::try_from(moment(text)?.div_euclid(MICROS)).ok()?;
+    let digits = crate::calendar::civil(seconds);
+    Some(format!(
+        "{}-{}-{} {}:{}:{}+00",
+        digits.get(..4)?,
+        digits.get(4..6)?,
+        digits.get(6..8)?,
+        digits.get(8..10)?,
+        digits.get(10..12)?,
+        digits.get(12..14)?,
+    ))
 }
 
 /// What `restore-inputs` printed: a line `now` with the server's clock, in microseconds since the
@@ -358,13 +400,14 @@ fn days(year: i64, month: i64, day: i64) -> i64 {
 
 /// `restore-plan`, which the end-to-end tests run as `just restore` makes its plan: reads what
 /// `restore-inputs` printed from standard input, and prints the plan of a restore to `moment`,
-/// or to the latest state, as the backup and the timeline, separated by a space.
-pub fn run(moment: Option<&str>) -> ExitCode {
+/// or to the latest state, as the backup and the timeline, separated by a space. With `held`,
+/// the plan is that of a restore from the backups that the bucket held at that time.
+pub fn run(moment: Option<&str>, held: Option<&str>) -> ExitCode {
     let mut inputs = String::new();
     if let Err(error) = io::stdin().read_to_string(&mut inputs) {
         return crate::deploy::refuse(&format!("Can't read what the bucket records: {error}"));
     }
-    match planned(moment, &inputs) {
+    match planned(moment, held, &inputs) {
         Ok(plan) => report(&format!("{} {}", plan.set, plan.timeline)),
         Err(refused) => crate::deploy::refuse(&refused),
     }
@@ -644,9 +687,9 @@ mod tests {
             "\n",
         );
 
-        let reached = planned(Some("2026-10-26 21:46:11+00"), inputs);
-        let ahead = planned(Some("2026-10-26 21:46:11.000001+00"), inputs);
-        let latest = planned(None, inputs);
+        let reached = planned(Some("2026-10-26 21:46:11+00"), None, inputs);
+        let ahead = planned(Some("2026-10-26 21:46:11.000001+00"), None, inputs);
+        let latest = planned(None, None, inputs);
 
         assert_eq!(
             reached.map(|plan| plan.set),
@@ -659,6 +702,69 @@ mod tests {
             "{ahead:?}"
         );
         assert!(latest.is_ok(), "{latest:?}");
+    }
+
+    #[test]
+    fn ops_22_a_restore_from_the_bucket_as_it_stood_reaches_no_moment_after_that_time() {
+        // What the bucket recorded at 21:46:00: a backup that ended at 21:45:11. The server's
+        // clock reads 21:46:11.
+        let inputs = concat!(
+            "now 1793051171000000\n",
+            r#"backups [{"backup":[{"label":"20261026-214504F","type":"full","timestamp":{"start":1793051104,"stop":1793051111},"lsn":{"start":"0/E000028","stop":"0/E000120"},"archive":{"start":"00000001000000000000000E","stop":"00000001000000000000000E"}}]}]"#,
+            "\n",
+        );
+        let held = Some("2026-10-26 21:46:00+00");
+        let refused = |plan: &Result<Plan, String>, reason: &str| {
+            plan.as_ref().is_err_and(|refused| refused.contains(reason))
+        };
+
+        let latest = planned(None, held, inputs);
+        let at_the_time = planned(Some("2026-10-26 21:46:00+00"), held, inputs);
+        let after_the_time = planned(Some("2026-10-26 21:46:00.000001+00"), held, inputs);
+        let ahead = planned(None, Some("2026-10-26 21:46:12+00"), inputs);
+        let empty = planned(
+            None,
+            held,
+            "now 1793051171000000\nbackups [{\"backup\":[]}]\n",
+        );
+        let unread = planned(None, Some("yesterday"), inputs);
+
+        let set = Ok("20261026-214504F".to_owned());
+        assert_eq!(latest.map(|plan| plan.set), set);
+        assert_eq!(at_the_time.map(|plan| plan.set), set);
+        assert!(
+            refused(&after_the_time, "they reach no later moment"),
+            "{after_the_time:?}"
+        );
+        assert!(
+            refused(&ahead, "the server's clock hasn't reached it"),
+            "{ahead:?}"
+        );
+        assert!(
+            refused(
+                &empty,
+                "The bucket held no backup at 2026-10-26 21:46:00+00"
+            ),
+            "{empty:?}"
+        );
+        assert!(refused(&unread, "isn't a time of the bucket"), "{unread:?}");
+    }
+
+    #[test]
+    fn ops_22_the_bucket_s_time_is_written_in_utc_to_the_second_as_pgbackrest_takes_one() {
+        let written = Some("2026-10-25 10:41:31+00".to_owned());
+
+        assert_eq!(bucket_time("2026-10-25 10:41:31+00"), written);
+        assert_eq!(bucket_time("2026-10-25T10:41:31Z"), written);
+        assert_eq!(bucket_time("2026-10-25 12:41:31.913582+02:00"), written);
+        assert_eq!(bucket_time("2026-10-25 05:11:31.5-0530"), written);
+        assert_eq!(
+            bucket_time("2024-02-29 23:59:59+00"),
+            Some("2024-02-29 23:59:59+00".to_owned())
+        );
+        // No time, and one before the Unix epoch, which no bucket's object has.
+        assert_eq!(bucket_time("2026-10-25"), None);
+        assert_eq!(bucket_time("1969-12-31 23:59:59+00"), None);
     }
 
     #[test]

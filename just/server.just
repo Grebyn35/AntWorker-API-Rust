@@ -23,7 +23,10 @@ backup host:
 # Restores the bundled database of the reference deployment on `host`, as it stood at `moment`, a
 # time with its offset from UTC as Postgres writes it, or at the latest moment its backups hold
 # (OPS-15). `--allow-unarchived` lets it restore although the database's log doesn't reach the
-# bucket, as `just restore production --allow-unarchived`.
+# bucket, as `just restore production --allow-unarchived`. `--bucket-as-of` and a time restore
+# from the backups as their bucket held them at that time, whatever it holds now, as after
+# someone who holds the server deleted them (OPS-22): the moment, or `""` for the latest state
+# that they hold, comes before it.
 # docs/operations/backups.md describes a restore.
 [doc("Restores a server's bundled database, as it stood at a moment")]
 [group('server')]

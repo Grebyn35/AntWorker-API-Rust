@@ -306,7 +306,7 @@ impl Deployment {
 
     /// Restores as `restore` does, with deploy.sh's `options`.
     pub fn restore_with(&self, moment: Option<&str>, options: &[&str]) -> Output {
-        let (set, timeline) = self.restore_plan(moment);
+        let (set, timeline) = self.restore_plan(moment, None);
         self.server.deploy(
             &[
                 &["restore", moment.unwrap_or(""), &set, &timeline][..],
@@ -319,21 +319,43 @@ impl Deployment {
     /// Starts a restore of the latest state, as `restore_with` does with `options`, and returns
     /// once it writes a line that contains `line`.
     pub fn restore_until(&self, options: &[&str], line: &str) -> RunningDeploy {
-        let (set, timeline) = self.restore_plan(None);
+        let (set, timeline) = self.restore_plan(None, None);
         self.server.deploy_until(
             &[&["restore", "", &set, &timeline][..], options].concat(),
             line,
         )
     }
 
+    /// Restores from the backups that the bucket held at `held`, a time as pgBackRest takes one,
+    /// to `moment`, or to the latest state that they hold, as `just restore` does with
+    /// `--bucket-as-of` (OPS-22).
+    pub fn restore_as_held(&self, moment: Option<&str>, held: &str) -> Output {
+        let (set, timeline) = self.restore_plan(moment, Some(held));
+        self.server.deploy(&[
+            "restore",
+            moment.unwrap_or(""),
+            &set,
+            &timeline,
+            "--bucket-as-of",
+            held,
+        ])
+    }
+
     /// The backup and the timeline of a restore to `moment`, or to the latest state, that xtask's
-    /// `restore-plan` plans from what the bucket records.
-    fn restore_plan(&self, moment: Option<&str>) -> (String, String) {
-        let inputs = self.server.deploy(&["restore-inputs"]);
+    /// `restore-plan` plans from what the bucket records, or, with `held`, recorded at that time.
+    fn restore_plan(&self, moment: Option<&str>, held: Option<&str>) -> (String, String) {
+        let inputs = self
+            .server
+            .deploy(&[&["restore-inputs"][..], held.as_slice()].concat());
         assert!(inputs.status.success(), "{}", lossy(&inputs));
+        let as_held: Vec<&str> = held
+            .iter()
+            .flat_map(|held| ["--bucket-as-of", held])
+            .collect();
         let mut planner = Command::new(xtask())
             .arg("restore-plan")
             .args(moment)
+            .args(as_held)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

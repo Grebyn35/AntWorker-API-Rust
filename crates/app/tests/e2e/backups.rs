@@ -1062,3 +1062,178 @@ async fn ops_15_a_restore_after_a_failed_deploy_migrates_with_the_live_release()
     );
     assert_eq!(status, 200);
 }
+
+/// The server's clock, to the second, as a restore's `--bucket-as-of` takes a time. The stand-in
+/// bucket runs on the server, so the times of its objects are that clock's.
+fn bucket_clock(deployment: &Deployment) -> String {
+    deployment
+        .server
+        .shell_ok("date -u '+%Y-%m-%d %H:%M:%S+00'")
+}
+
+/// The names in `restore_marker`, in their order, on one line.
+fn markers(deployment: &Deployment) -> String {
+    deployment
+        .sql("SELECT name FROM restore_marker ORDER BY name")
+        .replace('\n', ", ")
+}
+
+/// A deployment on `server` whose table someone who holds the server dropped, and whose backups
+/// and log they deleted, with the bucket's key pair, which the server holds. Returns it with a
+/// moment between the table's two rows, a time of the bucket after both and before the
+/// deletion, and the backups that the bucket held then.
+async fn deleted_with_its_backups(server: Server) -> (Deployment, String, String, Vec<Value>) {
+    let deployment = Deployment::bundled_on(server, &[]);
+    let deployed = deployment.apply(&deployment.api, &[]).await;
+    assert!(deployed.status.success(), "{}", lossy(&deployed));
+    deployment.sql(
+        "CREATE TABLE restore_marker (name text PRIMARY KEY); \
+         INSERT INTO restore_marker VALUES ('1 before the moment');",
+    );
+    let moment = deployment.sql("SELECT now()");
+    deployment.sql("INSERT INTO restore_marker VALUES ('2 before the deletion')");
+    archive_everything_committed(&deployment);
+    // The bucket's times are whole seconds: the time lies more than a second after what the
+    // bucket must have held, and more than one before what it mustn't.
+    deployment.server.shell_ok("sleep 2");
+    let held = bucket_clock(&deployment);
+    deployment.server.shell_ok("sleep 2");
+    let first = backups(&deployment);
+    deployment.sql("DROP TABLE restore_marker");
+    archive_everything_committed(&deployment);
+    deployment.server.shell_ok(
+        "docker exec --user postgres deployment-postgres-1 sh -c \
+         'pgbackrest --stanza=db repo-rm --recurse archive/db \
+         && pgbackrest --stanza=db repo-rm --recurse backup/db'",
+    );
+    let emptied = deployment.server.deploy(&["restore-inputs"]);
+    assert!(emptied.status.success(), "{}", lossy(&emptied));
+    assert!(
+        lossy(&emptied).contains("\"backup\":[]"),
+        "{}",
+        lossy(&emptied)
+    );
+    (deployment, moment, held, first)
+}
+
+/// Checks that, while the setting says that the buckets keep nothing, neither what a restore
+/// plans from nor a restore reads `deployment`'s bucket as it stood at `held`, and that the
+/// restore refuses before anything stops.
+fn refuses_while_the_buckets_keep_nothing(deployment: &Deployment, held: &str) {
+    let settings = format!("{DEPLOYMENT}/settings.env");
+    deployment
+        .server
+        .shell_ok(&format!("echo BUCKETS_KEEP_DELETED_DAYS=0 >> {settings}"));
+    let unread = deployment.server.deploy(&["restore-inputs", held]);
+    let refused = deployment
+        .server
+        .deploy(&["restore", "", "none", "1", "--bucket-as-of", held]);
+    let (serving, _) = get(
+        deployment.server.caddy_root(),
+        deployment.url("https", 443, "/v1/capabilities"),
+    );
+    deployment
+        .server
+        .shell_ok(&format!("sed -i /^BUCKETS_KEEP_DELETED_DAYS=/d {settings}"));
+    for output in [&unread, &refused] {
+        assert!(!output.status.success(), "{}", lossy(output));
+        assert!(
+            lossy(output).contains("BUCKETS_KEEP_DELETED_DAYS is 0"),
+            "{}",
+            lossy(output)
+        );
+    }
+    assert_eq!(serving, 200);
+}
+
+#[tokio::test]
+async fn ops_22_a_restore_reads_the_backups_as_their_bucket_held_them_before_its_key_pair_deleted_them()
+ {
+    let (deployment, moment, held, first) = deleted_with_its_backups(Server::start()).await;
+    refuses_while_the_buckets_keep_nothing(&deployment, &held);
+
+    // To a moment, then to the latest state that the bucket held, which finds the bucket
+    // holding the first restore's backups, on a timeline of the number that it begins.
+    let to_the_moment = deployment.restore_as_held(Some(&moment), &held);
+    let at_the_moment = markers(&deployment);
+    let to_the_latest = deployment.restore_as_held(None, &held);
+    let at_the_latest = markers(&deployment);
+    let began_anew = backups(&deployment);
+    // A restore from the backups that the bucket holds, to a moment after those restores.
+    deployment.sql("INSERT INTO restore_marker VALUES ('3 after the restores')");
+    let later = deployment.sql("SELECT now()");
+    deployment.sql("INSERT INTO restore_marker VALUES ('4 after the later moment')");
+    archive_everything_committed(&deployment);
+    let restored_later = deployment.restore(Some(&later));
+    let kept = deployment.server.deploy(&["restore-inputs", &held]);
+
+    assert!(to_the_moment.status.success(), "{}", lossy(&to_the_moment));
+    assert_eq!(at_the_moment, "1 before the moment");
+    assert!(to_the_latest.status.success(), "{}", lossy(&to_the_latest));
+    assert_eq!(at_the_latest, "1 before the moment, 2 before the deletion");
+    assert!(
+        lossy(&to_the_latest).contains("the restored database's backups begin anew"),
+        "{}",
+        lossy(&to_the_latest)
+    );
+    // The bucket holds the second restore's full backup alone, and still gives the backups that
+    // it held at the time.
+    assert_eq!(began_anew.len(), 1, "{began_anew:?}");
+    assert!(!first.contains(&began_anew[0]), "{began_anew:?}");
+    assert!(kept.status.success(), "{}", lossy(&kept));
+    let label = first[0]["label"]
+        .as_str()
+        .expect("the first backup's label");
+    assert!(lossy(&kept).contains(label), "{label}: {}", lossy(&kept));
+    assert!(
+        restored_later.status.success(),
+        "{}",
+        lossy(&restored_later)
+    );
+    assert_eq!(
+        markers(&deployment),
+        "1 before the moment, 2 before the deletion, 3 after the restores"
+    );
+    assert_eq!(deployment.server.running("api-blue").len(), 2);
+    let (status, _) = get(
+        deployment.server.caddy_root(),
+        deployment.url("https", 443, "/v1/capabilities"),
+    );
+    assert_eq!(status, 200);
+}
+
+#[tokio::test]
+async fn ops_22_a_new_server_restores_from_the_backups_that_the_lost_server_s_key_pair_deleted() {
+    // Both servers' shares at once, so no test holds one while it waits for another.
+    let (lost_server, new_server) = Server::start_two();
+    let (lost, _, held, _) = deleted_with_its_backups(lost_server).await;
+    let new = lost.on_a_new_server(new_server);
+    // A new server's first deploy generates its database's passwords, which the setup doesn't
+    // ask for, so the lost server's go, with the URLs that hold them.
+    new.server.shell_ok(&format!(
+        "cd {DEPLOYMENT}/secrets && rm database_url database_owner_url database_admin_url"
+    ));
+    // The server is lost, while its bucket stays.
+    lost.server.shell_ok(
+        "docker ps --quiet --filter label=com.docker.compose.project=deployment | xargs docker rm --force",
+    );
+
+    // The bucket holds no backups, so the first deploy serves a database of the new server's
+    // own, whose backups it begins there.
+    let deployed = new.apply(&new.api, &[]).await;
+    let own = new.sql("SELECT to_regclass('restore_marker') IS NULL");
+    let restored = new.restore_as_held(None, &held);
+
+    assert!(deployed.status.success(), "{}", lossy(&deployed));
+    assert_eq!(own, "t");
+    assert!(restored.status.success(), "{}", lossy(&restored));
+    assert_eq!(markers(&new), "1 before the moment, 2 before the deletion");
+    // A replica is ready, which one whose database refuses it never is (OPS-05): bootstrap gave
+    // the restored database's roles this server's passwords.
+    assert_eq!(new.server.running("api-blue").len(), 2);
+    let (status, _) = get(
+        new.server.caddy_root(),
+        new.url("https", 443, "/health/ready"),
+    );
+    assert_eq!(status, 200);
+}
