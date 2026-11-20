@@ -203,9 +203,9 @@ pub fn bucket_time(text: &str) -> Option<String> {
 }
 
 // part: files
-/// The moment `text` names, as the API's subcommand `restore-files` takes one: in UTC, to the
-/// microsecond, as `YYYY-MM-DDTHH:MM:SS.ffffffZ`. `text` is a time as `moment` reads one, after
-/// the Unix epoch.
+/// The moment `text` names, in a form that the API's subcommand `restore-files` takes: in UTC,
+/// to the microsecond, as `YYYY-MM-DDTHH:MM:SS.ffffffZ`. `text` is a time as `moment` reads one,
+/// after the Unix epoch.
 pub fn utc_moment(text: &str) -> Option<String> {
     let micros = moment(text)?;
     let (date, time) = utc(micros)?;

@@ -308,11 +308,11 @@ impl Server {
         );
     }
 
-    /// Runs `command` in the server's shell. Panics on one that starts with `sleep`, which waits
-    /// for a time and not for a state (TEST-06).
+    /// Runs `command` in the server's shell. Panics on one whose first word, the text before
+    /// its first white space, is `sleep`, which waits for a time and not for a state (TEST-06).
     pub fn shell(&self, command: &str) -> Output {
         assert!(
-            !command.trim_start().starts_with("sleep "),
+            command.split_whitespace().next() != Some("sleep"),
             "{command}: wait for a state, in a loop under a timeout, as `next_second` does"
         );
         self.explained(

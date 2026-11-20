@@ -28,7 +28,11 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 use tracing_subscriber::{
     Layer,
     filter::{self, LevelFilter, Targets},
-    fmt::MakeWriter,
+    fmt::{
+        MakeWriter,
+        format::Writer,
+        time::{FormatTime, SystemTime},
+    },
     layer::SubscriberExt,
     registry::LookupSpan,
 };
@@ -210,6 +214,19 @@ where
         }))
 }
 
+/// The present time as a JSON line's `timestamp` gives it, in UTC, from the timer that `json`
+/// gives its layer: for the one line that is written without that layer, a startup failure's
+/// before logging is set up (OBS-02).
+pub(crate) fn timestamp() -> String {
+    let mut time = String::new();
+    // Writing into a `String` doesn't fail, and a time that the timer couldn't write is left
+    // out whole.
+    if SystemTime.format_time(&mut Writer::new(&mut time)).is_err() {
+        time.clear();
+    }
+    time
+}
+
 /// One JSON object per line, with the event's fields at the top level next to `timestamp`,
 /// `level` and `message`, the service's fields, and the trace context of the span the event
 /// was written in (OBS-02, OBS-05).
@@ -220,7 +237,7 @@ where
 {
     let mut layer = JsonLayer::new(writer);
     layer
-        .with_timer("timestamp", tracing_subscriber::fmt::time::SystemTime)
+        .with_timer("timestamp", SystemTime)
         .with_level("level")
         .with_flattened_event();
     layer.add_static_field(names::SERVICE_NAME, service.name.into());

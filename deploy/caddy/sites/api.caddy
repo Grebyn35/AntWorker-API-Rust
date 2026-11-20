@@ -6,6 +6,13 @@
 	import tls
 	# HTTP Strict Transport Security: browsers reach the API over HTTPS only (SEC-12, OPS-17).
 	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	# The four headers that the API sets on each response that its router answers (SEC-12), on a
+	# response that lacks one: what a replica's own HTTP server answers a request that it
+	# refuses before the router, such as one with more headers than it takes, carries none.
+	header ?X-Content-Type-Options nosniff
+	header ?Referrer-Policy no-referrer
+	header ?Cache-Control no-store
+	header ?Content-Security-Policy "default-src 'none'; base-uri 'none'; frame-ancestors 'none'"
 	header -Server
 
 	# A span for each request but the health probes (OBS-15), which the API's server span is a
@@ -92,8 +99,10 @@
 
 # Plain HTTP at the API's address gets no answer: Caddy closes the connection, so a client that
 # sends its requests unencrypted fails at its first, where a redirect to HTTPS would let it go on
-# sending each request, with its credentials, in plain text first (OPS-17). A site of its own,
-# since one block that named both addresses would take the name out of Caddy's certificates.
+# sending each request, with its credentials, in plain text first (OPS-17). Before the site,
+# Caddy still answers its certificate authority's challenge, while it obtains a certificate, and
+# its own server refuses a request that it can't read. A site of its own, since one block that
+# named both addresses would take the name out of Caddy's certificates.
 http://{$API_ADDRESS} {
 	abort
 }

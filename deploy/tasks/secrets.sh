@@ -62,10 +62,9 @@ write_secrets() {
         : > "$secrets/openid_connect_client_secret"
     fi
     # end part: openid_connect
-    # The key under which Grafana encrypts what it stores and hashes its sessions' tokens. A
-    # Grafana that ran without the file ends its viewers' sessions once, when it first reads it.
-    # A file that exists empty stands in for a secret the services didn't use before, so it
-    # counts as missing.
+    # The key under which Grafana encrypts what it stores and hashes its sessions' tokens. A file
+    # that exists empty stands in for a secret the services didn't use before, so it counts as
+    # missing.
     if [ "$telemetry" = self-hosted ] && [ ! -s "$secrets/grafana_secret_key" ]; then
         random > "$secrets/grafana_secret_key"
     fi

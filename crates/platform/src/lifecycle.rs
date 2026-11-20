@@ -350,8 +350,9 @@ pub fn report_outcome(area: &str, outcome: &dyn std::fmt::Display) {
     );
 }
 
-/// A startup failure as one JSON line with the same message and fields, for a failure before
-/// logging is set up. It names the environment when the environment is known.
+/// A startup failure as one JSON line with the same message and fields, and its time as a
+/// logged line gives it (OBS-02), for a failure before logging is set up. It names the
+/// environment when the environment is known.
 pub fn startup_failure_line(
     service: Service,
     environment: Option<Environment>,
@@ -359,6 +360,7 @@ pub fn startup_failure_line(
     error: &(dyn Error + 'static),
 ) -> String {
     let mut line = Map::new();
+    line.insert("timestamp".to_owned(), telemetry::timestamp().into());
     line.insert("level".to_owned(), "ERROR".into());
     line.insert("message".to_owned(), "startup failed".into());
     line.insert(names::STARTUP_AREA.to_owned(), area.into());
@@ -387,6 +389,7 @@ mod tests {
     use tracing_subscriber::{Layer, filter::LevelFilter, fmt::MakeWriter, layer::SubscriberExt};
 
     use super::*;
+    use crate::types::Timestamp;
 
     const SERVICE: Service = Service {
         name: "api",
@@ -425,6 +428,13 @@ mod tests {
         let mut value: Value = serde_json::from_str(line).unwrap();
         value.as_object_mut().unwrap().remove("timestamp");
         value
+    }
+
+    /// The time that a JSON line carries, which must be one in UTC as `Timestamp::read` takes
+    /// one.
+    fn time(line: &str) -> Timestamp {
+        let value: Value = serde_json::from_str(line).unwrap();
+        Timestamp::read(value["timestamp"].as_str().expect("a time")).expect("a time in UTC")
     }
 
     #[test]
@@ -475,6 +485,26 @@ mod tests {
                 "deployment.environment.name": "production",
             })
         );
+    }
+
+    #[test]
+    fn obs_02_a_startup_failure_before_logging_carries_a_time_in_utc_as_a_logged_one_does() {
+        let error = BindFailed(io::Error::from(io::ErrorKind::AddrInUse));
+        let captured = Captured::default();
+        let subscriber = tracing_subscriber::registry().with(
+            telemetry::json(SERVICE, Environment::Production, captured.clone())
+                .with_filter(LevelFilter::INFO),
+        );
+
+        let before = startup_failure_line(SERVICE, None, "listen", &error);
+        tracing::subscriber::with_default(subscriber, || {
+            report_startup_failure("listen", &error);
+        });
+        let logged = String::from_utf8(captured.0.lock().unwrap().clone()).unwrap();
+
+        // `time` panics on a line without a time in UTC.
+        time(&before);
+        time(logged.trim_end());
     }
 
     #[test]

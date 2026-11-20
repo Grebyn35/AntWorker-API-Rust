@@ -8,7 +8,8 @@ use platform::errors::{ErrorCode, RequestError};
 
 use crate::{
     deployment::{
-        Deployment, MANAGED_TLS, Traffic, assert_all_succeeded, get, get_within, unanswered,
+        Deployment, MANAGED_TLS, Traffic, assert_all_succeeded, get, get_with_headers, get_within,
+        unanswered,
     },
     docker::lossy,
     server::DEPLOYMENT,
@@ -415,6 +416,32 @@ async fn ops_17_the_proxy_answers_no_plain_http_at_the_api_s_address_and_https_w
         "max-age=31536000; includeSubDomains"
     );
     assert!(secure_headers.get("server").is_none());
+}
+
+#[tokio::test]
+async fn sec_12_the_proxy_sets_the_headers_that_an_answer_of_a_replica_s_own_server_lacks() {
+    let deployment = Deployment::managed(&[]);
+    let deployed = deployment.apply(&deployment.api, &[]).await;
+    assert!(deployed.status.success(), "{}", lossy(&deployed));
+    let root = deployment.server.caddy_root();
+
+    // More headers than a replica's HTTP server takes: it refuses the request before the router,
+    // with a 431 that carries none of the four headers, and Caddy passes both on.
+    let (status, headers) =
+        get_with_headers(root, deployment.url("https", 443, "/v1/capabilities"), 101);
+
+    assert_eq!(status, 431);
+    assert_eq!(headers["x-content-type-options"], "nosniff");
+    assert_eq!(headers["referrer-policy"], "no-referrer");
+    assert_eq!(headers["cache-control"], "no-store");
+    assert_eq!(
+        headers["content-security-policy"],
+        "default-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+    );
+    assert_eq!(
+        headers["strict-transport-security"],
+        "max-age=31536000; includeSubDomains"
+    );
 }
 
 #[tokio::test]

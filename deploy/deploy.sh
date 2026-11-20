@@ -75,8 +75,8 @@
 #       Writes again each object of the files bucket whose version at <moment> isn't its current
 #       one, as one deleted or replaced since, from the version that the bucket kept, through the
 #       API's subcommand of the same name, with the image of the color that serves, and deletes
-#       nothing. <moment> is a time in UTC as the API writes one, such as
-#       2026-10-25T10:30:00.000000Z, which `just restore-files` writes from the time it is given.
+#       nothing. <moment> is a time in UTC as a request gives one (API-11), such as
+#       2026-10-25T10:30:00.000000Z, which is how `just restore-files` writes the time it is given.
 # end part: files
 # part: workspace_setup
 #   deploy.sh setup-workspace <name> <email> [<owner's name>]

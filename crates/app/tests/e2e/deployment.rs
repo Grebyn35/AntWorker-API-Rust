@@ -466,6 +466,25 @@ pub fn unanswered(root: String, url: String) -> bool {
     .expect("the request")
 }
 
+/// Sends `GET` to `url` with `extra` headers beside the client's own, through a client that
+/// trusts `root`, and returns the response's status and headers.
+pub fn get_with_headers(
+    root: String,
+    url: String,
+    extra: usize,
+) -> (u16, reqwest::header::HeaderMap) {
+    thread::spawn(move || {
+        let mut request = client(&root).get(&url);
+        for index in 0..extra {
+            request = request.header(format!("x-extra-{index}"), "1");
+        }
+        let response = request.send().expect("an answer");
+        (response.status().as_u16(), response.headers().clone())
+    })
+    .join()
+    .expect("the request")
+}
+
 /// Sends `GET` to `url` with `host` as its `Host`, through a client that trusts `root`, and says
 /// whether the server took the connection and closed it without an answer. The client speaks
 /// HTTP/1.1 alone, whose `Host` names the host that a request is for.
