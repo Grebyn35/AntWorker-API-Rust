@@ -772,7 +772,8 @@ async fn ops_15_a_restore_refuses_while_the_log_doesn_t_reach_the_bucket_unless_
 
 /// Replaces `segment`'s object in the stand-in bucket with bytes that aren't a segment, with the
 /// operator's key pair, as a bucket that fails to give pgBackRest the segment does: pgBackRest
-/// finds the object, and fails to read it.
+/// finds the object, and fails to read it. Through S3: a file that SeaweedFS's filer writes at
+/// the object's path is none that a bucket with versioning reads.
 fn break_in_the_bucket(deployment: &Deployment, segment: &str) {
     deployment.server.write(
         "/root/break-segment.sh",
@@ -1101,10 +1102,11 @@ async fn deleted_with_its_backups(server: Server) -> (Deployment, String, String
     let first = backups(&deployment);
     deployment.sql("DROP TABLE restore_marker");
     archive_everything_committed(&deployment);
+    // Through the image's `pgbackrest`, which takes the path `backup` for none of its commands.
     deployment.server.shell_ok(
         "docker exec --user postgres deployment-postgres-1 sh -c \
-         'pgbackrest --stanza=db repo-rm --recurse archive/db \
-         && pgbackrest --stanza=db repo-rm --recurse backup/db'",
+         'pgbackrest --stanza=db repo-rm --recurse archive \
+         && pgbackrest --stanza=db repo-rm --recurse backup'",
     );
     let emptied = deployment.server.deploy(&["restore-inputs"]);
     assert!(emptied.status.success(), "{}", lossy(&emptied));

@@ -34,8 +34,20 @@ PGBACKREST_REPO1_S3_KEY_SECRET=$(< "$secrets/backup_s3_key_secret")
 PGBACKREST_REPO1_CIPHER_PASS=$(< "$secrets/backup_cipher_pass")
 export PGBACKREST_REPO1_S3_KEY PGBACKREST_REPO1_S3_KEY_SECRET PGBACKREST_REPO1_CIPHER_PASS
 
-case " $* " in
-    *" archive-push "*)
+# pgBackRest's command: the first argument that names one, so that an argument after it that
+# reads as one, such as the path that `repo-ls backup` lists, is none.
+command=""
+for argument in "$@"; do
+    case $argument in
+        annotate | archive-get | archive-push | backup | check | expire | help | info | repo-* | restore | server | server-ping | stanza-* | start | stop | verify | version)
+            command=$argument
+            break
+            ;;
+    esac
+done
+
+case $command in
+    archive-push)
         if /usr/bin/pgbackrest "$@"; then
             touch "$status/archived"
         else
@@ -44,7 +56,7 @@ case " $* " in
             exit "$code"
         fi
         ;;
-    *" archive-get "*)
+    archive-get)
         code=0
         /usr/bin/pgbackrest "$@" || code=$?
         case $code in
@@ -52,7 +64,7 @@ case " $* " in
             *) exit 255 ;;
         esac
         ;;
-    *" backup "* | *" expire "*)
+    backup | expire)
         days=${PGBACKREST_REPO1_RETENTION_FULL:?the retention in days, from BACKUP_RETENTION_DAYS}
         if computed=$(/usr/bin/pgbackrest --stanza=db info --output=json |
             jq -r --argjson days "$days" --argjson now "$(date +%s)" -f /usr/local/lib/pgbackrest/retention.jq); then
@@ -62,8 +74,8 @@ case " $* " in
             done
             exec /usr/bin/pgbackrest "$@" --repo1-retention-full="$retention"
         fi
-        case " $* " in
-            *" backup "*)
+        case $command in
+            backup)
                 printf '%s\n' "couldn't read the retention that keeps the backups restores started from, with the error above, so this backup expires nothing; the next one does" >&2
                 exec /usr/bin/pgbackrest "$@" --no-expire-auto
                 ;;
