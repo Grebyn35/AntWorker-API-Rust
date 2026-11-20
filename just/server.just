@@ -42,10 +42,11 @@ server-setup host version="":
     {{ xtask }} server-setup {{ host }} {{ version }}
 
 # Checks what a deploy of the release `version`, or of the latest release, to the reference
-# deployment on `host` needs, and changes nothing of the deployment (OPS-19): on the server, the
-# settings, the secrets, Docker, the release, the memory, the bucket and a managed backend; from
-# here, where its addresses point and whether its ports 80 and 443 answer.
-[doc("Checks what a deploy to a server needs, and changes nothing")]
+# deployment on `host` needs, and changes nothing of the deployment but an object that it writes
+# to each bucket and deletes (OPS-19, OPS-22): on the server, the settings, the secrets, Docker,
+# the release, the memory, the buckets and a managed backend; from here, where its addresses
+# point and whether its ports 80 and 443 answer.
+[doc("Checks what a deploy to a server needs")]
 [group('server')]
 server-check host version="":
     {{ xtask }} server-check {{ host }} {{ version }}

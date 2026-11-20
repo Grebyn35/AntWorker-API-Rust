@@ -770,9 +770,9 @@ async fn ops_15_a_restore_refuses_while_the_log_doesn_t_reach_the_bucket_unless_
     );
 }
 
-/// Overwrites `segment`'s object in the stand-in bucket with bytes that aren't a segment, as a
-/// bucket that fails to give pgBackRest the segment does: pgBackRest finds the object, and fails
-/// to read it.
+/// Replaces `segment`'s object in the stand-in bucket with bytes that aren't a segment, with the
+/// operator's key pair, as a bucket that fails to give pgBackRest the segment does: pgBackRest
+/// finds the object, and fails to read it.
 fn break_in_the_bucket(deployment: &Deployment, segment: &str) {
     deployment.server.write(
         "/root/break-segment.sh",
@@ -784,8 +784,9 @@ fn break_in_the_bucket(deployment: &Deployment, segment: &str) {
                 if [ -n \"$name\" ]; then break; fi
             done
             [ -n \"$name\" ]
-            docker exec bucket sh -c \"mkdir -p /tmp/broken && echo 'not a segment' > /tmp/broken/$name && \
-                weed filer.copy /tmp/broken/$name http://localhost:8888/buckets/backups/pgbackrest/$directory/\"
+            docker exec bucket curl --silent --show-error --fail --aws-sigv4 aws:amz:us-east-1:s3 \
+                --user operator:operator-secret -X PUT --data 'not a segment' \
+                \"http://localhost:8333/backups/pgbackrest/$directory/$name\"
             "
         ),
     );

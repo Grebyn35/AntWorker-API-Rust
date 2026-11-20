@@ -60,7 +60,8 @@ pub enum ServerTask {
         version: Option<String>,
     },
     /// Checks what a deploy of the release `version`, or of the latest release, to the
-    /// deployment at `host` needs, and changes nothing (OPS-19).
+    /// deployment at `host` needs, and changes nothing of it but an object that it writes to each
+    /// bucket and deletes (OPS-19, OPS-22).
     #[command(name = "server-check")]
     ServerCheck {
         /// The server, as SSH names it, as the user that runs the deployment.

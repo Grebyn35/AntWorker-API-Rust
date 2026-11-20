@@ -252,6 +252,7 @@ read_settings() {
         whole_number FILE_DELETION_DELAY_DAYS "$(setting FILE_DELETION_DELAY_DAYS)" 1 3657
     fi
     # end part: files
+    whole_number BUCKETS_KEEP_DELETED_DAYS "$(setting BUCKETS_KEEP_DELETED_DAYS 7)" 0 365
     profiles=""
     case $database in
         bundled)

@@ -107,7 +107,8 @@ fn server_name(host: &str) -> Result<String, String> {
 }
 
 /// Checks what a deploy of the release `version`, or of the latest release, to the server that
-/// SSH reaches at `host` needs, and changes nothing.
+/// SSH reaches at `host` needs, and changes nothing of the deployment but an object that it writes
+/// to each bucket and deletes (OPS-22).
 #[expect(clippy::print_stdout, reason = "the findings are the task's output")]
 pub fn check(host: &str, version: Option<&str>) -> ExitCode {
     let root = root();

@@ -80,9 +80,9 @@
 #   deploy.sh check <version>
 #   deploy.sh check-images <API image> <Postgres image>
 #       Checks what a deploy of the release <version>, or of the two images, each named by
-#       digest, needs, and changes nothing of the deployment, though it pulls the tools' images
-#       and the Postgres image, as a deploy does. Prints a line for each check, and fails if any
-#       fails.
+#       digest, needs, and changes nothing of the deployment but an object that it writes to
+#       each bucket and deletes (OPS-22), though it pulls the tools' images and the Postgres
+#       image, as a deploy does. Prints a line for each check, and fails if any fails.
 #
 # A deploy restarts a service that runs once, such as Postgres or Caddy, only with
 # --allow-restart, because restarting one interrupts requests.
@@ -107,6 +107,7 @@ project=deployment
 . "$here/tasks/backups.sh"
 . "$here/tasks/status.sh"
 . "$here/tasks/check.sh"
+. "$here/tasks/buckets.sh"
 . "$here/tasks/accounts.sh"
 
 # Prints yes when $2, a command's last argument, is the option $1, and no when it's empty.

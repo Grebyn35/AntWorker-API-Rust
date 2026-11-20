@@ -25,6 +25,47 @@ const RELEASE: &str = "/root/release";
 pub const DEPLOYMENT: &str = "/root/deployment";
 /// Where the server holds the ID of the process group of the deploy that `deploy_until` started.
 const DEPLOY_GROUP: &str = "/root/deploy-group";
+/// The actions of S3 that the server's key pair may take in the stand-in's buckets: read, write,
+/// list and delete by name, and read the versions that a bucket keeps, its versioning and its
+/// lifecycle. They name neither `s3:DeleteObjectVersion`, `s3:PutBucketVersioning` nor
+/// `s3:PutLifecycleConfiguration`, so the stand-in refuses the key pair each (OPS-22).
+const SERVER_KEY_ACTIONS: [&str; 12] = [
+    "s3:GetObject",
+    "s3:GetObjectVersion",
+    "s3:PutObject",
+    "s3:DeleteObject",
+    "s3:ListBucket",
+    "s3:ListBucketVersions",
+    "s3:GetBucketVersioning",
+    "s3:GetLifecycleConfiguration",
+    "s3:GetBucketLocation",
+    "s3:AbortMultipartUpload",
+    "s3:ListMultipartUploadParts",
+    "s3:ListBucketMultipartUploads",
+];
+
+/// The policy that allows the server's key pair `SERVER_KEY_ACTIONS` in the stand-in's buckets,
+/// and nothing else.
+fn server_key_policy() -> String {
+    let buckets: &[&str] = &["backups"];
+    // part: files
+    let buckets = &[buckets, &["files"]].concat();
+    // end part: files
+    let resources: Vec<String> = buckets
+        .iter()
+        .flat_map(|bucket| {
+            [
+                format!("arn:aws:s3:::{bucket}"),
+                format!("arn:aws:s3:::{bucket}/*"),
+            ]
+        })
+        .collect();
+    serde_json::json!({
+        "Version": "2012-10-17",
+        "Statement": [{"Effect": "Allow", "Action": SERVER_KEY_ACTIONS, "Resource": resources}],
+    })
+    .to_string()
+}
 
 pub struct Server {
     container: Container,
@@ -785,7 +826,12 @@ impl Server {
     /// SeaweedFS, serving S3 over HTTPS on the server's own address, with a certificate for that
     /// address from an authority of the test's own, which the deployment trusts as
     /// certs/backup-ca.crt, and with the bucket `backups` for the bundled database's backups.
-    /// Writes the buckets' secrets, and returns the address the buckets answer at.
+    /// Each bucket keeps what is deleted in it for 7 days, as the deployment asks of a provider's
+    /// (OPS-22): its versioning is on, a lifecycle rule expires its noncurrent versions after 7
+    /// days, and the server's key pair, `e2e`, acts under a policy that lets it neither delete a
+    /// version nor write the bucket's versioning or lifecycle, which only the operator's key
+    /// pair, `operator`, may. Writes the buckets' secrets, and returns the address the buckets
+    /// answer at.
     // part: files
     /// It also holds `files`, for files' bytes, whose certificate the deployment trusts as
     /// certs/files-ca.crt.
@@ -798,8 +844,9 @@ impl Server {
         let address = self.issue_certificate("/root/bucket", "e2e-bucket-authority");
         self.write(
             "/root/bucket/s3.json",
-            r#"{"identities":[{"name":"backup","credentials":[{"accessKey":"e2e","secretKey":"e2e-secret"}],"actions":["Admin","Read","Write","List","Tagging"]}]}"#,
+            r#"{"identities":[{"name":"operator","credentials":[{"accessKey":"operator","secretKey":"operator-secret"}],"actions":["Admin","Read","Write","List","Tagging"]}]}"#,
         );
+        self.write("/root/bucket/policy.json", &server_key_policy());
         self.shell_ok(&format!(
             "set -e
             cd /root/bucket
@@ -815,6 +862,16 @@ impl Server {
                 -s3.cert.file=/bucket/server.crt -s3.key.file=/bucket/server.key -s3.config=/bucket/s3.json > /dev/null"
         ));
         self.create_bucket("backups");
+        // The server's key pair, under its policy. SeaweedFS's shell prints the new user, then
+        // the policy that it attached.
+        self.shell_ok(
+            "set -e
+            shell() { echo \"$1\" | docker exec --interactive bucket weed shell -master=localhost:9333 -filer=localhost:8888 2>&1; }
+            shell 's3.user.create -name server -access_key e2e -secret_key e2e-secret' | grep -q '\"name\":\"server\"'
+            shell 's3.policy -put -name=server -file=/bucket/policy.json' > /dev/null
+            shell 's3.policy.attach -policy server -user server' | grep -q '\"policy\":\"server\"'",
+        );
+        self.keep_deleted("backups");
         let secrets = vec![
             ("backup_s3_key", "e2e"),
             ("backup_s3_key_secret", "e2e-secret"),
@@ -829,6 +886,7 @@ impl Server {
             "cp /root/bucket/ca.crt {DEPLOYMENT}/certs/files-ca.crt"
         ));
         self.create_bucket("files");
+        self.keep_deleted("files");
         // A deployment whose replicas reach the files bucket runs the scanner too, which
         // `Deployment::on_a_new_server` seeds on a server that reaches another's bucket.
         self.seed_signatures();
@@ -853,6 +911,33 @@ impl Server {
     fn create_bucket(&self, name: &str) {
         self.shell_ok(&format!(
             "timeout 120 sh -c \"until echo s3.bucket.create -name {name} | docker exec --interactive bucket weed shell -master=localhost:9333 -filer=localhost:8888 2> /dev/null | grep -q created; do sleep 1; done\""
+        ));
+    }
+
+    /// Has the stand-in's bucket `name` keep what is deleted in it for 7 days: turns its
+    /// versioning on, and gives it a lifecycle rule that expires its noncurrent versions after 7
+    /// days, with the operator's key pair.
+    fn keep_deleted(&self, name: &str) {
+        self.configure_bucket(
+            name,
+            "versioning",
+            "<VersioningConfiguration><Status>Enabled</Status></VersioningConfiguration>",
+        );
+        self.configure_bucket(
+            name,
+            "lifecycle",
+            "<LifecycleConfiguration><Rule><ID>keep-deleted</ID><Filter><Prefix></Prefix></Filter>\
+             <Status>Enabled</Status><NoncurrentVersionExpiration><NoncurrentDays>7</NoncurrentDays>\
+             </NoncurrentVersionExpiration></Rule></LifecycleConfiguration>",
+        );
+    }
+
+    /// Sends the stand-in's bucket `bucket` the configuration `body` of its `query`, such as
+    /// `versioning`, as S3's PUT of a bucket's configuration does, with the operator's key pair.
+    pub fn configure_bucket(&self, bucket: &str, query: &str, body: &str) {
+        self.shell_ok(&format!(
+            "docker exec bucket curl --silent --show-error --fail --aws-sigv4 aws:amz:us-east-1:s3 \
+             --user operator:operator-secret -X PUT --data '{body}' 'http://localhost:8333/{bucket}?{query}'"
         ));
     }
 

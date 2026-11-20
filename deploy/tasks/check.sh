@@ -59,7 +59,8 @@ check() {
             postgres_image=""
         fi
     fi
-    # Each bucket's versions: the backups', once the check of its key pair passed.
+    # What each bucket keeps of what is deleted in it (tasks/buckets.sh): the backups', once the
+    # check of its key pair passed.
     if [ "$settled" = yes ] && [ "$database" = bundled ] && [ -n "$postgres_image" ] && check_bucket; then
         check_versions BACKUP_S3 backup_s3_key backup-ca.crt "the backups' bucket"
     fi
@@ -132,70 +133,6 @@ check_memory() {
     else
         failed "memory: $gigabytes GB, less than the $needed GB that the services the settings choose need (docs/operations/deploy.md#what-a-server-needs)"
     fi
-}
-
-# Fails the check unless a provider's bucket expires each noncurrent version a day after it
-# becomes one, S3's name for the old version that a bucket with versioning keeps of an object
-# deleted or replaced, as docs/operations/deploy.md requires of every bucket of the deployment:
-# its versioning is off, or an enabled lifecycle rule of the whole bucket expires them after 1 day. The bucket's settings
-# start with $1, its key pair is in the secret files $2 and $2_secret, the authority of a private
-# bucket's certificate in certs/$3, and $4 names it. It reads the bucket's versioning and its
-# lifecycle with S3's GetBucketVersioning and GetBucketLifecycleConfiguration, which change nothing.
-check_versions() {
-    bucket=$(setting "$1_BUCKET")
-    if [ "$(setting "$1_URI_STYLE" host)" = path ]; then
-        url="https://$(setting "$1_ENDPOINT"):$(setting "$1_PORT" 443)/$bucket"
-    else
-        url="https://$bucket.$(setting "$1_ENDPOINT"):$(setting "$1_PORT" 443)/"
-    fi
-    if versioning=$(bucket_request "$1" "$2" "$3" "$url?versioning"); then
-        :
-    elif printf '%s' "$versioning" | grep -q '<Code>NotImplemented</Code>'; then
-        noted "$4, $bucket, can't say whether it keeps noncurrent versions; with a provider that keeps them, give it a lifecycle rule that expires them after a day (docs/operations/deploy.md#what-a-server-needs)"
-        return
-    else
-        failed "S3 can't read the versioning of $4, $bucket, with its key pair, and says: $versioning"
-        return
-    fi
-    if ! printf '%s' "$versioning" | grep -q -e '<Status>Enabled</Status>' -e '<Status>Suspended</Status>'; then
-        passed "$4, $bucket, keeps no versions"
-        return
-    fi
-    lifecycle=$(bucket_request "$1" "$2" "$3" "$url?lifecycle") || true
-    if [ -n "$(expiring_rules "$lifecycle")" ]; then
-        passed "$4, $bucket, keeps versions, and a lifecycle rule expires its noncurrent ones after a day"
-    else
-        failed "$4, $bucket, keeps versions, and no enabled lifecycle rule of the whole bucket expires its noncurrent ones after a day, so it keeps the bytes of what the deployment deletes; give it one, such as Backblaze B2's \"Keep only the last version of the file\" (docs/operations/deploy.md#what-a-server-needs)"
-    fi
-}
-
-# Prints the NoncurrentVersionExpiration of each rule of the lifecycle configuration $1 that
-# expires every noncurrent version of the whole bucket a day after it became noncurrent: an
-# enabled rule with no filter but an empty prefix, whose NoncurrentVersionExpiration has
-# NoncurrentDays 1 and keeps no newer noncurrent versions, as NewerNoncurrentVersions would. A
-# transition of noncurrent versions deletes none.
-expiring_rules() {
-    printf '%s' "$1" | tr -d '\r\n' | sed 's/<Rule>/\
-<Rule>/g' | grep '^<Rule>' | grep '<Status>Enabled</Status>' |
-        grep -v -e '<Prefix>[^<]' -e '<Tag>' -e '<And>' -e '<ObjectSize' |
-        sed -n 's|.*<NoncurrentVersionExpiration>\(.*\)</NoncurrentVersionExpiration>.*|\1|p' |
-        grep '<NoncurrentDays>[[:space:]]*1[[:space:]]*</NoncurrentDays>' |
-        grep -v '<NewerNoncurrentVersions>' || true
-}
-
-# Prints the answer of the bucket whose settings start with $1 to a GET of the URL $4, signed with
-# S3's signature version 4 and the key pair in the secret files $2 and $2_secret, trusting the
-# authority in certs/$3, if any, besides the system's; fails, printing the answer's body, when the
-# bucket refuses it.
-bucket_request() {
-    curl=$(docker compose --file "$here/tools/compose.yaml" config --images curl)
-    trust=""
-    if [ -f "$deployment/certs/$3" ]; then trust="--cacert /run/certs/$3"; fi
-    # shellcheck disable=SC2086 # $trust is an option and its value, or nothing.
-    docker run --rm --quiet --volume "$deployment/secrets/$2:/run/key:ro" --volume "$deployment/secrets/$2_secret:/run/secret:ro" \
-        --volume "$deployment/certs:/run/certs:ro" "$curl" --silent --show-error --fail-with-body $trust \
-        --aws-sigv4 "aws:amz:$(setting "$1_REGION"):s3" --variable key@/run/key --variable secret@/run/secret \
-        --expand-user '{{key:trim}}:{{secret:trim}}' "$4" 2>&1
 }
 
 # Fails the check, and returns 1, unless the release's pgBackRest reads the bucket, as the bundled

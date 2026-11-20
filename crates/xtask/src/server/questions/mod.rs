@@ -453,6 +453,8 @@ mod tests {
         "",
         "",
         "",
+        // Enter for the days that the buckets keep what is deleted in them.
+        "",
         "",
         "",
         "",
