@@ -68,4 +68,3 @@ Modules carry their own; the build order step of each other area is in parenthes
 | `auth` | the ADR on accepted enumeration (D7) |
 | `accounts` | the ADR on immediate deletion (D16) |
 | Template (6) | a GitHub template repository (D29); the ADR on hard deletes (D24) |
-| Security (6) | the ASVS Level 2 conformance pass (D26) |

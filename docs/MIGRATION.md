@@ -57,7 +57,7 @@ The parts that aren't modules, from [architecture.md](architecture.md) and the d
 | `just seed` and the API reference in development | D28, D69, D71 | built |
 | The threat model | D26 | built |
 | `just new-module` and the guide to adding a module | D29, D91, D92 | built |
-| `SECURITY.md`, and the pass against Level 2 of the Application Security Verification Standard (ASVS) of the Open Worldwide Application Security Project (OWASP) | D26, D63 | 6.1 |
+| `SECURITY.md`, and the pass against Level 2 of the Application Security Verification Standard (ASVS) of the Open Worldwide Application Security Project (OWASP) | D26, D63 | built |
 | `just rename`, the guide to renaming a fork, and the GitHub template repository | D29 | 6.2 |
 | `CHANGELOG.md` | D27, D29 | 6.3 |
 | The ADRs | D27 | 6.4 |
