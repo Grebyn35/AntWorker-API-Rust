@@ -23,11 +23,12 @@ check_versions() {
     if [ "$keep" -eq 0 ]; then check_keeps_nothing "$@"; else check_keeps_deleted "$@"; fi
 }
 
-# Fails the check unless the bucket expires each noncurrent version a day after it becomes one,
-# S3's name for the old version that a bucket with versioning keeps of an object deleted or
-# replaced: its versioning is off, or an enabled lifecycle rule of the whole bucket expires them
-# after 1 day. It reads the bucket's versioning and its lifecycle with S3's GetBucketVersioning
-# and GetBucketLifecycleConfiguration, which change nothing.
+# Fails the check while the bucket keeps noncurrent versions, S3's name for the old version that
+# a bucket with versioning keeps of an object deleted or replaced, for more than a day: while its
+# versioning is on or suspended, and no enabled lifecycle rule of the whole bucket expires them
+# after 1 day. A bucket that answers that it implements no versioning gets a note. It reads the
+# bucket's versioning and its lifecycle with S3's GetBucketVersioning and
+# GetBucketLifecycleConfiguration, which change nothing.
 check_keeps_nothing() {
     bucket_send "$1" "$2" "$3" GET "$url?versioning"
     if [ "$status" != 200 ]; then
@@ -133,7 +134,8 @@ check_refused() {
 
 # Prints the NoncurrentVersionExpiration of the lifecycle configuration $1, if it holds one alone,
 # and that one expires every noncurrent version of the whole bucket $2 days after it became
-# noncurrent, as expiring_rules reads it: a second one could expire some versions sooner.
+# noncurrent, as expiring_rules reads it: a second one could expire some versions sooner. grep
+# prints each match of the one pattern on a line of its own, GNU's and BusyBox's alike.
 only_expiry() {
     if [ "$(printf '%s' "$1" | grep -o '<NoncurrentVersionExpiration>' | wc -l)" -eq 1 ]; then expiring_rules "$1" "$2"; fi
 }

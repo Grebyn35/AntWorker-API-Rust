@@ -905,10 +905,10 @@ impl Server {
         self.buckets.get_or_init(|| address).clone()
     }
 
-    /// Creates the bucket `name` in the buckets' stand-in. SeaweedFS takes a few seconds to
-    /// start, and its shell can't create a bucket before it answers. Named the filer, the shell
-    /// reaches it at once, rather than waiting for the master to list it.
-    fn create_bucket(&self, name: &str) {
+    /// Creates the bucket `name` in the buckets' stand-in, without versioning. SeaweedFS takes a
+    /// few seconds to start, and its shell can't create a bucket before it answers. Named the
+    /// filer, the shell reaches it at once, rather than waiting for the master to list it.
+    pub fn create_bucket(&self, name: &str) {
         self.shell_ok(&format!(
             "timeout 120 sh -c \"until echo s3.bucket.create -name {name} | docker exec --interactive bucket weed shell -master=localhost:9333 -filer=localhost:8888 2> /dev/null | grep -q created; do sleep 1; done\""
         ));

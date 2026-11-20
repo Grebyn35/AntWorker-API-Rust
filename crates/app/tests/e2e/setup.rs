@@ -300,7 +300,8 @@ async fn ops_22_the_check_fails_while_a_bucket_s_key_pair_can_remove_what_the_bu
     let (server, command) = prepared_server();
     let check = || as_deploy(&server, &command);
     // How many versions of the check's object the backups' bucket holds, and how many delete
-    // markers, as the operator's key pair lists them.
+    // markers, as the operator's key pair lists them: counted here, since the server's grep,
+    // BusyBox's, prints with `-o` the matches of one of two patterns alone.
     let versions = || {
         let listed = server.shell_ok(
             "docker exec bucket curl --silent --show-error --fail --aws-sigv4 aws:amz:us-east-1:s3 \
@@ -436,6 +437,50 @@ async fn ops_22_the_check_fails_unless_a_bucket_keeps_versions_for_the_days_the_
             "check: FAIL  the backups' bucket, backups, has no versioning on, so it keeps nothing \
              of what is deleted in it",
             "1 of the checks on the server failed",
+        ],
+    );
+}
+
+#[tokio::test]
+async fn ops_22_at_0_days_the_check_passes_a_bucket_that_keeps_no_versions() {
+    let (server, command) = prepared_server();
+    // A bucket whose versioning was never on, as a provider without versioning has them, which
+    // the operator's key pair reaches, as it reaches every bucket of the stand-in.
+    server.create_bucket("unversioned");
+    server.shell_ok(&format!(
+        "cd {DEPLOYMENT} && printf operator > secrets/backup_s3_key \
+         && printf operator-secret > secrets/backup_s3_key_secret \
+         && sed -i -e /^BACKUP_S3_BUCKET=/d -e /^BUCKETS_KEEP_DELETED_DAYS=/d settings.env \
+         && printf 'BACKUP_S3_BUCKET=unversioned\nBUCKETS_KEEP_DELETED_DAYS=0\n' >> settings.env"
+    ));
+    // part: files
+    server.configure_bucket(
+        "files",
+        "lifecycle",
+        "<LifecycleConfiguration><Rule><ID>expire</ID><Filter><Prefix></Prefix></Filter>\
+         <Status>Enabled</Status><NoncurrentVersionExpiration><NoncurrentDays>1</NoncurrentDays>\
+         </NoncurrentVersionExpiration></Rule></LifecycleConfiguration>",
+    );
+    // end part: files
+
+    let kept_nothing = as_deploy(&server, &command);
+    server.shell_ok(&format!(
+        "sed -i /^BUCKETS_KEEP_DELETED_DAYS=/d {DEPLOYMENT}/settings.env"
+    ));
+    let asked_to_keep = as_deploy(&server, &command);
+
+    assert_found(
+        &kept_nothing,
+        true,
+        &["check: ok    the backups' bucket, unversioned, keeps no versions"],
+    );
+    // The same bucket, where the setting's own 7 days ask it to keep what is deleted.
+    assert_found(
+        &asked_to_keep,
+        false,
+        &[
+            "check: FAIL  the backups' bucket, unversioned, has no versioning on, so it keeps \
+             nothing of what is deleted in it",
         ],
     );
 }

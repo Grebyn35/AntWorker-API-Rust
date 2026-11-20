@@ -19,7 +19,10 @@
 //! bucket holds: no backup that it holds reaches a moment before that timeline began. A backup of
 //! an earlier timeline was taken before it began, so a bucket that holds one and no record of the
 //! later timeline's beginning predates the records, and the plan refuses a moment there that no
-//! later timeline's recorded beginning precedes, rather than guess which timeline was live.
+//! later timeline's recorded beginning precedes, rather than guess which timeline was live. A
+//! restore from the backups as the bucket held them at a time (OPS-22) records no beginning: it
+//! begins the bucket's backups anew, so its timeline began before every backup that the bucket
+//! then holds.
 //!
 //! The plan is a pure function of what the backup bucket records, which deploy.sh's
 //! `restore-inputs` prints, so tests cover it without a bucket. `just restore` makes it on the
