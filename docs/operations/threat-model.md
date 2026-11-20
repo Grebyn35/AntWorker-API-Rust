@@ -125,7 +125,7 @@ The integrity of what the levels hold rests on the database, whose constraints a
 | An image crafted for a flaw in a viewer's decoder | Stored as it came, never decoded on the server; left to the scanner's signatures of known exploits and the viewer's own updates ([files spec](../spec/files.md#accepted-kinds)) <!-- part: files --> |
 | A public file that serves others content from the API's address, such as a phishing document | Only the accepted kinds, each scanned, never HTML or SVG (FILES-003, FILES-005), served sandboxed, with every kind but images as an attachment (SEC-11); a workspace's owner and admins delete what a member published (FILES-010), and shared caches drop it within 5 minutes (FILES-023) <!-- part: files --> |
 | Errors that leak internals | Internal errors expose nothing, and `detail` never carries internals (ERR-08, ERR-09) |
-| Framing, sniffing and caching of responses | Security headers on every response (SEC-12) |
+| Framing, sniffing and caching of responses | Security headers on every response that the API's router answers, which the proxy also sets on a response that lacks them (SEC-12) |
 | Server-side request forgery | Outbound requests go through one of two clients, the one that reaches addresses a user gives refusing private ones (SEC-10) |
 
 ### Data protection

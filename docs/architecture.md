@@ -277,7 +277,7 @@ sequenceDiagram
 ```
 
 1. **Caddy** terminates TLS, opens the request's trace, and forwards the request to a replica whose readiness check passes. While none passes, Caddy answers itself, with the 503 problem `request.unavailable` (OPS-05, D53).
-2. **Platform middleware**, outermost first. The security headers wrap every response (SEC-12). The health probes are answered inside them, before the rest of the stack (OPS-05):
+2. **Platform middleware**, outermost first. The security headers wrap every response that the router answers (SEC-12). The health probes are answered inside them, before the rest of the stack (OPS-05):
    - the security headers
    - trace context: the request's server span, and the trace-ID response header (D10)
    - the request log: one line when the request completes, and the error line of a 5xx (OBS-03, ERR-10)
