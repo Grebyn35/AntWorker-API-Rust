@@ -308,8 +308,13 @@ impl Server {
         );
     }
 
-    /// Runs `command` in the server's shell.
+    /// Runs `command` in the server's shell. Panics on one that starts with `sleep`, which waits
+    /// for a time and not for a state (TEST-06).
     pub fn shell(&self, command: &str) -> Output {
+        assert!(
+            !command.trim_start().starts_with("sleep "),
+            "{command}: wait for a state, in a loop under a timeout, as `next_second` does"
+        );
         self.explained(
             Command::new("docker")
                 .args(["exec", self.container.id(), "sh", "-c", command])
@@ -387,6 +392,17 @@ impl Server {
         let output = self.shell(command);
         assert!(output.status.success(), "{command}: {}", lossy(&output));
         String::from_utf8_lossy(&output.stdout).trim().to_owned()
+    }
+
+    /// Waits until the server's clock shows a later second than the one it shows now, so that
+    /// what a stand-in on the server stamps next, to the second, is later than what it stamped
+    /// before: a state that the server reaches on its own, which a loop in its shell reads,
+    /// under a timeout (TEST-06).
+    pub fn next_second(&self) {
+        self.shell_ok(
+            "timeout 30 sh -c 'shown=$(date +%s); \
+             until [ \"$(date +%s)\" -gt \"$shown\" ]; do sleep 0.1; done'",
+        );
     }
 
     /// Runs the release's deploy.sh with `args`, as `just deploy` does.

@@ -38,3 +38,15 @@
 }
 
 import /etc/caddy-state/sites/*.caddy
+
+# A request that names neither of the deployment's addresses, such as one for the server's own,
+# gets no answer: Caddy aborts it, where it would answer an HTTPS request for a host that no site
+# names with an empty 200, and a plain one with a redirect to HTTPS (SEC-14). Plain HTTP at
+# Grafana's address still gets that redirect, which Caddy matches by the address's name before
+# these (OPS-17).
+http:// {
+	abort
+}
+https:// {
+	abort
+}

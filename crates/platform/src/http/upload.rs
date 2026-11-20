@@ -46,7 +46,8 @@ const UPLOADS_WINDOW: Duration = Duration::from_secs(86_400);
 pub(super) struct UploadTurns {
     /// The replica's turns.
     all: Arc<Semaphore>,
-    /// The own turn of each user whose upload holds a turn or waits for one.
+    /// Each user's own turn, from an upload of theirs until `take` next runs while no upload of
+    /// theirs holds it or waits for it.
     users: Arc<Mutex<HashMap<UserId, Arc<Semaphore>>>>,
     /// The budget of one user's uploads.
     budget: Bucket,
@@ -82,7 +83,7 @@ impl UploadTurns {
             // A lock that a panic poisoned still holds a whole map, since each change of it is
             // one call, so it is taken as it is.
             let mut users = self.users.lock().unwrap_or_else(PoisonError::into_inner);
-            // A user's turn that no upload holds or waits for is only the map's.
+            // A user's turn that no upload holds or waits for is only the map's, and goes here.
             users.retain(|_, own| Arc::strong_count(own) > 1);
             Arc::clone(
                 users
@@ -373,7 +374,8 @@ mod tests {
         assert_eq!(turns.all.available_permits(), UPLOADS_AT_ONCE - 2);
         drop((next, others));
         assert_eq!(turns.all.available_permits(), UPLOADS_AT_ONCE);
-        // A user's own turn stays only while an upload of theirs holds it or waits for it.
+        // The next upload drops each own turn that no upload holds or waits for, so only its own
+        // user's remains.
         let last = held(upload("w", &turns), bob).await;
         let users: Vec<UserId> = turns.users.lock().unwrap().keys().copied().collect();
         assert_eq!(users, [bob]);

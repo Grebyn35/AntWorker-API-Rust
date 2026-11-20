@@ -163,11 +163,11 @@ async fn files_028_the_deployed_task_writes_back_a_file_whose_object_its_key_pai
         file["id"].as_str().unwrap()
     );
     // The bucket's times are whole seconds, and the stand-in runs on the server, so its clock
-    // is the server's: the moment lies more than a second after the upload, and more than one
-    // before the deletion.
-    deployment.server.shell_ok("sleep 2");
+    // is the server's: the moment lies in a later second than the upload, and in an earlier one
+    // than the deletion.
+    deployment.server.next_second();
     let moment = deployment.server.shell_ok("date -u '+%Y-%m-%dT%H:%M:%SZ'");
-    deployment.server.shell_ok("sleep 2");
+    deployment.server.next_second();
     // The one object of a workspace's file that the bucket holds, by the key that its listing
     // gives.
     let listing = with_the_bucket_s_key_pair(

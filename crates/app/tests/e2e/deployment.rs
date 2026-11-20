@@ -466,6 +466,20 @@ pub fn unanswered(root: String, url: String) -> bool {
     .expect("the request")
 }
 
+/// Sends `GET` to `url` with `host` as its `Host`, through a client that trusts `root`, and says
+/// whether the server took the connection and closed it without an answer. The client speaks
+/// HTTP/1.1 alone, whose `Host` names the host that a request is for.
+pub fn unanswered_as(root: String, url: String, host: &'static str) -> bool {
+    thread::spawn(
+        move || match client(&root).get(&url).header("host", host).send() {
+            Ok(_) => false,
+            Err(error) => !error.is_connect() && !error.is_timeout(),
+        },
+    )
+    .join()
+    .expect("the request")
+}
+
 /// Sends `GET` to `url`, through a client that trusts `root` and waits at most `timeout` for
 /// the answer, and returns the response's status, headers and body.
 pub fn get_within(

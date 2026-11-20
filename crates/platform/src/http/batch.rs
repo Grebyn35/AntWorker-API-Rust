@@ -57,7 +57,8 @@ const BATCHES_AT_ONCE: usize = 8;
 pub(super) struct BatchTurns {
     /// The replica's turns.
     all: Arc<Semaphore>,
-    /// The own turn of each user whose batch holds a turn or waits for one.
+    /// Each user's own turn, from a batch of theirs until `take` next runs while no batch of
+    /// theirs holds it or waits for it.
     users: Arc<Mutex<HashMap<UserId, Arc<Semaphore>>>>,
 }
 
@@ -86,7 +87,7 @@ impl BatchTurns {
             // A lock that a panic poisoned still holds a whole map, since each change of it is
             // one call, so it is taken as it is.
             let mut users = self.users.lock().unwrap_or_else(PoisonError::into_inner);
-            // A user's turn that no batch holds or waits for is only the map's.
+            // A user's turn that no batch holds or waits for is only the map's, and goes here.
             users.retain(|_, own| Arc::strong_count(own) > 1);
             Arc::clone(
                 users
@@ -534,7 +535,8 @@ mod tests {
         assert_eq!(turns.all.available_permits(), BATCHES_AT_ONCE - 2);
         drop((next, others));
         assert_eq!(turns.all.available_permits(), BATCHES_AT_ONCE);
-        // A user's own turn stays only while a batch of theirs holds it or waits for it.
+        // The next batch drops each own turn that no batch holds or waits for, so only its own
+        // user's remains.
         let last = batch().await.read(bob, 1, &workers).await.unwrap();
         let users: Vec<UserId> = turns.users.lock().unwrap().keys().copied().collect();
         assert_eq!(users, [bob]);

@@ -1094,11 +1094,11 @@ async fn deleted_with_its_backups(server: Server) -> (Deployment, String, String
     let moment = deployment.sql("SELECT now()");
     deployment.sql("INSERT INTO restore_marker VALUES ('2 before the deletion')");
     archive_everything_committed(&deployment);
-    // The bucket's times are whole seconds: the time lies more than a second after what the
-    // bucket must have held, and more than one before what it mustn't.
-    deployment.server.shell_ok("sleep 2");
+    // The bucket's times are whole seconds: the time lies in a later second than what the bucket
+    // must have held, and in an earlier one than what it mustn't.
+    deployment.server.next_second();
     let held = bucket_clock(&deployment);
-    deployment.server.shell_ok("sleep 2");
+    deployment.server.next_second();
     let first = backups(&deployment);
     deployment.sql("DROP TABLE restore_marker");
     archive_everything_committed(&deployment);

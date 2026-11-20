@@ -60,6 +60,7 @@ check_keeps_nothing() {
 # can't remove it (OPS-22):
 # - its versioning is on, and its lifecycle holds one NoncurrentVersionExpiration, that of an
 #   enabled rule of the whole bucket, with $keep NoncurrentDays;
+# - it lists its versions to its key pair, which reading it as it stood at a moment needs;
 # - it keeps the version of an object that the check writes and deletes by its name, after the
 #   check asked it to delete that version: the check reads the version again;
 # - it answers 403 to a write of its lifecycle, with the rules it has, and to one of its

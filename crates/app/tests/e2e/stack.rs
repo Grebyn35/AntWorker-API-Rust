@@ -6,7 +6,7 @@ use std::time::Duration;
 use crate::{
     deployment::{
         Deployment, GRAFANA_ADDRESS, GRAFANA_ADMIN_PASSWORD, GRAFANA_ADMIN_USER, get, get_traced,
-        get_with_cookie, get_within, post, post_for_cookies,
+        get_with_cookie, get_within, post, post_for_cookies, unanswered_as,
     },
     docker::{compose, lossy},
     server::DEPLOYMENT,
@@ -117,6 +117,19 @@ fn grafana_sign_in(
         deployment.url_at(GRAFANA_ADDRESS, "https", 443, "/login"),
         serde_json::json!({"user": as_whom.0, "password": as_whom.1}).to_string(),
     )
+}
+
+/// Asserts that a request that names neither of the deployment's addresses, such as one for the
+/// server's own, gets no answer, over HTTPS and in plain HTTP (SEC-14).
+fn assert_the_proxy_answers_no_other_host(deployment: &Deployment, root: &str) {
+    for (scheme, port) in [("https", 443), ("http", 80)] {
+        for host in ["other.example", "127.0.0.1"] {
+            assert!(
+                unanswered_as(root.to_owned(), deployment.url(scheme, port, "/"), host),
+                "{scheme}, for {host}: a request that names neither address got an answer"
+            );
+        }
+    }
 }
 
 /// Asserts that Prometheus, Loki, Tempo and Alertmanager, which ask no credential, join one
@@ -245,7 +258,7 @@ async fn sec_14_a_server_publishes_only_the_proxy_and_grafana_signs_every_viewer
     let (as_default, _) = grafana_sign_in(&deployment, &root, ("admin", "admin"));
     // Grafana's pages are for a browser, so plain HTTP at its address leads to HTTPS (OPS-17).
     let (plain, plain_headers) = get(
-        root,
+        root.clone(),
         deployment.url_at(GRAFANA_ADDRESS, "http", 80, "/login"),
     );
 
@@ -278,6 +291,7 @@ async fn sec_14_a_server_publishes_only_the_proxy_and_grafana_signs_every_viewer
     assert_the_session_s_cookie_is_this_host_s_alone(&cookies);
     assert_a_browser_guards_grafana_s_pages(&page_headers);
     assert_the_stores_answer_the_collector_and_grafana_alone(&deployment);
+    assert_the_proxy_answers_no_other_host(&deployment, &root);
     assert_eq!(plain, 308);
     let location = plain_headers["location"].to_str().unwrap();
     assert!(location.starts_with(&format!("https://{GRAFANA_ADDRESS}")));
