@@ -1,6 +1,7 @@
 //! What the bucket keeps of each object that was written, replaced or deleted in it: its
 //! versions, as S3's `ListObjectVersions` lists them, a page at a time, and the bytes of one
-//! (PLATFORM-096). A bucket keeps them only while its versioning is on.
+//! (PLATFORM-096). A bucket keeps the versions of an object that was replaced or deleted only
+//! while its versioning is on.
 
 use futures_util::{
     StreamExt,
@@ -36,7 +37,8 @@ pub struct Version {
     pub id: String,
     /// When the bucket wrote it, by the bucket's clock.
     pub written_at: time::OffsetDateTime,
-    /// Whether it is what a read of the object by its name finds.
+    /// Whether the bucket lists it as the object's latest: the bytes that a read of the object
+    /// by its name finds, or the deletion after which such a read finds none.
     pub latest: bool,
     /// The bytes that it holds, or `None`, when it marks a deletion.
     pub content: Option<Content>,
@@ -76,17 +78,21 @@ impl Storage {
             self.client.get(action.sign(URL_LIFETIME))
         });
         let found = self.answer(Call::Get, request).await?;
-        let media_type = found
-            .headers()
-            .get(CONTENT_TYPE)
-            .and_then(|media_type| media_type.to_str().ok())
-            .unwrap_or(NO_MEDIA_TYPE)
-            .to_owned();
         Ok(VersionBytes {
-            media_type,
+            media_type: media_type(found.headers()),
             object: self.streamed(found, false)?,
         })
     }
+}
+
+/// The media type that the `Content-Type` among `headers`, those of the bucket's answer to a
+/// read, gives, or `NO_MEDIA_TYPE` when they hold none that is text.
+fn media_type(headers: &reqwest::header::HeaderMap) -> String {
+    headers
+        .get(CONTENT_TYPE)
+        .and_then(|media_type| media_type.to_str().ok())
+        .unwrap_or(NO_MEDIA_TYPE)
+        .to_owned()
 }
 
 /// The last version that a page lists, which the page after it starts after.
@@ -195,9 +201,10 @@ struct Deleted {
 /// The versions that the page `xml` lists, in its order, and the marker of the page after it, if
 /// the listing goes on. The parser refuses a document type, so it resolves no entity of a
 /// document's own (SEC-20). A version without a time of writing as S3 writes one fails the
-/// page, and so does a page that says more follows and doesn't name both the key and the version
-/// that the next page starts after: with the key alone, the next page would leave out the rest
-/// of that key's versions.
+/// page. A page says whether more follows with `IsTruncated`, and one without it says that more
+/// does by naming the key that the next page starts after; a page that more follows fails
+/// unless it names both that key and the version: with the key alone, the next page would leave
+/// out the rest of that key's versions.
 fn read(xml: &[u8]) -> Result<(Vec<Version>, Option<Marker>), StorageError> {
     let unread = |what| unread(Call::Versions, what);
     let text = std::str::from_utf8(xml).map_err(|_| unread("a page that isn't UTF-8"))?;
@@ -246,17 +253,21 @@ fn read(xml: &[u8]) -> Result<(Vec<Version>, Option<Marker>), StorageError> {
         });
     }
     let filled = |marker: Option<String>| marker.filter(|marker| !marker.is_empty());
-    let next = match (
-        page.is_truncated,
+    let (next_key, next_id) = (
         filled(page.next_key_marker),
         filled(page.next_version_id_marker),
+    );
+    let next = match (
+        page.is_truncated.unwrap_or(next_key.is_some()),
+        next_key,
+        next_id,
     ) {
-        (Some(false), _, _) | (None, None, _) => None,
-        (_, Some(listed), Some(id)) => Some(Marker {
+        (false, _, _) => None,
+        (true, Some(listed), Some(id)) => Some(Marker {
             key: key(listed)?,
             id,
         }),
-        _ => {
+        (true, _, _) => {
             return Err(unread(
                 "a page that more follows, without the key and the version that it starts after",
             ));
@@ -372,12 +383,21 @@ mod tests {
         let whole = "<IsTruncated>false</IsTruncated><NextKeyMarker>users/aa</NextKeyMarker>\
                      <NextVersionIdMarker>3</NextVersionIdMarker>";
 
+        // A page that doesn't say whether more follows, and names where the next starts.
+        let unsaid = "<NextKeyMarker>users/aa</NextKeyMarker>\
+                      <NextVersionIdMarker>3</NextVersionIdMarker>";
+
         let (_, next) = read(listing(&entries, more).as_bytes()).unwrap();
         let (_, end) = read(listing(&entries, whole).as_bytes()).unwrap();
+        let (_, named) = read(listing(&entries, unsaid).as_bytes()).unwrap();
+        let (_, last) = read(listing(&entries, "").as_bytes()).unwrap();
 
-        let next = next.unwrap();
-        assert_eq!((next.key.as_str(), next.id.as_str()), ("users/aa", "3"));
+        for next in [next, named] {
+            let next = next.unwrap();
+            assert_eq!((next.key.as_str(), next.id.as_str()), ("users/aa", "3"));
+        }
         assert!(end.is_none());
+        assert!(last.is_none());
         for lost in [
             "<IsTruncated>true</IsTruncated>",
             "<IsTruncated>true</IsTruncated><NextKeyMarker>users/aa</NextKeyMarker>",
@@ -394,6 +414,20 @@ mod tests {
                 "{lost}"
             );
         }
+    }
+
+    #[test]
+    fn platform_096_a_version_s_media_type_is_its_answer_s_or_that_of_bytes_of_no_type() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        let none = media_type(&headers);
+        headers.insert(CONTENT_TYPE, "image/png".parse().unwrap());
+        let stored = media_type(&headers);
+        let not_text = reqwest::header::HeaderValue::from_bytes(b"image/\xff").unwrap();
+        headers.insert(CONTENT_TYPE, not_text);
+
+        assert_eq!(none, "application/octet-stream");
+        assert_eq!(stored, "image/png");
+        assert_eq!(media_type(&headers), "application/octet-stream");
     }
 
     #[test]

@@ -46,7 +46,7 @@ The rules narrowed or completed these on purpose. The ADR states the rule's vers
 | D13 | The outbox dispatcher is one of the periodic jobs, each of which runs once per interval across the fleet | The platform spec's Jobs: every replica runs a dispatcher that claims each queued job under a lease of its own, so queued jobs spread over the replicas, and only periodic jobs run once per interval across the fleet |
 | D35 | The server closes or re-filters the affected streams | PLATFORM-031: the hub closes them, and the client's reconnect reads the memberships as they then stand, so every change of access takes the path of a reconnect and its replay |
 | D11 | Each user holds a capped number of concurrent streams | REALTIME-006: at most 10 on each replica, which that replica's hub counts |
-| D30 | Bucket versioning for object storage is recommended and documented | [deploy.md](../operations/deploy.md#what-a-server-needs) (D102): every bucket of the deployment has versioning off, or expires each noncurrent version a day after it becomes one, since a version would keep what the deployment deleted, such as each expired backup, for as long as the bucket lasts |
+| D30 | Bucket versioning for object storage is recommended and documented | OPS-22 (D202): each bucket of the deployment has its versioning on, and a lifecycle rule that expires each noncurrent version `BUCKETS_KEEP_DELETED_DAYS` days after it became one, 7 unless the setting says otherwise, where its key pair on the server may neither delete a version nor change either, which `just server-check` tries; with the setting at 0, for a provider that can't keep a version from a key pair, a bucket keeps no version for more than a day, as D102 had every bucket |
 
 ## Contradictions in the first slice
 

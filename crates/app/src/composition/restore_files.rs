@@ -15,8 +15,8 @@ use crate::modules::files;
 #[derive(clap::Args)]
 pub struct RestoreFiles {
     /// The moment, in UTC, as `YYYY-MM-DDTHH:MM:SSZ`, with up to 6 digits of a second's fraction
-    /// before the `Z`: each object that the bucket's key pair deleted or replaced since then is
-    /// written again as the bucket held it then.
+    /// before the `Z`: each object that was deleted or replaced since then is written again as
+    /// the bucket held it then.
     moment: String,
 }
 
