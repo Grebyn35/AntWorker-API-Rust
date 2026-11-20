@@ -159,28 +159,31 @@ expiring_rules() {
 # authority in certs/$3, if any, besides the system's: of the object's version $6, if one is
 # given, and with the body $7, if one is, beside its MD5, which S3 asks of a bucket's
 # configuration. It sets $status to the answer's status, $version to the version that the answer
-# names in x-amz-version-id, and $body to its body; a bucket that doesn't answer leaves curl's
-# error there, and 000 as the status.
+# names in x-amz-version-id, and $body to its body; a bucket that doesn't answer within 30
+# seconds leaves curl's error there, and 000 as the status, so no check waits on one for good.
+# The body goes to the container as an argument: its standard input would have to end for the
+# request to start.
 bucket_send() {
     curl=$(docker compose --file "$here/tools/compose.yaml" config --images curl)
     trust=""
     if [ -f "$deployment/certs/$3" ]; then trust=/run/certs/$3; fi
     # shellcheck disable=SC2016 # The script expands its own arguments.
-    answer=$(printf '%s' "${7:-}" | docker run --rm --quiet --interactive --entrypoint sh \
+    answer=$(docker run --rm --quiet --entrypoint sh \
         --volume "$deployment/secrets/$2:/run/key:ro" --volume "$deployment/secrets/$2_secret:/run/secret:ro" \
         --volume "$deployment/certs:/run/certs:ro" "$curl" -c '
-            cat > /tmp/body
-            method=$1 url=$2 region=$3 trust=$4 version=$5
-            set -- --silent --show-error --request "$method" --aws-sigv4 "aws:amz:$region:s3" \
+            method=$1 url=$2 region=$3 trust=$4 version=$5 body=$6
+            set -- --silent --show-error --connect-timeout 10 --max-time 30 --request "$method" \
+                --aws-sigv4 "aws:amz:$region:s3" \
                 --variable key@/run/key --variable secret@/run/secret --expand-user "{{key:trim}}:{{secret:trim}}" \
                 --write-out "\n%{http_code} %header{x-amz-version-id}\n"
             if [ -n "$trust" ]; then set -- "$@" --cacert "$trust"; fi
             if [ -n "$version" ]; then set -- "$@" --get --data-urlencode "versionId=$version"; fi
-            if [ -s /tmp/body ]; then
+            if [ -n "$body" ]; then
+                printf "%s" "$body" > /tmp/body
                 md5=$(md5sum /tmp/body | cut -d " " -f 1 | xxd -r -p | base64)
                 set -- "$@" --data-binary @/tmp/body --header "Content-MD5: $md5" --header "Content-Type: application/octet-stream"
             fi
-            exec curl "$@" "$url"' sh "$4" "$5" "$(setting "$1_REGION")" "$trust" "${6:-}" 2>&1) || true
+            exec curl "$@" "$url"' sh "$4" "$5" "$(setting "$1_REGION")" "$trust" "${6:-}" "${7:-}" 2>&1) || true
     last=$(printf '%s\n' "$answer" | tail -n 1)
     status=${last%% *}
     version=${last#* }
