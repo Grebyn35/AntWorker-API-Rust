@@ -15,6 +15,9 @@
 // part: superadmins
 //! `superadmin` runs deploy.sh the same way (SUPERADMINS-001, SUPERADMINS-008).
 // end part: superadmins
+// part: files
+//! `restore-files` runs deploy.sh the same way (FILES-028).
+// end part: files
 
 use std::{
     io::{self, IsTerminal},
@@ -241,6 +244,28 @@ pub fn end_sessions(host: &str, whose: &str) -> ExitCode {
         ),
     )
 }
+
+// part: files
+/// Writes again, on the deployment that SSH reaches at `host`, each object of the files bucket
+/// whose version at `moment` isn't its current one, through the API's subcommand `restore-files`
+/// (FILES-028), which takes the moment in UTC. `moment` is a time with its offset from UTC, as
+/// a restore takes one; what isn't one is refused here.
+pub fn restore_files(host: &str, moment: &str) -> ExitCode {
+    let Some(at) = crate::restore::utc_moment(moment) else {
+        return refuse(&format!(
+            "{moment} isn't a moment. A moment is a date and a time with its offset from UTC, as \
+             Postgres writes one, such as 2026-10-25 10:41:31+00."
+        ));
+    };
+    on_server(
+        host,
+        &format!(
+            "DEPLOYMENT={DEPLOYMENT} sh {DEPLOYMENT}/deploy.sh restore-files {}",
+            quoted(&at)
+        ),
+    )
+}
+// end part: files
 
 // part: superadmins
 /// Runs the API's subcommand `superadmin` with `arguments` on the deployment that SSH reaches at

@@ -102,6 +102,19 @@ remove-second-factor host email:
 end-sessions host whose:
     {{ xtask }} end-sessions {{ host }} {{ quote(whose) }}
 
+# part: files
+# Writes again each object of the files bucket of the reference deployment on `host` whose
+# version at `moment` isn't its current one, as one deleted or replaced since, such as by someone
+# who holds the server, from the version that the bucket kept, and deletes nothing (FILES-028,
+# OPS-22). `moment` is a time with its offset from UTC, as `just restore` takes one. It runs the
+# API's subcommand `restore-files` with the image of the color that serves.
+# docs/operations/deploy.md says when to run it.
+[doc("Writes back what was deleted in a server's files bucket since a moment")]
+[group('server')]
+restore-files host moment:
+    {{ xtask }} restore-files {{ host }} {{ quote(moment) }}
+# end part: files
+
 # part: workspace_setup
 # Creates the workspace `name` on the reference deployment on `host`, owned by the account that
 # holds `email` (WORKSPACES-023, D65). With email on, it creates that account, named

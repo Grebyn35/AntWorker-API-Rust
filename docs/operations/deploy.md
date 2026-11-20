@@ -67,7 +67,7 @@ The server answers on ports 80 and 443, and to SSH. Beyond itself, the deploymen
 | The collector, with a managed backend | The backend, at `MANAGED_OTLP_ENDPOINT`; and each deploy, its Grafana, at `MANAGED_GRAFANA_URL` | The telemetry, and the dashboards and alert rules ([observability.md](observability.md#a-managed-backend)) |
 | Alertmanager | The integrations that your fork's `alertmanager.yaml` names | The alerts ([observability.md](observability.md#alerts)) |
 | The operating system | Its packages' mirrors, Docker's packages at `download.docker.com`, which `just server-setup` installs, a time source, and its name servers | The server itself |
-| The replicas | The files bucket, at `FILES_S3_ENDPOINT` | Files' bytes ([the files bucket](#the-files-bucket)) <!-- part: files --> |
+| The replicas, and `just restore-files` | The files bucket, at `FILES_S3_ENDPOINT` | Files' bytes ([the files bucket](#the-files-bucket)), and the versions that the bucket keeps of them ([writing deleted files back](#writing-deleted-files-back)) <!-- part: files --> |
 | The scanner | ClamAV's mirrors, at `database.clamav.net` | Its signatures ([the scanner](#the-scanner)) <!-- part: files --> |
 | The replicas | Google, at `oauth2.googleapis.com` and `openidconnect.googleapis.com` | A sign-in's exchange ([Signing in through a provider](#signing-in-through-a-provider)) <!-- part: google --> |
 | The replicas | GitHub, at `github.com` and `api.github.com` | A sign-in's exchange ([Signing in through a provider](#signing-in-through-a-provider)) <!-- part: github --> |
@@ -305,11 +305,33 @@ The replicas keep the bytes of the files that users upload in a bucket that a pr
 - the settings `FILES_S3_ENDPOINT`, the provider's host, `FILES_S3_REGION` and `FILES_S3_BUCKET`, and `FILES_S3_URI_STYLE=path` for a provider whose bucket names don't appear in its host names, which [deploy/settings.env.example](../../deploy/settings.env.example) describes;
 - for a bucket of your own, whose certificate a private authority signs, that authority's certificate in `certs/files-ca.crt`.
 
-Use a bucket of its own, not the backups' one, which pgBackRest manages whole. The API deletes the bytes of a file that no row names only `FILE_DELETION_DELAY_DAYS` after it first finds it so: by default the backups' reach, `BACKUP_RETENTION_DAYS` plus 7, with the bundled database, so a restore to any moment it reaches finds every file's bytes; with a managed database, set it to the provider's recovery window if that is longer than 35 days. Like every bucket of the deployment, it keeps what is deleted in it for `BUCKETS_KEEP_DELETED_DAYS` days, where its key pair can't remove it, which `just server-check` checks ([What a server needs](#what-a-server-needs)): the bytes that the API deletes leave the bucket that many days later. The API itself never replaces an object, and deletes one only once no restore can need it. Set no lifecycle rule that deletes the bucket's current files.
+Use a bucket of its own, not the backups' one, which pgBackRest manages whole. The API deletes the bytes of a file that no row names only `FILE_DELETION_DELAY_DAYS` after it first finds it so: by default the backups' reach, `BACKUP_RETENTION_DAYS` plus 7, with the bundled database, so a restore to any moment it reaches finds every file's bytes; with a managed database, set it to the provider's recovery window if that is longer than 35 days. Like every bucket of the deployment, it keeps what is deleted in it for `BUCKETS_KEEP_DELETED_DAYS` days, where its key pair can't remove it, which `just server-check` checks ([What a server needs](#what-a-server-needs)): the bytes that the API deletes leave the bucket that many days later. The replicas never replace an object, and delete one only once no restore can need it. Set no lifecycle rule that deletes the bucket's current files.
 
 The bucket holds the only copy of each file's bytes: the backups hold the files' rows, never their bytes. The provider's durability is the files' durability, so choose a provider that states it.
 
 What the bucket takes in is bounded for each user, by the day: `UPLOAD_USER_BYTES_PER_DAY`, 1 GiB unless you set it, is the most that one user's uploads hold in a window of 24 hours, of files, avatars and workspaces' pictures together, and a user past it gets 429 until the window ends (PLATFORM-093). Nothing caps what a user, a workspace or the deployment stores in all ([files spec](../spec/files.md#the-allowance)): watch the bucket's size at its provider, which bills it.
+
+## Writing deleted files back
+
+Whoever holds the server holds the files bucket's key pair, and can delete the files' objects, or write other bytes under their keys, but not the versions that the bucket keeps of them for `BUCKETS_KEEP_DELETED_DAYS` days ([What a server needs](#what-a-server-needs), OPS-22). Within those days,
+
+```
+just restore-files production "2026-10-25 10:30:00+00"
+```
+
+writes again each object of a file, an avatar or a workspace's picture whose version at that moment isn't its current one, as one deleted or replaced since, from the version that the bucket kept, and deletes nothing ([files spec](../spec/files.md#restoring-bytes), FILES-028). The moment is a time with its offset from UTC, as `just restore` takes one, which the task compares with the times that the bucket's clock stamped its versions with. Choose one before the first deletion, and as late as that allows: a bucket's times may be whole seconds, and a version of the moment's own second counts as written before it, so a moment in the second of a deletion finds the object deleted.
+
+The task ends with one line, which says how many objects it saw, how many it wrote again, and how many it left as they are though their version at the moment isn't their current one: objects of more than 20 MiB, or under a key that no request names, which the API doesn't write. What it does, and what it leaves:
+
+- It runs the API's subcommand `restore-files` as `remove-second-factor` runs, with the image of the color that serves, in a service of `compose.yaml` of its own, one for each color, which passes it only the telemetry's and the files bucket's settings (OPS-02). So it needs a replica running, and connects to no database.
+- It reads the bucket's versions, and writes an object again by reading its version and writing its bytes under its key, so the bucket's key pair on the server is all it needs ([What a server needs](#what-a-server-needs)).
+- It deletes nothing, and leaves an object that was written since the moment, deleted before it, or not changed. A file that was uploaded after the moment and deleted since has no version at the moment: a second run, to a moment after its upload, writes it back, and leaves what the first run wrote.
+- A run that stops, as when the bucket stops answering, exits 1, and says how many objects it had written again. Run it again: it leaves those, and writes the rest.
+- It brings back what the API itself deleted since the moment too: the bytes of files whose rows went `FILE_DELETION_DELAY_DAYS` before or more. No row names them, so the API deletes them again that many days after it finds them, and until then the bucket holds bytes that their users had deleted ([files spec](../spec/files.md#restoring-bytes)).
+
+When the backups were deleted too, the database comes back with a task of its own, as [backups.md](backups.md#restoring-from-backups-that-were-deleted) says.
+
+CI stores a file, deletes its object with the bucket's key pair, checks that the file's download answers 500, writes the object back with the task, and downloads the file (FILES-028).
 
 ## The scanner
 

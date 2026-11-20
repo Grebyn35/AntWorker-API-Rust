@@ -10,6 +10,7 @@
 # describes the deployment. Each task's code is a file of tasks/, which this script sources.
 # It also sets up a workspace (WORKSPACES-023), which `just setup-workspace` runs. # part: workspace_setup
 # It also makes an account a superadmin, ends one, or lists them (SUPERADMINS-001), which `just superadmin` runs. # part: superadmins
+# It also writes back the files' bytes that were deleted or replaced in their bucket since a moment (FILES-028), which `just restore-files` runs. # part: files
 #
 #   deploy.sh deploy <version> [--allow-restart]
 #       Verifies the release <version>, then deploys its images. Once its replicas serve, it
@@ -69,6 +70,14 @@
 #       Ends every session of the account that holds <email>, or, with --all, of every account,
 #       through the API's subcommand of the same name, with the image of the color that serves.
 #       Fails, changing nothing, when no account holds the address, or no session is there to end.
+# part: files
+#   deploy.sh restore-files <moment>
+#       Writes again each object of the files bucket whose version at <moment> isn't its current
+#       one, as one deleted or replaced since, from the version that the bucket kept, through the
+#       API's subcommand of the same name, with the image of the color that serves, and deletes
+#       nothing. <moment> is a time in UTC as the API writes one, such as
+#       2026-10-25T10:30:00.000000Z, which `just restore-files` writes from the time it is given.
+# end part: files
 # part: workspace_setup
 #   deploy.sh setup-workspace <name> <email> [<owner's name>]
 #       Creates the workspace <name>, owned by the account that holds <email>, through the API's
@@ -130,6 +139,9 @@ allowed() {
 
 # The tasks, for the usage that an unknown one gets.
 tasks="deploy|apply|backup|restore|restore-inputs|status|logs|replace-key|remove-second-factor|end-sessions|check|check-images"
+# part: files
+tasks="$tasks|restore-files"
+# end part: files
 # part: workspace_setup
 tasks="$tasks|setup-workspace"
 # end part: workspace_setup
@@ -181,6 +193,12 @@ case $command in
         if [ "$#" -ne 2 ]; then fail "usage: deploy.sh end-sessions <email>, or deploy.sh end-sessions --all"; fi
         end_sessions "$2"
         ;;
+    # part: files
+    restore-files)
+        if [ "$#" -ne 2 ]; then fail "usage: deploy.sh restore-files <moment>"; fi
+        restore_files "$2"
+        ;;
+    # end part: files
     # part: workspace_setup
     setup-workspace)
         if [ "$#" -lt 3 ] || [ "$#" -gt 4 ]; then fail "usage: deploy.sh setup-workspace <name> <email> [<owner's name>]"; fi

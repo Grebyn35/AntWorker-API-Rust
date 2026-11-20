@@ -1,6 +1,7 @@
 //! Files from the deployed image (the files spec): a file stored in the deployment's files bucket,
 //! a provider's over HTTPS, whose certificate an authority of the test's own signed, which the
-//! deployment trusts as certs/files-ca.crt, once the deployment's scanner has scanned it.
+//! deployment trusts as certs/files-ca.crt, once the deployment's scanner has scanned it, and the
+//! operator's task that writes back a file whose object the bucket's key pair deleted.
 
 use std::{thread, time::Duration};
 
@@ -142,4 +143,59 @@ async fn files_005_the_deployed_api_refuses_a_file_in_which_its_scanner_finds_a_
         "files.malware_detected"
     );
     assert_eq!(stored, 201, "{file}");
+}
+
+/// Runs curl in the buckets' stand-in with `arguments`, signed with the files bucket's key pair,
+/// which the server holds, and returns what it printed.
+fn with_the_bucket_s_key_pair(deployment: &Deployment, arguments: &str) -> String {
+    deployment.server.shell_ok(&format!(
+        "docker exec bucket curl --silent --show-error --fail --max-time 30 \
+         --aws-sigv4 aws:amz:us-east-1:s3 --user e2e:e2e-secret {arguments}"
+    ))
+}
+
+#[tokio::test]
+async fn files_028_the_deployed_task_writes_back_a_file_whose_object_its_key_pair_deleted() {
+    let (deployment, workspace, file) = stored().await;
+    let url = format!(
+        "{}/{}/content",
+        workspace.files,
+        file["id"].as_str().unwrap()
+    );
+    // The bucket's times are whole seconds, and the stand-in runs on the server, so its clock
+    // is the server's: the moment lies more than a second after the upload, and more than one
+    // before the deletion.
+    deployment.server.shell_ok("sleep 2");
+    let moment = deployment.server.shell_ok("date -u '+%Y-%m-%dT%H:%M:%SZ'");
+    deployment.server.shell_ok("sleep 2");
+    // The one object of a workspace's file that the bucket holds, by the key that its listing
+    // gives.
+    let listing = with_the_bucket_s_key_pair(
+        &deployment,
+        "'http://localhost:8333/files?list-type=2&prefix=workspaces/'",
+    );
+    let key = listing
+        .split_once("<Key>")
+        .and_then(|(_, rest)| rest.split_once("</Key>"))
+        .map(|(key, _)| key.to_owned())
+        .expect("the listing holds the file's object");
+    with_the_bucket_s_key_pair(
+        &deployment,
+        &format!("-X DELETE 'http://localhost:8333/files/{key}'"),
+    );
+    let (lost, _) = get(&workspace, url.clone(), true, None);
+
+    let restored = deployment.server.deploy(&["restore-files", &moment]);
+    let (downloaded, bytes) = get(&workspace, url, true, None);
+
+    assert_eq!(lost, 500);
+    let written = lossy(&restored);
+    assert_eq!(restored.status.code(), Some(0), "{written}");
+    assert!(written.contains("subcommand finished"), "{written}");
+    assert!(
+        written.contains("objects seen 1, written again 1, left as they are 0"),
+        "{written}"
+    );
+    assert_eq!(downloaded, 200, "{bytes}");
+    assert_eq!(bytes, STORED);
 }

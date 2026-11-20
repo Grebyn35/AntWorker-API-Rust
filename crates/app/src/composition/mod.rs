@@ -3,15 +3,24 @@
 //! modules' settings are in `config.rs`, the request pipeline that serves the routes in
 //! `pipeline.rs`, and the other subcommands that run the modules' logic in `tasks.rs`, those that
 //! an operator runs, and in `seed.rs`, the entry points of `seed`.
+// part: files
+//! The one that an operator runs against the bucket of files' bytes is in `restore_files.rs`.
+// end part: files
 
 mod config;
 mod pipeline;
 mod providers;
+// part: files
+mod restore_files;
+// end part: files
 mod seed;
 mod tasks;
 
 pub use config::Config;
 pub use pipeline::pipeline;
+// part: files
+pub use restore_files::{RestoreFiles, RestoreRefused};
+// end part: files
 pub use seed::{SeedError, SeedReport, seed, seed_allowed};
 pub use tasks::{Done, EndingRefused, Operation, Refused, RemovalRefused};
 // part: superadmins

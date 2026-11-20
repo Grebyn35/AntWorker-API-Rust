@@ -107,6 +107,18 @@ pub enum ServerTask {
         #[arg(allow_hyphen_values = true)]
         whose: String,
     },
+    // part: files
+    /// Writes again each object of the files bucket of the deployment at `host` whose version at
+    /// `moment` isn't its current one, as one deleted or replaced since, from the version that
+    /// the bucket kept, through the subcommand of the image that serves (FILES-028, OPS-22).
+    #[command(name = "restore-files")]
+    RestoreFiles {
+        /// The server, as SSH names it.
+        host: String,
+        /// The moment: a time with its offset from UTC, as Postgres writes it.
+        moment: String,
+    },
+    // end part: files
     // part: workspace_setup
     /// Creates the workspace `name` on the deployment at `host`, owned by the account that holds
     /// `email`, through the subcommand of the image that serves, which, with email on, creates
@@ -201,6 +213,9 @@ impl ServerTask {
             Self::ReplaceKey { host, key } => deploy::replace_key(&host, &key),
             Self::RemoveSecondFactor { host, email } => deploy::remove_second_factor(&host, &email),
             Self::EndSessions { host, whose } => deploy::end_sessions(&host, &whose),
+            // part: files
+            Self::RestoreFiles { host, moment } => deploy::restore_files(&host, &moment),
+            // end part: files
             // part: workspace_setup
             Self::SetupWorkspace {
                 host,

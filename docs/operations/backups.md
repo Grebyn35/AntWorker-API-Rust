@@ -120,6 +120,8 @@ It restores as [Restoring](#restoring) says, but for what follows from reading b
 
 After the loss of the server too, set up a new one as [Restoring onto a new server](#restoring-onto-a-new-server) says, and give its buckets new key pairs, since whoever held the lost server held the old ones. A bucket whose backups were all deleted holds none of another database, so the new server's first deploy doesn't stop: it serves a database of the new server's own, and begins its backups in the bucket. The restore with `--bucket-as-of` then replaces that database, and runs `bootstrap` before `migrate`, as a deploy does, which sets the passwords of the restored database's roles from the new server's URLs.
 
+The files' bytes that were deleted with the backups come back from their own bucket, with `just restore-files` ([deploy.md](deploy.md#writing-deleted-files-back)). <!-- part: files -->
+
 CI drops a deployment's table, and deletes its backups and its log with the bucket's key pair, restores from the backups as the bucket held them before, to a moment and then to the latest state that they hold, and restores to a later moment from the backups that the bucket then holds; and it restores them on a new server, whose first deploy served a database of its own (OPS-22).
 
 ## What to keep off the server

@@ -8,6 +8,9 @@ pub use composition::{
     Config, Done, EndingRefused, MIGRATIONS, Operation, Refused, RemovalRefused, Resources,
     SeedError, SeedReport, Services, compose, openapi, pipeline, seed, seed_allowed,
 };
+// part: files
+pub use composition::{RestoreFiles, RestoreRefused};
+// end part: files
 // part: superadmins
 pub use composition::{SuperadminCommand, SuperadminRefused};
 // end part: superadmins

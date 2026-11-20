@@ -77,10 +77,15 @@ impl ToSchema for FileName {
     }
 }
 
+/// The most bytes that `FILE_MAX_BYTES` lets an upload hold, 20 MiB: no object that the API
+/// writes holds more (FILES-004).
+pub(crate) const LARGEST_UPLOAD_BYTES: u32 = 20_971_520;
+
 /// The settings of `files` (OPS-01).
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Settings {
-    /// The most bytes an upload holds: `FILE_MAX_BYTES` (FILES-004).
+    /// The most bytes an upload holds: `FILE_MAX_BYTES`, at most `LARGEST_UPLOAD_BYTES`
+    /// (FILES-004).
     pub(crate) max_bytes: usize,
     /// The days an object that no row names waits before its bytes go:
     /// `FILE_DELETION_DELAY_DAYS` (FILES-011).

@@ -27,6 +27,7 @@ parts:
   - name: files
     module: files
     paths:
+      - crates/app/src/composition/restore_files.rs
       - crates/app/src/modules/accounts/repo/avatar.rs
       - crates/app/src/modules/accounts/routes/avatar.rs
       - crates/app/src/modules/accounts/service/avatar.rs
@@ -94,6 +95,9 @@ parts:
       - files.storage
       - files.unsupported
       - files.upload
+      - restore-files
+      - restore_files
+      - restorefiles
       - file.uploaded
       - file.deleted
   # end part: files

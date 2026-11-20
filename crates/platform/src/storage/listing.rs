@@ -6,6 +6,7 @@ use futures_util::{
     stream::{self, BoxStream},
 };
 use rusty_s3::{S3Action, actions::ListObjectsV2};
+use url::Url;
 
 use super::{
     Call, Listed, ObjectKey, Storage, StorageError, URL_LIFETIME,
@@ -14,7 +15,8 @@ use super::{
 use crate::{errors::Internal, types::Timestamp};
 
 /// The most bytes of a page that the client reads: more than the 1,000 objects of a page take,
-/// each with a key of S3's longest, 1,024 bytes, encoded.
+/// each with a key of S3's longest, 1,024 bytes, encoded, and, in a listing of versions, with a
+/// version's ID of S3's longest, 1,024 bytes.
 const PAGE_MAX_BYTES: usize = 8 << 20;
 
 /// The pages of the listing of the objects whose keys start with `prefix`, each asked of
@@ -52,19 +54,25 @@ async fn page(
         }
         action.sign(URL_LIFETIME)
     };
-    let mut answer = answered_with(storage.client.get(url).send().await, Call::List)?;
+    read(&fetched(storage, url, Call::List).await?)
+}
+
+/// The bytes of the page that `url` asks `storage`'s bucket for, of the listing `call`, which
+/// fails on a page of more than `PAGE_MAX_BYTES`.
+pub(super) async fn fetched(
+    storage: &Storage,
+    url: Url,
+    call: Call,
+) -> Result<Vec<u8>, StorageError> {
+    let mut answer = answered_with(storage.client.get(url).send().await, call)?;
     let mut page = Vec::new();
-    while let Some(chunk) = answer
-        .chunk()
-        .await
-        .map_err(|error| sent(&error, Call::List))?
-    {
+    while let Some(chunk) = answer.chunk().await.map_err(|error| sent(&error, call))? {
         if page.len() + chunk.len() > PAGE_MAX_BYTES {
-            return Err(unread("a page of more than 8 MiB"));
+            return Err(unread(call, "a page of more than 8 MiB"));
         }
         page.extend_from_slice(&chunk);
     }
-    read(&page)
+    Ok(page)
 }
 
 /// The objects that the page `xml` lists, and the token of the page after it, if the listing goes
@@ -72,14 +80,16 @@ async fn page(
 /// (SEC-20). An object whose key no URL addresses, or whose time of writing the page doesn't
 /// give as S3 writes it, fails the page: the deletion of unreferenced objects would act on it.
 fn read(xml: &[u8]) -> Result<(Vec<Listed>, Option<String>), StorageError> {
-    let text = std::str::from_utf8(xml).map_err(|_| unread("a page that isn't UTF-8"))?;
-    let parsed =
-        ListObjectsV2::parse_response(text).map_err(|_| unread("a page that isn't a listing"))?;
+    let text =
+        std::str::from_utf8(xml).map_err(|_| unread(Call::List, "a page that isn't UTF-8"))?;
+    let parsed = ListObjectsV2::parse_response(text)
+        .map_err(|_| unread(Call::List, "a page that isn't a listing"))?;
     let mut listed = Vec::with_capacity(parsed.contents.len());
     for object in parsed.contents {
         let key = ObjectKey::from_stored(&object.key);
         if !key.is_addressed() {
             return Err(unread(
+                Call::List,
                 "a key with a segment that a URL's path doesn't keep",
             ));
         }
@@ -87,7 +97,12 @@ fn read(xml: &[u8]) -> Result<(Vec<Listed>, Option<String>), StorageError> {
             .last_modified
             .as_deref()
             .and_then(|at| Timestamp::read(at).ok())
-            .ok_or_else(|| unread("an object without a time of writing that it reads"))?;
+            .ok_or_else(|| {
+                unread(
+                    Call::List,
+                    "an object without a time of writing that it reads",
+                )
+            })?;
         listed.push(Listed {
             key,
             written_at: written_at.at(),
@@ -96,11 +111,11 @@ fn read(xml: &[u8]) -> Result<(Vec<Listed>, Option<String>), StorageError> {
     Ok((listed, parsed.next_continuation_token))
 }
 
-/// The failure of a listing whose page holds `what`.
-fn unread(what: &str) -> StorageError {
+/// The failure of the listing `call` whose page holds `what`.
+pub(super) fn unread(call: Call, what: &str) -> StorageError {
     StorageError::Failed(Internal::new(format!(
         "the bucket answered {} with {what}",
-        Call::List.operation()
+        call.operation()
     )))
 }
 

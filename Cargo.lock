@@ -1970,6 +1970,7 @@ dependencies = [
  "getrandom 0.4.3",
  "hmac",
  "http-body-util",
+ "instant-xml",
  "ipnet",
  "json-subscriber",
  "lettre",

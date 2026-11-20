@@ -214,7 +214,7 @@ impl Config {
                 max_bytes: usize::try_from(settings.number(
                     "FILE_MAX_BYTES",
                     10_485_760,
-                    1..=20_971_520,
+                    1..=files::LARGEST_UPLOAD_BYTES,
                 )?)
                 .unwrap_or(usize::MAX),
                 deletion_delay_days: settings.number("FILE_DELETION_DELAY_DAYS", 35, 1..=3_657)?,

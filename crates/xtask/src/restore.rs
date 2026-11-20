@@ -198,16 +198,39 @@ pub fn planned(text: Option<&str>, held: Option<&str>, inputs: &str) -> Result<P
 /// second, the bucket's own times being whole seconds, as `YYYY-MM-DD HH:MM:SS+00`. `text` is
 /// a time as `moment` reads one, after the Unix epoch.
 pub fn bucket_time(text: &str) -> Option<String> {
-    let seconds = u64::try_from(moment(text)?.div_euclid(MICROS)).ok()?;
+    let (date, time) = utc(moment(text)?)?;
+    Some(format!("{date} {time}+00"))
+}
+
+// part: files
+/// The moment `text` names, as the API's subcommand `restore-files` takes one: in UTC, to the
+/// microsecond, as `YYYY-MM-DDTHH:MM:SS.ffffffZ`. `text` is a time as `moment` reads one, after
+/// the Unix epoch.
+pub fn utc_moment(text: &str) -> Option<String> {
+    let micros = moment(text)?;
+    let (date, time) = utc(micros)?;
+    Some(format!("{date}T{time}.{:06}Z", micros.rem_euclid(MICROS)))
+}
+// end part: files
+
+/// The date, as `YYYY-MM-DD`, and the time of day, as `HH:MM:SS`, in UTC, of the second that
+/// holds the moment `micros` microseconds after the Unix epoch, and `None` for one before it.
+fn utc(micros: i64) -> Option<(String, String)> {
+    let seconds = u64::try_from(micros.div_euclid(MICROS)).ok()?;
     let digits = crate::calendar::civil(seconds);
-    Some(format!(
-        "{}-{}-{} {}:{}:{}+00",
-        digits.get(..4)?,
-        digits.get(4..6)?,
-        digits.get(6..8)?,
-        digits.get(8..10)?,
-        digits.get(10..12)?,
-        digits.get(12..14)?,
+    Some((
+        format!(
+            "{}-{}-{}",
+            digits.get(..4)?,
+            digits.get(4..6)?,
+            digits.get(6..8)?
+        ),
+        format!(
+            "{}:{}:{}",
+            digits.get(8..10)?,
+            digits.get(10..12)?,
+            digits.get(12..14)?
+        ),
     ))
 }
 
@@ -769,6 +792,25 @@ mod tests {
         assert_eq!(bucket_time("2026-10-25"), None);
         assert_eq!(bucket_time("1969-12-31 23:59:59+00"), None);
     }
+
+    // part: files
+    #[test]
+    fn files_028_the_moment_of_the_files_to_write_back_is_written_in_utc_as_the_api_reads_one() {
+        let written = Some("2026-10-25T10:41:31.000000Z".to_owned());
+
+        assert_eq!(utc_moment("2026-10-25 10:41:31+00"), written);
+        assert_eq!(utc_moment("2026-10-25T10:41:31Z"), written);
+        assert_eq!(utc_moment("2026-10-25 12:41:31+02:00"), written);
+        assert_eq!(
+            utc_moment("2026-10-25 05:11:31.913582-0530"),
+            Some("2026-10-25T10:41:31.913582Z".to_owned())
+        );
+        // No time, no offset, and one before the Unix epoch, which no bucket's object has.
+        assert_eq!(utc_moment("2026-10-25"), None);
+        assert_eq!(utc_moment("2026-10-25 10:41:31"), None);
+        assert_eq!(utc_moment("1969-12-31 23:59:59+00"), None);
+    }
+    // end part: files
 
     #[test]
     fn ops_15_a_moment_is_read_to_the_microsecond_with_its_offset_from_utc() {

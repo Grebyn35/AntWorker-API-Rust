@@ -559,6 +559,26 @@ mod tests {
         assert!(cli(&["production"]).is_err());
     }
 
+    // part: files
+    #[test]
+    fn files_028_the_writing_back_of_files_takes_a_server_and_a_moment() {
+        let cli = Cli::try_parse_from([
+            "xtask",
+            "restore-files",
+            "production",
+            "2026-10-25 10:30:00+00",
+        ])
+        .unwrap();
+
+        assert!(matches!(
+            cli.command,
+            Command::Server(ServerTask::RestoreFiles { host, moment })
+                if host == "production" && moment == "2026-10-25 10:30:00+00"
+        ));
+        assert!(Cli::try_parse_from(["xtask", "restore-files", "production"]).is_err());
+    }
+    // end part: files
+
     // part: workspace_setup
     #[test]
     fn workspaces_023_the_operator_s_setup_takes_a_server_a_name_an_address_and_maybe_a_name() {

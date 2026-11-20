@@ -35,6 +35,12 @@ getrandom = { version = "0.4.3", default-features = false }
 hmac = { version = "0.13.0", default-features = false }
 http = "1.5.0"
 http-body-util = "0.1.5"
+# part: files
+# Reads a listing of the versions that the files bucket keeps, whose versions and delete markers
+# come in one order, which `rusty-s3`, which reads its own listing with it, has no type for (the
+# platform spec's Storage).
+instant-xml = "0.7.9"
+# end part: files
 ipnet = { version = "2.12.2", default-features = false, features = ["std"] }
 jsonschema ={ version = "0.61.2", default-features = false }
 json-subscriber = { version = "0.3.1", default-features = false, features = ["tracing-opentelemetry-0-34"] }

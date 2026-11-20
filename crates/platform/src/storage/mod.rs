@@ -2,10 +2,12 @@
 //! "Storage"). It signs each request as a URL, with `rusty-s3`, and sends it through a `reqwest`
 //! client of its own. It reports a bucket that doesn't answer as unavailable, and every other
 //! failure as internal, neither naming the key, so no error of a library leaves it (ERR-04).
+//! What the bucket keeps of an object that was deleted or replaced is in `versions.rs`.
 
 mod failures;
 mod key;
 mod listing;
+mod versions;
 
 use std::{ops::Range, path::PathBuf, sync::Arc, time::Duration};
 
@@ -22,6 +24,7 @@ use url::Url;
 
 use self::failures::{answered_with, sent};
 pub use self::key::ObjectKey;
+pub use self::versions::{Content, Version, VersionBytes};
 use crate::{
     clock::SharedClock,
     errors::Internal,
@@ -143,6 +146,7 @@ enum Call {
     Get,
     Delete,
     List,
+    Versions,
 }
 
 impl Call {
@@ -153,6 +157,7 @@ impl Call {
             Self::Get => "S3 GetObject",
             Self::Delete => "S3 DeleteObject",
             Self::List => "S3 ListObjectsV2",
+            Self::Versions => "S3 ListObjectVersions",
         }
     }
 
@@ -160,7 +165,7 @@ impl Call {
     fn timeout(self) -> Duration {
         match self {
             Self::Put => WRITE_TIMEOUT,
-            Self::Get | Self::Delete | Self::List => ANSWER_TIMEOUT,
+            Self::Get | Self::Delete | Self::List | Self::Versions => ANSWER_TIMEOUT,
         }
     }
 }
@@ -242,7 +247,13 @@ impl Storage {
             }
         });
         let found = self.answer(Call::Get, request).await?;
-        let size = size(&found, range.is_some()).inspect_err(|unread| count(Some(unread)))?;
+        self.streamed(found, range.is_some())
+    }
+
+    /// The object that the bucket's answer `found` to a read holds, of a range of it when
+    /// `ranged`: its whole size, and its bytes, as the bucket streams them.
+    fn streamed(&self, found: reqwest::Response, ranged: bool) -> Result<Object, StorageError> {
+        let size = size(&found, ranged).inspect_err(|unread| count(Some(unread)))?;
         let chunks = stream::unfold(found, |mut found| async move {
             match found.chunk().await {
                 Ok(Some(chunk)) => Some((Ok(chunk), found)),
@@ -276,25 +287,33 @@ impl Storage {
         }
     }
 
-    /// The objects whose keys start with `prefix`, as the bucket lists them, a page at a time, in
-    /// the listing's client span (OBS-06). The bucket has as long for each page as for any other
-    /// answer, and the listing counts once, as it ends or fails.
+    /// The objects whose keys start with `prefix`, as the bucket lists them, a page at a time.
     pub fn list(&self, prefix: &str) -> BoxStream<'static, Result<Listed, StorageError>> {
-        let pages = listing::pages(self.clone(), prefix.to_owned());
-        let keys = answered(pages, self.clock.clone(), Call::List)
+        self.listed(listing::pages(self.clone(), prefix.to_owned()), Call::List)
+    }
+
+    /// What `pages`, those of the listing `call`, list, in the listing's client span (OBS-06).
+    /// The bucket has as long for each page as for any other answer, and the listing counts
+    /// once, as it ends or fails.
+    fn listed<T: Send + 'static>(
+        &self,
+        pages: BoxStream<'static, Result<Vec<T>, StorageError>>,
+        call: Call,
+    ) -> BoxStream<'static, Result<T, StorageError>> {
+        let items = answered(pages, self.clock.clone(), call)
             .flat_map(|page| match page {
                 Ok(listed) => stream::iter(listed.into_iter().map(Ok)).left_stream(),
                 Err(error) => stream::iter([Err(error)]).right_stream(),
             })
             .boxed();
-        stream::unfold(Some((keys, self.span(Call::List))), |state| async move {
-            let (mut keys, span) = state?;
-            match keys.next().instrument(span.clone()).await {
+        stream::unfold(Some((items, self.span(call))), |state| async move {
+            let (mut items, span) = state?;
+            match items.next().instrument(span.clone()).await {
                 None => {
                     count(None);
                     None
                 }
-                Some(Ok(key)) => Some((Ok(key), Some((keys, span)))),
+                Some(Ok(item)) => Some((Ok(item), Some((items, span)))),
                 Some(Err(error)) => {
                     count(Some(&error));
                     Some((Err(error), None))

@@ -1,5 +1,6 @@
 # What each bucket of the deployment keeps of what is deleted in it, which `just server-check`
 # checks (OPS-22).
+# The task that writes back what the files bucket kept is at its end. # part: files
 
 # The object that the check writes to a bucket and deletes, outside pgBackRest's path in the
 # backups' bucket.
@@ -190,3 +191,18 @@ bucket_send() {
     if [ "$version" = "$last" ]; then version=""; fi
     body=$(printf '%s\n' "$answer" | sed '$d')
 }
+
+# part: files
+# Writes again each object of the files bucket whose version at the moment $1 isn't its current
+# one, from the version that the bucket kept, through the API's subcommand restore-files, in a
+# one-off container of its service of the color that serves, which goes once the subcommand ends
+# (FILES-028, OPS-22). It takes no lock, as the subcommands on the accounts take none: it changes
+# nothing on the server, and writes objects to the bucket as a replica's upload does.
+restore_files() {
+    if [ ! -f "$state/deploy.env" ]; then fail "no deploy has run on this server, so it has no image of the API to run; deploy first"; fi
+    read_settings
+    color=$(live_color)
+    if [ -z "$color" ]; then fail "no replica runs, so the API's image can't be run; deploy first"; fi
+    compose --profile tasks run --rm --no-deps -T "restore-files-$color" restore-files "$1"
+}
+# end part: files

@@ -42,8 +42,9 @@ impl ObjectKey {
         }
     }
 
-    /// Whether a request's URL names the key's object.
-    pub(super) fn is_addressed(&self) -> bool {
+    /// Whether a request's URL names the key's object, which no key that the API makes fails;
+    /// a listing of versions gives a key that fails it as the bucket lists it (PLATFORM-096).
+    pub fn is_addressed(&self) -> bool {
         self.0
             .split('/')
             .all(|segment| !matches!(segment, "" | "." | ".."))

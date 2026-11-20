@@ -212,6 +212,13 @@ fn subcommand_settings(subcommand: &str) -> Option<std::collections::BTreeSet<St
             settings.operator()?;
             Ok(())
         }),
+        // part: files
+        "restore-files" => settings_read(|settings| {
+            settings.telemetry()?;
+            settings.bucket()?;
+            Ok(())
+        }),
+        // end part: files
         // part: workspace_setup
         "setup-workspace" => settings_read(|settings| {
             settings.telemetry()?;
@@ -326,6 +333,10 @@ fn ops_02_each_setting_the_api_reads_is_documented_and_each_container_gets_only_
         "remove-second-factor",
         "serve",
     ]);
+    // part: files
+    let expected: std::collections::BTreeSet<&str> =
+        expected.into_iter().chain(["restore-files"]).collect();
+    // end part: files
     // part: workspace_setup
     let expected: std::collections::BTreeSet<&str> =
         expected.into_iter().chain(["setup-workspace"]).collect();

@@ -1,12 +1,14 @@
 //! Uploading, listing, reading, downloading and deleting files (the files spec): what a
 //! workspace's files and a user's own share, here, and each one's operations, in `workspace.rs`
 //! and `user.rs`, with the public downloads' reads in `public.rs`, users' avatars in `avatar.rs`
-//! and workspaces' pictures in `picture.rs`.
+//! and workspaces' pictures in `picture.rs`. What the operator's subcommand writes back from the
+//! versions that the bucket kept is in `restoring.rs`.
 
 pub(super) mod avatar;
 pub(super) mod exported;
 pub(super) mod picture;
 pub(super) mod public;
+pub(super) mod restoring;
 pub(super) mod user;
 pub(super) mod workspace;
 

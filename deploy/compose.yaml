@@ -188,6 +188,31 @@ x-operator: &operator
   secrets: [database_url, smtp_password]
   networks: [data, telemetry]
 
+# part: files
+# The subcommand that an operator runs against the files bucket (FILES-028), which runs with the
+# image of either color, as the subcommands above do, so it is a service of each. It reads the
+# telemetry's settings and the bucket's, and reaches the bucket from the collector's network.
+x-restore-files: &restore-files
+  logging: *logging
+  profiles: [tasks]
+  read_only: true
+  environment:
+    ENVIRONMENT: production
+    LOG_LEVEL: ${LOG_LEVEL:-info}
+    OTEL_EXPORTER_OTLP_ENDPOINT: ${API_TELEMETRY_ENDPOINT:-}
+    S3_ENDPOINT: https://${FILES_S3_ENDPOINT:?the files bucket's host, in settings.env}:${FILES_S3_PORT:-443}
+    S3_REGION: ${FILES_S3_REGION:?the files bucket's region, in settings.env}
+    S3_BUCKET: ${FILES_S3_BUCKET:?the files bucket's name, in settings.env}
+    S3_URI_STYLE: ${FILES_S3_URI_STYLE:-host}
+    S3_ACCESS_KEY_ID_FILE: /run/secrets/files_s3_key
+    S3_SECRET_ACCESS_KEY_FILE: /run/secrets/files_s3_key_secret
+    S3_CA_PATH: ${FILES_CA_FILE:-}
+  volumes:
+    - ./certs:/etc/deployment-certs:ro
+  secrets: [files_s3_key, files_s3_key_secret]
+  networks: [telemetry]
+# end part: files
+
 # What confines the collector, which reads the host's filesystem for the host's metrics
 # (observability/compose.yaml): beside its image's user, which isn't root, it has no capability
 # and no way to gain one, and it writes only its state's volume.
@@ -409,6 +434,22 @@ services:
     command: ["superadmin"]
     image: ${API_IMAGE_GREEN:?the image of the green replicas, in state/deploy.env}
   # end part: superadmins
+
+  # part: files
+  # The operator's writing back of the files' bytes that were deleted or replaced in their bucket
+  # since a moment (FILES-028, OPS-22), which `just restore-files` runs with the image of the
+  # color that serves, through the service of that color, and with only the settings the
+  # subcommand reads (OPS-02).
+  restore-files-blue:
+    <<: *restore-files
+    command: ["restore-files"]
+    image: ${API_IMAGE_BLUE:?the image of the blue replicas, in state/deploy.env}
+
+  restore-files-green:
+    <<: *restore-files
+    command: ["restore-files"]
+    image: ${API_IMAGE_GREEN:?the image of the green replicas, in state/deploy.env}
+  # end part: files
 
   # The bundled Postgres, which archives its write-ahead log to the backup bucket (OPS-15). Only
   # the network `data` reaches it.

@@ -14,7 +14,7 @@ mod service;
 
 pub(crate) use audit::ACTIONS as AUDIT_ACTIONS;
 pub(crate) use error::FilesError;
-pub(crate) use model::{ExportedFile, Settings};
+pub(crate) use model::{ExportedFile, LARGEST_UPLOAD_BYTES, Settings};
 pub(crate) use personal_data::Contract;
 pub(crate) use routes::routes;
 pub(crate) use service::Files;
@@ -25,3 +25,4 @@ pub(crate) use service::exported::{exported, exported_bytes};
 pub(crate) use service::picture::{
     NewPicture, PICTURE_MAX_BYTES, delete_picture, picture_urls, record_picture, upload_picture,
 };
+pub(crate) use service::restoring::{Restored, Stopped, restore};

@@ -17,6 +17,8 @@ flate2.workspace = true
 getrandom.workspace = true
 hmac.workspace = true
 http-body-util.workspace = true
+# The listing of the versions that the bucket of the `storage` area keeps. # part: files
+instant-xml.workspace = true # part: files
 ipnet.workspace = true
 json-subscriber.workspace = true
 # The SMTP transport of the `mail` area.

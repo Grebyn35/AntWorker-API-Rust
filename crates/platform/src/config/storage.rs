@@ -1,5 +1,5 @@
 //! The settings of the bucket that holds files' bytes (PLATFORM-076), which `serve` reads with
-//! the rest of its settings.
+//! the rest of its settings, and the subcommand `restore-files` alone.
 
 use std::{ffi::OsString, io, path::Path};
 
@@ -16,6 +16,12 @@ where
     E: Fn(&str) -> Option<OsString>,
     F: Fn(&Path) -> io::Result<String>,
 {
+    /// The settings for the subcommand `restore-files`, which an operator runs against the
+    /// bucket: the bucket's, as `serve` reads them.
+    pub fn bucket(&self) -> Result<StorageConfig, ConfigError> {
+        self.storage(self.required("ENVIRONMENT", "development, test or production")?)
+    }
+
     /// The bucket's settings: every one required but `S3_URI_STYLE` and `S3_CA_PATH`, and an
     /// `https` endpoint outside development and test (SEC-10).
     pub(super) fn storage(&self, environment: Environment) -> Result<StorageConfig, ConfigError> {
@@ -125,6 +131,35 @@ mod tests {
             let other = changed("S3_ENDPOINT", &[("S3_ENDPOINT", endpoint)]);
             assert!(read(Environment::Production, &other).is_err(), "{endpoint}");
         }
+    }
+
+    #[test]
+    fn platform_076_the_subcommand_that_writes_files_back_requires_the_bucket_s_settings() {
+        let settings = |variables: Vec<(&str, &str)>| {
+            let variables: HashMap<String, String> = variables
+                .into_iter()
+                .map(|(name, value)| (name.to_owned(), value.to_owned()))
+                .collect();
+            Settings::new(
+                move |name: &str| variables.get(name).map(OsString::from),
+                |_: &Path| Err(io::Error::other("no files")),
+            )
+        };
+        let production = [("ENVIRONMENT", "production")];
+        let plain = changed("S3_ENDPOINT", &[("S3_ENDPOINT", "http://localhost:8333")]);
+
+        let read = settings(changed("", &production)).bucket().unwrap();
+
+        assert_eq!(read.bucket, "files");
+        assert!(settings(VALID.to_vec()).bucket().is_err());
+        for (name, _) in VALID {
+            let error = settings(changed(name, &production)).bucket().unwrap_err();
+            assert!(error.to_string().contains(name), "{error}");
+        }
+        let in_production = [plain.as_slice(), &production].concat();
+        let in_test = [plain.as_slice(), &[("ENVIRONMENT", "test")]].concat();
+        assert!(settings(in_production).bucket().is_err());
+        assert!(settings(in_test).bucket().is_ok());
     }
 
     #[test]

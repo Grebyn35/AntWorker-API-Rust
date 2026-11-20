@@ -65,6 +65,11 @@ enum Command {
     /// root declares.
     #[command(flatten)]
     Operator(app::Operation),
+    // part: files
+    /// Writes again each object of the bucket of files' bytes whose version at a moment isn't
+    /// its current one, as one deleted or replaced since, from the version that the bucket kept.
+    RestoreFiles(app::RestoreFiles),
+    // end part: files
     /// Writes the OpenAPI document of every route to a file (API-17).
     Openapi {
         /// The file to write.
@@ -101,6 +106,12 @@ fn main() -> ExitCode {
                 operate(subcommand, config, operation)
             })
         }
+        // part: files
+        Command::RestoreFiles(task) => start(settings.telemetry(), settings.bucket(), |bucket| {
+            let done = task.run(bucket, Arc::new(SystemClock));
+            async move { ended(&subcommand, done.await) }
+        }),
+        // end part: files
         Command::Openapi { path } => openapi(&path),
     }
 }
@@ -335,15 +346,24 @@ async fn operate(area: String, config: OperatorConfig, operation: app::Operation
         Ok(mail) => mail,
         Err(error) => return failed("mail", &error),
     };
-    match operation.run(&database, &mail).await {
-        Ok(done) => {
-            // part: superadmins
-            show(&done.shown);
-            // end part: superadmins
-            lifecycle::report_outcome(&area, &done.outcome);
+    let done = operation.run(&database, &mail).await;
+    // part: superadmins
+    if let Ok(done) = &done {
+        show(&done.shown);
+    }
+    // end part: superadmins
+    ended(&area, done.map(|done| done.outcome))
+}
+
+/// Logs what the subcommand `area`, which an operator runs, did, or, as a failure that ends it,
+/// why it changed nothing or stopped, and gives the code that the process exits with (OPS-03).
+fn ended(area: &str, done: Result<String, impl Error + 'static>) -> ExitCode {
+    match done {
+        Ok(outcome) => {
+            lifecycle::report_outcome(area, &outcome);
             ExitCode::SUCCESS
         }
-        Err(refused) => failed(&area, &refused),
+        Err(refused) => failed(area, &refused),
     }
 }
 
