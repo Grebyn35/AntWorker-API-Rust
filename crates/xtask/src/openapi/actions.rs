@@ -4,8 +4,12 @@
 //! couldn't read it. A name that it read and that no component of the catalog is marked with
 //! fails, as the name of an action that its module leaves out of its list does; and so does a
 //! component that the document marks as an action's and that `AuditEntry` doesn't refer to. A
-//! declaration that doesn't hold that text, as one that writes its type's parameters before
-//! `::new`, isn't read, and review keeps the declarations to the form the check reads.
+//! module's `audit.rs` is the file of that name right under the module's directory, or a Rust
+//! file of its directory `audit/`, which the file becomes once it outgrows its limit (ARCH-03).
+//! A declaration that writes its type's parameters before `::new` isn't read: the check fails
+//! on the text `Action::<` in such a file, a comment's included. Another spelling that doesn't
+//! hold the constructor's text, as through an alias of the type, isn't read either, and review
+//! keeps the declarations to the form the check reads.
 //! AUDIT-014: each action's component gives its entries' `action` as the action's name alone.
 //! AUDIT-009: each action is named `<resource>.<verb>`, each part `snake_case`, in at most 100
 //! characters, as a log's filter takes it.
@@ -15,7 +19,7 @@ use std::collections::BTreeSet;
 use serde_json::{Value, json};
 
 use super::{
-    events::{declared, referred},
+    events::{declared, of_module, parameterized, referred},
     is_snake_case,
 };
 use crate::{Finding, repo::Repo, text::line_of};
@@ -48,6 +52,15 @@ pub fn check(repo: &Repo, document: &Value) -> Vec<Finding> {
         .collect();
     let mut findings = components(repo, document, &catalog);
     for file in repo.files().filter(|file| is_audit_file(&file.path)) {
+        for line in parameterized(&file.text, &[ACTION]) {
+            findings.push(Finding::new(
+                &file.path,
+                line,
+                "this writes the action's parameters before `::new`, a form that \
+                 `check-openapi` doesn't read: let the constant's type give them, and call \
+                 the constructor as `Action::new(\"<name>\")` (AUDIT-012)",
+            ));
+        }
         for (name, line) in declared(&file.text, &[ACTION]) {
             let Some(name) = name else {
                 findings.push(Finding::new(
@@ -135,11 +148,9 @@ fn components(repo: &Repo, document: &Value, catalog: &BTreeSet<&str>) -> Vec<Fi
     findings
 }
 
-/// Whether `path` is a module's `audit.rs`.
+/// Whether `path` is a module's `audit.rs`, or a Rust file of its directory `audit/`.
 fn is_audit_file(path: &str) -> bool {
-    path.strip_prefix("crates/app/src/modules/")
-        .and_then(|rest| rest.strip_suffix("/audit.rs"))
-        .is_some_and(|module| !module.contains('/'))
+    of_module(path, "audit")
 }
 
 #[cfg(test)]
@@ -329,6 +340,41 @@ mod tests {
             );
             assert!(message.ends_with("(AUDIT-012)"), "{messages:?}");
         }
+    }
+
+    #[test]
+    fn audit_012_an_action_in_a_module_s_audit_directory_is_read_and_its_parameters_before_new_fail()
+     {
+        let audit = "const A: Action = Action::new(\"thing.made\", \"Made.\", &[THING]);\n\
+                     const B: Action<Gone> = Action::<Gone>::new(\"thing.gone\", \"Gone.\", &[THING]);\n";
+        let repo = Repo::of(&[
+            ("crates/app/src/modules/things/audit/members.rs", audit),
+            (
+                "crates/app/src/modules/things/service/audit.rs",
+                "const C: Action = Action::<Gone>::new(\"not.read\", \"Elsewhere.\", &[THING]);",
+            ),
+        ]);
+        let document = json!({ "components": { "schemas": { "AuditEntry": catalog_of(&[]) } } });
+
+        let messages: Vec<String> = check(&repo, &document)
+            .into_iter()
+            .map(|finding| format!("{}:{}: {}", finding.path, finding.line, finding.message))
+            .collect();
+
+        assert_eq!(messages.len(), 2, "{messages:?}");
+        assert!(
+            messages[0].starts_with(
+                "crates/app/src/modules/things/audit/members.rs:2: this writes the action's \
+                 parameters before `::new`"
+            ),
+            "{messages:?}"
+        );
+        assert!(
+            messages[1].starts_with(
+                "crates/app/src/modules/things/audit/members.rs:1: `thing.made` isn't in"
+            ),
+            "{messages:?}"
+        );
     }
 
     #[test]

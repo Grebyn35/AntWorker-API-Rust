@@ -7,8 +7,13 @@
 //! with fails, as the name of an event that its module doesn't register with its routes does;
 //! so does a component that the document marks as a frame type's and that `Frame` doesn't refer
 //! to; and so does a name that it read twice, since the catalog keeps one frame type of each
-//! name. A declaration that holds none of those texts, as one that writes its type's parameters
-//! before `::new`, isn't read, and review keeps the declarations to the form the check reads.
+//! name. A module's `events.rs` is the file of that name right under the module's directory,
+//! or a Rust file of its directory `events/`, which the file becomes once it outgrows its limit
+//! (ARCH-03). A declaration that writes its type's parameters before `::new` isn't read: the
+//! check fails on the text `UserEvent::<` or `WorkspaceEvent::<` in such a file, and on
+//! `StreamFrame::<` in any file it reads, a comment's included. Another spelling that holds
+//! none of the constructors' texts, as through an alias of the type, isn't read either, and
+//! review keeps the declarations to the form the check reads.
 //! API-19: each frame type that the document marks is named `<resource>.<verb>`, each part
 //! `snake_case`; review checks that the verb is in the past tense.
 
@@ -76,6 +81,15 @@ pub fn check(repo: &Repo, document: &Value) -> Vec<Finding> {
         } else {
             &[STREAM_FRAME]
         };
+        for line in parameterized(&file.text, constructors) {
+            findings.push(Finding::new(
+                &file.path,
+                line,
+                "this writes a frame type's parameters before `::new`, a form that \
+                 `check-openapi` doesn't read: let the constant's type give them, and call \
+                 the constructor as `<Type>::new(\"<name>\")` (REALTIME-008)",
+            ));
+        }
         for (name, line) in declared(&file.text, constructors) {
             let Some(name) = name else {
                 findings.push(Finding::new(
@@ -162,11 +176,39 @@ fn components(repo: &Repo, document: &Value, catalog: &BTreeSet<&str>) -> Vec<Fi
     findings
 }
 
-/// Whether `path` is a module's `events.rs`.
+/// Whether `path` is a module's `events.rs`, or a Rust file of its directory `events/`.
 pub fn is_events_file(path: &str) -> bool {
-    path.strip_prefix(MODULES)
-        .and_then(|rest| rest.strip_suffix("/events.rs"))
-        .is_some_and(|module| !module.contains('/'))
+    of_module(path, "events")
+}
+
+/// Whether `path` is the file `<name>.rs` right under a module's directory, or a Rust file of
+/// the module's directory `<name>/`, which that file becomes once it outgrows its limit
+/// (ARCH-03, CODE-08).
+pub(super) fn of_module(path: &str, name: &str) -> bool {
+    let inside = path
+        .strip_prefix(MODULES)
+        .and_then(|rest| rest.split_once('/'))
+        .map(|(_, inside)| inside);
+    inside.is_some_and(|inside| {
+        inside.strip_suffix(".rs") == Some(name)
+            || (inside.starts_with(&format!("{name}/")) && inside.ends_with(".rs"))
+    })
+}
+
+/// The line of each place in `text` that writes the parameters of one of `constructors`' types
+/// before `::new`: the type's name, then `::<`.
+pub(super) fn parameterized(text: &str, constructors: &[&str]) -> Vec<usize> {
+    let mut lines: Vec<usize> = constructors
+        .iter()
+        .filter_map(|constructor| constructor.strip_suffix("::new("))
+        .flat_map(|name| {
+            text.match_indices(&format!("{name}::<"))
+                .collect::<Vec<_>>()
+        })
+        .map(|(at, _)| text[..at].matches('\n').count() + 1)
+        .collect();
+    lines.sort_unstable();
+    lines
 }
 
 /// The name in double quotes that follows each `WorkspaceEvent::new(` in `text`, a module's
@@ -248,6 +290,83 @@ mod tests {
         assert!(
             messages[0].starts_with("crates/app/src/modules/things/events.rs:4: `thing.gone`"),
             "{messages:?}"
+        );
+    }
+
+    #[test]
+    fn realtime_008_a_module_s_events_are_read_in_its_file_and_in_its_directory() {
+        for path in [
+            "crates/app/src/modules/things/events.rs",
+            "crates/app/src/modules/things/events/mod.rs",
+            "crates/app/src/modules/things/events/members/roles.rs",
+        ] {
+            assert!(is_events_file(path), "{path}");
+        }
+        for path in [
+            "crates/app/src/modules/things/service/events.rs",
+            "crates/app/src/modules/things/events_of_members.rs",
+            "crates/app/src/modules/things/events/notes.md",
+            "crates/app/src/modules/events.rs",
+            "crates/app/src/events.rs",
+            "crates/platform/src/events/mod.rs",
+        ] {
+            assert!(!is_events_file(path), "{path}");
+        }
+        // A declaration in the directory is read as one in the file is.
+        let repo = Repo::of(&[(
+            "crates/app/src/modules/things/events/members.rs",
+            "const A: UserEvent<A> = UserEvent::new(\"thing.made\");\n",
+        )]);
+        let document = json!({ "components": { "schemas": { "Frame": catalog_of(&[]) } } });
+
+        let messages = found(&repo, &document);
+
+        assert_eq!(messages.len(), 1, "{messages:?}");
+        assert!(
+            messages[0].starts_with(
+                "crates/app/src/modules/things/events/members.rs:1: `thing.made` isn't in"
+            ),
+            "{messages:?}"
+        );
+    }
+
+    #[test]
+    fn realtime_008_a_type_s_parameters_before_its_constructor_fail() {
+        let events = "const A: UserEvent<A> = UserEvent::<A>::new(\"thing.made\");\n\
+                      // As WorkspaceEvent::<P, B> would.\n\
+                      const C: UserEvent<C> = UserEvent::new(\"thing.kept\");\n";
+        let repo = Repo::of(&[
+            ("crates/app/src/modules/things/events.rs", events),
+            (
+                "crates/platform/src/events/frames.rs",
+                "const O: StreamFrame<O> = StreamFrame::<O>::new(\"stream.opened\");\n\
+                 const U: UserEvent<U> = UserEvent::<U>::new(\"not.a.module_s\");\n",
+            ),
+        ]);
+        let document = json!({ "components": { "schemas": {
+            "ThingKeptFrame": { "x-event": "thing.kept" },
+            "Frame": catalog_of(&["ThingKeptFrame"]),
+        } } });
+
+        let places: Vec<String> = found(&repo, &document)
+            .iter()
+            .map(|message| {
+                let (place, message) = message.split_once(": ").unwrap();
+                assert!(
+                    message.starts_with("this writes a frame type's parameters before `::new`"),
+                    "{message}"
+                );
+                place.to_owned()
+            })
+            .collect();
+
+        assert_eq!(
+            places,
+            [
+                "crates/app/src/modules/things/events.rs:1",
+                "crates/app/src/modules/things/events.rs:2",
+                "crates/platform/src/events/frames.rs:1",
+            ]
         );
     }
 
