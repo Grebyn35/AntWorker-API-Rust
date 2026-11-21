@@ -1,6 +1,6 @@
 //! Removing optional parts (ARCH-07): what `just remove` and `just keep` share, which `remove`
-//! holds with them and with `check-removable`, and `check-parts`, which runs each run's removal in
-//! memory, with `removal`'s, and each part's alone.
+//! holds with them and with `check-removable`, and `check-parts`, which does in memory each run's
+//! removal, as the run's task makes it, and each part's alone.
 
 mod cache;
 mod dry_run;
@@ -56,47 +56,56 @@ struct Run {
     keeps_removal: bool,
 }
 
-/// The parts and the runs that `parts.yaml` lists. Fails on an entry of a part's `paths` or
-/// `words`, or of a run's `parts`, that isn't a string, as YAML reads a word that ends in a colon
-/// unless it is quoted, on a `creates_workspaces` that isn't a boolean, and on a run's `task`
-/// other than `remove`.
+/// The parts and the runs that `parts.yaml` lists. Fails on what it can't read as what its key
+/// holds: `parts`, `runs`, a part's `paths` or `words`, or a run's `parts`, that isn't a list; an
+/// entry of one of the last three that isn't a string, as YAML reads a word that ends in a colon
+/// unless it is quoted; a part or a run without a `name`; a `name` or a `module` that isn't a
+/// string; a `creates_workspaces` that isn't a boolean; a run's `task` other than `remove`; and a
+/// key that the file, a part or a run doesn't have, as a misspelled one.
 fn list(repo: &Repo) -> Result<(Vec<Part>, Vec<Run>), String> {
     let file = repo
         .file(LIST)
         .ok_or_else(|| format!("{LIST} is missing"))?;
     let value: Value =
         serde_saphyr::from_str(&file.text).map_err(|error| format!("{LIST}: {error}"))?;
-    let entries = |key: &str| value[key].as_array().cloned().unwrap_or_default();
+    known_keys(&value, &["parts", "runs"], "the file")?;
     let mut parts = Vec::new();
-    for part in entries("parts") {
-        let name = part["name"].as_str().unwrap_or_default().to_owned();
+    for part in sequence(&value, "parts", "the file")? {
+        let name = named(part, "part")?;
+        let of = format!("`{name}`");
+        known_keys(
+            part,
+            &["name", "module", "paths", "words", "creates_workspaces"],
+            &of,
+        )?;
         let creates_workspaces = match &part["creates_workspaces"] {
             Value::Null => false,
             Value::Bool(creates) => *creates,
             _ => {
                 return Err(format!(
-                    "{LIST}: `creates_workspaces` of `{name}` isn't `true` or `false`"
+                    "{LIST}: `creates_workspaces` of {of} isn't `true` or `false`"
                 ));
             }
         };
         parts.push(Part {
-            module: part["module"].as_str().map(str::to_owned),
-            paths: strings(&part, "paths", &name)?,
-            words: strings(&part, "words", &name)?,
+            module: string(part, "module", &of)?,
+            paths: strings(part, "paths", &of)?,
+            words: strings(part, "words", &of)?,
             creates_workspaces,
             name,
         });
     }
     let mut runs = Vec::new();
-    for run in entries("runs") {
-        let name = run["name"].as_str().unwrap_or_default().to_owned();
+    for run in sequence(&value, "runs", "the file")? {
+        let name = named(run, "run")?;
+        known_keys(run, &["name", "task", "parts"], &format!("`{name}`"))?;
         let keeps_removal = match &run["task"] {
             Value::Null => false,
             Value::String(task) if task == "remove" => true,
             _ => return Err(format!("{LIST}: the `task` of `{name}` isn't `remove`")),
         };
         runs.push(Run {
-            parts: strings(&run, "parts", &name)?,
+            parts: strings(run, "parts", &format!("`{name}`"))?,
             keeps_removal,
             name,
         });
@@ -104,17 +113,56 @@ fn list(repo: &Repo) -> Result<(Vec<Part>, Vec<Run>), String> {
     Ok((parts, runs))
 }
 
-/// The strings that `entry`, the part or the run named `name`, lists under `key`, or why one of
-/// them is none.
-fn strings(entry: &Value, key: &str, name: &str) -> Result<Vec<String>, String> {
-    let Some(items) = entry[key].as_array() else {
-        return Ok(Vec::new());
-    };
-    items
+/// Fails on a key of `entry` that isn't one of `keys`. `of` names the entry.
+fn known_keys(entry: &Value, keys: &[&str], of: &str) -> Result<(), String> {
+    let unknown = entry
+        .as_object()
+        .and_then(|entry| entry.keys().find(|key| !keys.contains(&key.as_str())));
+    match unknown {
+        Some(key) => Err(format!(
+            "{LIST}: `{key}` of {of} is none of its keys, which are {}",
+            keys.join(", ")
+        )),
+        None => Ok(()),
+    }
+}
+
+/// The name of `entry`, a part or a run, as `kind` says, or why it has none.
+fn named(entry: &Value, kind: &str) -> Result<String, String> {
+    string(entry, "name", &format!("a {kind}"))?
+        .ok_or_else(|| format!("{LIST}: a {kind} has no `name`"))
+}
+
+/// The string that `entry` holds under `key`, if it holds anything there, or why what it holds
+/// is no string. `of` names the entry.
+fn string(entry: &Value, key: &str, of: &str) -> Result<Option<String>, String> {
+    match &entry[key] {
+        Value::Null => Ok(None),
+        Value::String(text) => Ok(Some(text.clone())),
+        other => Err(format!("{LIST}: `{key}` of {of} isn't a string, {other}")),
+    }
+}
+
+/// The entries that `entry` lists under `key`, none if it holds nothing there, or why what it
+/// holds is no list. `of` names the entry.
+fn sequence<'a>(entry: &'a Value, key: &str, of: &str) -> Result<&'a [Value], String> {
+    match &entry[key] {
+        Value::Null => Ok(&[]),
+        Value::Array(items) => Ok(items),
+        other => Err(format!(
+            "{LIST}: `{key}` of {of} isn't a list, {other}: write each entry on a line of its \
+             own, after `- `"
+        )),
+    }
+}
+
+/// The strings that `entry` lists under `key`, or why one of them is none. `of` names the entry.
+fn strings(entry: &Value, key: &str, of: &str) -> Result<Vec<String>, String> {
+    sequence(entry, key, of)?
         .iter()
         .map(|item| {
             item.as_str().map(str::to_owned).ok_or_else(|| {
-                format!("{LIST}: an entry of `{key}` of `{name}` isn't a string, {item}: quote it")
+                format!("{LIST}: an entry of `{key}` of {of} isn't a string, {item}: quote it")
             })
         })
         .collect()
@@ -721,6 +769,69 @@ mod tests {
         let quoted = "parts:\n  - name: offers\n    words:\n      - \"offers::\"\n";
         let (parts, _) = list(&Repo::of(&[(LIST, quoted)])).unwrap();
         assert_eq!(parts[0].words, ["offers::"]);
+    }
+
+    #[test]
+    fn arch_07_the_list_refuses_a_list_or_a_name_that_it_can_t_read() {
+        for (text, refusal) in [
+            (
+                "parts:\n  - name: offers\n    words: offer\n",
+                "`words` of `offers` isn't a list",
+            ),
+            (
+                "parts:\n  - name: offers\n    paths: src/offers\n",
+                "`paths` of `offers` isn't a list",
+            ),
+            (
+                "runs:\n  - name: shop\n    parts: offers\n",
+                "`parts` of `shop` isn't a list",
+            ),
+            ("parts: offers\n", "`parts` of the file isn't a list"),
+            ("runs:\n  name: shop\n", "`runs` of the file isn't a list"),
+            (
+                "parts:\n  - words:\n      - offer\n",
+                "a part has no `name`",
+            ),
+            ("runs:\n  - parts:\n      - offers\n", "a run has no `name`"),
+            ("parts:\n  - name: 7\n", "`name` of a part isn't a string"),
+            (
+                "parts:\n  - name: offers\n    word:\n      - offer\n",
+                "`word` of `offers` is none of its keys",
+            ),
+            (
+                "runs:\n  - name: shop\n    part:\n      - offers\n",
+                "`part` of `shop` is none of its keys",
+            ),
+            (
+                "part:\n  - name: offers\n",
+                "`part` of the file is none of its keys",
+            ),
+            (
+                "parts:\n  - name: offers\n    module:\n      - offers\n",
+                "`module` of `offers` isn't a string",
+            ),
+        ] {
+            let error = list(&Repo::of(&[(LIST, text)])).err().unwrap();
+
+            assert!(error.contains(refusal), "{text}: {error}");
+        }
+    }
+
+    #[test]
+    fn arch_07_a_run_takes_the_parts_of_another_by_its_anchor() {
+        let text = "runs:\n  - name: few\n    parts: &few\n      - offers\n      - coupons\n  \
+                    - name: same\n    task: remove\n    parts: *few\n";
+
+        let (_, runs) = list(&Repo::of(&[(LIST, text)])).unwrap();
+
+        assert_eq!(runs[0].parts, ["offers", "coupons"]);
+        assert_eq!(runs[1].parts, runs[0].parts);
+        assert!(runs[1].keeps_removal && !runs[0].keeps_removal);
+        // Once every part of the list is removed, both runs remove none.
+        let text = "runs:\n  - name: few\n    parts: &few\n  - name: same\n    task: remove\n    \
+                    parts: *few\n";
+        let (_, runs) = list(&Repo::of(&[(LIST, text)])).unwrap();
+        assert!(runs[0].parts.is_empty() && runs[1].parts.is_empty());
     }
 
     #[test]

@@ -121,19 +121,22 @@ fn apply(repo: &Repo, parts: &[Part], removed: &[&Part], unmark: bool) -> ExitCo
     };
     let unmarked = if unmark {
         match unmark_kept() {
-            Ok(unmarked) => format!(", and took the markers out of {unmarked}"),
+            Ok(unmarked) => Some(unmarked),
             Err(error) => return fail(&error),
         }
     } else {
-        String::new()
+        None
     };
     let stale = match prune_cache() {
         Ok(stale) => stale,
         Err(error) => return fail(&error),
     };
+    let changed = match unmarked {
+        Some(unmarked) => format!("edited {edited}, and took the markers out of {unmarked}"),
+        None => format!("and edited {edited}"),
+    };
     report(&format!(
-        "removed {}: deleted {deleted} files and {stale} entries of the query cache, and edited \
-         {edited}{unmarked}",
+        "removed {}: deleted {deleted} files and {stale} entries of the query cache, {changed}",
         removing.join(", "),
     ));
     if let Err(error) = regenerate() {

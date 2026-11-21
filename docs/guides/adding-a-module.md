@@ -123,7 +123,7 @@ What the registry asks of a provider's file:
 - **`discard`** deletes the provider's token once the identity is read. It does nothing unless the file replaces it, which it does for a provider whose tokens don't lapse on their own (D139).
 
 The tests of the behaviors that every provider shares run through a stand-in provider, so a provider's own tests prove only its own behavior.
-Run `just check-parts` once the markers are in: it takes seconds, and names a marker or a word that is wrong. <!-- part: removal -->
+Run `just check-parts` once the markers are in: it takes under a minute, and names a marker or a word that is wrong. <!-- part: removal -->
 The tests that a provider's lines can break run in a few minutes, once `just services` has started what they use:
 
 ```

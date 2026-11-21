@@ -88,10 +88,30 @@ pub fn unmarked(line: &str) -> Option<&str> {
     }
 }
 
+/// How many markers `line` starts, in any of the syntaxes, whatever follows each of them on the
+/// line: the places where a comment's start is followed by `part: `, or by `end part: `, and a
+/// part's name.
+fn started(line: &str) -> usize {
+    SYNTAXES
+        .into_iter()
+        .map(|(opener, _)| {
+            line.match_indices(opener)
+                .filter(|(at, _)| {
+                    let rest = line[at + opener.len()..].trim_start();
+                    rest.strip_prefix("end ")
+                        .unwrap_or(rest)
+                        .strip_prefix("part: ")
+                        .is_some_and(|name| name.starts_with(|c: char| c.is_ascii_lowercase()))
+                })
+                .count()
+        })
+        .sum()
+}
+
 /// The parts that own each line of `text`: those whose block holds it, or whose marker it holds.
-/// Fails, with the line counted from 1, on a marker of a part that `known` doesn't name, an end
-/// marker that doesn't stand alone or closes no block of its part, and a block that no end marker
-/// closes.
+/// Fails, with the line counted from 1, on a line that holds a marker and starts another, of
+/// which [`marker`] reads one, a marker of a part that `known` doesn't name, an end marker that
+/// doesn't stand alone or closes no block of its part, and a block that no end marker closes.
 pub fn owners<'a>(text: &'a str, known: &[&str]) -> Result<Vec<Vec<&'a str>>, (usize, String)> {
     let mut open: Vec<(&str, &str, usize)> = Vec::new();
     let mut owners = Vec::new();
@@ -99,6 +119,14 @@ pub fn owners<'a>(text: &'a str, known: &[&str]) -> Result<Vec<Vec<&'a str>>, (u
         let number = index + 1;
         let mut owning: Vec<&str> = open.iter().map(|(part, _, _)| *part).collect();
         if let Some(marker) = marker(line) {
+            if started(line) > 1 {
+                return Err((
+                    number,
+                    "the line holds two markers, and a removal reads one: what exists only for \
+                     two parts together is a line of one inside a block of the other"
+                        .to_owned(),
+                ));
+            }
             if !known.contains(&marker.part) {
                 return Err((
                     number,
@@ -586,6 +614,40 @@ mod tests {
             .collect();
 
         assert_eq!(lines, [Some(1), Some(2), Some(2), Some(2)]);
+    }
+
+    #[test]
+    fn arch_07_a_line_that_holds_two_markers_fails() {
+        let known = ["one", "two"];
+        let row = format!(
+            "| a |\n| b {} {} |\n",
+            mark("<!--", "one", " -->"),
+            mark("<!--", "two", " -->")
+        );
+        let setting = format!("A=1 {} {}\n", mark("#", "one", ""), mark("#", "two", ""));
+        let closed = format!("{} {}\n", mark("//", "one", ""), end("//", "one", ""));
+        for text in [row.as_str(), setting.as_str(), closed.as_str()] {
+            let (line, message) = owners(text, &known).unwrap_err();
+            assert_eq!(line, text.lines().count(), "{text}");
+            assert!(
+                message.starts_with("the line holds two markers"),
+                "{message}"
+            );
+        }
+        // One marker on a line, and two on two lines, are read as they were, and so is a line
+        // that holds no marker, such as a string of a test with the text of two.
+        let one = format!(
+            "| b {} |\n- c {}\n",
+            mark("<!--", "one", " -->"),
+            mark("#", "two", "")
+        );
+        assert_eq!(owners(&one, &known).unwrap(), [["one"], ["two"]]);
+        let string = format!(
+            "\"{}\\nmod a;\\n{}\\n\"\n",
+            mark("//", "one", ""),
+            end("//", "one", "")
+        );
+        assert_eq!(owners(&string, &known).unwrap(), [Vec::<&str>::new()]);
     }
 
     #[test]

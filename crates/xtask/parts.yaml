@@ -11,7 +11,8 @@
 # `<timestamp>_<module>_<description>.sql`, are its own. Its words are what no file may still hold
 # once it is removed, compared without regard to case: among them the name of each workspace
 # shape that needs the part, so a line that names a shape carries the marker of each part that
-# gives it. A part's entry carries its marker, so removing it removes the entry too.
+# gives it. A part's entry carries its marker, so removing it removes the entry too; `removal`'s
+# carries none, and goes with this file, which it owns.
 parts:
   - name: removal
     paths:
@@ -35,6 +36,8 @@ parts:
       - removing the part
       - removes a part
       - removes the part
+      - fork that removes
+      - fork removes
   # part: invitations
   - name: invitations
     module: invitations
@@ -346,7 +349,7 @@ runs:
   # parts mark are removed together too. It keeps one part that creates workspaces, since every
   # shape keeps one.
   - name: minimal
-    parts:
+    parts: &at_once
       - invitations # part: invitations
       # part: workspace_creation
       - workspace_setup # part: workspace_setup
@@ -369,30 +372,8 @@ runs:
       # part: client_telemetry
       - client_telemetry
       # end part: client_telemetry
-  # What `just remove` leaves of the same parts: `removal` stays, with the markers of the parts
-  # kept and the checks that read them.
+  # What `just remove` leaves of the same parts, which this run takes from the run above:
+  # `removal` stays, with the markers of the parts kept and the checks that read them.
   - name: removed
     task: remove
-    parts:
-      - invitations # part: invitations
-      # part: workspace_creation
-      - workspace_setup # part: workspace_setup
-      # end part: workspace_creation
-      # part: files
-      - files
-      # end part: files
-      # part: superadmins
-      - superadmins
-      # end part: superadmins
-      # part: github
-      - github
-      # end part: github
-      # part: google
-      - google
-      # end part: google
-      # part: openid_connect
-      - openid_connect
-      # end part: openid_connect
-      # part: client_telemetry
-      - client_telemetry
-      # end part: client_telemetry
+    parts: *at_once

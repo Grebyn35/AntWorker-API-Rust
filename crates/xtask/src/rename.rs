@@ -17,11 +17,12 @@
 //! after them. The character right after a backslash that no backslash escapes is an escape's,
 //! such as the `t` that follows the backslash of a tab in a string, and counts as no letter or
 //! digit before a form or an occurrence. The task reads every text file of the repository and
-//! `.env`, but the migration workspace and the names of the codebases this one replaces
-//! (DOC-13), which the migration's close deletes, and this file, which reads the product's name
-//! from [`NAMED`], and whose names are examples, those that `check-rename` chooses from among
-//! them. A refusal names each line that keeps it from renaming, by its file and its number, and
-//! shows the line's text, but none of a line of `.env`, whose values may be secrets.
+//! `.env`, but the files of the migration workspace (DOC-13), which the migration's close
+//! deletes, and this file, which reads the product's name from [`NAMED`], and whose names are
+//! examples, those that `check-rename` chooses from among them. In the files it reads, it leaves
+//! the names of the codebases this one replaces as they are, which the close deletes too. A
+//! refusal names each line that keeps it from renaming, by its file and its number, and shows
+//! the line's text, but none of a line of `.env`, whose values may be secrets.
 
 use std::{io, ops::Range, process::ExitCode};
 

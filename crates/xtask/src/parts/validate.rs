@@ -1,15 +1,15 @@
 //! What `just remove`, `just keep` and `check-parts` refuse before they remove anything: a marker
-//! that names no part, a block that no end marker closes, and a test that removing a part would
-//! take though its behavior stays (ARCH-07, TEST-04).
+//! that names no part, a line that holds two markers, a block that no end marker closes, and a
+//! test that removing a part would take though its behavior stays (ARCH-07, TEST-04).
 
 use super::{Part, SPECS, markers, owned};
 use crate::{Finding, repo::Repo};
 
-/// Fails on each marker of the repository's files that names no part, each block that no end
-/// marker closes, and each test, in a file that a part owns whole, that another module's behavior
-/// names, since the removal would take it, unless that behavior's row in its spec is the part's
-/// too, and goes with it (ARCH-07). For a part without a module of its own, such as an OAuth
-/// provider, every module is another.
+/// Fails on each marker of the repository's files that names no part, each line that holds two
+/// markers, each block that no end marker closes, and each test, in a file that a part owns
+/// whole, that another module's behavior names, since the removal would take it, unless that
+/// behavior's row in its spec is the part's too, and goes with it (ARCH-07). For a part without a
+/// module of its own, such as an OAuth provider, every module is another.
 pub(super) fn validate(repo: &Repo, parts: &[Part]) -> Vec<Finding> {
     let known: Vec<&str> = parts.iter().map(|part| part.name.as_str()).collect();
     let mut findings: Vec<Finding> = repo

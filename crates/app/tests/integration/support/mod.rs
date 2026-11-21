@@ -707,7 +707,8 @@ fn settings() -> BootstrapConfig {
 /// process creates the roles, and creates the template unless one with the same migrations
 /// exists, all under an advisory lock that other test processes wait on. Creating it drops the
 /// templates of other migrations, so two test runs whose migrations differ, such as the
-/// repository's and a copy's without a part, fail each other's tests when they run at once.
+/// repository's and those of a copy that holds another module, fail each other's tests when they
+/// run at once.
 async fn template(settings: &BootstrapConfig) -> &'static str {
     TEMPLATE
         .get_or_init(|| async {
