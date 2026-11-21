@@ -27,6 +27,7 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use super::{
     browsers::{Origins, cors, cross_site},
+    caller::caller_gone,
     client::{TrustedProxies, client},
     docs::QueryNames,
     limits::{IpLimit, ip_limit},
@@ -136,7 +137,7 @@ pub(super) struct Stack {
 
 /// The stack every request below the security headers passes, health probes aside, in the order
 /// of architecture §6: trace context, the request log, panic catching, the client, CORS, the
-/// concurrency limit, the IP limit and the cross-site check.
+/// concurrency limit, the IP limit, the cross-site check, and the check of a caller that is gone.
 pub(super) fn request(router: Router, stack: Stack) -> Router {
     let layers = ServiceBuilder::new()
         .layer(middleware::from_fn(trace))
@@ -153,7 +154,8 @@ pub(super) fn request(router: Router, stack: Stack) -> Router {
         .layer(middleware::from_fn_with_state(stack.ip_limit, ip_limit))
         .layer(middleware::from_fn_with_state(stack.origins, cross_site))
         .layer(Extension(stack.authenticator))
-        .layer(Extension(stack.authorizer));
+        .layer(Extension(stack.authorizer))
+        .layer(middleware::from_fn(caller_gone));
     // part: files
     let layers = layers.layer(Extension(UploadTurns::new(stack.upload_bytes)));
     // end part: files

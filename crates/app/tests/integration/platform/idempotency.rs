@@ -1,19 +1,23 @@
 //! Idempotency keys (the platform spec's "Idempotency"), and publishing events in a unit of work
-//! (the platform spec's "Events and the real-time hub"), through the tests' keyed route, so they
-//! hold whichever of the template's parts a fork keeps.
+//! (the platform spec's "Events and the real-time hub"), through the tests' keyed route and
+//! their announcements, so they hold whichever of the template's parts a fork keeps.
 
 use std::sync::Arc;
 
 use serde_json::{Value, json};
 
-use platform::{errors::PlatformError, idempotency::Claimed};
+use platform::{errors::PlatformError, idempotency::Claimed, jobs::JobContext};
 
 use crate::support::{
-    Api, Options,
-    announcements::{Note, published::NOTED},
+    Api, Options, TestDatabase,
+    announcements::{self, Note, published::NOTED},
     execute_on, fixtures,
     users::{self, SignedIn},
+    workspaces,
 };
+
+/// The ID of no workspace.
+const NO_WORKSPACE: &str = "018f4e6a-7c7b-7d5e-9c1a-3b2f6d0e4a11";
 
 /// The tests' API, with their keyed route.
 async fn api() -> Api {
@@ -196,6 +200,42 @@ async fn platform_026_a_published_event_exists_only_if_its_unit_of_work_commits(
 
     assert!(rolled_back.is_empty(), "{rolled_back:?}");
     assert_eq!(committed, [format!("keyed.ran user {}", ada.user_id)]);
+}
+
+#[tokio::test]
+async fn platform_098_a_publication_in_a_workspace_that_is_gone_publishes_nothing_and_goes_on() {
+    let db = TestDatabase::migrated().await;
+    let database = db.app().await;
+    let acme = workspaces::arrange(&db, "Acme", &[]).await;
+    let mut uow = database.for_job(&JobContext::for_tests()).await.unwrap();
+
+    let in_none = announcements::post_unless_gone(&mut uow, NO_WORKSPACE).await;
+    // The unit of work goes on: its next event is published, and it commits.
+    let in_acme = announcements::post_unless_gone(&mut uow, &acme).await;
+    uow.commit().await.unwrap();
+
+    assert!(matches!(in_none, Ok(false)), "{in_none:?}");
+    assert!(matches!(in_acme, Ok(true)), "{in_acme:?}");
+    let events = db
+        .owner_reads("SELECT name || ' ' || workspace_id FROM events")
+        .await;
+    assert_eq!(events, [format!("announcement.posted {acme}")]);
+}
+
+#[tokio::test]
+async fn platform_098_a_publication_that_fails_otherwise_fails_as_any_other_does() {
+    let db = TestDatabase::migrated().await;
+    let database = db.app().await;
+    let acme = workspaces::arrange(&db, "Acme", &[]).await;
+    // A snapshot job's unit of work publishes no workspace event (PLATFORM-085).
+    let mut snapshot = database
+        .for_snapshot_job(&JobContext::for_tests())
+        .await
+        .unwrap();
+
+    let refused = announcements::post_unless_gone(&mut snapshot, &acme).await;
+
+    assert!(refused.is_err(), "{refused:?}");
 }
 
 #[tokio::test]

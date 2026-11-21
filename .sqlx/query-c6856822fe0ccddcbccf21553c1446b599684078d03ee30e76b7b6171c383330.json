@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "ROLLBACK TO SAVEPOINT publication",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "c6856822fe0ccddcbccf21553c1446b599684078d03ee30e76b7b6171c383330"
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SAVEPOINT publication",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "5fd17fe2b1519f9b0374f1ec27aa2567e1f2ae3da431d2bb4f0af2a6a08170f2"
+}

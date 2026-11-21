@@ -287,6 +287,7 @@ sequenceDiagram
    - concurrency limit with load shedding (D20)
    - pre-authentication IP rate limit (D11)
    - the cross-site check (D61)
+   - the check of a caller whose session ended while the request ran, which answers 401 where a foreign key failed the request (PLATFORM-097)
 3. **The route** prepares the request, in this order:
    - Its route group's timeout and body size limit apply (OPS-07, API-08).
    - Query parameters that the route's documentation doesn't list are refused (API-09).

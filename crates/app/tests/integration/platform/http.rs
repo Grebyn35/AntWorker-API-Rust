@@ -8,10 +8,11 @@ use platform::telemetry::testing;
 use serde_json::{Value, json};
 
 use crate::support::{
-    Api, Options,
+    Api, Options, announcements,
     api::Response,
+    execute_on,
     fixtures::{self, Gate},
-    users,
+    queries_wait_on_locks, users,
 };
 
 /// A valid inbound trace context, sampled.
@@ -532,6 +533,62 @@ async fn platform_044_a_503_of_a_feature_turned_off_writes_no_error_line() {
     let levels: Vec<&Value> = lines.iter().map(|line| &line["level"]).collect();
     assert_eq!(levels, ["INFO"], "{lines:#?}");
     assert_eq!(lines[0]["http.response.status_code"], 503);
+}
+
+#[tokio::test]
+async fn platform_097_a_request_that_a_foreign_key_failed_answers_401_once_its_caller_is_gone() {
+    let api = Api::with(Options::routes(announcements::routes())).await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    // A deletion of the account that holds the user's row, and their sessions with it.
+    let mut deletion = db
+        .holding(&format!("DELETE FROM users WHERE id = '{}'", ada.user_id))
+        .await;
+
+    // An event to its caller, whose row names them.
+    let announced = api.spawn(
+        Method::POST,
+        "/v1/announcements",
+        &ada.access,
+        Some(json!({ "count": 1 })),
+    );
+    queries_wait_on_locks(db, 1).await;
+    execute_on(&mut deletion, "COMMIT").await;
+    let (status, body) = announced.await.unwrap();
+
+    // The insert met the foreign key once the user was gone, and their session with them.
+    assert_eq!(status, 401);
+    assert_eq!(body["code"], "request.unauthenticated");
+    let trace = body["trace_id"].as_str().unwrap();
+    let levels: Vec<Value> = testing::logged(trace)
+        .into_iter()
+        .map(|line| line["level"].clone())
+        .collect();
+    assert_eq!(levels, ["INFO"]);
+}
+
+#[tokio::test]
+async fn platform_097_a_foreign_key_s_failure_stays_an_internal_error_while_the_session_lasts() {
+    let api = Api::with(Options::routes(fixtures::routes(Arc::default()))).await;
+    let ada = users::register(&api, "ada@example.com").await;
+
+    let response = api
+        .request(Method::POST, "/v1/orphan")
+        .bearer(&ada.access)
+        .send()
+        .await;
+
+    problem(
+        &response,
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "request.internal_error",
+    );
+    let (trace, _, _) = trace_context(&response);
+    let levels: Vec<Value> = testing::logged(&trace)
+        .into_iter()
+        .map(|line| line["level"].clone())
+        .collect();
+    assert_eq!(levels, ["ERROR", "INFO"]);
 }
 
 #[tokio::test]

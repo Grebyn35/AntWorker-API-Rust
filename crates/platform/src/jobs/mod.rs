@@ -328,7 +328,10 @@ pub async fn forget_workspace(
 }
 
 /// Deletes the jobs enqueued for `user`, whose account the unit of work deletes (DATA-23).
-pub(crate) async fn forget_user(uow: &mut UnitOfWork, user: UserId) -> Result<(), Internal> {
+/// `platform`'s contract runs it, and the deletion's last step runs it again once it holds the
+/// user's row against every insert that names them: an operation that committed a job for the
+/// user while the deletion waited for it then leaves none behind.
+pub async fn forget_user(uow: &mut UnitOfWork, user: UserId) -> Result<(), Internal> {
     sqlx::query!("DELETE FROM jobs WHERE user_id = $1", user.uuid())
         .execute(uow.executor())
         .await?;

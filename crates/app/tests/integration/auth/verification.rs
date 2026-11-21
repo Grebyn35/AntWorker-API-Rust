@@ -6,7 +6,7 @@ use serde_json::json;
 use crate::support::{
     Api, Options,
     api::Response,
-    mailbox,
+    execute_on, mailbox, queries_wait_on_locks,
     users::{self, SignedIn},
     workspaces,
 };
@@ -574,6 +574,35 @@ async fn auth_030_a_run_that_another_run_beat_to_the_next_code_issues_nothing() 
             .await,
         ["0123abcd 0"]
     );
+}
+
+#[tokio::test]
+async fn accounts_019_asking_for_a_code_that_waited_for_the_account_s_deletion_answers_401() {
+    let api = Api::new().await;
+    let ada = users::register_unverified(&api, &mailbox::address("ada")).await;
+    let db = api.database();
+    // The registration enqueued a code's job.
+    db.owner_executes("DELETE FROM jobs").await;
+    // A deletion of the account that holds the user's row, and their sessions with it.
+    let mut deletion = db
+        .holding(&format!("DELETE FROM users WHERE id = '{}'", ada.user_id))
+        .await;
+
+    let asked = api.spawn(
+        http::Method::POST,
+        "/v1/users/me/email/verification",
+        &ada.access,
+        None,
+    );
+    queries_wait_on_locks(db, 1).await;
+    execute_on(&mut deletion, "COMMIT").await;
+    let (status, body) = asked.await.unwrap();
+
+    // Its turn came once the user was gone, so it enqueued no job for them.
+    assert_eq!(status, 401);
+    assert_eq!(body["code"], "request.unauthenticated");
+    let jobs = db.owner_reads("SELECT kind FROM jobs").await;
+    assert!(jobs.is_empty(), "{jobs:?}");
 }
 
 #[tokio::test]

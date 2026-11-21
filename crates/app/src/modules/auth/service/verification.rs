@@ -78,6 +78,12 @@ impl Auth {
             )
             .await?;
         let mut uow = self.database.begin(client, Some(principal)).await?;
+        // The user's row, as a deletion of the account locks it first, so the two take turns:
+        // the deletion deletes the job, or it took the account, and the session with it
+        // (DATA-23, ACCOUNTS-019).
+        accounts::address_for_update(&mut uow, principal.user_id())
+            .await?
+            .ok_or(RequestError::Unauthenticated)?;
         self.enqueue_code(&mut uow, principal).await?;
         uow.commit().await?;
         Ok(address.email)

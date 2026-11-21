@@ -77,6 +77,10 @@ impl PersonalData for Contract {
                     Internal::new("the user whose row the deletion holds doesn't exist").into(),
                 );
             }
+            // An operation that held the row for a row of its own that names the user, such as
+            // an export's request, has committed by now, with the job it enqueued for them,
+            // which `platform`'s contract ran too early to see (DATA-23).
+            platform::jobs::forget_user(uow, user).await?;
             uow.wait_for_locks_at_most(NO_WAIT).await?;
             repo::delete(uow, user).await?;
             Ok(uow.wait_for_locks_as_before().await?)

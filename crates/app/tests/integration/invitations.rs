@@ -123,6 +123,44 @@ async fn invitations_001_inviting_an_email_creates_a_pending_invitation_and_enqu
 }
 
 #[tokio::test]
+async fn invitations_001_an_invitation_that_met_its_invitee_s_deletion_names_no_account() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let carol = users::register(&api, "carol@example.com").await;
+    let workspace = acme(&api, &ada, &[]).await;
+    let db = api.database();
+    // A deletion of the invitee's account that holds the user's row.
+    let mut deletion = db
+        .holding(&format!("DELETE FROM users WHERE id = '{}'", carol.user_id))
+        .await;
+
+    let invited = api.spawn(
+        http::Method::POST,
+        &format!("/v1/workspaces/{workspace}/invitations"),
+        &ada.access,
+        Some(json!({ "email": "carol@example.com", "role": "member" })),
+    );
+    queries_wait_on_locks(db, 1).await;
+    execute_on(&mut deletion, "COMMIT").await;
+    let (status, body) = invited.await.unwrap();
+
+    // The invitation held the account's row for its entry and its event, and found none once
+    // the deletion was in: it reaches whoever registers with the address.
+    assert_eq!(status, 201, "{body}");
+    let entries = db
+        .owner_reads(
+            "SELECT action || ' ' || coalesce(target_user_id::text, '-') FROM audit_entries \
+             WHERE action LIKE 'invitation.%'",
+        )
+        .await;
+    assert_eq!(entries, ["invitation.created -"]);
+    let events = db
+        .owner_reads("SELECT name || ' ' || scope FROM events WHERE name LIKE 'invitation.%'")
+        .await;
+    assert_eq!(events, ["invitation.created workspace"]);
+}
+
+#[tokio::test]
 async fn invitations_001_with_email_off_the_invitation_is_created_and_nothing_is_enqueued() {
     let api = Api::without_email().await;
     let ada = users::register(&api, "ada@example.com").await;

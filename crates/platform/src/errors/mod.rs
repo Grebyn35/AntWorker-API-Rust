@@ -160,11 +160,35 @@ pub(crate) struct ProblemBody {
     errors: Option<Vec<FieldError>>,
 }
 
-/// The cause chain of a 5xx response, which the request log writes and removes (ERR-10).
+/// The cause chain of a 5xx response, which the request log writes and removes (ERR-10), and
+/// whether one of its causes is the database's refusal of a row for a foreign key, which a
+/// deletion of the request's caller may have caused (PLATFORM-097).
 #[derive(Clone, Debug)]
 pub(crate) struct ErrorReport {
     pub(crate) code: &'static str,
     pub(crate) chain: String,
+    pub(crate) foreign_key: bool,
+}
+
+/// Whether `error`, or one of its causes, is the database's refusal of a row whose foreign key
+/// names no row.
+fn is_foreign_key(error: &(dyn Error + 'static)) -> bool {
+    refused_key(error).is_some()
+}
+
+/// The name of the foreign key for which the database refused a row, if `error`, or one of its
+/// causes, is such a refusal.
+pub(crate) fn refused_key(error: &(dyn Error + 'static)) -> Option<String> {
+    let mut cause = Some(error);
+    while let Some(error) = cause {
+        if let Some(sqlx::Error::Database(refusal)) = error.downcast_ref::<sqlx::Error>()
+            && refusal.is_foreign_key_violation()
+        {
+            return Some(refusal.constraint().unwrap_or_default().to_owned());
+        }
+        cause = error.source();
+    }
+    None
 }
 
 /// The one conversion of an error into a response (ERR-07). A 5xx response has no detail, an
@@ -211,6 +235,7 @@ fn response(error: &(dyn ErrorCode + 'static)) -> Response {
         response.extensions_mut().insert(ErrorReport {
             code: error.code(),
             chain: chain(error),
+            foreign_key: is_foreign_key(error),
         });
     }
     response

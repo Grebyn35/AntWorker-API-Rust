@@ -6,6 +6,7 @@ mod batch;
 // end part: client_telemetry
 mod body;
 mod browsers;
+mod caller;
 mod client;
 mod docs;
 mod download;

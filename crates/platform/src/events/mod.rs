@@ -20,7 +20,7 @@ use utoipa::ToSchema;
 use crate::{
     authz::Permission,
     db::UnitOfWork,
-    errors::Internal,
+    errors::{self, Internal},
     telemetry,
     types::{SessionId, UserId, WorkspaceId},
 };
@@ -38,6 +38,9 @@ pub(crate) const EVENTS_CHANNEL: &str = "events";
 /// The key of the transaction-level advisory lock under which a commit positions its events
 /// (PLATFORM-028): the bytes of `events`.
 pub(crate) const POSITION_LOCK: i64 = 0x6576_656e_7473;
+
+/// The foreign key of a workspace event to its workspace, as DATA-01 names it.
+const WORKSPACE_KEY: &str = "events_workspace_id_fkey";
 
 /// An event that goes to one user's streams, such as `membership.created`, with a payload of
 /// type `T`, which the event catalog documents (API-19, REALTIME-008). Each module declares its
@@ -112,6 +115,40 @@ impl UnitOfWork {
         }
         self.publish(event.name, None, Some(workspace), Some(P::NAME), payload)
             .await
+    }
+
+    /// Publishes `event` as [`UnitOfWork::publish_to_workspace`] does, and answers whether it
+    /// did: it publishes nothing, and its unit of work goes on, when `workspace` is gone by the
+    /// time of the event's insert, as when a deletion of the workspace committed while the
+    /// insert waited for it, since no member is left to receive the event. For an operation that
+    /// holds no lock of the workspace, such as a change of a member's own record, which
+    /// publishes in each workspace that the member belongs to (PLATFORM-098).
+    pub async fn publish_to_workspace_unless_gone<P: Permission, T: Serialize + ToSchema>(
+        &mut self,
+        event: &WorkspaceEvent<P, T>,
+        workspace: WorkspaceId,
+        payload: &T,
+    ) -> Result<bool, Internal> {
+        // The insert's failure would end the whole transaction, so it runs after a savepoint,
+        // to which a refusal for the workspace's key goes back.
+        sqlx::query!("SAVEPOINT publication")
+            .execute(self.executor())
+            .await?;
+        match self.publish_to_workspace(event, workspace, payload).await {
+            Ok(()) => {
+                sqlx::query!("RELEASE SAVEPOINT publication")
+                    .execute(self.executor())
+                    .await?;
+                Ok(true)
+            }
+            Err(error) if errors::refused_key(&error).as_deref() == Some(WORKSPACE_KEY) => {
+                sqlx::query!("ROLLBACK TO SAVEPOINT publication")
+                    .execute(self.executor())
+                    .await?;
+                Ok(false)
+            }
+            Err(error) => Err(error),
+        }
     }
 
     async fn publish(

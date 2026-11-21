@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use crate::support::{
     Api, Options,
     api::Response,
-    mailbox, second_factors,
+    execute_on, mailbox, queries_wait_on_locks, second_factors,
     users::{self, SignedIn},
 };
 
@@ -116,6 +116,36 @@ async fn auth_034_an_address_that_no_account_holds_gets_the_same_answer_and_the_
     assert!(asked.body.is_empty());
     assert_eq!(
         api.database().owner_reads("SELECT kind || ' ' || coalesce(user_id::text, '-') || ' ' || payload::text FROM jobs"
+        )
+        .await,
+        ["auth.send_verification_code - {\"purpose\": \"password_reset\"}"]
+    );
+}
+
+#[tokio::test]
+async fn auth_034_a_request_that_met_the_account_s_deletion_enqueues_its_job_for_no_one() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let ada = users::register(&api, &address).await;
+    let db = api.database();
+    // A deletion of the account that holds the user's row.
+    let mut deletion = db
+        .holding(&format!("DELETE FROM users WHERE id = '{}'", ada.user_id))
+        .await;
+
+    let asking = {
+        let (api, address) = (api.clone(), address.clone());
+        tokio::spawn(async move { ask(&api, &address).await })
+    };
+    queries_wait_on_locks(db, 1).await;
+    execute_on(&mut deletion, "COMMIT").await;
+    let asked = asking.await.unwrap();
+
+    // The request held the account's row for its job, and found none once the deletion was in.
+    assert_eq!(asked.status, 202);
+    assert_eq!(
+        db.owner_reads(
+            "SELECT kind || ' ' || coalesce(user_id::text, '-') || ' ' || payload::text FROM jobs"
         )
         .await,
         ["auth.send_verification_code - {\"purpose\": \"password_reset\"}"]

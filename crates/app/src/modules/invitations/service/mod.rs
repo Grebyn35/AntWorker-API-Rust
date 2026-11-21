@@ -106,6 +106,11 @@ pub(crate) async fn invite(
     } else {
         (audit::INVITATION_UPDATED, &published::INVITATION_UPDATED)
     };
+    // Read again, and held, so that the entry's target and the event's user meet their
+    // foreign keys: an account that a deletion took meanwhile is none. After the invitation's
+    // row, the order in which a change, a sending again and a cancellation take the two, and
+    // an acceptance and a decline the invitation and the invitee's row (DATA-20).
+    let invitee = accounts::find_by_email_for_key_share(&mut uow, &input.email).await?;
     let entry = Entry::detailed(
         action,
         audit::INVITATION,

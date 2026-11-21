@@ -81,7 +81,8 @@ async fn record<P: Permission, D: Serialize>(
     held: &CurrentInvitation,
     details: D,
 ) -> Result<Option<platform::types::UserId>, InvitationsError> {
-    let invitee = accounts::find_by_email(uow, &held.invitation.email).await?;
+    // Held, so that the entry's target and the event's user meet their foreign keys (DATA-20).
+    let invitee = accounts::find_by_email_for_key_share(uow, &held.invitation.email).await?;
     let entry =
         Entry::detailed(action, audit::INVITATION, held.invitation.id, details).targeting(invitee);
     log::record(uow, authorized.audit_scope(), entry).await?;

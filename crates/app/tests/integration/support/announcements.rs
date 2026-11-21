@@ -59,6 +59,15 @@ pub async fn post(uow: &mut UnitOfWork, workspace: &str) -> Result<(), Internal>
         .await
 }
 
+/// Publishes an announcement to the members of `workspace` in `uow`, unless the workspace is
+/// gone, and answers whether it did (PLATFORM-098).
+pub async fn post_unless_gone(uow: &mut UnitOfWork, workspace: &str) -> Result<bool, Internal> {
+    let workspace_id = WorkspaceId::from_uuid(workspace.parse().expect("a workspace's ID"));
+    let posted = Posted { workspace_id, n: 1 };
+    uow.publish_to_workspace_unless_gone(&published::TO_MEMBERS, workspace_id, &posted)
+        .await
+}
+
 /// The payload of an announcement to its caller.
 #[derive(Serialize, ToSchema)]
 pub struct Announced {

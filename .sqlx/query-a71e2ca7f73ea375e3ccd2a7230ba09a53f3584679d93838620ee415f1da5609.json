@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "RELEASE SAVEPOINT publication",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "a71e2ca7f73ea375e3ccd2a7230ba09a53f3584679d93838620ee415f1da5609"
+}

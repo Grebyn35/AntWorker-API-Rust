@@ -71,6 +71,18 @@ pub(crate) async fn find_by_email(
     Ok(repo::find_by_email(uow, email).await?)
 }
 
+/// The ID of the user with `email`, if there is one, with their row held `FOR KEY SHARE` until
+/// the unit of work ends, for an operation that then writes a row or enqueues a job that names
+/// them, and that isn't theirs: the row meets its foreign key, since a deletion of the account
+/// waits for the unit of work at its last step, where it deletes again the jobs enqueued for
+/// the user, and one that committed first leaves no user to find (DATA-20, DATA-23).
+pub(crate) async fn find_by_email_for_key_share(
+    uow: &mut UnitOfWork,
+    email: &EmailAddress,
+) -> Result<Option<UserId>, AccountsError> {
+    Ok(repo::find_by_email_for_key_share(uow, email).await?)
+}
+
 /// `user_id`'s address, or `None` once the account is gone. Callers pass the ID of the caller,
 /// or of the user a job runs for (DATA-16).
 pub(crate) async fn address(
@@ -237,7 +249,9 @@ async fn publish_changed(
             workspace_id,
             user_id: user,
         };
-        uow.publish_to_workspace(&published::MEMBER_UPDATED, workspace_id, &payload)
+        // The user's row is the only lock this holds, so a deletion of the workspace may
+        // commit before the event is in: it then goes to no one (WORKSPACES-017).
+        uow.publish_to_workspace_unless_gone(&published::MEMBER_UPDATED, workspace_id, &payload)
             .await?;
     }
     Ok(())

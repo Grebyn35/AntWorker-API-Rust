@@ -318,6 +318,43 @@ async fn sec_19_member_updated_reaches_the_members_and_no_replay_from_before_joi
 }
 
 #[tokio::test]
+async fn accounts_007_a_rename_that_met_the_deletion_of_a_workspace_publishes_nothing_in_it() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let db = api.database();
+    let members = [
+        (grace.user_id.as_str(), "owner"),
+        (ada.user_id.as_str(), "member"),
+    ];
+    let acme = workspaces::arrange(db, "Acme", &members).await;
+    db.owner_executes("DELETE FROM events").await;
+    // A deletion of the workspace that holds its row.
+    let mut deletion = db
+        .holding(&format!("DELETE FROM workspaces WHERE id = '{acme}'"))
+        .await;
+
+    let renamed = api.spawn(
+        http::Method::PATCH,
+        "/v1/users/me",
+        &ada.access,
+        Some(json!({ "name": "Ada King" })),
+    );
+    queries_wait_on_locks(db, 1).await;
+    execute_on(&mut deletion, "COMMIT").await;
+    let (status, body) = renamed.await.unwrap();
+
+    // The event's row met no workspace, and the rename went on without it.
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["name"], "Ada King");
+    assert_eq!(
+        db.owner_reads("SELECT name FROM events ORDER BY name")
+            .await,
+        ["user.updated"]
+    );
+}
+
+#[tokio::test]
 async fn accounts_019_a_rename_that_waited_for_the_account_s_deletion_answers_401() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
@@ -338,6 +375,32 @@ async fn accounts_019_a_rename_that_waited_for_the_account_s_deletion_answers_40
     let (status, body) = renamed.await.unwrap();
 
     // Its turn came once the user was gone, and their session with them.
+    assert_eq!(status, 401);
+    assert_eq!(body["code"], "request.unauthenticated");
+}
+
+#[tokio::test]
+async fn accounts_019_an_export_s_request_that_met_the_account_s_deletion_answers_401() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    // A deletion of the account that holds the user's row, and their sessions with it.
+    let mut deletion = db
+        .holding(&format!("DELETE FROM users WHERE id = '{}'", ada.user_id))
+        .await;
+
+    // The request takes no lock on the user's row: its export's row names them (ACCOUNTS-020).
+    let requested = api.spawn(
+        http::Method::POST,
+        "/v1/users/me/exports",
+        &ada.access,
+        None,
+    );
+    queries_wait_on_locks(db, 1).await;
+    execute_on(&mut deletion, "COMMIT").await;
+    let (status, body) = requested.await.unwrap();
+
+    // The foreign key of its row met no user, and the pipeline no session (PLATFORM-097).
     assert_eq!(status, 401);
     assert_eq!(body["code"], "request.unauthenticated");
 }

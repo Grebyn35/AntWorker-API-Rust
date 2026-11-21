@@ -50,6 +50,22 @@ pub(super) async fn find_by_email(
     Ok(id.map(UserId::from_uuid))
 }
 
+/// The ID of the user with `email`, as [`find_by_email`] finds it, with the user's row held `FOR
+/// KEY SHARE` until the unit of work ends: a deletion of the account waits for it at its last
+/// step, and one that committed while this read waited leaves no user to find (DATA-20).
+pub(super) async fn find_by_email_for_key_share(
+    uow: &mut UnitOfWork,
+    email: &EmailAddress,
+) -> Result<Option<UserId>, Internal> {
+    let id = sqlx::query_scalar!(
+        "SELECT id FROM users WHERE email = $1 FOR KEY SHARE",
+        email.as_str()
+    )
+    .fetch_optional(uow.executor())
+    .await?;
+    Ok(id.map(UserId::from_uuid))
+}
+
 /// The address of the user `id`, and whether they proved it, filtered by the user's own ID
 /// (DATA-16).
 pub(super) async fn address(uow: &mut UnitOfWork, id: UserId) -> Result<Option<Address>, Internal> {

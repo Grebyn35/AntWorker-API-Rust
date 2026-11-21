@@ -614,6 +614,41 @@ async fn accounts_016_a_running_export_job_that_holds_the_user_s_row_refuses_the
 }
 
 #[tokio::test]
+async fn accounts_013_a_job_that_an_operation_enqueued_while_the_deletion_waited_for_it_goes_too() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    // An operation of hers that hasn't committed: an export's request, whose row names her, so
+    // it holds hers, and whose job is enqueued for her (ACCOUNTS-020).
+    let mut operation = db
+        .holding(&format!(
+            "WITH requested AS ( \
+                 INSERT INTO exports (user_id, expires_at) \
+                 VALUES ('{0}', now() + interval '7 days') RETURNING id) \
+             INSERT INTO jobs (kind, payload, user_id) \
+             SELECT 'accounts.export', jsonb_build_object('export_id', id), '{0}' FROM requested",
+            ada.user_id
+        ))
+        .await;
+
+    let deleting = api.spawn(http::Method::DELETE, "/v1/users/me", &ada.access, None);
+    queries_wait_on_locks(db, 1).await;
+    execute_on(&mut operation, "COMMIT").await;
+    let (status, body) = deleting.await.unwrap();
+
+    // The deletion's last step waited for the operation, then deleted its job with the rest.
+    assert_eq!(status, 204, "{body}");
+    let jobs = db
+        .owner_reads(&format!(
+            "SELECT kind FROM jobs WHERE user_id = '{}'",
+            ada.user_id
+        ))
+        .await;
+    assert!(jobs.is_empty(), "{jobs:?}");
+    assert!(naming(&api, &ada.user_id).await.is_empty());
+}
+
+#[tokio::test]
 async fn accounts_019_a_deletion_that_waited_for_another_of_the_account_answers_204() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;

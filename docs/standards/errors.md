@@ -47,7 +47,7 @@ The errors of the libraries that reach other systems, such as the database drive
 - Check: `ci: check-layers` (no infrastructure error types in `service.rs` or `routes.rs`), plus `compiler`.
 
 ### ERR-05 Constraint violations are mapped explicitly
-A repository maps each unique, foreign-key or check constraint it relies on to a named domain outcome. A violation it doesn't map becomes `Internal`. Each mapped constraint has a test.
+A repository maps each unique, foreign-key or check constraint it relies on to a named domain outcome. A violation it doesn't map becomes `Internal`. Each mapped constraint has a test. One kind of violation the pipeline answers for every route, in the internal error's place: a foreign key's refusal of a row in a request whose caller's session lasts no more, as once a deletion took their account and the row that the request's insert names, answers 401 (PLATFORM-097).
 - Why: a duplicate is a 409 the client can act on, not a 500 (D24).
 - Check: `test`, plus `review`.
 

@@ -64,7 +64,9 @@ impl Auth {
             .check(buckets::RESET_EMAIL, email.as_str().as_bytes())
             .await?;
         let mut uow = self.database.begin(client, None).await?;
-        let user_id = accounts::find_by_email(&mut uow, &email).await?;
+        // Held, so that a deletion of the account deletes the job, or leaves no account to
+        // enqueue it for (DATA-23).
+        let user_id = accounts::find_by_email_for_key_share(&mut uow, &email).await?;
         #[expect(
             clippy::disallowed_methods,
             reason = "a reset enqueues its code's job for the account its address names (PLATFORM-013)"

@@ -9,7 +9,12 @@
 //! D113).
 // end part: files
 
-use std::{collections::HashSet, future::Future, pin::Pin, sync::Arc};
+use std::{
+    collections::HashSet,
+    future::Future,
+    pin::Pin,
+    sync::{Arc, Mutex, PoisonError},
+};
 
 use axum::{
     extract::FromRequestParts,
@@ -202,6 +207,27 @@ pub struct Verified {
     pub second_factor_setup_required: bool,
 }
 
+/// Where a request keeps the caller whom its session proved, for the pipeline's check of a
+/// request that failed on a foreign key: whether the caller's session still lasts
+/// (PLATFORM-097).
+#[derive(Clone, Default)]
+pub(crate) struct Proved(Arc<Mutex<Option<Principal>>>);
+
+impl Proved {
+    /// Keeps `principal` as the request's caller.
+    fn keep(&self, principal: &Principal) {
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = Some(principal.clone());
+    }
+
+    /// The request's caller, if a session proved one.
+    pub(crate) fn caller(&self) -> Option<Principal> {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+}
+
 /// The marker of a route that proving the caller's email address needs, such as signing out,
 /// which a caller whose account must still prove it may call (AUTH-025).
 #[derive(Clone, Copy, Debug)]
@@ -287,6 +313,9 @@ impl<S: Send + Sync> FromRequestParts<S> for Principal {
             .await
             .map_err(|error| Problem(error).into_response())?;
         let principal = verified.principal;
+        if let Some(proved) = parts.extensions.get::<Proved>() {
+            proved.keep(&principal);
+        }
         // The request's span carries the caller the session proved (OBS-09).
         tracing::Span::current().record(names::USER_ID, principal.user_id.to_string());
         let limits = RateLimits::from_request_parts(parts, state).await?;

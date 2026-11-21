@@ -835,6 +835,32 @@ async fn auth_040_of_two_changes_sent_at_once_the_second_checks_against_the_firs
 }
 
 #[tokio::test]
+async fn accounts_019_asking_to_change_the_address_that_waited_for_its_deletion_answers_401() {
+    let api = Api::new().await;
+    let ada = users::register(&api, &mailbox::address("ada")).await;
+    let db = api.database();
+    // A deletion of the account that holds the user's row, and their sessions with it.
+    let mut deletion = db
+        .holding(&format!("DELETE FROM users WHERE id = '{}'", ada.user_id))
+        .await;
+
+    let asked = api.spawn(
+        http::Method::POST,
+        "/v1/users/me/email/change",
+        &ada.access,
+        Some(json!({ "email": mailbox::address("ada-new") })),
+    );
+    queries_wait_on_locks(db, 1).await;
+    execute_on(&mut deletion, "COMMIT").await;
+    let (status, body) = asked.await.unwrap();
+
+    // Its turn came once the user was gone, so it enqueued no job for them.
+    assert_eq!(status, 401);
+    assert_eq!(body["code"], "request.unauthenticated");
+    assert!(jobs(&api).await.is_empty());
+}
+
+#[tokio::test]
 async fn auth_048_a_session_that_another_request_ended_before_its_proof_is_read_answers_401() {
     let api = Api::new().await;
     let ada = users::register(&api, &mailbox::address("ada")).await;

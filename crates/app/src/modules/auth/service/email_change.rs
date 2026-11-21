@@ -57,6 +57,12 @@ impl Auth {
             .check(buckets::CHANGE_EMAIL, email.as_str().as_bytes())
             .await?;
         let mut uow = self.database.begin(client, Some(principal)).await?;
+        // The user's row first, as a deletion of the account locks it first, so the two take
+        // turns: the deletion deletes the job, or it took the account, and the session with it
+        // (DATA-23, ACCOUNTS-019).
+        accounts::address_for_update(&mut uow, principal.user_id())
+            .await?
+            .ok_or(RequestError::Unauthenticated)?;
         require_recent_proof(&mut uow, principal).await?;
         // An address that an account holds, the caller's own among them, is the enumeration that
         // SEC-05 accepts, behind the proof.

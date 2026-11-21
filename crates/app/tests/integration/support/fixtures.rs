@@ -1,7 +1,8 @@
 //! Routes that only the tests serve, registered the way a module registers its own, for the
 //! behaviors of the pipeline that no route of the API shows, or that only the routes of a part of
-//! the template show, which a fork may not keep: a request that waits, one that never ends, a panic, an internal error, a keyed
-//! operation that publishes an event, bytes counted in a budget, and an email sent (TEST-04).
+//! the template show, which a fork may not keep: a request that waits, one that never ends, a
+//! panic, an internal error, an insert that a foreign key refuses, a keyed operation that
+//! publishes an event, bytes counted in a budget, and an email sent (TEST-04).
 
 use std::{
     sync::{
@@ -21,7 +22,7 @@ use platform::{
     idempotency::Claimed,
     mail::{Email, Mail},
     rate_limit::{Bucket, LimitError, RateLimits},
-    types::{Client, EmailAddress, WorkspaceId},
+    types::{Client, EmailAddress, UserId, WorkspaceId},
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::Notify;
@@ -126,6 +127,31 @@ async fn keyed(
     };
     uow.commit_with(&keyed).await.map_err(PlatformError::from)?;
     Ok(Json(keyed))
+}
+
+/// Publishes an event to a user that no row holds, as its caller, so that the insert fails on a
+/// foreign key while the caller's session lasts (PLATFORM-097).
+#[utoipa::path(
+    post,
+    path = "/v1/orphan",
+    responses((status = 204, description = "Never.")),
+)]
+async fn orphan(
+    Extension(authorizer): Extension<Authorizer>,
+    client: Client,
+    principal: Principal,
+) -> Result<StatusCode, Problem<PlatformError>> {
+    let mut uow = authorizer
+        .database
+        .begin(&client, Some(&principal))
+        .await
+        .map_err(PlatformError::from)?;
+    let nobody = UserId::from_uuid(uuid::Uuid::nil());
+    uow.publish_to_user(&KEYED_RAN, nobody, &Ran {})
+        .await
+        .map_err(PlatformError::from)?;
+    uow.commit().await.map_err(PlatformError::from)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// The budget of `POST /v1/spend`: 1,000 bytes for each user, in each window of a minute.
@@ -259,6 +285,7 @@ pub fn routes(held: Arc<Gate>) -> Routes {
         .merge(Routes::new().public(routes!(broken), &[]))
         .merge(Routes::new().public(routes!(gate), &[]).with_state(held));
     let routes = routes.merge(Routes::new().user(routes!(spend), &[]));
+    let routes = routes.merge(Routes::new().user(routes!(orphan), &[]));
     routes.merge(
         Routes::new()
             .events(&[&KEYED_RAN])
