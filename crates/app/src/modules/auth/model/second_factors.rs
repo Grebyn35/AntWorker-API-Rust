@@ -215,9 +215,9 @@ mod tests {
         let rfc = rfc_secret();
         assert_eq!(rfc.base32(), "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ");
         assert_eq!(
-            rfc.uri("AntWorker", "ada+1@example.com"),
-            "otpauth://totp/AntWorker:ada%2B1%40example.com?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ\
-             &issuer=AntWorker&algorithm=SHA1&digits=6&period=30"
+            rfc.uri("Acme Labs", "ada+1@example.com"),
+            "otpauth://totp/Acme%20Labs:ada%2B1%40example.com?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ\
+             &issuer=Acme%20Labs&algorithm=SHA1&digits=6&period=30"
         );
     }
 

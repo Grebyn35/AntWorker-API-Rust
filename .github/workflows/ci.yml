@@ -122,6 +122,25 @@ jobs:
       - run: just setup
       - run: just check-new-module
 
+  # On main, a copy of the repository that `just rename` renamed passes the checks (ARCH-15). The
+  # copy builds into a target of its own.
+  rename:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v2.90.5
+        with:
+          tool: just@1.59.0
+      - id: tools
+        run: echo "tools=$(just ci-tools)" >> "$GITHUB_OUTPUT"
+      - uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v2.90.5
+        with:
+          tool: ${{ steps.tools.outputs.tools }}
+      - run: just setup
+      - run: just check-rename
+
   # The images, each built once for both platforms (OPS-12).
   image:
     runs-on: ubuntu-24.04
@@ -230,7 +249,7 @@ jobs:
   # The tested digests, published on main as sha-<commit>, and as edge while it is main's head.
   publish:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [checks, removable, new-module, scan, verify]
+    needs: [checks, removable, new-module, rename, scan, verify]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:

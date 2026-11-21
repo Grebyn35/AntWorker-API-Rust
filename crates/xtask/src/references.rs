@@ -28,7 +28,7 @@ const INVENTORY_POINTERS: [&str; 4] = [
 ];
 
 /// The names of the codebases this one replaces (DOC-13).
-const OLD_NAMES: [&str; 1] = ["AntWorker-API"];
+pub const OLD_NAMES: [&str; 1] = ["AntWorker-API"];
 
 /// The phrases that name the codebases this one replaces without their names (DOC-13). CLAUDE.md,
 /// a pointer into the inventory, may say what the inventory describes.

@@ -35,6 +35,7 @@ mod promql;
 mod query_cache;
 mod references;
 mod release;
+mod rename;
 mod repo;
 mod restore;
 mod routes;
@@ -194,6 +195,17 @@ enum Command {
     /// other, then runs `just checks`.
     #[command(name = "check-new-module")]
     CheckNewModule,
+    /// Renames the product: replaces its name and its slug with the same forms of `name` in every
+    /// file that holds them, and formats the code (ARCH-15). It changes nothing while a file
+    /// would still hold the old name in another form, or holds the new one already.
+    Rename {
+        /// The new name, as people read it, such as `Acme Notes`.
+        name: String,
+    },
+    /// On a copy of the repository, renames the product with `just rename`, then runs `just
+    /// checks`.
+    #[command(name = "check-rename")]
+    CheckRename,
     /// On a copy of the repository for each run that `crates/xtask/parts.yaml` lists, or for the
     /// runs named, removes the run's parts, then runs `just checks`.
     #[command(name = "check-removable")]
@@ -307,6 +319,8 @@ fn main() -> ExitCode {
         Command::CheckRemovable { runs } => return parts::check_removable(&runs),
         Command::NewModule { module, resource } => return new_module::run(&module, resource),
         Command::CheckNewModule => return new_module::check(),
+        Command::Rename { name } => return rename::run(&name),
+        Command::CheckRename => return rename::check(),
         Command::Release { version } => return release::run(version.as_deref()),
         Command::ReleaseCheck { version } => return release::check(&version),
         Command::Inputs { directory } => return inputs::run(&directory),
@@ -353,6 +367,8 @@ fn main() -> ExitCode {
         | Command::CheckRemovable { .. }
         | Command::NewModule { .. }
         | Command::CheckNewModule
+        | Command::Rename { .. }
+        | Command::CheckRename
         | Command::Release { .. }
         | Command::ReleaseCheck { .. }
         | Command::Inputs { .. }

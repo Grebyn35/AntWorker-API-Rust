@@ -36,7 +36,7 @@ These are the only documents:
 - `docs/spec/`: one file per module.
 - `docs/adr/`: decision records.
 - `docs/operations/`: CI, release, deploy, backups, observability, the metric catalog, runbooks, the threat model, and the map of the security bar's requirements.
-- `docs/guides/`: adding a module, and renaming a fork.
+- `docs/guides/`: starting a product from the template, and adding a module.
 - `.claude/`: the Claude Code agent and skill definitions, including the conformance reviewer (D27).
 
 A new kind of document needs a rule change.

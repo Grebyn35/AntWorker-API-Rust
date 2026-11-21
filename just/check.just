@@ -1,5 +1,5 @@
-# The checks that `just checks`, `just check-removable` and `just check-new-module` run, and the
-# lists of the tools they need, which CI installs. The justfile imports this file.
+# The checks that `just checks`, `just check-removable`, `just check-new-module` and `just
+# check-rename` run, and the lists of the tools they need, which CI installs. The justfile imports this file.
 # docs/operations/ci.md names the rules that each check enforces.
 
 # Lists the tools `just checks` needs besides just and the toolchain, as CI's install step takes
@@ -248,6 +248,13 @@ check-removable *runs:
 [group('check')]
 check-new-module:
     {{ xtask }} check-new-module
+
+# On a copy of the repository, renames the product with `just rename`, to a name of two words, then
+# runs `just checks` on the copy (ARCH-15). The copy and its build are in target/rename/rename/.
+[doc("Fails unless renaming the product leaves a copy that passes the checks")]
+[group('check')]
+check-rename:
+    {{ xtask }} check-rename
 
 # Fails on a query of workspace data that names no tenant, or a table that holds no workspace data
 # and isn't listed as account or platform data.

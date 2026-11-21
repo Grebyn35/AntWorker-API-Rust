@@ -1,6 +1,6 @@
 //! The copies of the repository that a check changes: `check-removable` removes each run's parts
-//! from one, and `check-new-module` adds two modules to one, as a fork does, then each runs
-//! `just checks` on it. Each copy is in `target/<check>/<name>/repo/`, with its build in
+//! from one, `check-new-module` adds two modules to one, and `check-rename` renames the product in
+//! one, as a fork does, then each runs `just checks` on it. Each copy is in `target/<check>/<name>/repo/`, with its build in
 //! `target/<check>/<name>/target/`, so no copy's `cargo run` finds a binary that another built.
 //! A copy builds without incremental compilation, and before a check makes one, it removes the
 //! copies made longest ago while they hold more than [`BOUND`] together (OPS-21).
@@ -112,17 +112,20 @@ pub enum Check {
     Removable,
     /// `check-new-module`.
     NewModule,
+    /// `check-rename`.
+    Rename,
 }
 
 impl Check {
     /// Every check, since their copies count together against [`BOUND`].
-    const ALL: [Self; 2] = [Self::Removable, Self::NewModule];
+    const ALL: [Self; 3] = [Self::Removable, Self::NewModule, Self::Rename];
 
     /// The directory under `target/` that holds the check's copies.
     const fn directory(self) -> &'static str {
         match self {
             Self::Removable => "removable",
             Self::NewModule => "new-module",
+            Self::Rename => "rename",
         }
     }
 }

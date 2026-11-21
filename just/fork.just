@@ -1,6 +1,18 @@
-# The tasks a fork runs on itself: `just remove`, which removes optional parts, and which
+# The tasks a fork runs on itself: `just rename`, which renames the product, and which
+# `check-rename` runs on a copy, `just remove`, which removes optional parts, and which
 # `check-removable` runs on each copy, and `just new-module`, which adds a module, and which
 # `check-new-module` runs on a copy. The justfile imports this file.
+
+# Renames the product, such as `just rename "Acme Notes"` (ARCH-15): it replaces the product's name
+# and its slug, its words in lowercase with a hyphen between two, such as `acme-notes`, which
+# names the binary and the service in telemetry, with the same forms of the new name in every file
+# that holds them, and in .env, then formats the code. It changes nothing while a file would still
+# hold the old name in another form, or a file already holds the new one.
+# docs/guides/starting-a-product.md says what comes before and after.
+[doc("Renames the product in every file that holds its name")]
+[group('fork')]
+rename name:
+    {{ xtask }} rename {{ quote(name) }}
 
 # Removes the optional parts named, as a fork does before its first release to choose its
 # workspace shape (ARCH-07, architecture.md §5) and drop the parts it doesn't need: it deletes the files and the marked lines of

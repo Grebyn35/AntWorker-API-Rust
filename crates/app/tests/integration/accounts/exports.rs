@@ -732,11 +732,14 @@ async fn accounts_026_a_download_serves_the_archive_by_ranges_the_same_bytes_eac
         ),
     )
     .await;
+    // `filename*` encodes the product's name, which may hold spaces once `just rename` gives it
+    // another (ARCH-15).
+    let name = format!("AntWorker-export-{ready}.zip");
     assert_eq!(
         whole.header("content-disposition"),
         format!(
-            "attachment; filename=\"AntWorker-export-{ready}.zip\"; \
-             filename*=UTF-8''AntWorker-export-{ready}.zip"
+            "attachment; filename=\"{name}\"; filename*=UTF-8''{}",
+            name.replace(' ', "%20")
         )
     );
     assert_eq!(whole.header("etag"), format!("\"{id}\""));

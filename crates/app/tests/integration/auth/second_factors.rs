@@ -117,10 +117,13 @@ async fn auth_055_a_setup_needs_a_recent_proof_and_answers_the_secret_once() {
     let setup = response.json();
     let secret = setup["secret"].as_str().unwrap();
     assert_eq!(secret.len(), 32);
+    // The product's name, as the URI encodes it: one that `just rename` gives may hold spaces
+    // (ARCH-15).
+    let issuer = "AntWorker".replace(' ', "%20");
     assert_eq!(
         setup["uri"],
         format!(
-            "otpauth://totp/AntWorker:ada%40example.com?secret={secret}&issuer=AntWorker\
+            "otpauth://totp/{issuer}:ada%40example.com?secret={secret}&issuer={issuer}\
              &algorithm=SHA1&digits=6&period=30"
         )
     );

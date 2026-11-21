@@ -16,6 +16,8 @@ use utoipa::{
     openapi::{ObjectBuilder, RefOr, Schema, Type},
 };
 
+use crate::modules::PRODUCT;
+
 mod codes;
 mod identities;
 mod second_factors;
@@ -41,9 +43,10 @@ const DIGIT_RUN: usize = 8;
 /// them, from SecLists (MIT, `breached-passwords.LICENSE` beside the list).
 const BREACHED_PASSWORDS: &str = include_str!("../../../../data/breached-passwords.txt");
 
-/// The words that a password of this product may not contain, lowercased, such as its name
-/// (ASVS 6.2.11). `just rename` rewrites the product's name here too (ARCH-15).
-const CONTEXT_WORDS: &[&str] = &["antworker"];
+/// The words besides the product's name that a password of this product may not contain, such as
+/// its organization's name (ASVS 6.2.11). The template has none: a fork adds its own, and names
+/// them in the auth spec.
+const CONTEXT_WORDS: &[&str] = &[];
 
 /// The breached-password list as a set: a read-only value initialized once (ARCH-12), which
 /// startup builds through [`load_breached_passwords`].
@@ -83,7 +86,7 @@ impl Password {
                 "This password is among those that breaches revealed. Choose another.",
             ));
         }
-        if CONTEXT_WORDS.iter().any(|word| lowered.contains(word)) {
+        if holds_context_word(&lowered, [PRODUCT].iter().chain(CONTEXT_WORDS)) {
             return Err(Invalid::new(
                 "context_word",
                 "A password may not contain the product's name.",
@@ -130,6 +133,22 @@ impl Password {
     pub(crate) fn bytes(&self) -> &[u8] {
         self.0.expose().as_bytes()
     }
+}
+
+/// Whether `lowered`, a password in lowercase, holds one of `words` once every character that is
+/// neither a letter nor a digit is left out of both (AUTH-003), so that a product named
+/// `Acme Notes` refuses `AcmeNotes1!` and `acme-notes-2024` alike.
+fn holds_context_word<'a>(lowered: &str, words: impl IntoIterator<Item = &'a &'a str>) -> bool {
+    let password = letters_and_digits(lowered);
+    words
+        .into_iter()
+        .map(|word| letters_and_digits(&word.to_lowercase()))
+        .any(|word| !word.is_empty() && password.contains(&word))
+}
+
+/// `text` without the characters that are neither letters nor digits.
+fn letters_and_digits(text: &str) -> String {
+    text.chars().filter(|c| c.is_alphanumeric()).collect()
 }
 
 fn is_one_repeated_character(value: &str) -> bool {
@@ -491,6 +510,22 @@ mod tests {
     #[test]
     fn auth_003_a_password_with_a_context_word_is_refused() {
         assert_eq!(refusal("my-AntWorker-pass"), "context_word");
+        let apart: String = PRODUCT
+            .to_uppercase()
+            .chars()
+            .flat_map(|c| [c, '.'])
+            .collect();
+        assert_eq!(refusal(&format!("{apart}99")), "context_word");
+    }
+
+    #[test]
+    fn auth_003_a_context_word_is_compared_by_its_letters_and_digits_alone() {
+        let words = [&"Acme Corp"];
+        for held in ["acme corp 1", "acmecorp", "acme-corp", "acme_c.o.r.p"] {
+            assert!(holds_context_word(held, words), "{held}");
+        }
+        assert!(!holds_context_word("acme cor p", [&"Acme Corp 2"]));
+        assert!(!holds_context_word("anything", [&"--"]));
     }
 
     #[test]
