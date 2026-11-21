@@ -1,6 +1,6 @@
 //! The OAuth providers that a user signs in through (the auth spec's "Signing in through a
-//! provider"): one file for each, which an optional part owns, and its lines in this registry
-//! (ARCH-07). What every provider shares is here, so it holds whichever providers a fork keeps:
+//! provider"): one file for each, and its lines in this registry. What every provider shares is
+//! here, so it holds whichever providers a fork keeps:
 //! reading the settings (AUTH-081), the exchange of a code for an access token that RFC 6749
 //! defines (§4.1.3, §5.2), whose refusal of the code is `invalid_grant`, and the read of the
 //! user's identity that OpenID Connect defines (Core, §5.3). A provider's file declares where the

@@ -1,6 +1,7 @@
 # Starting a product
 
-How a repository made from the template becomes a product of its own: its name, the optional parts it keeps, and the files in which the template speaks for itself. Each step leaves a repository that passes the checks. A product removes parts before its first release, since removing one deletes its migrations, which a release never changes (DATA-09).
+How a repository made from the template becomes a product of its own: its name, and the files in which the template speaks for itself. Each step leaves a repository that passes the checks.
+It chooses the parts of the template that it keeps, too, before its first release, since leaving one out deletes its migrations, which a release never changes (DATA-09). <!-- part: removal -->
 
 ## The repository
 
@@ -20,11 +21,15 @@ It leaves the text of `README.md` and `SECURITY.md` as the template wrote it, be
 
 Run `just checks`, then commit.
 
+<!-- part: removal -->
 ## Choosing the parts
 
-A product uses workspaces in one of the shapes of [architecture §5](../architecture.md#workspace-shapes), and the optional parts that it keeps decide which. [ARCH-07](../standards/architecture.md#arch-07-optional-parts-are-removable) lists the optional parts, and the runs of `crates/xtask/parts.yaml` name the parts that each shape removes. Remove those that the product doesn't keep, naming each: `just remove <part>...`.
+A product uses workspaces in one of the shapes of [architecture §5](../architecture.md#workspace-shapes), and the optional parts that it keeps decide which. [ARCH-07](../standards/architecture.md#arch-07-optional-parts-are-removable) lists the optional parts, and the runs of `crates/xtask/parts.yaml` name the parts that each shape removes. Name every part that the product keeps, one that creates workspaces among them: `just keep <part>...`.
 
-The task deletes each part's files and the lines its markers mark, rewrites what the parts leave, such as `openapi.json` and the query cache, then fails while a line or a path that it kept still names a part it removed, as `just remove`'s description in `just/fork.just` says. Run `just ci`, then commit.
+The task removes every other part, as `just remove` does, then what makes a part removable: `crates/xtask/parts.yaml`, the tooling that reads it, this section, and every other line that speaks of removing a part. Then it takes the markers out of every file it keeps, so the product's code names the parts it kept as it names anything else, and its CI removes nothing. `just/fork.just` says what each task does. Run `just ci`, then commit.
+
+Until then, `just remove <part>...` removes parts and keeps what makes the others removable.
+<!-- end part: removal -->
 
 ## The files the template speaks in
 

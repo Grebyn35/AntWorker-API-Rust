@@ -1,8 +1,8 @@
 //! `sqlx-check`: the query cache in `.sqlx/` holds what `just prepare` would write (DATA-14), so a
 //! query changed, or a migration that changed what a query reads, without `just prepare`, fails
 //! here rather than building the image with the cache's stale description of a query. It runs
-//! sqlx-cli's own check against a database of its own (`migrated`), which every copy of
-//! `check-removable` builds from its own migrations.
+//! sqlx-cli's own check against a database of its own (`migrated`), which every copy of the
+//! repository that a check makes builds from its own migrations.
 
 use crate::{Finding, Outcome, cargo, migrated};
 

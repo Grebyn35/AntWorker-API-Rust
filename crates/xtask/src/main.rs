@@ -29,7 +29,9 @@ mod mirror;
 mod new_module;
 mod openapi;
 mod ownership;
+// part: removal
 mod parts;
+// end part: removal
 mod pins;
 mod promql;
 mod query_cache;
@@ -159,6 +161,7 @@ enum Command {
     /// that the migrations build.
     #[command(name = "sqlx-check")]
     SqlxCheck,
+    // part: removal
     /// Fails on a marker of an optional part that names no part, a block that no end marker
     /// closes, a marker in a Rust file that isn't Rust's `//` comment alone on its line, an
     /// attribute or a doc comment above a Rust block that holds its item, a marker before more of
@@ -178,6 +181,15 @@ enum Command {
         #[arg(required = true)]
         parts: Vec<String>,
     },
+    /// Keeps the optional parts named `parts`, with which a fork chooses its parts once (ARCH-07):
+    /// it removes every other part as `remove` does, `removal` among them, which holds what makes
+    /// a part removable, then takes the markers out of every file.
+    Keep {
+        /// The parts that the product keeps, one that creates workspaces among them.
+        #[arg(required = true)]
+        parts: Vec<String>,
+    },
+    // end part: removal
     /// Writes a new module that holds one workspace resource, with its migration, permissions,
     /// spec and tests, registers it where every module is registered, rewrites the query cache
     /// from a database of its own and `openapi.json`, and formats the code (ARCH-03). A step that
@@ -206,13 +218,15 @@ enum Command {
     /// checks`.
     #[command(name = "check-rename")]
     CheckRename,
+    // part: removal
     /// On a copy of the repository for each run that `crates/xtask/parts.yaml` lists, or for the
-    /// runs named, removes the run's parts, then runs `just checks`.
+    /// runs named, keeps every part that the run doesn't remove, then runs `just checks`.
     #[command(name = "check-removable")]
     CheckRemovable {
         /// The runs, such as `personal`; every run by default.
         runs: Vec<String>,
     },
+    // end part: removal
     /// Sets the app's version to `version` on `main`, commits it and pushes it, after it checks
     /// that `version` can be released from `main` as it is. The run on `main` that passes with
     /// the version releases it (OPS-12). Without a version, it shows the versions that can come
@@ -315,8 +329,11 @@ pub struct Outcome {
 fn main() -> ExitCode {
     let command = match Cli::parse().command {
         Command::Server(task) => return task.run(),
+        // part: removal
         Command::Remove { parts } => return parts::remove(&parts),
+        Command::Keep { parts } => return parts::keep(&parts),
         Command::CheckRemovable { runs } => return parts::check_removable(&runs),
+        // end part: removal
         Command::NewModule { module, resource } => return new_module::run(&module, resource),
         Command::CheckNewModule => return new_module::check(),
         Command::Rename { name } => return rename::run(&name),
@@ -362,10 +379,13 @@ fn main() -> ExitCode {
         Command::Layout => layout::check(&repo),
         Command::Migrations => migrations::check(&repo),
         Command::SqlxCheck => query_cache::check(),
+        // part: removal
         Command::Parts => parts::check(&repo),
-        Command::Remove { .. }
-        | Command::CheckRemovable { .. }
-        | Command::NewModule { .. }
+        Command::Remove { .. } | Command::Keep { .. } | Command::CheckRemovable { .. } => {
+            Outcome::default()
+        }
+        // end part: removal
+        Command::NewModule { .. }
         | Command::CheckNewModule
         | Command::Rename { .. }
         | Command::CheckRename

@@ -313,6 +313,36 @@ pub fn strip(
     Ok(Some(kept))
 }
 
+/// `text` without its markers, or `None` if it holds none: a line that holds only a marker goes,
+/// and a marker after other text goes from its line, which keeps what stood before and after it,
+/// as a table row keeps its last pipe. `just keep` takes them out once it has removed every part
+/// that it doesn't keep.
+pub fn unmark(text: &str) -> Option<String> {
+    let mut changed = false;
+    let mut kept = String::with_capacity(text.len());
+    for line in text.split_inclusive('\n') {
+        let (body, ending) = line
+            .strip_suffix('\n')
+            .map_or((line, ""), |body| (body, "\n"));
+        let Some(marker) = marker(body) else {
+            kept.push_str(line);
+            continue;
+        };
+        changed = true;
+        if marker.alone {
+            continue;
+        }
+        kept.push_str(body[..marker.at].trim_end());
+        let after = marker.after.trim();
+        if !after.is_empty() {
+            kept.push(' ');
+            kept.push_str(after);
+        }
+        kept.push_str(ending);
+    }
+    changed.then_some(kept)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -556,5 +586,25 @@ mod tests {
             .collect();
 
         assert_eq!(lines, [Some(1), Some(2), Some(2), Some(2)]);
+    }
+
+    #[test]
+    fn arch_07_keeping_the_parts_takes_each_marker_out_and_keeps_its_line_s_text() {
+        let text = [
+            format!(
+                "mod a;\n{}\nmod b;\n{}\n",
+                mark("//", "one", ""),
+                end("//", "one", "")
+            ),
+            format!("| a | b {} |\n", mark("<!--", "one", " -->")),
+            format!("- item {}\n", mark("#", "two", "")),
+            "plain\n".to_owned(),
+        ]
+        .concat();
+        assert_eq!(
+            unmark(&text).unwrap(),
+            "mod a;\nmod b;\n| a | b |\n- item\nplain\n"
+        );
+        assert_eq!(unmark("plain\nlines"), None);
     }
 }

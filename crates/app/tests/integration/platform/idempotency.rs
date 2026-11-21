@@ -1,6 +1,6 @@
 //! Idempotency keys (the platform spec's "Idempotency"), and publishing events in a unit of work
 //! (the platform spec's "Events and the real-time hub"), through the tests' keyed route, so they
-//! hold whichever optional parts a fork keeps.
+//! hold whichever of the template's parts a fork keeps.
 
 use std::sync::Arc;
 

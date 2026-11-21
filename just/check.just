@@ -1,5 +1,5 @@
-# The checks that `just checks`, `just check-removable`, `just check-new-module` and `just
-# check-rename` run, and the lists of the tools they need, which CI installs. The justfile imports this file.
+# The checks that `just checks`, `just check-new-module` and `just check-rename` run, and the lists
+# of the tools they need, which CI installs. The justfile imports this file.
 # docs/operations/ci.md names the rules that each check enforces.
 
 # Lists the tools `just checks` needs besides just and the toolchain, as CI's install step takes
@@ -58,7 +58,7 @@ setup-smoke: bound-build
     cargo build --workspace --all-targets --locked
 
 # The build directory of the dev and test profiles, in the directory that CARGO_TARGET_DIR names,
-# as for the copies of check-removable and check-new-module, or in target/.
+# as for the copies of the repository that checks make, or in target/.
 build_dir := env("CARGO_TARGET_DIR", "target") / "debug"
 
 # Removes the build directory once it holds more than 40 gigabytes, so the build after it starts
@@ -223,6 +223,7 @@ check-layout:
 check-schema: services
     {{ xtask }} check-schema
 
+# part: removal
 # Fails on a marker of an optional part that is wrong, or in a Rust file isn't Rust's `//` comment
 # alone on its line, on an attribute above a Rust block that holds its item, on a marker before
 # more of its line outside a table row, and, for each run that crates/xtask/parts.yaml lists and
@@ -234,12 +235,13 @@ check-parts:
     {{ xtask }} check-parts
 
 # On a copy of the repository for each run that crates/xtask/parts.yaml lists, or for the runs
-# named, such as `personal`, removes the run's optional parts with `just remove`, then runs `just
-# checks` on the copy. Each copy and its build are in target/removable/<run>/.
-[doc("Fails unless removing each run's optional parts, such as a workspace shape's, leaves a copy that passes the checks")]
+# named, such as `personal`, keeps every part that the run doesn't remove with `just keep`, then
+# runs `just checks` on the copy. Each copy and its build are in target/removable/<run>/.
+[doc("Fails unless keeping every part that a run doesn't remove, as for a workspace shape, leaves a copy that passes the checks")]
 [group('check')]
 check-removable *runs:
     {{ xtask }} check-removable {{ runs }}
+# end part: removal
 
 # On a copy of the repository, writes the modules order_items, then categories, with `just
 # new-module`, then runs `just checks` on the copy (ARCH-03). The copy and its build are in

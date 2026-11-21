@@ -5,7 +5,7 @@
 
 use std::collections::HashSet;
 
-use super::{LIST, Part, Run, is_migration, leftovers, list, markers, owned, validate};
+use super::{LIST, Part, REMOVAL, Run, is_migration, leftovers, list, markers, owned, validate};
 use crate::{Finding, Outcome, metrics, repo::Repo};
 
 /// The files that a removal writes again, or prunes, from the code it kept, rather than deleting
@@ -94,10 +94,11 @@ pub fn check(repo: &Repo) -> Outcome {
     Outcome { report, findings }
 }
 
-/// Does each run's removal in memory, then each part's alone, unless a run removes it alone, and
-/// returns a line for each, with what they found: a fork may remove any one part and keep the
-/// rest, which no run does of a part that every run removes with another, so a line that names
-/// it inside the other's block would stay (ARCH-07).
+/// Does each run's removal in memory, with `removal`'s, as `just keep` does on `check-removable`'s
+/// copy, then each part's alone, as `just remove` does, unless a run removes it alone, and returns
+/// a line for each, with what they found: a fork may remove any one part and keep the rest, which
+/// no run does of a part that every run removes with another, so a line that names it inside the
+/// other's block would stay (ARCH-07).
 fn removals(repo: &Repo, parts: &[Part], runs: &[Run]) -> (Vec<String>, Vec<Finding>) {
     let mut report = Vec::new();
     let mut findings = Vec::new();
@@ -109,7 +110,14 @@ fn removals(repo: &Repo, parts: &[Part], runs: &[Run]) -> (Vec<String>, Vec<Find
             ));
             continue;
         }
-        let (summary, found) = remove(repo, parts, run);
+        let mut kept = Run {
+            name: run.name.clone(),
+            parts: run.parts.clone(),
+        };
+        if !kept.parts.iter().any(|part| part == REMOVAL) {
+            kept.parts.push(REMOVAL.to_owned());
+        }
+        let (summary, found) = remove(repo, parts, &kept);
         report.push(summary);
         findings.extend(found);
     }

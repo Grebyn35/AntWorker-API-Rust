@@ -342,10 +342,13 @@ fn rule_blocks(text: &str) -> Vec<Block<'_>> {
             open = false;
         } else if open
             && !line.trim().is_empty()
-            // A part's marker alone on its line is no part of the rule's text (ARCH-07).
-            && crate::parts::unmarked(line).is_some()
             && let Some(block) = blocks.last_mut()
         {
+            // part: removal
+            if crate::parts::unmarked(line).is_none() {
+                continue;
+            }
+            // end part: removal
             block.body.push((index + 1, line));
         }
     }
@@ -613,6 +616,7 @@ mod tests {
         );
     }
 
+    // part: removal
     #[test]
     fn doc_08_a_part_s_marker_alone_on_its_line_is_no_line_of_a_rule() {
         // The markers are built, so the source of these tests holds none.
@@ -631,6 +635,7 @@ mod tests {
             "{rules}"
         );
     }
+    // end part: removal
 
     #[test]
     fn doc_08_a_rule_file_is_in_the_standards_readme_and_its_rules_use_its_prefix() {

@@ -1,6 +1,7 @@
 //! `check-deps`, for the crates' dependencies: each dependency a crate of the workspace declares
 //! is named in the code that its kind builds (CODE-12), so a dependency that no code uses any
-//! more, such as one that only a removed optional part used, fails rather than staying in the
+//! more, such as one that only a part of the template that the fork left out used, fails rather
+//! than staying in the
 //! build. A normal dependency is named in the crate's `src/` or build script, a development
 //! dependency there or in its tests, examples and benches, and a build dependency in its build
 //! script. Cargo's metadata gives the dependencies, each under the name its code uses.

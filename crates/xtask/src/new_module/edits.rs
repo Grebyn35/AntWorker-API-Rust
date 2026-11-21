@@ -171,11 +171,16 @@ fn entry(line: &str, start: &str, end: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
-/// Whether `line` is a marker that opens a part's block (ARCH-07), or an attribute, which the
-/// declaration below it carries.
+/// Whether `line` is an attribute, which the declaration below it carries, or a line that opens a
+/// block of a part of the template, which carries it too.
 fn carried(line: &str) -> bool {
     let line = line.trim_start();
-    line.starts_with("#[") || line.starts_with("// part: ")
+    // part: removal
+    if line.starts_with("// part: ") {
+        return true;
+    }
+    // end part: removal
+    line.starts_with("#[")
 }
 
 /// `text` with `lines` among the declarations that `declared` reads a name from, in the order of
@@ -266,7 +271,7 @@ fn composition(text: &str, module: &str) -> Option<String> {
     let lines: Vec<&str> = text.lines().collect();
     let routes = find(&lines, 0, |line| line.starts_with("fn routes("))?;
     let routes_end = find(&lines, routes, |line| line == "}")?;
-    // The chain's last link, which ends the function, outside any part's markers.
+    // The chain's last link, which ends the function, after the lines of any part of the template.
     let last = routes_end.checked_sub(1).filter(|last| *last > routes)?;
     let indent = indentation(lines[last]);
     let text = before(&text, last, &format!("{indent}.merge({module}::routes())"));
@@ -406,6 +411,7 @@ fn after_table(text: &str, heading: &str, rows: &str) -> Option<String> {
 mod tests {
     use super::*;
 
+    // part: removal
     #[test]
     fn arch_03_a_module_s_line_goes_in_order_above_what_the_next_carries() {
         let modules = "//! Modules.\n\npub(crate) mod access;\n// part: offers\n\
@@ -445,6 +451,7 @@ mod tests {
              #[cfg(test)]\nmod offers;\n// end part: offers\n"
         );
     }
+    // end part: removal
 
     #[test]
     fn arch_03_the_composition_root_imports_mounts_and_documents_the_module() {

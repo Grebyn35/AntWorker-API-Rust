@@ -68,14 +68,21 @@ import 'just/server.just'
 default:
     @just --list
 
-# Runs every check CI runs: the checks of the code, on the repository, on its copies without each
-# run's optional parts, on a copy with two modules that `just new-module` wrote, and on a copy that
-# `just rename` renamed, then the build of the image and its checks, on this machine's platform.
+# Runs every check CI runs: the checks of the code, on the repository, on a copy with two modules
+# that `just new-module` wrote, and on a copy that `just rename` renamed, then the build of the
+# image and its checks, on this machine's platform.
+# Then it runs `check-removable`, on a copy for each of its runs. # part: removal
 [doc("Runs every check CI runs, the image's included")]
 [group('check')]
-ci: checks check-removable check-new-module check-rename image image-scan e2e
+ci: checks check-new-module check-rename image image-scan e2e
+    # part: removal
+    {{ xtask }} check-removable
+    # end part: removal
 
 # Runs the checks of the code that need neither the image nor a copy of the repository.
 [doc("Runs the checks of the code that need no image and no copy of the repository")]
 [group('check')]
-checks: fmt-check lint test deny check-test-map check-docs check-openapi check-instrument check-metrics check-telemetry-config alert-rules check-pins check-shell check-sql-bans check-layers check-deps check-layout check-schema check-tenancy check-table-ownership check-migrations sqlx-check check-parts
+checks: fmt-check lint test deny check-test-map check-docs check-openapi check-instrument check-metrics check-telemetry-config alert-rules check-pins check-shell check-sql-bans check-layers check-deps check-layout check-schema check-tenancy check-table-ownership check-migrations sqlx-check
+    # part: removal
+    {{ xtask }} check-parts
+    # end part: removal

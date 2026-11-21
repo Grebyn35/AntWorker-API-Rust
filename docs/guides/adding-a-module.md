@@ -98,19 +98,20 @@ A user signs in through each OAuth provider that `crates/app/src/modules/auth/pr
 A provider whose addresses differ between deployments, such as an organization's own, reads them from settings, which its entry names in `settings`.
 The template has one, which a deployment names with no code, and a product that signs in through a second copies `providers/openid_connect.rs` under a key of its own. <!-- part: openid_connect -->
 
-A provider is an optional part, so each line that exists only for it carries its marker, a comment that reads `part: <key>`, in the forms that ARCH-07 gives for each kind of file, and `just remove <key>` deletes them all. The provider's key is in `snake_case`, such as `acme`, and its settings start with the key in capitals, such as `ACME_`. These are its pieces:
+A provider is an optional part, so each line that exists only for it carries its marker, a comment that reads `part: <key>`, in the forms that ARCH-07 gives for each kind of file, and `just remove <key>` deletes them all. <!-- part: removal -->
+The provider's key is in `snake_case`, such as `acme`, and its settings start with the key in capitals, such as `ACME_`. These are its pieces:
 
 | Piece | File | Rules |
 |---|---|---|
 | What the provider guarantees: its key, its name, its clients' settings, its scopes, its subject, the addresses it proves, and what becomes of its token | [The auth spec](../spec/auth.md#behaviors), written first: a behavior of its own, with the next ID, a line in the list of providers of the section "Signing in through a provider", and a sentence in each of that section's paragraphs "The identity", "Addresses" and "The provider's token" | DOC-08, D139, D140 |
 | The provider: its `ENTRY`, with its key and the prefix of each client's settings, and its `Provider`, which declares its name, its addresses and its scopes | `providers/<key>.rs` | ARCH-13, SEC-10 |
-| Its place in the registry | `providers/mod.rs`: `mod <key>;`, and `<key>::ENTRY` in `REGISTRY` | ARCH-07 |
+| Its place in the registry | `providers/mod.rs`: `mod <key>;`, and `<key>::ENTRY` in `REGISTRY` | D141 |
 | Its tests, each named by its behavior: that it signs in through its addresses with its client, which addresses it proves, and how the capabilities list it. The test support's `Upstream` stands in for its endpoints: the configured client sends every request there and keeps the request's path, so a test sets what each path of the provider's addresses answers | `crates/app/tests/integration/auth/<key>.rs`, and `mod <key>;` in that directory's `mod.rs` | TEST-01, SEC-10 |
 | Each client's three settings, `<KEY>_CLIENT_ID`, `<KEY>_CLIENT_SECRET` and `<KEY>_REDIRECT_URIS`, each with its type and its default | `.env.example` | OPS-01, OPS-02 |
 | The same settings in the reference deployment: the ID and the redirect uniform resource identifiers (URIs) as settings, and the secret as a file | `deploy/settings.env.example`; `deploy/compose.yaml`, in the API's environment, in its `secrets`, and in the file's `secrets`; `deploy/tasks/secrets.sh`, which writes the secret's file empty; and `deploy/server-setup.sh`, which takes the secret's name | OPS-02, SEC-01 |
 | The setup's question for the secret, once the client's ID is set | `crates/xtask/src/server/questions/files.rs`: an entry of `SECRETS`, and the function that the entry's `needed` names, which says whether the ID is set. In the answers of the test in `questions/mod.rs`, an empty answer for each new setting of `deploy/settings.env.example`, at the setting's place in that file's order | OPS-02 |
 | What an operator does at the provider | Its item under [Signing in through a provider](../operations/deploy.md#signing-in-through-a-provider) of deploy.md, and its secret's line in that document's list of what the setup asks for | OPS-02 |
-| The part: its two files, its words, its run, and its line in the run `minimal`. Its words are what no line outside the part may hold, compared without regard to case. The provider's name alone is too wide, since prose that stays may hold it, so they are `<key>_client`, `<key>_redirect`, `providers::<key>`, `providers/<key>` and `mod <key>` | `crates/xtask/parts.yaml`, and its run in the `removable` job of `.github/workflows/ci.yml` | ARCH-07 |
+| The part: its two files, its words, its run, and its line in the run `minimal`. Its words are what no line outside the part may hold, compared without regard to case. The provider's name alone is too wide, since prose that stays may hold it, so they are `<key>_client`, `<key>_redirect`, `providers::<key>`, `providers/<key>` and `mod <key>` | `crates/xtask/parts.yaml`, and its run in the `removable` job of `.github/workflows/ci.yml` | ARCH-07 <!-- part: removal --> |
 
 What the registry asks of a provider's file:
 
@@ -121,7 +122,9 @@ What the registry asks of a provider's file:
 - **`token`** reads the access token from the token endpoint's answer, as RFC 6749 gives it. A file replaces it for a provider whose answers differ.
 - **`discard`** deletes the provider's token once the identity is read. It does nothing unless the file replaces it, which it does for a provider whose tokens don't lapse on their own (D139).
 
-The tests of the behaviors that every provider shares run through a stand-in provider, so a provider's own tests prove only its own behavior. Run `just check-parts` once the markers are in: it takes seconds, and names a marker or a word that is wrong. The tests that a provider's lines can break run in a few minutes, once `just services` has started what they use:
+The tests of the behaviors that every provider shares run through a stand-in provider, so a provider's own tests prove only its own behavior.
+Run `just check-parts` once the markers are in: it takes seconds, and names a marker or a word that is wrong. <!-- part: removal -->
+The tests that a provider's lines can break run in a few minutes, once `just services` has started what they use:
 
 ```
 cargo test -p app --locked --test integration -- auth::<key> auth::providers platform::config
@@ -129,7 +132,8 @@ cargo test --workspace --locked --lib ops_02    # .env.example states each setti
 cargo test -p xtask --locked                    # the setup's questions
 ```
 
-Then run `just checks`, and `just check-removable <key> minimal`, which proves that the template passes its checks without the provider.
+Then run `just checks`.
+Then `just check-removable <key> minimal` proves that the template passes its checks without the provider. <!-- part: removal -->
 
 ## Adding an operator's subcommand
 
@@ -149,7 +153,7 @@ Some changes no route may make, whoever calls it, such as removing a lost authen
 
 The binary gives the subcommand the database and the deployment's `Mail`, and logs what it answers: one line that says what it did, or the one failure that says why it changed nothing, exiting 1 (OPS-03). Neither holds personal data, so the function answers without the address it was given, and its tests assert that no line holds it (OBS-04). An email that tells the account goes through `Mail::send`, in the unit of work, under `JobScope::attempt` ([platform spec](../spec/platform.md#sending-email)). A deploy's budget of connections counts one for an operator's subcommand, which runs one unit of work at a time (OPS-18).
 
-A subcommand of an optional part carries the part's marker on each of these pieces (ARCH-07). Its arm of `Operation::run` has an expression for its body, never a block, since removing another part can make it the match's last.
+A subcommand of an optional part carries the part's marker on each of these pieces (ARCH-07). Its arm of `Operation::run` has an expression for its body, never a block, since removing another part can make it the match's last. <!-- part: removal -->
 
 The tests that a subcommand's lines can break run in a few minutes, once `just services` has started what they use:
 

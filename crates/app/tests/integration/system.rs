@@ -19,8 +19,8 @@ async fn system_001_the_capabilities_list_each_feature_a_deployment_can_turn_off
 
     assert_eq!(response.status, StatusCode::OK);
     assert_eq!(response.header("content-type"), "application/json");
-    // Email is the one feature a deployment can turn off, beside the optional parts the fork
-    // keeps, and no version is reported; a deployment that configures no provider lists none
+    // Email is the one feature a deployment can turn off, beside the template's parts that the
+    // fork keeps, and no version is reported; a deployment that configures no provider lists none
     // (AUTH-081).
     assert_eq!(
         response.json(),
@@ -40,8 +40,8 @@ async fn system_001_a_feature_turned_off_is_false() {
     );
 }
 
-/// The features of a deployment whose email is `email`: each optional part that changes what a
-/// client offers is `true` while the fork keeps it (D118).
+/// The features of a deployment whose email is `email`: each of the template's parts that changes
+/// what a client offers is `true` while the fork keeps it (D118).
 fn features(email: bool) -> Value {
     let mut features = serde_json::Map::new();
     features.insert("email".to_owned(), json!(email));

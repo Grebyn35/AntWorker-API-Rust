@@ -2,8 +2,8 @@
 //! development Postgres, which `bootstrap` gives the roles and their grants, and
 //! `migrate` the migrations, run from the API binary as an operator runs them. A check uses it,
 //! then it is dropped. Its name holds the database the URLs name, the check's purpose and the
-//! process's ID, so checks that run at once, as in each copy that `check-removable` makes, never
-//! share one.
+//! process's ID, so checks that run at once, as on the copies of the repository that checks make,
+//! never share one.
 
 use std::{
     path::{Path, PathBuf},

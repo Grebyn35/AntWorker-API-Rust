@@ -23,7 +23,7 @@ While `just dev` runs, http://127.0.0.1:8080/docs shows the API reference of the
 - [docs/architecture.md](docs/architecture.md): how the API is built.
 - [docs/standards/](docs/standards/README.md): the rules every change follows.
 - [docs/spec/](docs/spec/README.md): what each module guarantees.
-- [docs/guides/starting-a-product.md](docs/guides/starting-a-product.md): starting a product from the template, with `just rename` and `just remove`.
+- [docs/guides/starting-a-product.md](docs/guides/starting-a-product.md): starting a product from the template, with its own name and the parts it keeps.
 - [docs/guides/adding-a-module.md](docs/guides/adding-a-module.md): adding a module with `just new-module`, and adding a route to one.
 - [docs/operations/observability.md](docs/operations/observability.md): the logs, traces, metrics, dashboards and alerts, and how to follow a request from its trace ID.
 - [docs/operations/ci.md](docs/operations/ci.md) and [docs/operations/release.md](docs/operations/release.md): the pipeline, the image, and releases.

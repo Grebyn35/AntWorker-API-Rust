@@ -10,7 +10,7 @@ use utoipa_axum::routes;
 #[derive(Clone, Debug, Serialize, ToSchema)]
 pub(crate) struct Capabilities {
     /// One member per feature a deployment can turn off, `true` while the feature is on, and one
-    /// per optional part that changes what a client offers, `true` while the fork keeps it. A
+    /// per part of the template that changes what a client offers, `true` while the fork keeps it. A
     /// feature or a part this API doesn't have is absent.
     features: Features,
     /// The OAuth providers that a user signs in through, each of which the deployment
@@ -55,8 +55,8 @@ impl Capabilities {
     }
 }
 
-/// Each feature a deployment can turn off, and whether it is on, and each optional part that the
-/// fork keeps and that changes what a client offers (D118).
+/// Each feature a deployment can turn off, and whether it is on, and each part of the template that
+/// the fork keeps and that changes what a client offers (D118).
 #[derive(Clone, Copy, Debug, Serialize, ToSchema)]
 pub(crate) struct Features {
     /// Whether the deployment sends email (PLATFORM-022). While it is off, a client hides what

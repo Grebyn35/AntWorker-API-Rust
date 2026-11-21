@@ -65,7 +65,7 @@ The configuration of the services the API runs beside lives under `deploy/`, so 
 
 ## 4. Crates
 
-The API has two crates. Cargo forbids `platform` from depending on `app`, so the shared mechanisms can never come to depend on a feature. The workspace's third crate, `xtask`, holds the custom CI checks and the other tasks that `just` runs, such as `just release`, `just deploy`, `just load-test`, `just remove` and `just new-module`, whose templates are in `crates/xtask/templates/`, and neither API crate depends on it.
+The API has two crates. Cargo forbids `platform` from depending on `app`, so the shared mechanisms can never come to depend on a feature. The workspace's third crate, `xtask`, holds the custom CI checks and the other tasks that `just` runs, such as `just release`, `just deploy`, `just load-test` and `just new-module`, whose templates are in `crates/xtask/templates/`, and neither API crate depends on it.
 
 ### `platform`
 
@@ -140,7 +140,7 @@ Table naming follows the data standard.
 
 ### Workspace shapes
 
-Data a module adds for its product lives in a workspace, and is reached through `Authorized<P>` (§6). Account data, such as the profile, sessions and the user's own audit log, belongs to the user. A product uses workspaces in one of the shapes below, and the optional parts a fork keeps decide which.
+Data a module adds for its product lives in a workspace, and is reached through `Authorized<P>` (§6). Account data, such as the profile, sessions and the user's own audit log, belongs to the user. A product uses workspaces in one of the shapes below, and the parts of the template that a fork keeps decide which.
 
 <!-- part: invitations -->
 - **Teams.** Each user creates as many workspaces as they need, and the people a member invites join one. It keeps users creating workspaces and `invitations`. <!-- part: workspace_creation -->
@@ -149,7 +149,7 @@ Data a module adds for its product lives in a workspace, and is reached through 
 <!-- end part: invitations -->
 - **Personal.** The client creates a workspace whenever a signed-in user belongs to none, and nobody joins one. It keeps users creating workspaces. <!-- part: workspace_creation -->
 
-A fork chooses its shape once, when it starts, by removing the optional parts it doesn't keep with `just remove` (ARCH-07), never through a setting, so it carries no code for a shape it doesn't use.
+A fork chooses its shape once, when it starts, by keeping the parts it needs with `just keep` (ARCH-07), never through a setting, so it carries no code for a shape it doesn't use. <!-- part: removal -->
 A shape is enforced by the routes it removes: a route a fork keeps treats every caller the same, whatever the fork's client offers, and lets a caller do only what their role allows (§6).
 A client reads which parts its API keeps from the capabilities (D118), and offers only what they hold.
 
@@ -249,7 +249,7 @@ The layers have strict jobs (ARCH-08 to ARCH-10):
 
 A module's personal data contract, in its `personal_data.rs`, is a service of its own: it applies the module's rules to a user's rows, through its repository or its `service.rs`, as a service does, adding them to the archive of their export, and erasing them once their account is deleted (D31).
 
-A module splits a file into a directory with the same name, such as `service/`, when the file outgrows its limit, or when an optional part adds functions of its own to it, which the part then owns in a file of their own (ARCH-03, CODE-08, D119).
+A module splits a file into a directory with the same name, such as `service/`, when the file outgrows its limit, or when a part of the template adds functions of its own to it, which the part then owns in a file of their own (ARCH-03, CODE-08, D119).
 
 A trait that abstracts a dependency either inverts a dependency the crate or module graph forbids, as the traits above do, or covers an external system with more than one implementation, such as email transport or the clock (ARCH-13). Nothing gets a trait just so it can be mocked, because tests run against the real database (D23).
 
@@ -458,7 +458,7 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 | Challenge | What a sign-in whose password matched answers for an account with an authenticator app: a token that the app's code, or a recovery code, completes into a session (AUTH-058). |
 | Principal | The authenticated caller of a request, produced by `platform::authn` (D18). |
 | Workspace | A space whose members share its data: a team's, an organization's, or one user's own (§5). Owns the data its members share, and its audit log. |
-| Workspace shape | How a product uses workspaces: who creates them and who joins them, which the optional parts a fork keeps decide (§5). |
+| Workspace shape | How a product uses workspaces: who creates them and who joins them, which the parts of the template that a fork keeps decide (§5). |
 | Membership | A user's place in a workspace, with exactly one role. Owned by `access`. |
 | Owner | The one role per workspace that can transfer or delete it. |
 | Superadmin | A user whom the deployment's operator made one through `just`, who sees every workspace without being a member, but not its content, deletes any workspace, and creates workspaces, which they then own (§5, D62). Not a role: roles belong to memberships. <!-- part: superadmins --> |

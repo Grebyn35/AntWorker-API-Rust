@@ -41,6 +41,7 @@ jobs:
       - run: just checks
       - run: just setup-smoke
 
+  # part: removal
   # On main, each run of check-removable: a copy of the repository without the optional parts
   # that the run removes passes the checks (ARCH-07). Each copy builds into a target of its own.
   # Each run of crates/xtask/parts.yaml is a job of its own, since the runs one after another
@@ -54,6 +55,7 @@ jobs:
       fail-fast: false
       matrix:
         run:
+          - every_part
           # part: workspace_creation
           - personal
           # part: workspace_setup
@@ -102,6 +104,7 @@ jobs:
           tool: ${{ steps.tools.outputs.tools }}
       - run: just setup
       - run: just check-removable ${{ matrix.run }}
+  # end part: removal
 
   # On main, two modules that `just new-module` writes on a copy of the repository pass the checks
   # (ARCH-03). The copy builds into a target of its own.
@@ -249,7 +252,13 @@ jobs:
   # The tested digests, published on main as sha-<commit>, and as edge while it is main's head.
   publish:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [checks, removable, new-module, rename, scan, verify]
+    needs:
+      - checks
+      - removable # part: removal
+      - new-module
+      - rename
+      - scan
+      - verify
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:

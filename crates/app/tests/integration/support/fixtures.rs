@@ -1,6 +1,6 @@
 //! Routes that only the tests serve, registered the way a module registers its own, for the
-//! behaviors of the pipeline that no route of the API shows, or that only an optional part's
-//! routes show: a request that waits, one that never ends, a panic, an internal error, a keyed
+//! behaviors of the pipeline that no route of the API shows, or that only the routes of a part of
+//! the template show, which a fork may not keep: a request that waits, one that never ends, a panic, an internal error, a keyed
 //! operation that publishes an event, bytes counted in a budget, and an email sent (TEST-04).
 
 use std::{

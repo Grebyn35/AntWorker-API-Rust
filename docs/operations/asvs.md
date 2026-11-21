@@ -23,7 +23,7 @@ The last cell of a row starts with one of these words:
 | Relaxed | The bar leaves the requirement out, and the threat model records why, and the controls that stand in for it |
 | A product's | The requirement asks a decision of the organization that runs a product, which the template doesn't make for it; what the template gives the product comes after |
 
-A requirement that applies only to an optional part (ARCH-07) has its row with the part, so a fork that removes the part has no row for it. Where the core and a part each meet a share of a requirement, each has a row, and the part's says what it adds.
+A requirement that applies only to a part of the template that a fork may leave out has its row with the part, so a fork that leaves the part out has no row for it. Where the core and a part each meet a share of a requirement, each has a row, and the part's says what it adds.
 
 ## V1 Encoding and sanitization
 

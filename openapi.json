@@ -488,7 +488,7 @@
         "properties": {
           "features": {
             "$ref": "#/components/schemas/Features",
-            "description": "One member per feature a deployment can turn off, `true` while the feature is on, and one\nper optional part that changes what a client offers, `true` while the fork keeps it. A\nfeature or a part this API doesn't have is absent."
+            "description": "One member per feature a deployment can turn off, `true` while the feature is on, and one\nper part of the template that changes what a client offers, `true` while the fork keeps it. A\nfeature or a part this API doesn't have is absent."
           },
           "sign_in_providers": {
             "description": "The OAuth providers that a user signs in through, each of which the deployment\nconfigures, by their keys, with what a client builds the authorization request from\n(AUTH-081).",
@@ -1189,7 +1189,7 @@
         "type": "string"
       },
       "Features": {
-        "description": "Each feature a deployment can turn off, and whether it is on, and each optional part that the\nfork keeps and that changes what a client offers (D118).",
+        "description": "Each feature a deployment can turn off, and whether it is on, and each part of the template that\nthe fork keeps and that changes what a client offers (D118).",
         "properties": {
           "client_telemetry": {
             "description": "Whether the deployment forwards its clients' telemetry (CLIENT_TELEMETRY-010). While it\nis on, a client asks its user whether it may send their telemetry.",

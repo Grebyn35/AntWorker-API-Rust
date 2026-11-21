@@ -82,11 +82,15 @@ pub(super) fn blocks(example: &str) -> Vec<Block> {
                 settings: std::mem::take(&mut settings),
             });
         }
+        // part: removal
         // A part's marker (ARCH-07) is no part of what the comment tells the operator.
-        match crate::parts::unmarked(line).map(|kept| kept.strip_prefix('#')) {
-            Some(Some(text)) => comment.push(text.strip_prefix(' ').unwrap_or(text).to_owned()),
-            Some(None) => comment.clear(),
-            None => {}
+        let Some(line) = crate::parts::unmarked(line) else {
+            continue;
+        };
+        // end part: removal
+        match line.strip_prefix('#') {
+            Some(text) => comment.push(text.strip_prefix(' ').unwrap_or(text).to_owned()),
+            None => comment.clear(),
         }
     }
     if !settings.is_empty() {
@@ -195,6 +199,7 @@ mod tests {
             .expect("a block for the setting")
     }
 
+    // part: removal
     #[test]
     fn arch_07_a_part_s_markers_show_the_operator_nothing() {
         let marker = |end: &str| format!("# {end}{} offers", "part:");
@@ -221,6 +226,7 @@ mod tests {
             ]
         );
     }
+    // end part: removal
 
     #[test]
     fn ops_19_the_example_s_choices_and_conditions_are_read_from_its_type_lines() {

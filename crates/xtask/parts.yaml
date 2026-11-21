@@ -1,4 +1,10 @@
-# The optional parts that `just remove` deletes (ARCH-07), and the runs of `check-removable`.
+# The optional parts that `just remove` and `just keep` delete (ARCH-07), and the runs of
+# `check-removable`.
+#
+# `removal` holds what makes the other parts removable: this file, the tooling that reads it, and
+# every line that speaks of a part's removal. `just keep` removes it, with the parts that a fork
+# doesn't keep, then takes the other parts' markers out, and `just remove` never removes it. A
+# part that creates workspaces says so, since a fork keeps one at least.
 #
 # Each part names the files it owns whole: files, or directories with every file under them. A
 # module part also names its module, whose migrations, those named
@@ -7,6 +13,21 @@
 # shape that needs the part, so a line that names a shape carries the marker of each part that
 # gives it. A part's entry carries its marker, so removing it removes the entry too.
 parts:
+  - name: removal
+    paths:
+      - crates/xtask/parts.yaml
+      - crates/xtask/src/parts
+    words:
+      - optional part
+      - arch-07
+      - "`just remove`"
+      - "just remove "
+      - just keep
+      - check-parts
+      - check-removable
+      - check_removable
+      - parts.yaml
+      - part's marker
   # part: invitations
   - name: invitations
     module: invitations
@@ -103,6 +124,7 @@ parts:
   # end part: files
   # part: workspace_creation
   - name: workspace_creation
+    creates_workspaces: true
     paths:
       - crates/app/src/modules/workspaces/routes/creation.rs
       - crates/app/src/modules/workspaces/service/creation.rs
@@ -122,6 +144,7 @@ parts:
   # end part: workspace_creation
   # part: workspace_setup
   - name: workspace_setup
+    creates_workspaces: true
     paths:
       - crates/app/src/modules/workspaces/emails.rs
       - crates/app/src/modules/workspaces/repo/setup.rs
@@ -143,6 +166,7 @@ parts:
   # part: superadmins
   - name: superadmins
     module: superadmins
+    creates_workspaces: true
     paths:
       - crates/app/src/modules/access/repo/superadmin.rs
       - crates/app/src/modules/access/service/superadmin.rs
@@ -226,11 +250,16 @@ parts:
       - user_batch
   # end part: client_telemetry
 
-# Each run removes its parts from a copy of the repository of its own, then runs `just checks` on
-# the copy: one for each workspace shape (architecture §5), one for each part that no shape's run
-# removes alone, and one that removes every part that one fork can remove at once.
+# Each run keeps, with `just keep`, every part that it doesn't remove, on a copy of the repository
+# of its own, then runs `just checks` on the copy: one that keeps every part, one for each
+# workspace shape (architecture §5), one for each part that no shape's run removes alone, and one
+# that removes every part that one fork can remove at once.
 # A run whose parts are all removed already is skipped.
 runs:
+  # A product that keeps every part, as the template does.
+  - name: every_part
+    parts:
+      - removal
   # part: workspace_creation
   # The personal shape: users create workspaces, and nobody joins them.
   - name: personal

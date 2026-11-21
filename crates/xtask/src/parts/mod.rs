@@ -1,24 +1,24 @@
-//! Removing an optional part, `just remove` (ARCH-07); `check-parts`, which runs each run's
-//! removal in memory, and each part's alone; and `check-removable`, which runs a removal on a
-//! copy of the repository for each run that `parts.yaml` lists, then `just checks` on each.
+//! Removing optional parts (ARCH-07): what `just remove` and `just keep` share, which `remove`
+//! holds with them and with `check-removable`, and `check-parts`, which runs each run's removal in
+//! memory, with `removal`'s, and each part's alone.
 
 mod cache;
 mod dry_run;
 mod markers;
+mod remove;
 mod validate;
 
 pub use dry_run::check;
 pub use markers::unmarked;
+pub use remove::{check_removable, keep, remove};
 use validate::validate;
 
-use std::{path::Path, process::ExitCode};
+use std::path::Path;
 
 use serde_json::Value;
 
 use crate::{
-    Finding, catalog,
-    copy::{self, Check, Copy},
-    markdown, metrics, migrations,
+    Finding, catalog, copy, markdown, metrics, migrations,
     repo::{self, Repo},
 };
 
@@ -33,12 +33,18 @@ const LIST: &str = "crates/xtask/parts.yaml";
 /// (ARCH-07).
 const MIGRATION: [&str; 2] = ["docs/inventory/", "docs/MIGRATION.md"];
 
+/// The part that holds what makes the others removable, which `just keep` removes with the parts
+/// that a fork doesn't keep, and `just remove` never removes.
+const REMOVAL: &str = "removal";
+
 /// An optional part, as `parts.yaml` lists it.
 struct Part {
     name: String,
     module: Option<String>,
     paths: Vec<String>,
     words: Vec<String>,
+    /// Whether it is a part that creates workspaces, of which a fork keeps one at least.
+    creates_workspaces: bool,
 }
 
 /// A run of `check-removable`: the parts it removes from a copy of its own.
@@ -74,6 +80,7 @@ fn list(repo: &Repo) -> Result<(Vec<Part>, Vec<Run>), String> {
             module: part["module"].as_str().map(str::to_owned),
             paths: strings(part, "paths"),
             words: strings(part, "words"),
+            creates_workspaces: part["creates_workspaces"].as_bool().unwrap_or(false),
         })
         .collect();
     let runs = entries("runs")
@@ -165,76 +172,6 @@ fn numbered(text: &str) -> Vec<(usize, &str)> {
         .enumerate()
         .map(|(index, line)| (index + 1, line))
         .collect()
-}
-
-/// Removes the parts named `names` from the repository (ARCH-07): it deletes the files they own
-/// whole and the lines their markers mark, writing "None." in each section of a spec that it
-/// empties, and retiring the number of each behavior it deletes from a spec, then the cached
-/// queries that no kept code holds, updates `Cargo.lock`, writes
-/// `openapi.json` and the metric catalog again, formats the code, and fails while a file it kept,
-/// or the path of one, still names one of them.
-pub fn remove(names: &[String]) -> ExitCode {
-    let repo = match Repo::load() {
-        Ok(repo) => repo,
-        Err(error) => return fail(&format!("can't read the repository: {error}")),
-    };
-    let (parts, _) = match list(&repo) {
-        Ok(list) => list,
-        Err(error) => return fail(&error),
-    };
-    let known: Vec<&str> = parts.iter().map(|part| part.name.as_str()).collect();
-    if let Some(unknown) = names.iter().find(|name| !known.contains(&name.as_str())) {
-        return fail(&format!(
-            "no part is named `{unknown}`; the parts are: {}",
-            known.join(", ")
-        ));
-    }
-    let findings = validate(&repo, &parts);
-    if !findings.is_empty() {
-        return failures(
-            "the parts' markers or files are wrong, so nothing was removed",
-            &findings,
-        );
-    }
-    let removed: Vec<&Part> = parts
-        .iter()
-        .filter(|part| names.contains(&part.name))
-        .collect();
-    let removing: Vec<&str> = removed.iter().map(|part| part.name.as_str()).collect();
-    let (deleted, edited) = match delete(&repo, &removed, &known) {
-        Ok(counts) => counts,
-        Err(error) => return fail(&error),
-    };
-    let stale = match prune_cache() {
-        Ok(stale) => stale,
-        Err(error) => return fail(&error),
-    };
-    report(&format!(
-        "removed {}: deleted {deleted} files and {stale} entries of the query cache, and edited \
-         {edited}",
-        removing.join(", "),
-    ));
-    if let Err(error) = regenerate() {
-        return fail(&error);
-    }
-    match Repo::load() {
-        Ok(repo) => {
-            let files = repo
-                .files()
-                .map(|file| (file.path.as_str(), numbered(&file.text)));
-            let findings = leftovers(repo.paths(), files, &removed);
-            if findings.is_empty() {
-                ExitCode::SUCCESS
-            } else {
-                failures(
-                    "these lines still name what was removed: give each its part's marker, or \
-                     rewrite it not to name the part (ARCH-07)",
-                    &findings,
-                )
-            }
-        }
-        Err(error) => fail(&format!("can't read the repository: {error}")),
-    }
 }
 
 /// Deletes the files that the parts `removed` own whole, and the lines their markers mark in every
@@ -417,84 +354,6 @@ fn regenerate() -> Result<(), String> {
     copy::run(&root, "cargo", &["fmt", "--all"], &[])
 }
 
-/// Runs `check-removable` (ARCH-07): for each of the runs named `names`, or every run, on a copy
-/// of the repository of its own, `just remove` with the run's parts, then `just checks`.
-pub fn check_removable(names: &[String]) -> ExitCode {
-    let repo = match Repo::load() {
-        Ok(repo) => repo,
-        Err(error) => return fail(&format!("can't read the repository: {error}")),
-    };
-    let (parts, runs) = match list(&repo) {
-        Ok(list) => list,
-        Err(error) => return fail(&error),
-    };
-    let findings = validate(&repo, &parts);
-    if !findings.is_empty() {
-        return failures("the parts' markers or files are wrong", &findings);
-    }
-    if let Some(unknown) = names
-        .iter()
-        .find(|name| !runs.iter().any(|run| &run.name == *name))
-    {
-        return fail(&format!("no run is named `{unknown}`"));
-    }
-    let mut failed = Vec::new();
-    for run in runs
-        .iter()
-        .filter(|run| names.is_empty() || names.contains(&run.name))
-    {
-        if run.parts.is_empty() {
-            report(&format!(
-                "{}: every part it removes is removed already",
-                run.name
-            ));
-            continue;
-        }
-        report(&format!("{}: removing {}", run.name, run.parts.join(", ")));
-        match removed(&run.name, &run.parts) {
-            Ok(()) => report(&format!("{}: passed", run.name)),
-            Err(error) => {
-                report(&format!("{}: failed: {error}", run.name));
-                failed.push(run.name.clone());
-            }
-        }
-    }
-    if failed.is_empty() {
-        ExitCode::SUCCESS
-    } else {
-        fail(&format!("these runs failed: {}", failed.join(", ")))
-    }
-}
-
-/// On a fresh copy of the repository for the run `name`, removes `parts` with `just remove`, then
-/// runs `just checks`, as on a fork before its first release (ARCH-07).
-fn removed(name: &str, parts: &[String]) -> Result<(), String> {
-    let copy = Copy::fresh(Check::Removable, name)?;
-    let mut remove = vec!["remove"];
-    remove.extend(parts.iter().map(String::as_str));
-    copy.just(&remove)?;
-    copy.just(&["checks"])
-}
-
-#[expect(clippy::print_stdout, reason = "the report is the task's output")]
-fn report(message: &str) {
-    println!("{message}");
-}
-
-#[expect(clippy::print_stderr, reason = "the error is the task's output")]
-fn fail(message: &str) -> ExitCode {
-    eprintln!("{message}");
-    ExitCode::FAILURE
-}
-
-#[expect(clippy::print_stderr, reason = "the findings are the task's output")]
-fn failures(message: &str, findings: &[Finding]) -> ExitCode {
-    for finding in findings {
-        eprintln!("{finding}");
-    }
-    fail(message)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -509,6 +368,7 @@ mod tests {
                 "docs/spec/offers.md".to_owned(),
             ],
             words: vec!["offer".to_owned()],
+            creates_workspaces: false,
         }
     }
 
@@ -651,6 +511,7 @@ mod tests {
             module: None,
             paths: vec!["crates/app/tests/integration/auth/coupons.rs".to_owned()],
             words: vec!["coupon".to_owned()],
+            creates_workspaces: false,
         };
 
         let findings = validate(&repo, &[coupons]);
@@ -672,6 +533,7 @@ mod tests {
             module: None,
             paths: Vec::new(),
             words: vec!["offer".to_owned()],
+            creates_workspaces: false,
         }
     }
 

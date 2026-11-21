@@ -1,7 +1,8 @@
-//! The copies of the repository that a check changes: `check-removable` removes each run's parts
-//! from one, `check-new-module` adds two modules to one, and `check-rename` renames the product in
-//! one, as a fork does, then each runs `just checks` on it. Each copy is in `target/<check>/<name>/repo/`, with its build in
-//! `target/<check>/<name>/target/`, so no copy's `cargo run` finds a binary that another built.
+//! The copies of the repository that a check changes as a fork does, then runs `just checks` on,
+//! such as the one that `check-new-module` adds two modules to, and the one in which
+//! `check-rename` renames the product. Each copy is in `target/<check>/<name>/repo/`, with its
+//! build in `target/<check>/<name>/target/`, so no copy's `cargo run` finds a binary that another
+//! built.
 //! A copy builds without incremental compilation, and before a check makes one, it removes the
 //! copies made longest ago while they hold more than [`BOUND`] together (OPS-21).
 
@@ -58,8 +59,8 @@ pub struct Copy {
 }
 
 impl Copy {
-    /// A fresh copy for `check`, named `name`, such as a run of `check-removable`, made once the
-    /// copies hold no more than [`BOUND`] together.
+    /// A fresh copy for `check`, named `name`, made once the copies hold no more than [`BOUND`]
+    /// together.
     pub fn fresh(check: Check, name: &str) -> Result<Self, String> {
         Self::of(&root(), check, name, BOUND)
     }
@@ -108,22 +109,32 @@ impl Copy {
 /// A check that changes copies of the repository.
 #[derive(Clone, Copy)]
 pub enum Check {
-    /// `check-removable`, which makes a copy for each of its runs.
-    Removable,
     /// `check-new-module`.
     NewModule,
     /// `check-rename`.
     Rename,
+    // part: removal
+    /// `check-removable`, which makes a copy for each of its runs.
+    Removable,
+    // end part: removal
 }
 
 impl Check {
     /// Every check, since their copies count together against [`BOUND`].
-    const ALL: [Self; 3] = [Self::Removable, Self::NewModule, Self::Rename];
+    const ALL: &[Self] = &[
+        Self::NewModule,
+        Self::Rename,
+        // part: removal
+        Self::Removable,
+        // end part: removal
+    ];
 
     /// The directory under `target/` that holds the check's copies.
     const fn directory(self) -> &'static str {
         match self {
+            // part: removal
             Self::Removable => "removable",
+            // end part: removal
             Self::NewModule => "new-module",
             Self::Rename => "rename",
         }
@@ -185,7 +196,7 @@ fn beyond(mut held: Vec<Held>, making: &Path, bound: u64) -> Vec<PathBuf> {
 )]
 fn held(target: &Path) -> io::Result<Vec<Held>> {
     let mut held = Vec::new();
-    for check in Check::ALL {
+    for &check in Check::ALL {
         let entries = match std::fs::read_dir(target.join(check.directory())) {
             Ok(entries) => entries,
             Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
@@ -377,36 +388,36 @@ mod tests {
         let directory = "target/copies-test";
         repo::empty_directory(directory).unwrap();
         for (path, bytes) in [
-            ("removable/personal/repo/justfile", 10),
-            ("removable/personal/target/debug/deps/app", 20),
+            ("rename/rename/repo/justfile", 10),
+            ("rename/rename/target/debug/deps/app", 20),
             ("new-module/modules/repo/justfile", 10),
             ("new-module/modules/target/debug/app", 20),
             // The repository's own build, and a file that is no copy, count for nothing.
             ("debug/deps/app", 100),
-            ("removable/removable.log", 100),
+            ("rename/rename.log", 100),
         ] {
             repo::write(&format!("{directory}/{path}"), &"a".repeat(bytes)).unwrap();
         }
         let target = root().join(directory);
-        let personal = target.join("removable/personal");
+        let renamed = target.join("rename/rename");
         let modules = target.join("new-module/modules");
         let held = |path: &str| repo::read(&target.join(path)).is_ok();
 
-        assert_eq!(remove_beyond(&target, &personal, 60).unwrap(), paths(&[]));
+        assert_eq!(remove_beyond(&target, &renamed, 60).unwrap(), paths(&[]));
         assert!(held("new-module/modules/target/debug/app"));
 
-        let removed = remove_beyond(&target, &personal, 59).unwrap();
+        let removed = remove_beyond(&target, &renamed, 59).unwrap();
         assert_eq!(removed, [modules]);
         assert!(!held("new-module/modules/repo/justfile"));
         assert!(!held("new-module/modules/target/debug/app"));
-        assert!(held("removable/personal/target/debug/deps/app"));
+        assert!(held("rename/rename/target/debug/deps/app"));
 
-        let removed = remove_beyond(&target, &personal, 29).unwrap();
-        assert_eq!(removed, [personal]);
-        assert!(!held("removable/personal/repo/justfile"));
-        assert!(!held("removable/personal/target/debug/deps/app"));
+        let removed = remove_beyond(&target, &renamed, 29).unwrap();
+        assert_eq!(removed, [renamed]);
+        assert!(!held("rename/rename/repo/justfile"));
+        assert!(!held("rename/rename/target/debug/deps/app"));
         assert!(held("debug/deps/app"));
-        assert!(held("removable/removable.log"));
+        assert!(held("rename/rename.log"));
     }
 
     #[test]
@@ -419,7 +430,7 @@ mod tests {
         let root = root().join(directory);
         run(&root, "git", &["init", "--quiet"], &[]).unwrap();
 
-        let first = Copy::of(&root, Check::Removable, "personal", u64::MAX).unwrap();
+        let first = Copy::of(&root, Check::Rename, "rename", u64::MAX).unwrap();
         assert!(repo::read(&first.root.join("justfile")).is_ok());
 
         let second = Copy::of(&root, Check::NewModule, "modules", 0).unwrap();
