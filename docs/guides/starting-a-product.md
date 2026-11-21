@@ -26,11 +26,11 @@ Run `just checks`, then commit.
 
 A product uses workspaces in one of the shapes of [architecture §5](../architecture.md#workspace-shapes), and the optional parts that it keeps decide which. [ARCH-07](../standards/architecture.md#arch-07-optional-parts-are-removable) lists the optional parts, and the runs of `crates/xtask/parts.yaml` name the parts that each shape removes. Name every part that the product keeps, one that creates workspaces among them: `just keep <part>...`.
 
-The task removes every other part, as `just remove` does, then what makes a part removable: `crates/xtask/parts.yaml`, the tooling that reads it, this section, and every other line that speaks of removing a part. Then it takes the markers out of every file it keeps, so the product's code names the parts it kept as it names anything else, and its CI removes nothing. `just/fork.just` says what each task does. Run `just ci`, then commit.
+The task removes every other part, as `just remove` does, then the part that makes the others removable, which the same rule describes: `crates/xtask/parts.yaml`, the tooling that reads it, its checks, and the lines that the rule gives it, this section among them. Then it takes the markers out of every file it keeps, so the product's code names the parts it kept as it names anything else, and its CI removes nothing. `just/fork.just` says what each task does. Run `just ci`, then commit.
 
 Until then, `just remove <part>...` removes parts and keeps what makes the others removable.
-<!-- end part: removal -->
 
+<!-- end part: removal -->
 ## The files the template speaks in
 
 - `SECURITY.md` is the template's disclosure policy. The product replaces it with its own: where its users report a vulnerability, and how soon it answers a report, fixes a vulnerability and updates a component that has one.

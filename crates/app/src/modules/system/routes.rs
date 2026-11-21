@@ -86,8 +86,8 @@ pub(crate) struct Features {
 }
 
 impl Features {
-    /// The features of a deployment that sends email while `email` is on, with every optional
-    /// part the fork keeps.
+    /// The features of a deployment that sends email while `email` is on, with every part of
+    /// the template that the fork keeps.
     pub(crate) fn new(email: bool) -> Self {
         Self {
             email,

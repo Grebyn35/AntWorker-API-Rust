@@ -3,7 +3,7 @@
 # `check-new-module` runs on a copy. The justfile imports this file.
 # part: removal
 # `just keep` chooses the parts that a fork keeps, once, and `just remove` removes parts until
-# then; `check-removable` runs `just keep` on a copy for each run of crates/xtask/parts.yaml.
+# then; `check-removable` runs one of them on a copy for each run of crates/xtask/parts.yaml.
 # end part: removal
 
 # Renames the product, such as `just rename "Acme Notes"` (ARCH-15): it replaces the product's name
@@ -25,7 +25,7 @@ rename name:
 # `just ci` passes.
 [doc("Keeps the optional parts named, and removes the others and what makes a part removable")]
 [group('fork')]
-keep +parts:
+keep +parts: bound-build
     {{ xtask }} keep {{ parts }}
 
 # Removes the optional parts named, and keeps what makes the others removable: it deletes the files
@@ -34,7 +34,7 @@ keep +parts:
 # catalog again, and formats the code, then fails while a kept line or path still names one.
 [doc("Removes optional parts, and keeps what makes the others removable")]
 [group('fork')]
-remove +parts:
+remove +parts: bound-build
     {{ xtask }} remove {{ parts }}
 # end part: removal
 

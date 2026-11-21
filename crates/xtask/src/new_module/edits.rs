@@ -171,8 +171,10 @@ fn entry(line: &str, start: &str, end: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
-/// Whether `line` is an attribute, which the declaration below it carries, or a line that opens a
-/// block of a part of the template, which carries it too.
+/// Whether `line` is an attribute, which the declaration below it carries.
+// part: removal
+/// So is a line that opens a part's block.
+// end part: removal
 fn carried(line: &str) -> bool {
     let line = line.trim_start();
     // part: removal
@@ -185,7 +187,10 @@ fn carried(line: &str) -> bool {
 
 /// `text` with `lines` among the declarations that `declared` reads a name from, in the order of
 /// their names, before the first whose name comes after `name`, and above what that one carries,
-/// or after the last, and below the end of its part's block. `None` when nothing is declared.
+/// or after the last. `None` when nothing is declared.
+// part: removal
+/// After the last, they go below the lines that end the blocks of the parts that hold it.
+// end part: removal
 fn sorted(
     text: &str,
     name: &str,
@@ -207,18 +212,29 @@ fn sorted(
             }
             at
         }
-        None => {
-            let mut at = last + 1;
-            while at < all.len() && all[at].trim_start().starts_with("// end part: ") {
-                at += 1;
-            }
-            at
-        }
+        None => last + 1,
     };
+    // part: removal
+    let at = if at > *last {
+        below_block_ends(&all, at)
+    } else {
+        at
+    };
+    // end part: removal
     let inserted: Vec<&str> = lines.iter().map(String::as_str).collect();
     all.splice(at..at, inserted);
     Some(joined(&all, text))
 }
+
+// part: removal
+/// `at`, or the index after the lines from `at` on that end a part's block.
+fn below_block_ends(lines: &[&str], at: usize) -> usize {
+    at + lines[at..]
+        .iter()
+        .take_while(|line| line.trim_start().starts_with("// end part: "))
+        .count()
+}
+// end part: removal
 
 /// `text` from `lines`, with the final line feed `text` had.
 fn joined(lines: &[&str], text: &str) -> String {
@@ -450,8 +466,37 @@ mod tests {
             "#[cfg(test)]\nmod access;\n#[cfg(test)]\nmod items;\n// part: offers\n\
              #[cfg(test)]\nmod offers;\n// end part: offers\n"
         );
+        // After the last declaration, the lines go below the end of the block that holds it.
+        let lines = ["#[cfg(test)]".to_owned(), "mod widgets;".to_owned()];
+        assert_eq!(
+            sorted(tests, "widgets", &lines, |line| entry(line, "mod ", ";")).unwrap(),
+            "#[cfg(test)]\nmod access;\n// part: offers\n#[cfg(test)]\nmod offers;\n\
+             // end part: offers\n#[cfg(test)]\nmod widgets;\n"
+        );
     }
     // end part: removal
+
+    #[test]
+    fn arch_03_a_module_s_line_goes_in_the_order_of_the_names_above_the_next_one_s_attribute() {
+        let tests = "//! Tests.\n\n#[cfg(test)]\nmod access;\n#[cfg(test)]\nmod realtime;\n";
+        let declared = |line: &str| entry(line, "mod ", ";");
+        let lines = |name: &str| ["#[cfg(test)]".to_owned(), format!("mod {name};")];
+
+        assert_eq!(
+            sorted(tests, "items", &lines("items"), declared).unwrap(),
+            "//! Tests.\n\n#[cfg(test)]\nmod access;\n#[cfg(test)]\nmod items;\n\
+             #[cfg(test)]\nmod realtime;\n"
+        );
+        assert_eq!(
+            sorted(tests, "widgets", &lines("widgets"), declared).unwrap(),
+            "//! Tests.\n\n#[cfg(test)]\nmod access;\n#[cfg(test)]\nmod realtime;\n\
+             #[cfg(test)]\nmod widgets;\n"
+        );
+        assert_eq!(
+            sorted("//! Tests.\n", "items", &lines("items"), declared),
+            None
+        );
+    }
 
     #[test]
     fn arch_03_the_composition_root_imports_mounts_and_documents_the_module() {

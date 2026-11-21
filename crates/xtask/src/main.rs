@@ -220,7 +220,8 @@ enum Command {
     CheckRename,
     // part: removal
     /// On a copy of the repository for each run that `crates/xtask/parts.yaml` lists, or for the
-    /// runs named, keeps every part that the run doesn't remove, then runs `just checks`.
+    /// runs named, keeps every part that the run doesn't remove, or removes the run's parts where
+    /// its task is `remove`, then runs `just checks`.
     #[command(name = "check-removable")]
     CheckRemovable {
         /// The runs, such as `personal`; every run by default.

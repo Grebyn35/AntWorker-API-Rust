@@ -51,46 +51,73 @@ struct Part {
 struct Run {
     name: String,
     parts: Vec<String>,
+    /// Whether it removes them with `just remove`, which keeps `removal`, as a fork that has yet
+    /// to choose its parts does, rather than with `just keep`.
+    keeps_removal: bool,
 }
 
-/// The parts and the runs that `parts.yaml` lists.
+/// The parts and the runs that `parts.yaml` lists. Fails on an entry of a part's `paths` or
+/// `words`, or of a run's `parts`, that isn't a string, as YAML reads a word that ends in a colon
+/// unless it is quoted, on a `creates_workspaces` that isn't a boolean, and on a run's `task`
+/// other than `remove`.
 fn list(repo: &Repo) -> Result<(Vec<Part>, Vec<Run>), String> {
     let file = repo
         .file(LIST)
         .ok_or_else(|| format!("{LIST} is missing"))?;
     let value: Value =
         serde_saphyr::from_str(&file.text).map_err(|error| format!("{LIST}: {error}"))?;
-    let strings = |value: &Value, key: &str| -> Vec<String> {
-        value[key]
-            .as_array()
-            .map(|items| {
-                items
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .map(str::to_owned)
-                    .collect()
-            })
-            .unwrap_or_default()
-    };
     let entries = |key: &str| value[key].as_array().cloned().unwrap_or_default();
-    let parts = entries("parts")
-        .iter()
-        .map(|part| Part {
-            name: part["name"].as_str().unwrap_or_default().to_owned(),
+    let mut parts = Vec::new();
+    for part in entries("parts") {
+        let name = part["name"].as_str().unwrap_or_default().to_owned();
+        let creates_workspaces = match &part["creates_workspaces"] {
+            Value::Null => false,
+            Value::Bool(creates) => *creates,
+            _ => {
+                return Err(format!(
+                    "{LIST}: `creates_workspaces` of `{name}` isn't `true` or `false`"
+                ));
+            }
+        };
+        parts.push(Part {
             module: part["module"].as_str().map(str::to_owned),
-            paths: strings(part, "paths"),
-            words: strings(part, "words"),
-            creates_workspaces: part["creates_workspaces"].as_bool().unwrap_or(false),
-        })
-        .collect();
-    let runs = entries("runs")
-        .iter()
-        .map(|run| Run {
-            name: run["name"].as_str().unwrap_or_default().to_owned(),
-            parts: strings(run, "parts"),
-        })
-        .collect();
+            paths: strings(&part, "paths", &name)?,
+            words: strings(&part, "words", &name)?,
+            creates_workspaces,
+            name,
+        });
+    }
+    let mut runs = Vec::new();
+    for run in entries("runs") {
+        let name = run["name"].as_str().unwrap_or_default().to_owned();
+        let keeps_removal = match &run["task"] {
+            Value::Null => false,
+            Value::String(task) if task == "remove" => true,
+            _ => return Err(format!("{LIST}: the `task` of `{name}` isn't `remove`")),
+        };
+        runs.push(Run {
+            parts: strings(&run, "parts", &name)?,
+            keeps_removal,
+            name,
+        });
+    }
     Ok((parts, runs))
+}
+
+/// The strings that `entry`, the part or the run named `name`, lists under `key`, or why one of
+/// them is none.
+fn strings(entry: &Value, key: &str, name: &str) -> Result<Vec<String>, String> {
+    let Some(items) = entry[key].as_array() else {
+        return Ok(Vec::new());
+    };
+    items
+        .iter()
+        .map(|item| {
+            item.as_str().map(str::to_owned).ok_or_else(|| {
+                format!("{LIST}: an entry of `{key}` of `{name}` isn't a string, {item}: quote it")
+            })
+        })
+        .collect()
 }
 
 /// Whether `path` is one of the migration's own documents.
@@ -123,7 +150,11 @@ fn owned(repo: &Repo, part: &Part) -> Vec<String> {
 type Kept<'a> = (&'a str, Vec<(usize, &'a str)>);
 
 /// Each of `files`' lines that a removal kept, outside the migration's documents, that holds a
-/// word of a removed part, and each of the kept `paths` that does, text or not.
+/// word of a removed part, or ends one that the line before began, and each of the kept `paths`
+/// that holds one, text or not. A line break divides a word between two kept lines, as a sentence
+/// that the break divides reads, where it stands for one of the word's spaces: the word's text
+/// before that space ends the first line, without the white space that ends it, and its text
+/// after the space begins the next, as [`continued`] gives it.
 fn leftovers<'a>(
     paths: impl Iterator<Item = &'a str>,
     files: impl Iterator<Item = Kept<'a>>,
@@ -149,21 +180,55 @@ fn leftovers<'a>(
             }
         }
     }
+    // Each word that holds a space, with its text before and after that space, for each of its
+    // spaces: a line break may stand for it.
+    let divided: Vec<(&str, &str, &str, &str)> = words
+        .iter()
+        .flat_map(|(part, word)| {
+            word.match_indices(' ')
+                .map(move |(at, _)| (*part, word.as_str(), &word[..at], &word[at + 1..]))
+        })
+        .collect();
     for (path, lines) in files.filter(|(path, _)| !is_migration(path)) {
+        let mut before = String::new();
         for (number, line) in lines {
             let line = line.to_ascii_lowercase();
+            let mut names = |part: &str| {
+                findings.push(Finding::new(
+                    path,
+                    number,
+                    format!("names `{part}`, which was removed (ARCH-07)"),
+                ));
+            };
             for (part, word) in &words {
                 if line.contains(word) {
-                    findings.push(Finding::new(
-                        path,
-                        number,
-                        format!("names `{part}`, which was removed (ARCH-07)"),
-                    ));
+                    names(part);
                 }
             }
+            let (ended, begun) = (before.trim_end(), continued(&line));
+            for (part, word, start, rest) in &divided {
+                if ended.ends_with(start) && begun.starts_with(rest) && !line.contains(word) {
+                    names(part);
+                }
+            }
+            before = line;
         }
     }
     findings
+}
+
+/// What starts a comment that runs to its line's end, in the files that hold one, the longer
+/// first.
+const COMMENTS: [&str; 6] = ["///", "//!", "//", "#", "--", "%%"];
+
+/// `line` without the white space and the start of a comment that it begins with.
+fn continued(line: &str) -> &str {
+    let line = line.trim_start();
+    COMMENTS
+        .iter()
+        .find_map(|start| line.strip_prefix(start))
+        .unwrap_or(line)
+        .trim_start()
 }
 
 /// Every line of `text`, with its number, counted from 1.
@@ -629,5 +694,90 @@ mod tests {
         let (parts, _) = list(&repo).unwrap();
 
         assert!(parts.is_empty());
+    }
+
+    #[test]
+    fn arch_07_the_list_refuses_an_entry_that_yaml_reads_as_no_string() {
+        for (list_of, text) in [
+            (
+                "words",
+                "parts:\n  - name: offers\n    words:\n      - offers::\n",
+            ),
+            ("paths", "parts:\n  - name: offers\n    paths:\n      - 7\n"),
+            (
+                "parts",
+                "runs:\n  - name: offers\n    parts:\n      - offers:\n",
+            ),
+        ] {
+            let error = list(&Repo::of(&[(LIST, text)])).err().unwrap();
+
+            assert!(
+                error.contains(&format!(
+                    "an entry of `{list_of}` of `offers` isn't a string"
+                )),
+                "{error}"
+            );
+        }
+        let quoted = "parts:\n  - name: offers\n    words:\n      - \"offers::\"\n";
+        let (parts, _) = list(&Repo::of(&[(LIST, quoted)])).unwrap();
+        assert_eq!(parts[0].words, ["offers::"]);
+    }
+
+    #[test]
+    fn arch_07_the_list_refuses_a_task_or_a_creator_that_it_can_t_read() {
+        let runs = |task: &str| format!("runs:\n  - name: shop\n    task: {task}\n");
+        let (_, read) = list(&Repo::of(&[(LIST, runs("remove").as_str())])).unwrap();
+        assert!(read[0].keeps_removal);
+        let (_, read) = list(&Repo::of(&[(LIST, "runs:\n  - name: shop\n")])).unwrap();
+        assert!(!read[0].keeps_removal);
+        for task in ["keep", "true", "[remove]"] {
+            let error = list(&Repo::of(&[(LIST, runs(task).as_str())]))
+                .err()
+                .unwrap();
+            assert!(
+                error.ends_with("the `task` of `shop` isn't `remove`"),
+                "{error}"
+            );
+        }
+
+        let parts = |creates: &str| {
+            format!("parts:\n  - name: offers\n    creates_workspaces: {creates}\n")
+        };
+        let (read, _) = list(&Repo::of(&[(LIST, parts("true").as_str())])).unwrap();
+        assert!(read[0].creates_workspaces);
+        let error = list(&Repo::of(&[(LIST, parts("offers").as_str())]))
+            .err()
+            .unwrap();
+        assert!(
+            error.contains("`creates_workspaces` of `offers`"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn arch_07_a_removal_fails_on_a_word_that_a_line_break_divides() {
+        let part = Part {
+            words: vec!["special offer".to_owned(), "just offer ".to_owned()],
+            ..offer_words()
+        };
+        let places = |text: &str| -> Vec<usize> {
+            let repo = Repo::of(&[("src/a.rs", text)]);
+            let files = repo
+                .files()
+                .map(|file| (file.path.as_str(), numbered(&file.text)));
+            leftovers(repo.paths(), files, &[&part])
+                .into_iter()
+                .map(|finding| finding.line)
+                .collect()
+        };
+
+        // The word's end is found on the line that holds it, after its comment's start.
+        assert_eq!(places("/// Every special\n    /// offer goes.\n"), [2]);
+        assert_eq!(places("# A Special  \n# Offer\n"), [2]);
+        assert_eq!(places("Run `just offer`: just offer\nthem.\n"), [2]);
+        // A word on one line is found once, and words that only stand side by side are none.
+        assert_eq!(places("A special offer\nfollows.\n"), [1]);
+        assert!(places("// It is special.\n// Offer nothing.\n").is_empty());
+        assert!(places("special\n\noffer\n").is_empty());
     }
 }

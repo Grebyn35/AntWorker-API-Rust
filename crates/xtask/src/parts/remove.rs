@@ -1,12 +1,14 @@
 //! `just remove`, which removes the optional parts named; `just keep`, with which a fork chooses
 //! its parts once, which removes every other, then what makes a part removable; and
 //! `check-removable`, which runs `just keep` on a copy of the repository for each run that
-//! `parts.yaml` lists, then `just checks` on each (ARCH-07).
+//! `parts.yaml` lists, or `just remove` for a run that names that task, then `just checks` on
+//! each (ARCH-07).
 
 use std::process::ExitCode;
 
 use super::{
-    Part, REMOVAL, delete, leftovers, list, markers, numbered, prune_cache, regenerate, validate,
+    Part, REMOVAL, Run, delete, leftovers, list, markers, numbered, prune_cache, regenerate,
+    validate,
 };
 use crate::{
     Finding,
@@ -119,19 +121,19 @@ fn apply(repo: &Repo, parts: &[Part], removed: &[&Part], unmark: bool) -> ExitCo
     };
     let unmarked = if unmark {
         match unmark_kept() {
-            Ok(unmarked) => unmarked,
+            Ok(unmarked) => format!(", and took the markers out of {unmarked}"),
             Err(error) => return fail(&error),
         }
     } else {
-        0
+        String::new()
     };
     let stale = match prune_cache() {
         Ok(stale) => stale,
         Err(error) => return fail(&error),
     };
     report(&format!(
-        "removed {}: deleted {deleted} files and {stale} entries of the query cache, edited \
-         {edited}, and took the markers out of {unmarked}",
+        "removed {}: deleted {deleted} files and {stale} entries of the query cache, and edited \
+         {edited}{unmarked}",
         removing.join(", "),
     ));
     if let Err(error) = regenerate() {
@@ -174,7 +176,8 @@ fn unmark_kept() -> Result<usize, String> {
 
 /// Runs `check-removable` (ARCH-07): for each of the runs named `names`, or every run, on a copy
 /// of the repository of its own, `just keep` with every part that the run doesn't remove, other
-/// than `removal`, then `just checks`.
+/// than `removal`, or, for a run whose task is `remove`, `just remove` with the run's parts, then
+/// `just checks`.
 pub fn check_removable(names: &[String]) -> ExitCode {
     let repo = match Repo::load() {
         Ok(repo) => repo,
@@ -206,13 +209,9 @@ pub fn check_removable(names: &[String]) -> ExitCode {
             ));
             continue;
         }
-        let kept: Vec<&str> = parts
-            .iter()
-            .map(|part| part.name.as_str())
-            .filter(|part| *part != REMOVAL && !run.parts.iter().any(|name| name == part))
-            .collect();
-        report(&format!("{}: keeping {}", run.name, kept.join(", ")));
-        match chosen(&run.name, &kept) {
+        let task = task(&parts, run);
+        report(&format!("{}: just {}", run.name, task.join(" ")));
+        match changed(&run.name, &task) {
             Ok(()) => report(&format!("{}: passed", run.name)),
             Err(error) => {
                 report(&format!("{}: failed: {error}", run.name));
@@ -227,13 +226,33 @@ pub fn check_removable(names: &[String]) -> ExitCode {
     }
 }
 
-/// On a fresh copy of the repository for the run `name`, keeps the parts `kept` with `just keep`,
-/// then runs `just checks`, as on a fork that has chosen its parts (ARCH-07).
-fn chosen(name: &str, kept: &[&str]) -> Result<(), String> {
+/// The task that `run` gives `just` on its copy, with its arguments: `keep` and every part that
+/// the run doesn't remove, other than `removal`, as a fork that chooses its parts runs it, or,
+/// for a run whose task is `remove`, `remove` and the run's parts, as a fork that has yet to
+/// choose runs it.
+fn task<'a>(parts: &'a [Part], run: &'a Run) -> Vec<&'a str> {
+    if run.keeps_removal {
+        return ["remove"]
+            .into_iter()
+            .chain(run.parts.iter().map(String::as_str))
+            .collect();
+    }
+    ["keep"]
+        .into_iter()
+        .chain(
+            parts
+                .iter()
+                .map(|part| part.name.as_str())
+                .filter(|part| *part != REMOVAL && !run.parts.iter().any(|name| name == part)),
+        )
+        .collect()
+}
+
+/// On a fresh copy of the repository for the run `name`, runs `just` with `task`, then `just
+/// checks`, as on a fork that has run the task (ARCH-07).
+fn changed(name: &str, task: &[&str]) -> Result<(), String> {
     let copy = Copy::fresh(Check::Removable, name)?;
-    let mut keep = vec!["keep"];
-    keep.extend(kept);
-    copy.just(&keep)?;
+    copy.just(task)?;
     copy.just(&["checks"])
 }
 
@@ -300,6 +319,24 @@ mod tests {
             error.ends_with("since every shape has one: teams"),
             "{error}"
         );
+    }
+
+    #[test]
+    fn arch_07_a_run_keeps_every_other_part_or_removes_its_own_with_the_task_it_names() {
+        let parts = [
+            part(REMOVAL, false),
+            part("teams", true),
+            part("files", false),
+            part("offers", false),
+        ];
+        let run = |keeps_removal| Run {
+            name: "shop".to_owned(),
+            parts: names(&["files", "offers"]),
+            keeps_removal,
+        };
+
+        assert_eq!(task(&parts, &run(false)), ["keep", "teams"]);
+        assert_eq!(task(&parts, &run(true)), ["remove", "files", "offers"]);
     }
 
     #[test]

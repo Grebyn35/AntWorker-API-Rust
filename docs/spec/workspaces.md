@@ -94,7 +94,7 @@ ID 009 is retired.
 
 One operation creates every workspace, inside the unit of work of whatever asks for it: it inserts the `workspaces` row, calls `access::add_owner`, whose signal closes the owner's open streams (ACCESS-006), and records `workspace.created` (D33). Whatever asks for it names the owner, and the scope of the entry, as a function of the workspace's ID, which the database gives: the scope names the log of a workspace that exists only once the operation has inserted it, and who acts in it, which each part answers its own way. A creation that a request with an idempotency key asks for stores the workspace as the key's result, as it then stands, so the types that hold it are read back from a stored result too (PLATFORM-036). Each part of the template that creates workspaces calls it, and the ones a fork keeps give its product its shape ([architecture §5](../architecture.md#workspace-shapes)).
 
-Tests arrange workspaces and memberships through the `owner` connection (TEST-05), never through one of the parts, so removing a part leaves the other modules' tests passing.
+Tests arrange workspaces and memberships through the `owner` connection (TEST-05), never through one of the parts, so the other modules' tests pass in a fork that leaves such a part out.
 
 <!-- part: workspace_creation -->
 ### Users creating workspaces

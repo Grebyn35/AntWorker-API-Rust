@@ -1,7 +1,7 @@
 //! `check-parts`: what `just remove` and `just keep` read and check before they change a file,
 //! for each run of `parts.yaml`, and for each part alone, done in memory, so that a marker that
-//! formatting moved or a line that names a part without its marker fails `just checks` in
-//! seconds, rather than `check-removable`'s copy on `main`, or a fork's own removal (ARCH-07).
+//! formatting moved or a line that names a part without its marker fails `just checks` within
+//! a minute, rather than `check-removable`'s copy on `main`, or a fork's own removal (ARCH-07).
 
 use std::collections::HashSet;
 
@@ -94,15 +94,17 @@ pub fn check(repo: &Repo) -> Outcome {
     Outcome { report, findings }
 }
 
-/// Does each run's removal in memory, with `removal`'s, as `just keep` does on `check-removable`'s
-/// copy, then each part's alone, as `just remove` does, unless a run removes it alone, and returns
-/// a line for each, with what they found: a fork may remove any one part and keep the rest, which
-/// no run does of a part that every run removes with another, so a line that names it inside the
-/// other's block would stay (ARCH-07).
+/// Does each run's removal in memory, as its task does on `check-removable`'s copy, with
+/// `removal`'s for a run of `just keep`, then each part's alone, as `just remove` does, unless a
+/// run removes that part and no other, and returns a line for each, with what they found: a fork
+/// may remove any one part and keep the rest, `removal` among them, which no run does of a part
+/// that every run removes with another, so a line that names it inside the other's block would
+/// stay (ARCH-07).
 fn removals(repo: &Repo, parts: &[Part], runs: &[Run]) -> (Vec<String>, Vec<Finding>) {
     let mut report = Vec::new();
     let mut findings = Vec::new();
-    for run in runs {
+    let removed: Vec<Run> = runs.iter().map(|run| removed(run, parts)).collect();
+    for run in &removed {
         if run.parts.is_empty() {
             report.push(format!(
                 "{}: every part it removes is removed already",
@@ -110,30 +112,42 @@ fn removals(repo: &Repo, parts: &[Part], runs: &[Run]) -> (Vec<String>, Vec<Find
             ));
             continue;
         }
-        let mut kept = Run {
-            name: run.name.clone(),
-            parts: run.parts.clone(),
-        };
-        if !kept.parts.iter().any(|part| part == REMOVAL) {
-            kept.parts.push(REMOVAL.to_owned());
-        }
-        let (summary, found) = remove(repo, parts, &kept);
+        let (summary, found) = remove(repo, parts, run);
         report.push(summary);
         findings.extend(found);
     }
     for part in parts {
-        if runs.iter().any(|run| run.parts == [part.name.as_str()]) {
+        if removed.iter().any(|run| run.parts == [part.name.as_str()]) {
             continue;
         }
         let alone = Run {
             name: format!("{} alone", part.name),
             parts: vec![part.name.clone()],
+            keeps_removal: true,
         };
         let (summary, found) = remove(repo, parts, &alone);
         report.push(summary);
         findings.extend(found);
     }
     (report, findings)
+}
+
+/// `run` with the parts that its task removes on its copy: its own, and `removal`, where `parts`
+/// lists it, unless the run's task keeps it. A run that lists no part removes none.
+fn removed(run: &Run, parts: &[Part]) -> Run {
+    let mut removed = run.parts.clone();
+    if !removed.is_empty()
+        && !run.keeps_removal
+        && parts.iter().any(|part| part.name == REMOVAL)
+        && !removed.iter().any(|part| part == REMOVAL)
+    {
+        removed.push(REMOVAL.to_owned());
+    }
+    Run {
+        name: run.name.clone(),
+        parts: removed,
+        keeps_removal: run.keeps_removal,
+    }
 }
 
 /// Removes `run`'s parts from `repo` in memory, and returns what it removed, and a finding for
@@ -453,6 +467,88 @@ mod tests {
                 "bare: removing offers, coupons deletes 2 files and edits 2",
                 "plain: removing coupons deletes 1 files and edits 2",
                 "offers alone: removing offers deletes 1 files and edits 1",
+            ]
+        );
+    }
+
+    /// The list of `removal`, which owns the list and whose word is `remove`, and of `offers`,
+    /// with the run `shop`, which removes `offers`, and whatever `more` adds to that run.
+    fn list_with_removal(more: &str) -> String {
+        let hash = |marker: String| format!("#{}", &marker[2..]);
+        format!(
+            "parts:\n  - name: removal\n    paths:\n      - {LIST}\n    words:\n      - remove\n  \
+             {}\n  - name: offers\n    paths:\n      - src/offers.rs\n    words:\n      - offer\n  \
+             {}\nruns:\n  - name: shop\n{more}    parts:\n      - offers {}\n",
+            hash(mark("offers")),
+            hash(end("offers")),
+            hash(mark("offers")),
+        )
+    }
+
+    /// A file whose block of `removal` holds a line that names `offers`.
+    fn names_offers_in_a_block_of_removal() -> String {
+        format!(
+            "fn a() {{}}\n{}\n// How a fork drops an offer.\nfn b() {{}}\n{}\n",
+            mark("removal"),
+            end("removal")
+        )
+    }
+
+    #[test]
+    fn arch_07_a_line_that_names_a_part_inside_a_block_of_removal_fails_as_just_remove_would() {
+        // The run keeps the other parts, so it removes `removal` with `offers`, and the line
+        // goes: only the removal of `offers` alone, which keeps `removal`, leaves it.
+        let list = list_with_removal("");
+        let code = names_offers_in_a_block_of_removal();
+        let repo = Repo::of(&[(LIST, &list), ("src/a.rs", &code), ("src/offers.rs", "")]);
+
+        let outcome = check(&repo);
+
+        let found: Vec<(&str, usize, &str)> = outcome
+            .findings
+            .iter()
+            .map(|finding| {
+                (
+                    finding.path.as_str(),
+                    finding.line,
+                    finding.message.as_str(),
+                )
+            })
+            .collect();
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!((found[0].0, found[0].1), ("src/a.rs", 3));
+        assert!(found[0].2.starts_with("removing offers: "), "{found:?}");
+        assert_eq!(
+            outcome.report,
+            [
+                "shop: removing removal, offers deletes 2 files and edits 1",
+                "removal alone: removing removal deletes 1 files and edits 1",
+                "offers alone: removing offers deletes 1 files and edits 1",
+            ]
+        );
+    }
+
+    #[test]
+    fn arch_07_a_run_whose_task_is_remove_keeps_removal_as_the_task_does() {
+        let list = list_with_removal("    task: remove\n");
+        let code = names_offers_in_a_block_of_removal();
+        let repo = Repo::of(&[(LIST, &list), ("src/a.rs", &code), ("src/offers.rs", "")]);
+
+        let outcome = check(&repo);
+
+        let found: Vec<(usize, &str)> = outcome
+            .findings
+            .iter()
+            .map(|finding| (finding.line, finding.message.as_str()))
+            .collect();
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(found[0].0, 3);
+        assert!(found[0].1.starts_with("removing offers: "), "{found:?}");
+        assert_eq!(
+            outcome.report,
+            [
+                "shop: removing offers deletes 1 files and edits 1",
+                "removal alone: removing removal deletes 1 files and edits 1",
             ]
         );
     }

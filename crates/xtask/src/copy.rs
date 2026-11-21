@@ -420,6 +420,32 @@ mod tests {
         assert!(held("rename/rename.log"));
     }
 
+    // part: removal
+    #[test]
+    fn ops_21_the_copies_of_check_removable_s_runs_count_against_the_bound_too() {
+        // A tree of its own, under target/, which the build already ignores.
+        let directory = "target/copies-of-runs-test";
+        repo::empty_directory(directory).unwrap();
+        for (path, bytes) in [
+            ("removable/personal/repo/justfile", 10),
+            ("removable/personal/target/debug/deps/app", 20),
+            ("rename/rename/repo/justfile", 10),
+        ] {
+            repo::write(&format!("{directory}/{path}"), &"a".repeat(bytes)).unwrap();
+        }
+        let target = root().join(directory);
+        let personal = target.join("removable/personal");
+        let renamed = target.join("rename/rename");
+
+        assert_eq!(remove_beyond(&target, &renamed, 40).unwrap(), paths(&[]));
+
+        let removed = remove_beyond(&target, &renamed, 39).unwrap();
+        assert_eq!(removed, [personal]);
+        assert!(repo::read(&target.join("removable/personal/target/debug/deps/app")).is_err());
+        assert!(repo::read(&target.join("rename/rename/repo/justfile")).is_ok());
+    }
+    // end part: removal
+
     #[test]
     fn ops_21_a_check_removes_the_copies_beyond_the_bound_before_it_makes_one() {
         // A repository of its own, under target/, which the build already ignores.

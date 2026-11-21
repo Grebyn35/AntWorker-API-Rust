@@ -14,10 +14,14 @@
 //! of one, would still hold an occurrence of the old name, in any case, or already holds one of
 //! the new name: an occurrence is the name's words, compared without regard to case, with nothing,
 //! a space, a hyphen or an underscore between two, and no ASCII letter or digit right before or
-//! after them. It reads every text file of the repository and `.env`, but the migration workspace
-//! and the names of the codebases this one replaces (DOC-13), which the migration's close deletes,
-//! and this file, which reads the product's name from [`NAMED`], and whose names are examples, the
-//! name that `check-rename` gives among them.
+//! after them. The character right after a backslash that no backslash escapes is an escape's,
+//! such as the `t` that follows the backslash of a tab in a string, and counts as no letter or
+//! digit before a form or an occurrence. The task reads every text file of the repository and
+//! `.env`, but the migration workspace and the names of the codebases this one replaces
+//! (DOC-13), which the migration's close deletes, and this file, which reads the product's name
+//! from [`NAMED`], and whose names are examples, those that `check-rename` chooses from among
+//! them. A refusal names each line that keeps it from renaming, by its file and its number, and
+//! shows the line's text, but none of a line of `.env`, whose values may be secrets.
 
 use std::{io, ops::Range, process::ExitCode};
 
@@ -42,9 +46,10 @@ const OWN: &str = "crates/xtask/src/rename.rs";
 /// The settings of the developer's machine, which `just setup` wrote from `.env.example`.
 const ENV: &str = ".env";
 
-/// The name that `check-rename` gives a copy: two words, so the copy holds a name with a space
-/// and a slug with a hyphen.
-const CHECKED: &str = "Order Desk";
+/// The names that `check-rename` chooses from, of which it gives a copy the first that the
+/// product can be renamed to, so that a fork whose name or files hold one passes the check with
+/// the next: each has two words, so the copy holds a name with a space and a slug with a hyphen.
+const CHECKED: [&str; 3] = ["Order Desk", "Paper Lantern", "Copper Kettle"];
 
 /// Characters that may stand between two of a name's words in an occurrence of it.
 const SEPARATORS: [u8; 3] = *b" -_";
@@ -67,7 +72,8 @@ impl Name {
             return Err(format!(
                 "`{text}` isn't a product's name: a name is words of ASCII letters and digits, \
                  with one space between two, the first starting with a capital letter, such as \
-                 `{CHECKED}`"
+                 `{}`",
+                CHECKED[0]
             ));
         }
         Ok(Self { words })
@@ -121,11 +127,23 @@ impl Name {
     }
 }
 
-/// Whether no ASCII letter or digit stands right before the byte `at` of `text`.
+/// Whether no ASCII letter or digit stands right before the byte `at` of `text`, or the one that
+/// does is an escape's: the character right after a backslash that no backslash escapes, as an
+/// odd number of backslashes before it shows.
 fn starts(text: &str, at: usize) -> bool {
-    at.checked_sub(1)
-        .and_then(|before| text.as_bytes().get(before))
-        .is_none_or(|byte| !byte.is_ascii_alphanumeric())
+    let bytes = text.as_bytes();
+    let Some(before) = at.checked_sub(1) else {
+        return true;
+    };
+    if !bytes.get(before).is_some_and(u8::is_ascii_alphanumeric) {
+        return true;
+    }
+    let backslashes = bytes[..before]
+        .iter()
+        .rev()
+        .take_while(|byte| **byte == b'\\')
+        .count();
+    backslashes % 2 == 1
 }
 
 /// Whether the byte `at` of `text`, which follows what ends there, is no ASCII letter or digit.
@@ -202,12 +220,16 @@ fn read(path: &str) -> bool {
 }
 
 /// Each line of `text`, the file at `path`, that holds an occurrence of `name`, as
-/// `<path>:<line>: <the line>`.
+/// `<path>:<line>: <the line>`, or, for a line of `.env`, whose values may be secrets, as
+/// `<path>:<line>`, with none of its text.
 fn lines_naming(name: &Name, path: &str, text: &str) -> Vec<String> {
     let mut lines: Vec<String> = occurrences_outside_old(name, text)
         .iter()
         .map(|found| {
             let number = text[..found.start].matches('\n').count() + 1;
+            if path == ENV {
+                return format!("{path}:{number}");
+            }
             let line = text.lines().nth(number - 1).unwrap_or_default().trim();
             format!("{path}:{number}: {line}")
         })
@@ -225,28 +247,8 @@ fn renamed(
     files: &[(&str, &str)],
     paths: &[&str],
 ) -> Result<Vec<(String, String)>, String> {
-    if !old.occurrences(&new.display()).is_empty() || !new.occurrences(&old.display()).is_empty() {
-        return Err(format!(
-            "one of `{}` and `{}` holds the other, so no check could tell them apart: choose \
-             another name",
-            new.display(),
-            old.display()
-        ));
-    }
+    free(old, new, files, paths)?;
     let read: Vec<&(&str, &str)> = files.iter().filter(|(path, _)| read(path)).collect();
-    let taken: Vec<String> = read
-        .iter()
-        .flat_map(|(path, text)| lines_naming(new, path, text))
-        .chain(paths_naming(new, paths))
-        .collect();
-    if !taken.is_empty() {
-        return Err(format!(
-            "these lines and paths already hold `{}`, so it couldn't be told from the text they \
-             hold once it is the product's name: choose another name, or rename them first:\n  {}",
-            new.display(),
-            taken.join("\n  ")
-        ));
-    }
     let named_paths = paths_naming(old, paths);
     if !named_paths.is_empty() {
         return Err(format!(
@@ -278,6 +280,46 @@ fn renamed(
         .filter(|(_, before, text)| before != text)
         .map(|(path, _, text)| (path.to_owned(), text))
         .collect())
+}
+
+/// Fails unless the product `old` can take the name `new`: neither name holds the other, and none
+/// of `files` that the task reads, and none of `paths`, holds `new` already.
+fn free(old: &Name, new: &Name, files: &[(&str, &str)], paths: &[&str]) -> Result<(), String> {
+    if !old.occurrences(&new.display()).is_empty() || !new.occurrences(&old.display()).is_empty() {
+        return Err(format!(
+            "one of `{}` and `{}` holds the other, so no check could tell them apart: choose \
+             another name",
+            new.display(),
+            old.display()
+        ));
+    }
+    let taken: Vec<String> = files
+        .iter()
+        .filter(|(path, _)| read(path))
+        .flat_map(|(path, text)| lines_naming(new, path, text))
+        .chain(paths_naming(new, paths))
+        .collect();
+    if taken.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "these lines and paths already hold `{}`, so it couldn't be told from the text they hold \
+         once it is the product's name: choose another name, or rename them first:\n  {}",
+        new.display(),
+        taken.join("\n  ")
+    ))
+}
+
+/// The first of `candidates` that the product `old` can take as its name, as [`free`] says.
+fn first_free<'a>(
+    old: &Name,
+    candidates: &[&'a str],
+    files: &[(&str, &str)],
+    paths: &[&str],
+) -> Option<&'a str> {
+    candidates.iter().copied().find(|candidate| {
+        Name::parse(candidate).is_ok_and(|new| free(old, &new, files, paths).is_ok())
+    })
 }
 
 /// Each of `paths` that the task reads and that holds an occurrence of `name`.
@@ -313,58 +355,93 @@ pub fn run(name: &str) -> ExitCode {
     }
 }
 
+/// What the task reads: the product's name, the repository's files, and `.env`'s text, where the
+/// machine has one.
+struct Read {
+    old: Name,
+    repo: Repo,
+    env: Option<String>,
+}
+
+impl Read {
+    fn load() -> Result<Self, String> {
+        let repo = Repo::load().map_err(|error| format!("can't read the repository: {error}"))?;
+        let old = current(
+            &repo
+                .file(NAMED)
+                .ok_or_else(|| format!("{NAMED} doesn't exist"))?
+                .text,
+        )?;
+        let env = match repo::read(&copy::root().join(ENV)) {
+            Ok(bytes) => Some(String::from_utf8(bytes).map_err(|_| format!("{ENV} isn't UTF-8"))?),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+            Err(error) => return Err(format!("can't read {ENV}: {error}")),
+        };
+        Ok(Self { old, repo, env })
+    }
+
+    /// Each text file's path and contents, `.env`'s among them.
+    fn files(&self) -> Vec<(&str, &str)> {
+        self.repo
+            .files()
+            .map(|file| (file.path.as_str(), file.text.as_str()))
+            .chain(self.env.as_deref().map(|text| (ENV, text)))
+            .collect()
+    }
+
+    /// The path of every file of the repository, text or not.
+    fn paths(&self) -> Vec<&str> {
+        self.repo.paths().collect()
+    }
+}
+
 /// Renames the product to `name`, and gives its old name, its new name and the paths it changed.
 fn rename(name: &str) -> Result<(Name, Name, Vec<String>), String> {
     let new = Name::parse(name)?;
-    let repo = Repo::load().map_err(|error| format!("can't read the repository: {error}"))?;
-    let old = current(
-        &repo
-            .file(NAMED)
-            .ok_or_else(|| format!("{NAMED} doesn't exist"))?
-            .text,
-    )?;
-    if old == new {
-        return Err(format!("the product is named `{}` already", old.display()));
+    let read = Read::load()?;
+    if read.old == new {
+        return Err(format!("the product is named `{}` already", new.display()));
     }
-    let env = match repo::read(&copy::root().join(ENV)) {
-        Ok(bytes) => Some(String::from_utf8(bytes).map_err(|_| format!("{ENV} isn't UTF-8"))?),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => None,
-        Err(error) => return Err(format!("can't read {ENV}: {error}")),
-    };
-    let mut files: Vec<(&str, &str)> = repo
-        .files()
-        .map(|file| (file.path.as_str(), file.text.as_str()))
-        .collect();
-    files.extend(env.as_deref().map(|text| (ENV, text)));
-    let paths: Vec<&str> = repo.paths().collect();
-    let changed = renamed(&old, &new, &files, &paths)?;
+    let changed = renamed(&read.old, &new, &read.files(), &read.paths())?;
     for (path, text) in &changed {
         repo::write(path, text).map_err(|error| format!("can't write {path}: {error}"))?;
     }
     copy::run(&copy::root(), "cargo", &["fmt", "--all"], &[])?;
     Ok((
-        old,
+        read.old,
         new,
         changed.into_iter().map(|(path, _)| path).collect(),
     ))
 }
 
-/// Runs `check-rename` (ARCH-15): on a fresh copy of the repository, renames the product to
-/// [`CHECKED`] with `just rename`, then runs `just checks` there.
+/// Runs `check-rename` (ARCH-15): on a fresh copy of the repository, renames the product with
+/// `just rename`, to the first of [`CHECKED`] that it can take, then runs `just checks` there.
 pub fn check() -> ExitCode {
+    let name = match Read::load().and_then(|read| {
+        first_free(&read.old, &CHECKED, &read.files(), &read.paths()).ok_or_else(|| {
+            format!(
+                "the product can take none of the names that the check gives a copy, since its \
+                 name or its files hold each: {}",
+                CHECKED.join(", ")
+            )
+        })
+    }) {
+        Ok(name) => name,
+        Err(error) => return fail(&format!("check-rename: {error}")),
+    };
     let checked = Copy::fresh(Check::Rename, "rename").and_then(|copy| {
-        copy.just(&["rename", CHECKED])?;
+        copy.just(&["rename", name])?;
         copy.just(&["checks"])
     });
     match checked {
         Ok(()) => {
             report(&format!(
-                "check-rename: the copy named `{CHECKED}` passed the checks"
+                "check-rename: the copy named `{name}` passed the checks"
             ));
             ExitCode::SUCCESS
         }
         Err(error) => fail(&format!(
-            "check-rename: the copy named `{CHECKED}` failed: {error}"
+            "check-rename: the copy named `{name}` failed: {error}"
         )),
     }
 }
@@ -460,6 +537,23 @@ mod tests {
     }
 
     #[test]
+    fn arch_15_a_letter_that_an_escape_holds_adjoins_no_form() {
+        let (old, new) = (name("Ledger"), name("Order Desk"));
+        // A tab's escape, then the slug, as a string of a source file holds them.
+        assert_eq!(
+            replaced("\"Name:\\tledger-api\\nLedger\\n\"", &old, &new),
+            "\"Name:\\torder-desk-api\\nOrder Desk\\n\""
+        );
+        assert_eq!(old.occurrences("\\nLEDGER").len(), 1);
+        // A backslash that another escapes holds no letter: `tledger` is a word of its own.
+        assert_eq!(
+            replaced("dir\\\\tledger xledger", &old, &new),
+            "dir\\\\tledger xledger"
+        );
+        assert!(old.occurrences("\\\\nledger").is_empty());
+    }
+
+    #[test]
     fn arch_15_what_names_a_codebase_this_one_replaces_stays_as_it_is() {
         for codebase in OLD_NAMES {
             // A product named as the codebase's name begins, such as `Name` for `Name-API`.
@@ -544,6 +638,46 @@ mod tests {
             error.ends_with(":\n  docs/x.md:1: An order-desk app.\n  art/orderdesk.png"),
             "{error}"
         );
+    }
+
+    #[test]
+    fn arch_15_a_refusal_names_a_line_of_env_by_its_number_and_shows_none_of_its_text() {
+        let (old, new) = (name("Ledger"), name("Order Desk"));
+        let files = [
+            ("README.md", "# Ledger API\n"),
+            (".env", "A=1\nMAIL_PASSWORD=my_LEDGER_secret\n# LEDGER\n"),
+        ];
+        let error = renamed(&old, &new, &files, &["README.md"]).unwrap_err();
+        assert!(error.ends_with(":\n  .env:2\n  .env:3"), "{error}");
+
+        let files = [(".env", "SMTP_PASSWORD=order-desk-9\n")];
+        let error = renamed(&old, &new, &files, &[]).unwrap_err();
+        assert!(error.ends_with(":\n  .env:1"), "{error}");
+    }
+
+    #[test]
+    fn arch_15_the_check_gives_a_copy_the_first_name_that_the_product_can_take() {
+        assert_eq!(CHECKED, ["Order Desk", "Paper Lantern", "Copper Kettle"]);
+        let files = [("README.md", "# Ledger API\n")];
+        let free_of = |old: &str, files: &[(&str, &str)], paths: &[&str]| {
+            first_free(&name(old), &CHECKED, files, paths)
+        };
+
+        assert_eq!(
+            free_of("Ledger", &files, &["README.md"]),
+            Some("Order Desk")
+        );
+        // A product of that name, or of one that holds it or that it holds, takes the next.
+        for old in ["Order Desk", "Order Desk Pro", "Desk"] {
+            assert_eq!(free_of(old, &files, &[]), Some("Paper Lantern"), "{old}");
+        }
+        // So does one whose files or paths hold it, in any form.
+        let module = [("src/lib.rs", "mod order_desk;\n")];
+        assert_eq!(free_of("Ledger", &module, &[]), Some("Paper Lantern"));
+        let paths = ["src/order_desk/mod.rs", "art/paper-lantern.png"];
+        assert_eq!(free_of("Ledger", &files, &paths), Some("Copper Kettle"));
+        let all = [("a.md", "Order Desk, Paper Lantern and Copper Kettle.\n")];
+        assert_eq!(free_of("Ledger", &all, &[]), None);
     }
 
     #[test]

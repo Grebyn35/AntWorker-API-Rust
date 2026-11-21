@@ -235,9 +235,10 @@ check-parts:
     {{ xtask }} check-parts
 
 # On a copy of the repository for each run that crates/xtask/parts.yaml lists, or for the runs
-# named, such as `personal`, keeps every part that the run doesn't remove with `just keep`, then
-# runs `just checks` on the copy. Each copy and its build are in target/removable/<run>/.
-[doc("Fails unless keeping every part that a run doesn't remove, as for a workspace shape, leaves a copy that passes the checks")]
+# named, such as `personal`, keeps every part that the run doesn't remove with `just keep`, or,
+# for the run whose task is `remove`, removes the run's parts with `just remove`, then runs `just
+# checks` on the copy. Each copy and its build are in target/removable/<run>/.
+[doc("Fails unless keeping every part that a run doesn't remove, as for a workspace shape, or removing a run's parts, leaves a copy that passes the checks")]
 [group('check')]
 check-removable *runs:
     {{ xtask }} check-removable {{ runs }}

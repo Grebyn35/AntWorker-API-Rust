@@ -2,9 +2,9 @@
 //! choices need, and the registry's login, asked on the developer's machine before anything on
 //! the server changes, and what the answers send the server.
 
-mod files;
+mod needed;
 
-use files::{CERTS, SECRETS};
+use needed::{CERTS, SECRETS};
 
 use super::{
     base64::{decode, encode},

@@ -95,8 +95,8 @@ struct Declared<'a> {
 /// follow. A provider that follows OpenID Connect states what it declares, and replaces only
 /// what its own behavior adds, such as which addresses it proves. What the registry does for
 /// every provider is a provided method here, or code that the service calls, so it stays live in
-/// a fork that removes every provider, where a function that only providers' files call would
-/// be dead (CODE-15).
+/// a fork that keeps no provider, where a function that only providers' files call would be dead
+/// (CODE-15).
 trait Provider: Send + Sync {
     /// What it declares.
     fn declared(&self) -> Declared<'_>;

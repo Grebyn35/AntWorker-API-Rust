@@ -458,6 +458,7 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 | Challenge | What a sign-in whose password matched answers for an account with an authenticator app: a token that the app's code, or a recovery code, completes into a session (AUTH-058). |
 | Principal | The authenticated caller of a request, produced by `platform::authn` (D18). |
 | Workspace | A space whose members share its data: a team's, an organization's, or one user's own (§5). Owns the data its members share, and its audit log. |
+| Part | A piece of the template that a product can do without, such as a module, a sign-in provider or a way of creating workspaces, with everything that exists only for it. A fork keeps it or leaves it out when it starts (§5). |
 | Workspace shape | How a product uses workspaces: who creates them and who joins them, which the parts of the template that a fork keeps decide (§5). |
 | Membership | A user's place in a workspace, with exactly one role. Owned by `access`. |
 | Owner | The one role per workspace that can transfer or delete it. |
@@ -489,5 +490,6 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 | Point-in-time recovery | A restore of a database as it stood at any moment its backups reach, from a base backup and the write-ahead log archived after it: what the reference deployment's bundled Postgres provides, and what it requires of a managed one (OPS-15). |
 
 An avatar and a file's name are personal data in the glossary's sense too. <!-- part: files -->
+The documents call a part an optional part while a fork can still leave it out ([ARCH-07](standards/architecture.md#arch-07-optional-parts-are-removable)). <!-- part: removal -->
 
 The documents assume a developer knows these acronyms, and don't spell them out (DOC-06): API, ASCII, CI, CPU, CSV, DNS, GIF, HTML, HTTP, HTTPS, ID, IP, JPEG, JSON, PDF, PNG, REST, RFC, SDK, SQL, TCP, TLS, UI, URL, UTC, UTF and UUID. These names are written in capitals, and aren't acronyms to spell out: AES, BSD, CDLA, GCM, IETF, ISC, MIT, QEMU, README, S3, SHA, SIGINT, SIGKILL, SIGTERM, SOC, W3C, ZIP and ZIP64.

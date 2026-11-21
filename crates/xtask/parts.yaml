@@ -2,9 +2,9 @@
 # `check-removable`.
 #
 # `removal` holds what makes the other parts removable: this file, the tooling that reads it, and
-# every line that speaks of a part's removal. `just keep` removes it, with the parts that a fork
-# doesn't keep, then takes the other parts' markers out, and `just remove` never removes it. A
-# part that creates workspaces says so, since a fork keeps one at least.
+# the lines that carry its marker (ARCH-07). `just keep` removes it, with the parts that a
+# fork doesn't keep, then takes the other parts' markers out, and `just remove` never removes it.
+# A part that creates workspaces says so, since a fork keeps one at least.
 #
 # Each part names the files it owns whole: files, or directories with every file under them. A
 # module part also names its module, whose migrations, those named
@@ -28,6 +28,13 @@ parts:
       - check_removable
       - parts.yaml
       - part's marker
+      - carries its marker
+      - carry its marker
+      - removable
+      - removing a part
+      - removing the part
+      - removes a part
+      - removes the part
   # part: invitations
   - name: invitations
     module: invitations
@@ -100,7 +107,7 @@ parts:
       - workspace file
       - workspace_file
       - workspace-file
-      - files::
+      - "files::"
       - files-0
       - files_s3
       - files-ca
@@ -254,6 +261,8 @@ parts:
 # of its own, then runs `just checks` on the copy: one that keeps every part, one for each
 # workspace shape (architecture §5), one for each part that no shape's run removes alone, and one
 # that removes every part that one fork can remove at once.
+# The run whose task is `remove` removes its parts with `just remove` instead, which keeps
+# `removal`, as a fork that has yet to choose its parts does.
 # A run whose parts are all removed already is skipped.
 runs:
   # A product that keeps every part, as the template does.
@@ -337,6 +346,33 @@ runs:
   # parts mark are removed together too. It keeps one part that creates workspaces, since every
   # shape keeps one.
   - name: minimal
+    parts:
+      - invitations # part: invitations
+      # part: workspace_creation
+      - workspace_setup # part: workspace_setup
+      # end part: workspace_creation
+      # part: files
+      - files
+      # end part: files
+      # part: superadmins
+      - superadmins
+      # end part: superadmins
+      # part: github
+      - github
+      # end part: github
+      # part: google
+      - google
+      # end part: google
+      # part: openid_connect
+      - openid_connect
+      # end part: openid_connect
+      # part: client_telemetry
+      - client_telemetry
+      # end part: client_telemetry
+  # What `just remove` leaves of the same parts: `removal` stays, with the markers of the parts
+  # kept and the checks that read them.
+  - name: removed
+    task: remove
     parts:
       - invitations # part: invitations
       # part: workspace_creation

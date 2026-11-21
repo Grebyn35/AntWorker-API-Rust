@@ -1,5 +1,5 @@
 //! The tests' stand-in provider, which only the tests' build compiles, so the tests of the
-//! behaviors that every provider shares hold in a fork that removes every provider (the auth
+//! behaviors that every provider shares hold in a fork that keeps no provider (the auth
 //! spec's "Signing in through a provider"). It follows OpenID Connect, so it is a declaration:
 //! its endpoints, which the configured client sends to the tests' origin (SEC-10), answer a token
 //! for a code, and, for a token, the claims of the user, whose `proved` says whether it proves
