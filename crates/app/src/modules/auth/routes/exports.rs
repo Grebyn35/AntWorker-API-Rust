@@ -9,7 +9,7 @@ use platform::{
     authn::Principal,
     errors::{Problem, RequestError},
     http::{ResourceResponse, Routes},
-    rate_limit::{LimitError, RateLimits},
+    rate_limit::RateLimits,
     types::Client,
 };
 use utoipa_axum::routes;
@@ -38,10 +38,7 @@ impl ExportRequests {
 pub(crate) fn export_routes() -> Routes<ExportRequests> {
     Routes::new().user(
         routes!(request_export),
-        &[
-            &RequestError::ReauthenticationRequired,
-            &LimitError::RateLimited,
-        ],
+        &[&RequestError::ReauthenticationRequired],
     )
 }
 

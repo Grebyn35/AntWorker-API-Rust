@@ -12,7 +12,7 @@ use platform::{
     authn::Principal,
     errors::{Problem, RequestError},
     http::{FieldErrors, Json, Routes, path_id},
-    rate_limit::{LimitError, RateLimits},
+    rate_limit::RateLimits,
     types::Client,
 };
 use serde::Deserialize;
@@ -36,7 +36,6 @@ pub(super) fn routes() -> Routes<Arc<Auth>> {
             &[
                 &RequestError::ReauthenticationRequired,
                 &AuthError::PasswordAlreadySet,
-                &LimitError::RateLimited,
             ],
         )
         .user(
@@ -45,7 +44,6 @@ pub(super) fn routes() -> Routes<Arc<Auth>> {
                 &RequestError::ReauthenticationRequired,
                 &AuthError::IdentityNotFound,
                 &AuthError::LastIdentity,
-                &LimitError::RateLimited,
             ],
         )
 }

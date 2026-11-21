@@ -8,7 +8,7 @@ use platform::{
     authn::Principal,
     errors::{Problem, RequestError},
     http::{Cookies, FieldErrors, Json, Routes},
-    rate_limit::{LimitError, RateLimits},
+    rate_limit::RateLimits,
     types::{Client, Invalid, Secret},
 };
 use serde::Deserialize;
@@ -60,7 +60,6 @@ pub(crate) fn provider_routes() -> Routes<ProviderRoutes> {
         &AuthError::EmailInUse,
         &AuthError::IdentityInUse,
         &AuthError::ProviderAddressMissing,
-        &LimitError::RateLimited,
     ]);
     let mut reauthentication = exchange.to_vec();
     reauthentication.extend([
@@ -68,7 +67,6 @@ pub(crate) fn provider_routes() -> Routes<ProviderRoutes> {
         &AuthError::WrongIdentity,
         &AuthError::SecondFactorRequired,
         &AuthError::WrongSecondFactor,
-        &LimitError::RateLimited,
     ]);
     let mut link = exchange.to_vec();
     link.extend([
@@ -76,7 +74,6 @@ pub(crate) fn provider_routes() -> Routes<ProviderRoutes> {
         &RequestError::ReauthenticationRequired,
         &AuthError::ProviderAlreadyLinked,
         &AuthError::IdentityInUse,
-        &LimitError::RateLimited,
     ]);
     Routes::new()
         .public(routes!(sign_in_through), &sign_in)

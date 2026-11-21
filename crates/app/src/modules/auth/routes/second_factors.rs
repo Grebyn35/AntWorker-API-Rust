@@ -13,7 +13,7 @@ use platform::{
     authn::Principal,
     errors::{Problem, RequestError},
     http::{Cookies, FieldErrors, Json, Routes, expired_cookie, session_cookie},
-    rate_limit::{LimitError, RateLimits},
+    rate_limit::RateLimits,
     types::{Client, Invalid, Secret, Timestamp},
 };
 use serde::{Deserialize, Serialize};
@@ -40,7 +40,6 @@ pub(super) fn routes() -> Routes<Arc<Auth>> {
             &[
                 &AuthError::InvalidChallenge,
                 &AuthError::InvalidSecondFactor,
-                &LimitError::RateLimited,
             ],
         )
         .enrolling(routes!(second_factors), &[])
@@ -50,18 +49,13 @@ pub(super) fn routes() -> Routes<Arc<Auth>> {
         )
         .enrolling(
             routes!(confirm_setup),
-            &[
-                &AuthError::WrongCode,
-                &AuthError::SetupExpired,
-                &LimitError::RateLimited,
-            ],
+            &[&AuthError::WrongCode, &AuthError::SetupExpired],
         )
         .user(
             routes!(remove_app),
             &[
                 &RequestError::ReauthenticationRequired,
                 &AuthError::SecondFactorMandatory,
-                &LimitError::RateLimited,
             ],
         )
         .user(
@@ -69,7 +63,6 @@ pub(super) fn routes() -> Routes<Arc<Auth>> {
             &[
                 &RequestError::ReauthenticationRequired,
                 &AuthError::NoSecondFactor,
-                &LimitError::RateLimited,
             ],
         )
 }

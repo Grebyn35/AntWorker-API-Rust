@@ -68,11 +68,8 @@ pub(crate) async fn change(
     database: &Database,
     email_on: bool,
     change: Change,
-    email: &str,
+    email: &EmailAddress,
 ) -> Result<Result<(), Refusal>, Internal> {
-    let Ok(email) = EmailAddress::parse(email) else {
-        return Ok(Err(Refusal::NotAnAddress));
-    };
     #[expect(
         clippy::disallowed_methods,
         reason = "the operator's subcommand acts for no request and no job (ARCH-14)"
@@ -81,12 +78,13 @@ pub(crate) async fn change(
     // The user's row first, as the user's own changes and a deletion of the account lock it
     // (DATA-20). An account that a deletion took, or that changed its address, while the lock
     // waited holds the address no more.
-    let holder = accounts::holder_for_update(&mut uow, &email)
-        .await
-        .map_err(|error| match error {
-            AccountsError::Internal(error) => error,
-            other => Internal::new(other),
-        })?;
+    let holder =
+        accounts::holder_for_update(&mut uow, email)
+            .await
+            .map_err(|error| match error {
+                AccountsError::Internal(error) => error,
+                other => Internal::new(other),
+            })?;
     let Some((user, address)) = holder else {
         return Ok(Err(Refusal::NoAccount));
     };

@@ -70,6 +70,7 @@ pub struct Posted {
 pub struct Note {
     /// What the test tells the note by.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(nullable = false)]
     pub label: Option<String>,
 }
 

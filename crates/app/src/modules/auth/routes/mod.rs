@@ -25,7 +25,7 @@ use platform::{
     authn::Principal,
     errors::{Problem, RequestError},
     http::{Cookies, FieldErrors, Json, Routes},
-    rate_limit::{LimitError, RateLimits},
+    rate_limit::RateLimits,
     types::{Client, EmailAddress, Secret},
 };
 use serde::Deserialize;
@@ -55,10 +55,7 @@ pub(crate) fn routes() -> Routes<Arc<Auth>> {
         .merge(reauthentication::routes())
         .merge(identities::routes())
         .events(&[&SESSION_CREATED, &SESSION_ENDED])
-        .public(
-            routes!(register),
-            &[&AuthError::EmailInUse, &LimitError::RateLimited],
-        )
+        .public(routes!(register), &[&AuthError::EmailInUse])
         .public(routes!(sign_in), &[&AuthError::InvalidCredentials])
         .public(
             routes!(refresh),
@@ -70,7 +67,6 @@ pub(crate) fn routes() -> Routes<Arc<Auth>> {
                 &RequestError::ReauthenticationRequired,
                 &AuthError::OwnsSharedWorkspace,
                 &AuthError::AccountChanged,
-                &LimitError::RateLimited,
             ],
         )
 }

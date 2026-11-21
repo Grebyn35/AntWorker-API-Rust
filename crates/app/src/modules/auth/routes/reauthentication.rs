@@ -9,7 +9,7 @@ use platform::{
     authn::Principal,
     errors::{Problem, RequestError},
     http::{FieldErrors, Json, Routes},
-    rate_limit::{LimitError, RateLimits},
+    rate_limit::RateLimits,
     types::Client,
 };
 use serde::Deserialize;
@@ -32,7 +32,6 @@ pub(super) fn routes() -> Routes<Arc<Auth>> {
             &AuthError::WrongPassword,
             &AuthError::SecondFactorRequired,
             &AuthError::WrongSecondFactor,
-            &LimitError::RateLimited,
         ],
     )
 }

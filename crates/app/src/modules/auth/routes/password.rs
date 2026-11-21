@@ -12,7 +12,7 @@ use platform::{
     authn::Principal,
     errors::{Problem, RequestError},
     http::{FieldErrors, Json, Routes},
-    rate_limit::{LimitError, RateLimits},
+    rate_limit::RateLimits,
     types::{Client, EmailAddress},
 };
 use serde::Deserialize;
@@ -29,17 +29,13 @@ use crate::modules::auth::{
 /// The routes that reset and change a password (AUTH-034 to AUTH-041).
 pub(super) fn routes() -> Routes<Arc<Auth>> {
     Routes::new()
-        .public(
-            routes!(request_reset),
-            &[&LimitError::RateLimited, &RequestError::FeatureDisabled],
-        )
+        .public(routes!(request_reset), &[&RequestError::FeatureDisabled])
         .public(
             routes!(confirm_reset),
             &[
                 &AuthError::InvalidResetCode,
                 &AuthError::SecondFactorMissing,
                 &AuthError::InvalidSecondFactor,
-                &LimitError::RateLimited,
                 &RequestError::FeatureDisabled,
             ],
         )
@@ -49,7 +45,6 @@ pub(super) fn routes() -> Routes<Arc<Auth>> {
                 &AuthError::WrongPassword,
                 &AuthError::SecondFactorRequired,
                 &AuthError::WrongSecondFactor,
-                &LimitError::RateLimited,
             ],
         )
 }

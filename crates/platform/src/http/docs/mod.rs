@@ -20,11 +20,13 @@ mod download;
 // part: files
 mod files;
 // end part: files
+mod presence;
 
 pub(super) use download::download;
 // part: files
 pub(super) use files::{public, signed};
 // end part: files
+pub(super) use presence::require_nullable;
 
 use super::Access;
 use crate::{

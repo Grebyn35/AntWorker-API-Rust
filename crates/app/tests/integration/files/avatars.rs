@@ -73,6 +73,7 @@ async fn accounts_008_setting_an_avatar_stores_it_records_it_and_publishes_it() 
 
     assert_eq!(response.status, 200);
     assert_eq!(response.header("etag"), "\"3\"");
+    assert_eq!(response.header("content-location"), "/v1/users/me");
     let body = response.json();
     assert_eq!(body["id"], ada.user_id);
     assert_eq!(body["name"], "Ada Lovelace");

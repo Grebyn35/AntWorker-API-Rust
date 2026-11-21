@@ -49,7 +49,10 @@ const SET_ERRORS: [&dyn ErrorCode; 3] = [
     ),
     responses(
         (status = 200, description = "The workspace, with its new picture.", body = Workspace,
-            headers(("etag" = String, description = "The workspace's new version (API-13)."))),
+            headers(
+                ("etag" = String, description = "The workspace's new version (API-13)."),
+                ("content-location" = String, description = "The path of the workspace, which the body represents (API-13)."),
+            )),
     )
 )]
 async fn set_picture(
@@ -75,7 +78,10 @@ async fn set_picture(
     let bytes = uploaded.bytes.clone();
     let current = service::set(&pictures, authorize, bytes, if_match.versions()).await?;
     drop(uploaded);
-    Ok(ResourceResponse::ok(current.workspace).tagged(current.version))
+    let workspace = format!("/v1/workspaces/{}", current.workspace.id);
+    Ok(ResourceResponse::ok(current.workspace)
+        .tagged(current.version)
+        .representing(workspace))
 }
 
 /// Removes the workspace's picture, if it has one.

@@ -27,6 +27,9 @@ pub(crate) fn avatar_routes() -> Routes<Avatars> {
         .user(routes!(remove_avatar), &[])
 }
 
+/// The path of the caller's record, which a change of their avatar changes (API-13).
+const RECORD: &str = "/v1/users/me";
+
 /// What setting an avatar can answer besides the pipeline's own (ERR-13).
 const SET_ERRORS: [&dyn ErrorCode; 3] = [
     &AccountsError::AvatarNotImage,
@@ -47,7 +50,10 @@ const SET_ERRORS: [&dyn ErrorCode; 3] = [
     ),
     responses(
         (status = 200, description = "The caller's record, with its new avatar.", body = Profile,
-            headers(("etag" = String, description = "The record's new version (API-13)."))),
+            headers(
+                ("etag" = String, description = "The record's new version (API-13)."),
+                ("content-location" = String, description = "The path of the caller's record, which the body represents (API-13)."),
+            )),
     )
 )]
 async fn set_avatar(
@@ -66,7 +72,9 @@ async fn set_avatar(
     let bytes = uploaded.bytes.clone();
     let current = service::set(&avatars, &client, &principal, bytes, if_match.versions()).await?;
     drop(uploaded);
-    Ok(ResourceResponse::ok(current.profile).tagged(current.version))
+    Ok(ResourceResponse::ok(current.profile)
+        .tagged(current.version)
+        .representing(RECORD.to_owned()))
 }
 
 /// Removes the caller's avatar, if they have one.

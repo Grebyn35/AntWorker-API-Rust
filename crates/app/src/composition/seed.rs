@@ -129,11 +129,14 @@ async fn make_superadmin_for_seed(
     email: &str,
 ) -> Result<(), platform::errors::Internal> {
     let email_on = resources.mail.is_on();
+    let email = platform::types::EmailAddress::parse(email).map_err(|_| {
+        platform::errors::Internal::new("the seed's superadmin has no email address")
+    })?;
     superadmins::change(
         &resources.database,
         email_on,
         superadmins::Change::Add,
-        email,
+        &email,
     )
     .await?
     .map_err(|refusal| {

@@ -12,7 +12,7 @@ use platform::{
     authn::Principal,
     errors::{Problem, RequestError},
     http::{FieldErrors, Json, Routes},
-    rate_limit::{LimitError, RateLimits},
+    rate_limit::RateLimits,
     types::{Client, EmailAddress},
 };
 use serde::{Deserialize, Serialize};
@@ -33,7 +33,6 @@ pub(super) fn routes() -> Routes<Arc<Auth>> {
             routes!(request_code),
             &[
                 &AuthError::EmailAlreadyVerified,
-                &LimitError::RateLimited,
                 &RequestError::FeatureDisabled,
             ],
         )
@@ -43,7 +42,6 @@ pub(super) fn routes() -> Routes<Arc<Auth>> {
                 &AuthError::EmailAlreadyVerified,
                 &AuthError::WrongCode,
                 &AuthError::CodeExpired,
-                &LimitError::RateLimited,
                 &RequestError::FeatureDisabled,
             ],
         )

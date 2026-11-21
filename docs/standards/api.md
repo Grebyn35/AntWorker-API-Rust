@@ -5,7 +5,7 @@ The HTTP contract every route follows. The generated OpenAPI document is the aut
 ## Paths and methods
 
 ### API-01 Paths are versioned, plural and lowercase
-Every route lives under `/v1`, except the health probes `/health/live` and `/health/ready` (OPS-05), which load balancers call without a version, and the API reference that development serves at `/docs` (PLATFORM-052), which no client is built against. Collections are plural nouns, and segments of more than one word use kebab-case (`/order-items`). Path parameters are named `{<resource>_id}`.
+Every route lives under `/v1`, except the health probes `/health/live` and `/health/ready` (OPS-05), which load balancers call without a version, and the API reference that development serves at `/docs` (PLATFORM-052), which no client is built against. Collections are plural nouns, and segments of more than one word use kebab-case (`/order-items`). A path parameter is named `{<resource>_id}`, after the resource whose ID it holds, which the segment before it may name in other words: `/members/{user_id}` holds the ID of the member's user.
 - Why: a path reads as a predictable address for a resource (D8).
 - Check: `ci: check-openapi` (a path lint over the committed document).
 
@@ -29,7 +29,7 @@ No header selects a workspace.
 ### API-04 Status codes follow the outcome
 | Outcome | Status |
 |---|---|
-| A read, or an update that returns the resource | 200 |
+| A read, an update that returns the resource, or an action that answers with a body | 200 |
 | A range of a download's bytes, with `Content-Range` (PLATFORM-081) | 206 |
 | A download whose bytes the client holds, as its `If-None-Match` names them (PLATFORM-081) | 304 |
 | A create, with a `Location` header and the created resource | 201 |
@@ -43,10 +43,10 @@ No header selects a workspace.
 ## Bodies
 
 ### API-05 Responses are the resource itself
-A success body is the resource object, with no envelope. A list is `{"items": [...], "next_cursor": "..." | null}`. Fields are `snake_case`. Clients ignore fields they don't recognize.
+A success body is the resource object, with no envelope. A list is `{"items": [...], "next_cursor": "..." | null}`. A resource may hold its sub-resources as an array where a constraint of the database bounds their number, as a user's identities hold one provider identity at most for each provider (AUTH-085); a collection that nothing bounds is a list (API-06). Fields are `snake_case`. A field that every response holds, as its value or as `null`, is `required` in its schema, and a field that a response may leave out is documented as one that is never `null`. Clients ignore fields they don't recognize.
 The telemetry proxy's routes answer what the OpenTelemetry Protocol asks of an endpoint, a 200 with its full success in the media type of the request, since an exporter built for the protocol reads it (CLIENT_TELEMETRY-004). <!-- part: client_telemetry -->
 - Why: one shape for every resource and every list (D8).
-- Check: `ci: check-openapi`.
+- Check: `ci: check-openapi` (the names of properties, a list's shape, and that a property which may be `null` is `required` in each schema that no request gives, as the comment of [its `presence.rs`](../../crates/xtask/src/openapi/presence.rs) says which those are), plus `review` (an array of sub-resources that a resource holds, and a field that a response may leave out).
 
 ### API-06 Lists use opaque cursors
 Every list is paginated by keyset. `limit` defaults to 50 and is capped at 100. `cursor` is an opaque base64url string that encodes the full sort key, with the row's ID as the tiebreaker. Lists move forward only, unless a module spec defines backward paging for a route.
@@ -78,16 +78,16 @@ Unknown query parameters are rejected with 400. Filters are explicit, named para
 - Check: `ci: check-layers` (the API-08 check covers query types), plus `test`.
 
 ### API-10 Input becomes domain types at the boundary
-A module's routes convert each request's input into the domain types its service takes, and report every value they refuse in one response (API-07): a body's request type converts through `TryFrom`, and a query's parameters, each read as text, through `Page` and `Search`, which read a list's paging and its `search` ([platform spec](../spec/platform.md#lists)), and each filter's domain type. Service functions, and the values an email is rendered from, take domain types, never raw strings for values that have a domain type (D25).
+A module's routes convert each request's input into the domain types its service takes, and report every value they refuse in one response (API-07): a body's request type converts through `TryFrom`, and a query's parameters, each read as text, through `Page` and `Search`, which read a list's paging and its `search` ([platform spec](../spec/platform.md#lists)), and each filter's domain type. A subcommand's arguments, which no route reads, are converted before its operation runs: by the function of the composition root that runs the subcommand, through each domain type's own reader, or by the constructor of the type that the operation takes. Service functions, and the values an email is rendered from, take domain types, never raw strings for values that have a domain type (D25).
 - Why: a value can't skip validation, whatever its source.
-- Check: `test` (each route's invalid-input test asserts that every invalid field is reported), plus `review`.
+- Check: `test` (each route's invalid-input test asserts that every invalid field is reported, and a generated test sends each parameter of each list a value that none takes, and expects `request.invalid_query` to name it alone), plus `review`.
 
 ### API-11 Scalar formats
 Timestamps are RFC 3339 in UTC with a `Z` suffix, at microsecond precision. A moment that a request gives, such as a list's filter, may hold from 0 to 6 digits of a second's fraction, since a client's own clock may write fewer (PLATFORM-088).
 A signed URL's `expires` is the exception, the Unix time in seconds, which its signature covers, while the file that gives the URL gives the same time as RFC 3339 (PLATFORM-080, FILES-021). <!-- part: files -->
 IDs are UUID strings, which the database generates (DATA-08), with three exceptions: a trace ID is the 32 lowercase hexadecimal digits of W3C Trace Context (API-07, API-16), a device ID is the string its client chooses for its installation, which the auth spec bounds (AUTH-017), and a client ID is the one that an OAuth provider issued for a deployment's client (AUTH-081). Closed sets are `snake_case` strings. Three kinds of string that a schema lists aren't closed sets of this rule: a problem's codes, which ERR-02 shapes, the type of a frame of the stream, which API-19 shapes, and the action of an audit entry, which the audit spec shapes (AUDIT-009, AUDIT-014).
 - Why: one representation per kind of value.
-- Check: `ci: check-openapi` (formats in the committed schema), plus `review` (the shared serializers in `platform::types` are used).
+- Check: `ci: check-openapi` (the formats of the properties and the parameters that the comment of [its `schemas.rs`](../../crates/xtask/src/openapi/schemas.rs) names: a timestamp by a property's name, an ID by a property's or a parameter's), plus `review` (the shared serializers in `platform::types` are used, and a parameter that gives a moment is a `lists::Moment`, whose schema holds the format).
 
 ## Behavior
 
@@ -106,7 +106,8 @@ IDs are UUID strings, which the database generates (DATA-08), with three excepti
 - Check: `test` (PLATFORM-036).
 
 ### API-13 Editable resources support optimistic concurrency
-A resource a client can edit returns an `ETag` built from its version (PLATFORM-071). An update carrying `If-Match` with a stale ETag fails with 412. An update without `If-Match` applies as sent.
+A resource a client can edit returns an `ETag` built from its version (PLATFORM-071). An update carrying `If-Match` with a stale ETag fails with 412. An update without `If-Match` applies as sent. A part of a resource that is written at a path of its own, and has no representation of its own, is an update of the resource: its write takes the resource's `If-Match`, and a `PUT` of it answers the resource, with the resource's new `ETag` and a `Content-Location` that names the resource, whose representation the body is (RFC 9110, §8.7).
+A user's avatar and a workspace's picture are such parts (ACCOUNTS-008, WORKSPACES-019). <!-- part: files -->
 - Why: concurrent edits can't silently overwrite each other (D24).
 - Check: `test`.
 

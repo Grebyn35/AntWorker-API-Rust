@@ -387,7 +387,6 @@ pub enum SuperadminRefused {
 impl From<superadmins::Refusal> for SuperadminRefused {
     fn from(refusal: superadmins::Refusal) -> Self {
         match refusal {
-            superadmins::Refusal::NotAnAddress => Self::NotAnAddress,
             superadmins::Refusal::NoAccount => Self::NoAccount,
             superadmins::Refusal::AddressUnproved => Self::AddressUnproved,
             superadmins::Refusal::AlreadySuperadmin => Self::AlreadySuperadmin,
@@ -419,6 +418,9 @@ async fn superadmin(
             "the account that holds the address is no superadmin any more",
         ),
         SuperadminCommand::List => return Ok(listed(superadmins::listed(database).await?)),
+    };
+    let Ok(email) = platform::types::EmailAddress::parse(&email) else {
+        return Err(SuperadminRefused::NotAnAddress);
     };
     superadmins::change(database, mail.is_on(), change, &email).await??;
     Ok(Done::of(done))

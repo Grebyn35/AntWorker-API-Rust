@@ -120,15 +120,8 @@
         "description": "The details of `workspace.created` and `workspace.deleted`, which say how the caller acted,\nwhen they acted other than as a user of the workspace.",
         "properties": {
           "access": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/Access",
-                "description": "`superadmin` for a superadmin's creation or deletion of the workspace (WORKSPACES-030,\nWORKSPACES-031)."
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "$ref": "#/components/schemas/Access",
+            "description": "`superadmin` for a superadmin's creation or deletion of the workspace (WORKSPACES-030,\nWORKSPACES-031)."
           }
         },
         "type": "object"
@@ -702,22 +695,12 @@
         "description": "The details of `access.denied`: what the refused request needed.",
         "properties": {
           "access": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/Access",
-                "description": "`superadmin` for a superadmin's route, which the caller, who is no superadmin, called."
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "$ref": "#/components/schemas/Access",
+            "description": "`superadmin` for a superadmin's route, which the caller, who is no superadmin, called."
           },
           "permission": {
             "description": "The permission that the route asks of a member of the workspace, which the caller's role\ndoesn't hold, or which a non-member holds none of.",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": "string"
           }
         },
         "type": "object"
@@ -902,7 +885,8 @@
           }
         },
         "required": [
-          "ip"
+          "ip",
+          "user_agent"
         ],
         "type": "object"
       },
@@ -951,7 +935,9 @@
           "id",
           "state",
           "created_at",
-          "expires_at"
+          "expires_at",
+          "ready_at",
+          "size_bytes"
         ],
         "type": "object"
       },
@@ -1318,7 +1304,9 @@
           "size_bytes",
           "visibility",
           "content_url",
-          "created_at"
+          "created_at",
+          "content_url_expires_at",
+          "uploader_id"
         ],
         "type": "object"
       },
@@ -1621,7 +1609,8 @@
           }
         },
         "required": [
-          "providers"
+          "providers",
+          "password"
         ],
         "type": "object"
       },
@@ -1808,7 +1797,8 @@
           "email",
           "role",
           "created_at",
-          "expires_at"
+          "expires_at",
+          "inviter_id"
         ],
         "type": "object"
       },
@@ -2445,7 +2435,9 @@
                 "id",
                 "state",
                 "created_at",
-                "expires_at"
+                "expires_at",
+                "ready_at",
+                "size_bytes"
               ],
               "type": "object"
             },
@@ -2539,7 +2531,9 @@
                 "size_bytes",
                 "visibility",
                 "content_url",
-                "created_at"
+                "created_at",
+                "content_url_expires_at",
+                "uploader_id"
               ],
               "type": "object"
             },
@@ -2610,7 +2604,8 @@
                 "email",
                 "role",
                 "created_at",
-                "expires_at"
+                "expires_at",
+                "inviter_id"
               ],
               "type": "object"
             },
@@ -2728,7 +2723,13 @@
                 "action",
                 "resource_type",
                 "details",
-                "created_at"
+                "created_at",
+                "actor_user_id",
+                "client",
+                "resource_id",
+                "target_user_id",
+                "trace_id",
+                "workspace_id"
               ],
               "type": "object"
             },
@@ -2789,7 +2790,8 @@
                 "name",
                 "email",
                 "role",
-                "joined_at"
+                "joined_at",
+                "avatar_url"
               ],
               "type": "object"
             },
@@ -2855,7 +2857,8 @@
                 "workspace_id",
                 "workspace_name",
                 "role",
-                "expires_at"
+                "expires_at",
+                "inviter_name"
               ],
               "type": "object"
             },
@@ -2948,7 +2951,10 @@
                 "refresh_token_expires_at",
                 "expires_at",
                 "authenticated_at",
-                "current"
+                "current",
+                "device_id",
+                "device_name",
+                "provider"
               ],
               "type": "object"
             },
@@ -3031,7 +3037,8 @@
                 "size_bytes",
                 "visibility",
                 "content_url",
-                "created_at"
+                "created_at",
+                "content_url_expires_at"
               ],
               "type": "object"
             },
@@ -3095,7 +3102,8 @@
                 "name",
                 "role",
                 "permissions",
-                "joined_at"
+                "joined_at",
+                "picture_url"
               ],
               "type": "object"
             },
@@ -3263,7 +3271,13 @@
           "action",
           "resource_type",
           "details",
-          "created_at"
+          "created_at",
+          "actor_user_id",
+          "client",
+          "resource_id",
+          "target_user_id",
+          "trace_id",
+          "workspace_id"
         ],
         "type": "object"
       },
@@ -3303,7 +3317,8 @@
           "name",
           "email",
           "role",
-          "joined_at"
+          "joined_at",
+          "avatar_url"
         ],
         "type": "object"
       },
@@ -4248,7 +4263,8 @@
           "id",
           "email",
           "name",
-          "email_verified"
+          "email_verified",
+          "avatar_url"
         ],
         "type": "object"
       },
@@ -4584,7 +4600,8 @@
           "workspace_id",
           "workspace_name",
           "role",
-          "expires_at"
+          "expires_at",
+          "inviter_name"
         ],
         "type": "object"
       },
@@ -4960,7 +4977,8 @@
           }
         },
         "required": [
-          "recovery_codes_left"
+          "recovery_codes_left",
+          "totp"
         ],
         "type": "object"
       },
@@ -5042,7 +5060,10 @@
           "expires_at",
           "authenticated_at",
           "email_verification_required",
-          "second_factor_setup_required"
+          "second_factor_setup_required",
+          "device_id",
+          "device_name",
+          "provider"
         ],
         "type": "object"
       },
@@ -5283,7 +5304,10 @@
           "refresh_token_expires_at",
           "expires_at",
           "authenticated_at",
-          "current"
+          "current",
+          "device_id",
+          "device_name",
+          "provider"
         ],
         "type": "object"
       },
@@ -5435,7 +5459,10 @@
           "expires_at",
           "authenticated_at",
           "email_verification_required",
-          "second_factor_setup_required"
+          "second_factor_setup_required",
+          "device_id",
+          "device_name",
+          "provider"
         ],
         "type": "object"
       },
@@ -6046,10 +6073,7 @@
         "properties": {
           "provider": {
             "description": "The provider's key, as the capabilities list it (AUTH-081).",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": "string"
           }
         },
         "type": "object"
@@ -6159,7 +6183,8 @@
           "size_bytes",
           "visibility",
           "content_url",
-          "created_at"
+          "created_at",
+          "content_url_expires_at"
         ],
         "type": "object"
       },
@@ -6577,7 +6602,8 @@
           "name",
           "role",
           "permissions",
-          "created_at"
+          "created_at",
+          "picture_url"
         ],
         "type": "object"
       },
@@ -6682,7 +6708,8 @@
           "name",
           "role",
           "permissions",
-          "joined_at"
+          "joined_at",
+          "picture_url"
         ],
         "type": "object"
       },
@@ -7325,7 +7352,6 @@
                       "properties": {
                         "code": {
                           "enum": [
-                            "request.rate_limited",
                             "request.rate_limited"
                           ],
                           "type": "string"
@@ -7337,7 +7363,7 @@
                 }
               }
             },
-            "description": "`request.rate_limited`: Too many requests. `request.rate_limited`: Too many requests.",
+            "description": "`request.rate_limited`: Too many requests.",
             "headers": {
               "ratelimit": {
                 "description": "The quota left in the bucket that decided the response, and the seconds until its window ends.",
@@ -7631,7 +7657,6 @@
                       "properties": {
                         "code": {
                           "enum": [
-                            "request.rate_limited",
                             "request.rate_limited"
                           ],
                           "type": "string"
@@ -7643,7 +7668,7 @@
                 }
               }
             },
-            "description": "`request.rate_limited`: Too many requests. `request.rate_limited`: Too many requests.",
+            "description": "`request.rate_limited`: Too many requests.",
             "headers": {
               "ratelimit": {
                 "description": "The quota left in the bucket that decided the response, and the seconds until its window ends.",
@@ -10477,7 +10502,6 @@
                       "properties": {
                         "code": {
                           "enum": [
-                            "request.rate_limited",
                             "request.rate_limited"
                           ],
                           "type": "string"
@@ -10489,7 +10513,7 @@
                 }
               }
             },
-            "description": "`request.rate_limited`: Too many requests. `request.rate_limited`: Too many requests.",
+            "description": "`request.rate_limited`: Too many requests.",
             "headers": {
               "ratelimit": {
                 "description": "The quota left in the bucket that decided the response, and the seconds until its window ends.",
@@ -11106,7 +11130,6 @@
                       "properties": {
                         "code": {
                           "enum": [
-                            "request.rate_limited",
                             "request.rate_limited"
                           ],
                           "type": "string"
@@ -11118,7 +11141,7 @@
                 }
               }
             },
-            "description": "`request.rate_limited`: Too many requests. `request.rate_limited`: Too many requests.",
+            "description": "`request.rate_limited`: Too many requests.",
             "headers": {
               "ratelimit": {
                 "description": "The quota left in the bucket that decided the response, and the seconds until its window ends.",
@@ -12525,7 +12548,6 @@
                       "properties": {
                         "code": {
                           "enum": [
-                            "request.rate_limited",
                             "request.rate_limited"
                           ],
                           "type": "string"
@@ -12537,7 +12559,7 @@
                 }
               }
             },
-            "description": "`request.rate_limited`: Too many requests. `request.rate_limited`: Too many requests.",
+            "description": "`request.rate_limited`: Too many requests.",
             "headers": {
               "ratelimit": {
                 "description": "The quota left in the bucket that decided the response, and the seconds until its window ends.",
@@ -12860,7 +12882,6 @@
                       "properties": {
                         "code": {
                           "enum": [
-                            "request.rate_limited",
                             "request.rate_limited"
                           ],
                           "type": "string"
@@ -12872,7 +12893,7 @@
                 }
               }
             },
-            "description": "`request.rate_limited`: Too many requests. `request.rate_limited`: Too many requests.",
+            "description": "`request.rate_limited`: Too many requests.",
             "headers": {
               "ratelimit": {
                 "description": "The quota left in the bucket that decided the response, and the seconds until its window ends.",
@@ -14451,6 +14472,12 @@
             },
             "description": "The caller's record, with its new avatar.",
             "headers": {
+              "content-location": {
+                "description": "The path of the caller's record, which the body represents (API-13).",
+                "schema": {
+                  "type": "string"
+                }
+              },
               "etag": {
                 "description": "The record's new version (API-13).",
                 "schema": {
@@ -15074,7 +15101,6 @@
                       "properties": {
                         "code": {
                           "enum": [
-                            "request.rate_limited",
                             "request.rate_limited"
                           ],
                           "type": "string"
@@ -15086,7 +15112,7 @@
                 }
               }
             },
-            "description": "`request.rate_limited`: Too many requests. `request.rate_limited`: Too many requests.",
+            "description": "`request.rate_limited`: Too many requests.",
             "headers": {
               "ratelimit": {
                 "description": "The quota left in the bucket that decided the response, and the seconds until its window ends.",
@@ -15465,7 +15491,6 @@
                       "properties": {
                         "code": {
                           "enum": [
-                            "request.rate_limited",
                             "request.rate_limited"
                           ],
                           "type": "string"
@@ -15477,7 +15502,7 @@
                 }
               }
             },
-            "description": "`request.rate_limited`: Too many requests. `request.rate_limited`: Too many requests.",
+            "description": "`request.rate_limited`: Too many requests.",
             "headers": {
               "ratelimit": {
                 "description": "The quota left in the bucket that decided the response, and the seconds until its window ends.",
@@ -15804,7 +15829,6 @@
                       "properties": {
                         "code": {
                           "enum": [
-                            "request.rate_limited",
                             "request.rate_limited"
                           ],
                           "type": "string"
@@ -15816,7 +15840,7 @@
                 }
               }
             },
-            "description": "`request.rate_limited`: Too many requests. `request.rate_limited`: Too many requests.",
+            "description": "`request.rate_limited`: Too many requests.",
             "headers": {
               "ratelimit": {
                 "description": "The quota left in the bucket that decided the response, and the seconds until its window ends.",
@@ -16195,7 +16219,6 @@
                       "properties": {
                         "code": {
                           "enum": [
-                            "request.rate_limited",
                             "request.rate_limited"
                           ],
                           "type": "string"
@@ -16207,7 +16230,7 @@
                 }
               }
             },
-            "description": "`request.rate_limited`: Too many requests. `request.rate_limited`: Too many requests.",
+            "description": "`request.rate_limited`: Too many requests.",
             "headers": {
               "ratelimit": {
                 "description": "The quota left in the bucket that decided the response, and the seconds until its window ends.",
@@ -17183,7 +17206,6 @@
                       "properties": {
                         "code": {
                           "enum": [
-                            "request.rate_limited",
                             "request.rate_limited"
                           ],
                           "type": "string"
@@ -17195,7 +17217,7 @@
                 }
               }
             },
-            "description": "`request.rate_limited`: Too many requests. `request.rate_limited`: Too many requests.",
+            "description": "`request.rate_limited`: Too many requests.",
             "headers": {
               "ratelimit": {
                 "description": "The quota left in the bucket that decided the response, and the seconds until its window ends.",
@@ -20828,7 +20850,6 @@
                       "properties": {
                         "code": {
                           "enum": [
-                            "request.rate_limited",
                             "request.rate_limited"
                           ],
                           "type": "string"
@@ -20840,7 +20861,7 @@
                 }
               }
             },
-            "description": "`request.rate_limited`: Too many requests. `request.rate_limited`: Too many requests.",
+            "description": "`request.rate_limited`: Too many requests.",
             "headers": {
               "ratelimit": {
                 "description": "The quota left in the bucket that decided the response, and the seconds until its window ends.",
@@ -21222,7 +21243,6 @@
                       "properties": {
                         "code": {
                           "enum": [
-                            "request.rate_limited",
                             "request.rate_limited"
                           ],
                           "type": "string"
@@ -21234,7 +21254,7 @@
                 }
               }
             },
-            "description": "`request.rate_limited`: Too many requests. `request.rate_limited`: Too many requests.",
+            "description": "`request.rate_limited`: Too many requests.",
             "headers": {
               "ratelimit": {
                 "description": "The quota left in the bucket that decided the response, and the seconds until its window ends.",
@@ -21609,7 +21629,6 @@
                       "properties": {
                         "code": {
                           "enum": [
-                            "request.rate_limited",
                             "request.rate_limited"
                           ],
                           "type": "string"
@@ -21621,7 +21640,7 @@
                 }
               }
             },
-            "description": "`request.rate_limited`: Too many requests. `request.rate_limited`: Too many requests.",
+            "description": "`request.rate_limited`: Too many requests.",
             "headers": {
               "ratelimit": {
                 "description": "The quota left in the bucket that decided the response, and the seconds until its window ends.",
@@ -23034,7 +23053,6 @@
                       "properties": {
                         "code": {
                           "enum": [
-                            "request.rate_limited",
                             "request.rate_limited"
                           ],
                           "type": "string"
@@ -23046,7 +23064,7 @@
                 }
               }
             },
-            "description": "`request.rate_limited`: Too many requests. `request.rate_limited`: Too many requests.",
+            "description": "`request.rate_limited`: Too many requests.",
             "headers": {
               "ratelimit": {
                 "description": "The quota left in the bucket that decided the response, and the seconds until its window ends.",
@@ -23673,7 +23691,6 @@
                       "properties": {
                         "code": {
                           "enum": [
-                            "request.rate_limited",
                             "request.rate_limited"
                           ],
                           "type": "string"
@@ -23685,7 +23702,7 @@
                 }
               }
             },
-            "description": "`request.rate_limited`: Too many requests. `request.rate_limited`: Too many requests.",
+            "description": "`request.rate_limited`: Too many requests.",
             "headers": {
               "ratelimit": {
                 "description": "The quota left in the bucket that decided the response, and the seconds until its window ends.",
@@ -24007,7 +24024,6 @@
                       "properties": {
                         "code": {
                           "enum": [
-                            "request.rate_limited",
                             "request.rate_limited"
                           ],
                           "type": "string"
@@ -24019,7 +24035,7 @@
                 }
               }
             },
-            "description": "`request.rate_limited`: Too many requests. `request.rate_limited`: Too many requests.",
+            "description": "`request.rate_limited`: Too many requests.",
             "headers": {
               "ratelimit": {
                 "description": "The quota left in the bucket that decided the response, and the seconds until its window ends.",
@@ -24659,7 +24675,6 @@
                       "properties": {
                         "code": {
                           "enum": [
-                            "request.rate_limited",
                             "request.rate_limited"
                           ],
                           "type": "string"
@@ -24671,7 +24686,7 @@
                 }
               }
             },
-            "description": "`request.rate_limited`: Too many requests. `request.rate_limited`: Too many requests.",
+            "description": "`request.rate_limited`: Too many requests.",
             "headers": {
               "ratelimit": {
                 "description": "The quota left in the bucket that decided the response, and the seconds until its window ends.",
@@ -25857,7 +25872,6 @@
                       "properties": {
                         "code": {
                           "enum": [
-                            "request.rate_limited",
                             "request.rate_limited"
                           ],
                           "type": "string"
@@ -25869,7 +25883,7 @@
                 }
               }
             },
-            "description": "`request.rate_limited`: Too many requests. `request.rate_limited`: Too many requests.",
+            "description": "`request.rate_limited`: Too many requests.",
             "headers": {
               "ratelimit": {
                 "description": "The quota left in the bucket that decided the response, and the seconds until its window ends.",
@@ -26211,7 +26225,6 @@
                       "properties": {
                         "code": {
                           "enum": [
-                            "request.rate_limited",
                             "request.rate_limited"
                           ],
                           "type": "string"
@@ -26223,7 +26236,7 @@
                 }
               }
             },
-            "description": "`request.rate_limited`: Too many requests. `request.rate_limited`: Too many requests.",
+            "description": "`request.rate_limited`: Too many requests.",
             "headers": {
               "ratelimit": {
                 "description": "The quota left in the bucket that decided the response, and the seconds until its window ends.",
@@ -28151,7 +28164,6 @@
                       "properties": {
                         "code": {
                           "enum": [
-                            "request.rate_limited",
                             "request.rate_limited"
                           ],
                           "type": "string"
@@ -28163,7 +28175,7 @@
                 }
               }
             },
-            "description": "`request.rate_limited`: Too many requests. `request.rate_limited`: Too many requests.",
+            "description": "`request.rate_limited`: Too many requests.",
             "headers": {
               "ratelimit": {
                 "description": "The quota left in the bucket that decided the response, and the seconds until its window ends.",
@@ -28479,7 +28491,6 @@
                       "properties": {
                         "code": {
                           "enum": [
-                            "request.rate_limited",
                             "request.rate_limited"
                           ],
                           "type": "string"
@@ -28491,7 +28502,7 @@
                 }
               }
             },
-            "description": "`request.rate_limited`: Too many requests. `request.rate_limited`: Too many requests.",
+            "description": "`request.rate_limited`: Too many requests.",
             "headers": {
               "ratelimit": {
                 "description": "The quota left in the bucket that decided the response, and the seconds until its window ends.",
@@ -28807,7 +28818,6 @@
                       "properties": {
                         "code": {
                           "enum": [
-                            "request.rate_limited",
                             "request.rate_limited"
                           ],
                           "type": "string"
@@ -28819,7 +28829,7 @@
                 }
               }
             },
-            "description": "`request.rate_limited`: Too many requests. `request.rate_limited`: Too many requests.",
+            "description": "`request.rate_limited`: Too many requests.",
             "headers": {
               "ratelimit": {
                 "description": "The quota left in the bucket that decided the response, and the seconds until its window ends.",
@@ -38311,6 +38321,12 @@
             },
             "description": "The workspace, with its new picture.",
             "headers": {
+              "content-location": {
+                "description": "The path of the workspace, which the body represents (API-13).",
+                "schema": {
+                  "type": "string"
+                }
+              },
               "etag": {
                 "description": "The workspace's new version (API-13).",
                 "schema": {

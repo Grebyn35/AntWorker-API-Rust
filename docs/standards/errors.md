@@ -37,7 +37,7 @@ An error that only a subcommand reports, such as `seed`'s, implements no `ErrorC
 | `Internal` | 500 | Anything else |
 
 - Why: the same kind of failure always produces the same status (D8, D17).
-- Check: `compiler` (the category is an enum, and the mapping lives in one function).
+- Check: `compiler` (the category is an enum, and the mapping lives in one function), plus `ci: check-openapi` (an operation whose access level is `public` lists no code for a 403 but `request.origin_not_allowed`).
 
 ## Moving errors
 
@@ -89,6 +89,6 @@ A catch-panic layer turns any panic in a request into the ERR-08 response. In ev
 - Check: `test`.
 
 ### ERR-13 Every error code is in the catalog
-Every code appears in the generated OpenAPI document, with its category and meaning.
+Every code appears in the generated OpenAPI document, with its category and meaning. A response lists each of its codes once: the document gives every operation the codes that the pipeline answers there, `request.rate_limited` among them, so a route's builder takes only the errors that the route answers besides those.
 - Why: client developers can see every failure they need to handle.
-- Check: `ci: check-openapi` (every code that an `ErrorCode` of `platform` or `app` gives, outside tests, is among the codes of the document's problem responses, an operation's or a shared one's), plus `test` (every problem an integration test receives is one the document lists for its route, API-17).
+- Check: `ci: check-openapi` (every code that an `ErrorCode` of `platform` or `app` gives, outside tests, is among the codes of the document's problem responses, an operation's or a shared one's, and none of those responses lists a code twice), plus `test` (every problem an integration test receives is one the document lists for its route, API-17).

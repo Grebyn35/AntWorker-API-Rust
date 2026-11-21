@@ -33,14 +33,16 @@ fn named_id<'a>(
 
 /// The response that answers a resource: its body as JSON, `200`, or `201` with the `Location` of
 /// a resource just created (API-04), and, for an editable resource, the `ETag` that names its
-/// version, which every response that answers it carries (PLATFORM-071). A location that no header
-/// can hold, such as one with a line break, which no path the API builds from IDs has, answers the
-/// internal problem instead (ERR-08).
+/// version, which every response that answers it carries (PLATFORM-071). The answer to a write of
+/// a part of a resource, at the part's own path, names in `Content-Location` the resource that its
+/// body represents (API-13). A location that no header can hold, such as one with a line break,
+/// which no path the API builds from IDs has, answers the internal problem instead (ERR-08).
 #[derive(Debug)]
 pub struct ResourceResponse<T> {
     body: T,
     status: StatusCode,
     location: Option<String>,
+    represents: Option<String>,
     version: Option<Version>,
 }
 
@@ -51,6 +53,7 @@ impl<T: Serialize> ResourceResponse<T> {
             body,
             status: StatusCode::OK,
             location: None,
+            represents: None,
             version: None,
         }
     }
@@ -61,6 +64,7 @@ impl<T: Serialize> ResourceResponse<T> {
             body,
             status: StatusCode::CREATED,
             location: Some(location),
+            represents: None,
             version: None,
         }
     }
@@ -72,6 +76,7 @@ impl<T: Serialize> ResourceResponse<T> {
             body,
             status: StatusCode::ACCEPTED,
             location: Some(location),
+            represents: None,
             version: None,
         }
     }
@@ -82,6 +87,15 @@ impl<T: Serialize> ResourceResponse<T> {
         self.version = Some(version);
         self
     }
+
+    /// The response with `path` as its `Content-Location`: the path of the resource that its body
+    /// represents, where the request wrote a part of that resource at the part's own path
+    /// (API-13).
+    #[must_use]
+    pub fn representing(mut self, path: String) -> Self {
+        self.represents = Some(path);
+        self
+    }
 }
 
 impl<T: Serialize> IntoResponse for ResourceResponse<T> {
@@ -89,6 +103,9 @@ impl<T: Serialize> IntoResponse for ResourceResponse<T> {
         let mut headers = Vec::new();
         if let Some(location) = self.location {
             headers.push((header::LOCATION, location));
+        }
+        if let Some(path) = self.represents {
+            headers.push((header::CONTENT_LOCATION, path));
         }
         if let Some(version) = self.version {
             headers.push((header::ETAG, version.etag()));
@@ -121,6 +138,19 @@ mod tests {
         );
         assert_eq!(named_id(params.into_iter(), "user_id"), None);
         assert_eq!(named_id(params.into_iter(), "file_id"), None);
+    }
+
+    #[test]
+    fn api_13_a_response_that_represents_a_resource_names_it_in_content_location() {
+        let written = ResourceResponse::ok("body")
+            .tagged(Version::from_database(3))
+            .representing("/v1/things/1".to_owned())
+            .into_response();
+        let read = ResourceResponse::ok("body").into_response();
+
+        assert_eq!(written.headers()[header::CONTENT_LOCATION], "/v1/things/1");
+        assert_eq!(written.headers()[header::ETAG], "\"3\"");
+        assert!(!read.headers().contains_key(header::CONTENT_LOCATION));
     }
 
     #[test]

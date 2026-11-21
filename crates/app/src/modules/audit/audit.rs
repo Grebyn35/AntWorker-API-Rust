@@ -46,10 +46,12 @@ pub(super) struct Denial {
     /// The permission that the route asks of a member of the workspace, which the caller's role
     /// doesn't hold, or which a non-member holds none of.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(nullable = false)]
     pub(super) permission: Option<&'static str>,
     // part: superadmins
     /// `superadmin` for a superadmin's route, which the caller, who is no superadmin, called.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(nullable = false)]
     pub(super) access: Option<Access>,
     // end part: superadmins
 }

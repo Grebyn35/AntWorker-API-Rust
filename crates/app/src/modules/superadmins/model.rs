@@ -23,8 +23,6 @@ pub(crate) enum Change {
 /// Why a run of the subcommand `superadmin` changed nothing (SUPERADMINS-002, SUPERADMINS-003).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Refusal {
-    /// What the operator gave isn't an email address.
-    NotAnAddress,
     /// No account holds the address.
     NoAccount,
     /// Email is on, and the account that holds the address hasn't proved it.

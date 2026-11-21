@@ -11,6 +11,7 @@ pub mod events;
 mod lists;
 pub mod names;
 mod operations;
+mod presence;
 mod schemas;
 
 use serde_json::{Map, Value};
@@ -22,6 +23,10 @@ const DOCUMENT: &str = "openapi.json";
 
 /// The access levels of API-14.
 const ACCESS_LEVELS: [&str; 3] = ["public", "user", "workspace"];
+
+/// The one code that a public route answers 403 with: a change from an origin that the API
+/// doesn't list (ERR-03, PLATFORM-059).
+const ORIGIN_NOT_ALLOWED: &str = "request.origin_not_allowed";
 
 /// The keys of a path item that hold operations.
 const METHODS: [&str; 8] = [
@@ -63,6 +68,7 @@ pub fn check(repo: &Repo) -> Outcome {
     problems.extend(references(&document, &document));
     problems.extend(operations::check(&document));
     problems.extend(lists::check(&document));
+    problems.extend(presence::check(&document));
     problems.extend(schemas::problems(&document));
     problems.extend(names::operation_ids(&document));
     let responses = document["components"]["responses"]
@@ -185,11 +191,39 @@ fn operation_problems(path: &str, method: &str, operation: &Value) -> Vec<Proble
         if status.starts_with('4') || status.starts_with('5') {
             problems.extend(error_codes(&here, &needle, status, response, description));
         }
+        if status == "403" && operation["x-access"] == "public" {
+            problems.extend(
+                listed_codes(response)
+                    .into_iter()
+                    .filter(|code| *code != ORIGIN_NOT_ALLOWED)
+                    .map(|code| {
+                        (
+                            needle.clone(),
+                            format!(
+                                "{here} is public, and lists the 403 {code}: a caller without a \
+                                 credential gets a 401, and a 403 only for its origin (ERR-03)"
+                            ),
+                        )
+                    }),
+            );
+        }
     }
     problems
 }
 
-/// ERR-02 and ERR-13: an error response is a problem that lists its codes, each named
+/// The codes that an error response lists, in the order it lists them.
+fn listed_codes(response: &Value) -> Vec<&str> {
+    response["content"]["application/problem+json"]["schema"]["allOf"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|part| part["properties"]["code"]["enum"].as_array())
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect()
+}
+
+/// ERR-02 and ERR-13: an error response is a problem that lists its codes, each once and named
 /// `<namespace>.<snake_case_name>`, and its description gives each code's meaning.
 fn error_codes(
     here: &str,
@@ -198,15 +232,7 @@ fn error_codes(
     response: &Value,
     description: &str,
 ) -> Vec<Problem> {
-    let schema = &response["content"]["application/problem+json"]["schema"];
-    let codes: Vec<&str> = schema["allOf"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|part| part["properties"]["code"]["enum"].as_array())
-        .flatten()
-        .filter_map(Value::as_str)
-        .collect();
+    let codes = listed_codes(response);
     if codes.is_empty() {
         return vec![(
             needle.to_owned(),
@@ -214,7 +240,14 @@ fn error_codes(
         )];
     }
     let mut problems = Vec::new();
-    for code in codes {
+    for (index, code) in codes.iter().enumerate() {
+        if codes[..index].contains(code) {
+            problems.push((
+                needle.to_owned(),
+                format!("{here}: the {status} response lists the code {code} twice (ERR-13)"),
+            ));
+            continue;
+        }
         let named = code
             .split_once('.')
             .is_some_and(|(namespace, name)| is_snake_case(namespace) && is_snake_case(name));
@@ -433,6 +466,54 @@ mod tests {
                 "GET /v1/things answers 404 without a problem that lists its codes (ERR-13)",
                 "GET /v1/things: the 503 response doesn't say what request.timed_out means (ERR-13)",
             ]
+        );
+    }
+
+    #[test]
+    fn err_13_a_response_lists_each_code_once() {
+        let mut twice = operation();
+        twice["responses"]["503"]["content"]["application/problem+json"]["schema"]["allOf"][1]["properties"]
+            ["code"]["enum"] = json!(["request.timed_out", "request.timed_out"]);
+        let messages = findings(&document("/v1/things", twice, json!({})));
+        assert_eq!(
+            messages,
+            ["GET /v1/things: the 503 response lists the code request.timed_out twice (ERR-13)"]
+        );
+    }
+
+    #[test]
+    fn err_03_a_public_route_lists_no_403_but_its_origin_s() {
+        let forbidden = |codes: &[&str]| {
+            let mut public = operation();
+            let description: Vec<String> =
+                codes.iter().map(|code| format!("`{code}`: No.")).collect();
+            public["responses"]["403"] = json!({
+                "description": description.join(" "),
+                "content": { "application/problem+json": { "schema": { "allOf": [
+                    { "properties": { "code": { "enum": codes } } },
+                ] } } },
+            });
+            public
+        };
+        let origin = forbidden(&["request.origin_not_allowed"]);
+        let denied = forbidden(&["request.origin_not_allowed", "request.permission_denied"]);
+        let mut signed_in = denied.clone();
+        signed_in["x-access"] = json!("user");
+
+        assert_eq!(
+            findings(&document("/v1/things", origin, json!({}))),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            findings(&document("/v1/things", denied, json!({}))),
+            [
+                "GET /v1/things is public, and lists the 403 request.permission_denied: a caller \
+                 without a credential gets a 401, and a 403 only for its origin (ERR-03)"
+            ]
+        );
+        assert_eq!(
+            findings(&document("/v1/things", signed_in, json!({}))),
+            Vec::<String>::new()
         );
     }
 

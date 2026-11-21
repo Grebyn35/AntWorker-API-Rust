@@ -342,8 +342,8 @@ where
 
 /// The OpenAPI document of `parts`, the documents of the modules' routes, merged, with the event
 /// catalog `Frame` built from every frame type they register, which each stream's media type names
-/// (REALTIME-008). Building it again from a document it built, merged with more, builds the
-/// catalog of all of them.
+/// (REALTIME-008), and with every field that a response always holds required (API-05). Building
+/// it again from a document it built, merged with more, builds the catalog of all of them.
 pub fn document(parts: impl IntoIterator<Item = OpenApi>) -> OpenApi {
     let mut parts = parts.into_iter();
     let mut document = parts.next().unwrap_or_default();
@@ -351,6 +351,7 @@ pub fn document(parts: impl IntoIterator<Item = OpenApi>) -> OpenApi {
         document.merge(part);
     }
     docs::catalog(&mut document);
+    docs::require_nullable(&mut document);
     document
 }
 

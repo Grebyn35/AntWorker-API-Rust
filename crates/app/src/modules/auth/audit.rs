@@ -297,6 +297,7 @@ pub(crate) const ACTIONS: &[&dyn Catalogued] = &[
 pub(super) struct ThroughProvider {
     /// The provider's key, as the capabilities list it (AUTH-081).
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(nullable = false)]
     provider: Option<String>,
 }
 

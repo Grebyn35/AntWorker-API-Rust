@@ -143,6 +143,7 @@ pub(super) struct Acted {
     /// `superadmin` for a superadmin's creation or deletion of the workspace (WORKSPACES-030,
     /// WORKSPACES-031).
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(nullable = false)]
     pub(super) access: Option<Access>,
     // end part: superadmins
 }

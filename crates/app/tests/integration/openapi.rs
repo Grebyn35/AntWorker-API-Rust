@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 
 use http::{Method, StatusCode};
 
-use crate::support::{Api, run_binary};
+use crate::support::{Api, run_binary, users, workspaces};
 
 /// The document as committed at the repository's root.
 const COMMITTED: &str = include_str!("../../../../openapi.json");
@@ -70,6 +70,58 @@ async fn api_14_every_route_that_isn_t_public_refuses_a_caller_without_a_credent
         called += 1;
     }
     assert!(called >= 7, "only {called} routes that aren't public");
+}
+
+#[tokio::test]
+async fn api_10_every_parameter_of_a_list_refuses_a_value_that_is_none_by_its_name() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let workspace = workspaces::arrange(api.database(), "Acme", &[(&ada.user_id, "owner")]).await;
+    // part: superadmins
+    crate::support::superadmins::make_with_app(&api, &ada).await;
+    // end part: superadmins
+    let paths = api.document()["paths"].as_object().unwrap().clone();
+    let mut sent = 0;
+
+    for (template, item) in &paths {
+        let names: Vec<&str> = item["get"]["parameters"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|parameter| parameter["in"] == "query")
+            .filter_map(|parameter| parameter["name"].as_str())
+            .collect();
+        // A list is what takes `cursor` (API-06).
+        if !names.contains(&"cursor") {
+            continue;
+        }
+        let path = template.replace("{workspace_id}", &workspace);
+        for name in names {
+            // A control character, which no parameter's type takes.
+            let response = api
+                .get(&format!("{path}?{name}=%01"))
+                .bearer(&ada.access)
+                .send()
+                .await;
+
+            assert_eq!(
+                response.status,
+                StatusCode::BAD_REQUEST,
+                "{template} {name}"
+            );
+            let problem = response.json();
+            assert_eq!(problem["code"], "request.invalid_query", "{template}");
+            let fields: Vec<&str> = problem["errors"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|error| error["field"].as_str())
+                .collect();
+            assert_eq!(fields, [format!("/{name}")], "{template}");
+            sent += 1;
+        }
+    }
+    assert!(sent >= 6, "only {sent} parameters");
 }
 
 #[tokio::test]

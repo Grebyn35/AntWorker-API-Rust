@@ -9,7 +9,7 @@ use platform::{
         Batch, BatchJson, BatchTaken, BatchTakenJson, FileBytes, IfMatch, Json, ReadBatch,
         ResourceResponse, Routes,
     },
-    rate_limit::{LimitError, RateLimits},
+    rate_limit::RateLimits,
     telemetry::Signal,
     types::Client,
 };
@@ -27,11 +27,10 @@ use super::{
 /// The module's routes, which take [`ClientTelemetry`] as their state, and the event they
 /// publish.
 pub(crate) fn routes() -> Routes<ClientTelemetry> {
-    let proxy_errors: [&dyn platform::errors::ErrorCode; 5] = [
+    let proxy_errors: [&dyn platform::errors::ErrorCode; 4] = [
         &ClientTelemetryError::ConsentRequired,
         &ClientTelemetryError::BatchRefused,
         &ClientTelemetryError::CollectorUnavailable(None),
-        &LimitError::RateLimited,
         &RequestError::FeatureDisabled,
     ];
     Routes::new()

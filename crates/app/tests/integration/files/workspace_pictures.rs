@@ -103,6 +103,10 @@ async fn workspaces_019_setting_a_picture_stores_it_records_it_and_publishes_it(
 
     assert_eq!(response.status, 200);
     assert_eq!(response.header("etag"), "\"2\"");
+    assert_eq!(
+        response.header("content-location"),
+        format!("/v1/workspaces/{workspace}")
+    );
     let body = response.json();
     assert_eq!(body["id"], workspace);
     assert_eq!(body["name"], "Acme");
