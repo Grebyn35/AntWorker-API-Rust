@@ -106,7 +106,7 @@ For any other failure, check the provider's status page, and that the server rea
 **Look first.** The Telemetry pipeline dashboard: "Is the collector refusing telemetry?", "Is the collector failing to pass telemetry on?" and "Is tail sampling dropping traces before it decides them?" show which step loses data.
 
 **What to do.** Refused data means the collector reached its memory limit: give it more memory. Failed sends name a store: check that Tempo, Loki or Prometheus runs and has disk space. Traces dropped early mean the collector holds more undecided traces than its `num_traces`: raise it, along with the collector's memory.
-The receiver `otlp/clients` takes the batches that the telemetry proxy forwards for users' clients, and the exporters whose names end in `clients` pass them on. Its memory limit is the lower one, so it refuses before the API's own receiver does: the proxy answers each batch that it refuses with 503, which has a client send the batch again later, and the Clients' telemetry dashboard shows what the clients send ([ClientTelemetryBudgetSpent](#clienttelemetrybudgetspent)). <!-- part: client_telemetry -->
+The receiver `otlp/clients` takes the batches that the telemetry proxy forwards for users' clients, and the exporters whose names end in `clients` pass them on. Its memory limit is the lower one, so it stops taking batches before the API's own receiver does: the proxy answers each batch that it doesn't take with 503, which has a client send the batch again later, and the Clients' telemetry dashboard shows what the clients send ([ClientTelemetryBudgetSpent](#clienttelemetrybudgetspent)). <!-- part: client_telemetry -->
 
 <!-- part: client_telemetry -->
 ## ClientTelemetryNotForwarded

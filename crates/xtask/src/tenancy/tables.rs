@@ -1,16 +1,24 @@
 //! The tables and views that the migrations create, with their columns, which `check-tenancy`
 //! places and `check-table-ownership` gives their owners. It reads the migrations' `CREATE TABLE`,
-//! `CREATE VIEW` and `ALTER TABLE ... ADD COLUMN` statements as text.
+//! `CREATE VIEW` and `ALTER TABLE ... ADD COLUMN` statements as text, in the forms that the doc
+//! of `tenancy` names.
 
 use std::collections::BTreeMap;
 
-use super::{MIGRATIONS, words};
+use super::{
+    MIGRATIONS,
+    views::{View, view},
+    words,
+};
 use crate::repo::Repo;
 
 /// A table the migrations create, or a view, with its columns, and where it is created.
 pub struct Table {
-    /// Its columns' names: a view's are those of the table it selects from, whose rows it holds.
+    /// Its columns' names: a view's are the names its select list shows, none where the check
+    /// can't read the list.
     pub columns: Vec<String>,
+    /// For a view, what its statement reads and shows.
+    pub view: Option<View>,
     /// The migration that creates it.
     pub path: String,
     /// The line of its `CREATE TABLE` or `CREATE VIEW`.
@@ -36,6 +44,7 @@ pub fn tables(repo: &Repo) -> BTreeMap<String, Table> {
                         name.to_owned(),
                         Table {
                             columns: columns(&body),
+                            view: None,
                             path: file.path.clone(),
                             line: *line,
                         },
@@ -46,19 +55,13 @@ pub fn tables(repo: &Repo) -> BTreeMap<String, Table> {
                 && (at == 1 || (next(1) == Some("or") && next(2) == Some("replace")))
                 && let Some(name) = next(at + 1)
             {
-                // The table it selects from: the word after its first `FROM`.
-                let base = words[index..]
-                    .iter()
-                    .position(|(word, _)| word == "from")
-                    .and_then(|from| next(from + 1));
-                let columns = base
-                    .and_then(|base| tables.get(base))
-                    .map(|table| table.columns.clone())
-                    .unwrap_or_default();
+                let view = view(&file.text, *line, name);
+                let columns = view.shown.iter().flatten();
                 tables.insert(
                     name.to_owned(),
                     Table {
-                        columns,
+                        columns: columns.map(|shown| shown.name.clone()).collect(),
+                        view: Some(view),
                         path: file.path.clone(),
                         line: *line,
                     },
@@ -78,6 +81,50 @@ pub fn tables(repo: &Repo) -> BTreeMap<String, Table> {
         }
     }
     tables
+}
+
+/// The words that Postgres takes between `CREATE` and `TABLE` or `VIEW`.
+const MODIFIERS: [&str; 10] = [
+    "or",
+    "replace",
+    "temp",
+    "temporary",
+    "unlogged",
+    "global",
+    "local",
+    "foreign",
+    "materialized",
+    "recursive",
+];
+
+/// The line of each `CREATE` of `text` that creates a table or a view in a form that [`tables`]
+/// doesn't read: with any of [`MODIFIERS`] before its `TABLE`, with any before its `VIEW` but
+/// `OR REPLACE` alone, or with `IF` after its `TABLE` or `VIEW`.
+pub(super) fn unread(text: &str) -> Vec<usize> {
+    let words = words(text);
+    let mut lines = Vec::new();
+    for (index, (word, line)) in words.iter().enumerate() {
+        if word != "create" {
+            continue;
+        }
+        let rest: Vec<&str> = words[index + 1..]
+            .iter()
+            .map(|(word, _)| word.as_str())
+            .collect();
+        let modifiers = rest
+            .iter()
+            .take_while(|word| MODIFIERS.contains(word))
+            .count();
+        let read = match rest.get(modifiers) {
+            Some(&"table") => modifiers == 0,
+            Some(&"view") => modifiers == 0 || rest[..modifiers] == ["or", "replace"],
+            _ => continue,
+        };
+        if !read || rest.get(modifiers + 1) == Some(&"if") {
+            lines.push(*line);
+        }
+    }
+    lines
 }
 
 /// The text inside the parentheses that follow `name` on or after `line` of `text`.

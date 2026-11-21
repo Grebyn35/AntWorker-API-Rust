@@ -168,7 +168,7 @@ async fn audit_011_the_hourly_job_deletes_each_log_s_entries_older_than_the_rete
         .await;
     assert_eq!(left, kept);
     let clients = db
-        .owner_reads("SELECT entry_id::text FROM audit_entry_clients")
+        .owner_reads("SELECT audit_entry_id::text FROM audit_entry_clients")
         .await;
     assert_eq!(clients, kept);
     // Scheduled maintenance records no entry (DATA-22), and a second run deletes nothing more.

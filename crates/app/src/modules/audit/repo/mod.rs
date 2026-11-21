@@ -73,7 +73,7 @@ pub(super) async fn insert<D: Serialize>(
             ) VALUES ($1::text::audit_scope, $2, $3, $4, $5, $6, $7, $8, $9, $12, $13)
             RETURNING id, coalesce(actor_user_id, user_id) AS client_user_id
         )
-        INSERT INTO audit_entry_clients (entry_id, user_id, client_ip, user_agent)
+        INSERT INTO audit_entry_clients (audit_entry_id, user_id, client_ip, user_agent)
         SELECT id, client_user_id, $10, $11 FROM entry
         WHERE $10::inet IS NOT NULL",
         log,
@@ -147,7 +147,7 @@ pub(super) async fn exported_own(
             entry.created_at, client.client_ip AS "client_ip?", client.user_agent AS "user_agent?"
         FROM audit_entries AS entry
         LEFT JOIN audit_entry_clients AS client
-            ON client.entry_id = entry.id AND client.user_id = $1
+            ON client.audit_entry_id = entry.id AND client.user_id = $1
         WHERE entry.user_id = $1
             AND ($2::timestamptz IS NULL OR (entry.created_at, entry.id) < ($2, $3))
         ORDER BY entry.created_at DESC, entry.id DESC
@@ -178,7 +178,7 @@ pub(super) async fn exported_workspace(
             entry.created_at, client.client_ip AS "client_ip?", client.user_agent AS "user_agent?"
         FROM audit_entries AS entry
         LEFT JOIN audit_entry_clients AS client
-            ON client.entry_id = entry.id AND client.user_id = $1
+            ON client.audit_entry_id = entry.id AND client.user_id = $1
         WHERE entry.workspace_id = $2
             AND ($3::timestamptz IS NULL OR (entry.created_at, entry.id) < ($3, $4))
         ORDER BY entry.created_at DESC, entry.id DESC

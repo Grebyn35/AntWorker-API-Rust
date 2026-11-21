@@ -78,7 +78,7 @@ async fn entries(api: &Api, action: &str) -> (Vec<String>, bool) {
         api,
         &format!(
             "SELECT count(*)::text FROM audit_entry_clients c JOIN audit_entries e \
-             ON e.id = c.entry_id WHERE e.action = '{action}' \
+             ON e.id = c.audit_entry_id WHERE e.action = '{action}' \
              AND (c.client_ip IS NOT NULL OR c.user_agent IS NOT NULL)"
         ),
     )

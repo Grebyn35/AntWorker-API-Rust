@@ -60,7 +60,7 @@ async fn entries_with_a_client(api: &Api) -> Vec<String> {
     reads(
         api,
         "SELECT count(*)::text FROM audit_entry_clients c JOIN audit_entries e \
-         ON e.id = c.entry_id WHERE e.action = 'session.ended' \
+         ON e.id = c.audit_entry_id WHERE e.action = 'session.ended' \
          AND (c.client_ip IS NOT NULL OR c.user_agent IS NOT NULL)",
     )
     .await
@@ -157,7 +157,7 @@ async fn auth_094_with_all_the_subcommand_ends_every_session_of_every_account() 
         reads(
             &api,
             "SELECT count(*)::text FROM audit_entry_clients c JOIN audit_entries e \
-             ON e.id = c.entry_id WHERE e.action = 'session.ended' \
+             ON e.id = c.audit_entry_id WHERE e.action = 'session.ended' \
              AND e.actor_user_id IS NULL \
              AND (c.client_ip IS NOT NULL OR c.user_agent IS NOT NULL)"
         )

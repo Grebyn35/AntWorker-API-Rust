@@ -383,13 +383,22 @@ mod tests {
     use super::*;
     use crate::types::SessionId;
 
+    /// An ID that no other of the test has.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test's IDs name streams and users that no row holds (DATA-08)"
+    )]
+    fn id() -> uuid::Uuid {
+        uuid::Uuid::new_v4()
+    }
+
     /// A stream of `user`'s, registered on `streams`.
     #[expect(
         clippy::disallowed_methods,
         reason = "the hub keeps the principal that auth proved; the test stands in for auth"
     )]
     fn register(streams: &mut Streams, user: UserId) -> Registered {
-        let session = SessionId::from_uuid(uuid::Uuid::new_v4());
+        let session = SessionId::from_uuid(id());
         streams
             .register(Principal::new(user, session))
             .expect("the stream registers")
@@ -405,7 +414,7 @@ mod tests {
         Signal {
             change: AccessChange::MembershipChanged {
                 user_id: user,
-                workspace_id: WorkspaceId::from_uuid(uuid::Uuid::new_v4()),
+                workspace_id: WorkspaceId::from_uuid(id()),
             },
             transaction,
         }
@@ -418,7 +427,7 @@ mod tests {
     #[test]
     fn platform_031_a_membership_change_closes_only_the_streams_whose_memberships_don_t_hold_it() {
         let mut streams = Streams::new("api".to_owned(), 0);
-        let ada = UserId::from_uuid(uuid::Uuid::new_v4());
+        let ada = UserId::from_uuid(id());
         let before = register(&mut streams, ada);
         let after = register(&mut streams, ada);
         // Read before the transaction 150 committed, and after.
@@ -435,7 +444,7 @@ mod tests {
     fn platform_031_a_change_signalled_while_a_stream_opens_closes_it_unless_its_memberships_hold_it()
      {
         let mut streams = Streams::new("api".to_owned(), 0);
-        let ada = UserId::from_uuid(uuid::Uuid::new_v4());
+        let ada = UserId::from_uuid(id());
         let before = register(&mut streams, ada);
         let after = register(&mut streams, ada);
 
@@ -452,7 +461,7 @@ mod tests {
     #[test]
     fn data_10_a_membership_signal_of_the_release_before_closes_every_stream_of_its_user() {
         let mut streams = Streams::new("api".to_owned(), 0);
-        let ada = UserId::from_uuid(uuid::Uuid::new_v4());
+        let ada = UserId::from_uuid(id());
         let open = register(&mut streams, ada);
         let opening = register(&mut streams, ada);
         streams.activate(open.id, Memberships::default(), snapshot("151:151:"));
@@ -460,7 +469,7 @@ mod tests {
         let signal: Signal = serde_json::from_value(serde_json::json!({
             "kind": "membership_changed",
             "user_id": ada,
-            "workspace_id": WorkspaceId::from_uuid(uuid::Uuid::new_v4()),
+            "workspace_id": WorkspaceId::from_uuid(id()),
         }))
         .expect("the release before's signal parses");
 

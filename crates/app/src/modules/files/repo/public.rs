@@ -1,8 +1,10 @@
 //! The reads of public files, by their ID and their visibility alone, and of avatars and
-//! workspaces' pictures, by their ID, which DATA-16 exempts, and `check-tenancy` lets this file
-//! alone make: whoever holds a public file's ID, an avatar's or a picture's, may download it
-//! (FILES-023, FILES-024, FILES-027, the files spec's "Visibility"). Each reads what its download
-//! serves, and never a file's name, which a public download withholds (SEC-11).
+//! workspaces' pictures, by their ID, which DATA-16 exempts: whoever holds a public file's ID, an
+//! avatar's or a picture's, may download it (FILES-023, FILES-024, FILES-027, the files spec's
+//! "Visibility"). Of these, `check-tenancy` exempts the two reads of workspace data,
+//! `workspace_file` and `picture`, which its list names; `user_files` and `avatars` hold account
+//! data, whose queries it doesn't check. Each reads what its download serves, and never a file's
+//! name, which a public download withholds (SEC-11).
 
 use platform::{db::UnitOfWork, errors::Internal};
 

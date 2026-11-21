@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT entry.id, entry.workspace_id, entry.action, entry.resource_type,\n            entry.resource_id, entry.actor_user_id, entry.target_user_id, entry.details,\n            entry.created_at, client.client_ip AS \"client_ip?\", client.user_agent AS \"user_agent?\"\n        FROM audit_entries AS entry\n        LEFT JOIN audit_entry_clients AS client\n            ON client.entry_id = entry.id AND client.user_id = $1\n        WHERE entry.workspace_id = $2\n            AND ($3::timestamptz IS NULL OR (entry.created_at, entry.id) < ($3, $4))\n        ORDER BY entry.created_at DESC, entry.id DESC\n        LIMIT $5",
+  "query": "SELECT entry.id, entry.workspace_id, entry.action, entry.resource_type,\n            entry.resource_id, entry.actor_user_id, entry.target_user_id, entry.details,\n            entry.created_at, client.client_ip AS \"client_ip?\", client.user_agent AS \"user_agent?\"\n        FROM audit_entries AS entry\n        LEFT JOIN audit_entry_clients AS client\n            ON client.audit_entry_id = entry.id AND client.user_id = $1\n        WHERE entry.user_id = $1\n            AND ($2::timestamptz IS NULL OR (entry.created_at, entry.id) < ($2, $3))\n        ORDER BY entry.created_at DESC, entry.id DESC\n        LIMIT $4",
   "describe": {
     "columns": [
       {
@@ -128,7 +128,6 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Uuid",
         "Timestamptz",
         "Uuid",
         "Int8"
@@ -148,5 +147,5 @@
       true
     ]
   },
-  "hash": "9aeb375e47ea4dee007a164b1513e78e724e0f99ab91a53480e93b0cb91b8da9"
+  "hash": "691ab436241f32b6067c5a5bd0502d760b7e00b8a2bd27099f95a5fc4679223c"
 }

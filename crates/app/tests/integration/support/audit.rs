@@ -138,7 +138,7 @@ pub async fn noise(db: &TestDatabase, user: &str, action: &str, count: u32) {
 pub async fn with_client(db: &TestDatabase, entry: &str, client: &Client<'_>) {
     let agent = client.agent.replace('\'', "''");
     db.owner_executes(&format!(
-        "INSERT INTO audit_entry_clients (entry_id, user_id, client_ip, user_agent) \
+        "INSERT INTO audit_entry_clients (audit_entry_id, user_id, client_ip, user_agent) \
          VALUES ('{entry}', '{}', '{}', '{agent}')",
         client.user, client.ip
     ))

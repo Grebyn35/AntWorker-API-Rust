@@ -19,7 +19,7 @@ pub(super) fn arrange(root: &Path, publisher: &str, run: &str) -> Result<Vec<Str
         let email = format!("load-{run}-{n}@example.com");
         let body =
             json!({ "email": email, "password": "plum-tractor-41-quiet", "name": "Load Test" });
-        let token = match client::request(publisher, "POST", "/v1/users", None, Some(&body))? {
+        let token = match client::register(publisher, &body)? {
             (201, answer) => answer["access_token"]
                 .as_str()
                 .map(str::to_owned)

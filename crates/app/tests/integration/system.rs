@@ -197,7 +197,7 @@ async fn system_003_seed_registers_its_accounts_through_the_routes() {
                 "SELECT ((SELECT count(*) FROM users) = count(*))::text \
                  || ' ' || host(client.client_ip) || ' ' || client.user_agent \
                  FROM audit_entries entry \
-                 JOIN audit_entry_clients client ON client.entry_id = entry.id \
+                 JOIN audit_entry_clients client ON client.audit_entry_id = entry.id \
                  WHERE entry.action = 'user.registered' \
                  GROUP BY client.client_ip, client.user_agent"
             )
@@ -253,7 +253,7 @@ async fn system_008_seed_has_olivia_and_mia_each_create_a_workspace_through_the_
                  FROM audit_entries entry \
                  JOIN workspaces workspace ON workspace.id = entry.workspace_id \
                  JOIN users actor ON actor.id = entry.actor_user_id \
-                 JOIN audit_entry_clients client ON client.entry_id = entry.id \
+                 JOIN audit_entry_clients client ON client.audit_entry_id = entry.id \
                  WHERE entry.action = 'workspace.created' \
                  AND workspace.name IN ('Acme', 'Side Project') ORDER BY workspace.name"
             )
@@ -301,7 +301,7 @@ async fn system_009_seed_sets_a_workspace_up_for_olivia_as_an_operator_s_run_doe
             .owner_reads(
                 "SELECT setup.name || ' ' || (entry.actor_user_id IS NULL) || ' ' \
                  || target.email || ' ' || (SELECT count(*) FROM audit_entry_clients client \
-                 WHERE client.entry_id = entry.id) \
+                 WHERE client.audit_entry_id = entry.id) \
                  FROM workspace_setups setup \
                  JOIN audit_entries entry ON entry.workspace_id = setup.workspace_id \
                  JOIN users target ON target.id = entry.target_user_id \
@@ -367,7 +367,7 @@ async fn system_010_seed_makes_sam_a_superadmin_who_sets_an_app_up_and_creates_a
         db.owner_reads(
             "SELECT account.email || ' ' || (entry.actor_user_id IS NULL) || ' ' \
              || (SELECT count(*) FROM audit_entry_clients client \
-             WHERE client.entry_id = entry.id) \
+             WHERE client.audit_entry_id = entry.id) \
              FROM superadmins superadmin \
              JOIN users account ON account.id = superadmin.user_id \
              JOIN audit_entries entry ON entry.user_id = account.id \
@@ -389,7 +389,7 @@ async fn system_010_seed_makes_sam_a_superadmin_who_sets_an_app_up_and_creates_a
              || client.user_agent \
              FROM audit_entries entry \
              JOIN users actor ON actor.id = entry.actor_user_id \
-             JOIN audit_entry_clients client ON client.entry_id = entry.id \
+             JOIN audit_entry_clients client ON client.audit_entry_id = entry.id \
              WHERE entry.action IN ('second_factor.setup_started', 'second_factor.enabled') \
              ORDER BY entry.id"
         )
@@ -408,7 +408,7 @@ async fn system_010_seed_makes_sam_a_superadmin_who_sets_an_app_up_and_creates_a
              FROM audit_entries entry \
              JOIN workspaces workspace ON workspace.id = entry.resource_id \
              JOIN users actor ON actor.id = entry.actor_user_id \
-             JOIN audit_entry_clients client ON client.entry_id = entry.id \
+             JOIN audit_entry_clients client ON client.audit_entry_id = entry.id \
              WHERE entry.action = 'workspace.created' AND workspace.name = 'Acme Holdings' \
              ORDER BY entry.scope"
         )

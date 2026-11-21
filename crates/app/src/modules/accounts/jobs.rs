@@ -8,8 +8,9 @@
 //!   request, publishing `export.failed` to its user, and deletes the expired exports of
 //!   every user, with what their foreign keys delete, touching `exports` and `events`
 //!   (ACCOUNTS-027). It spans every user by nature, so it selects exports by their state and
-//!   expiry alone, which `check-tenancy` lets this file do (DATA-16), and scheduled maintenance
-//!   isn't audited (DATA-22). A second run finds nothing more to change or delete.
+//!   expiry alone, which DATA-16 exempts, and review checks: `exports` has no `workspace_id`, so
+//!   `check-tenancy` checks none of its queries. Scheduled maintenance isn't audited (DATA-22). A
+//!   second run finds nothing more to change or delete.
 // part: files
 //! - `accounts.copy_picture`, enqueued by a registration through a provider for its new user,
 //!   fetches the picture that the provider gave for them, outside any transaction, and makes it

@@ -441,7 +441,7 @@ async fn auth_072_the_subcommand_removes_the_app_and_the_codes_and_ends_every_se
         reads(
             &api,
             "SELECT count(*)::text FROM audit_entry_clients c JOIN audit_entries e \
-             ON e.id = c.entry_id WHERE e.action = 'second_factor.removed' \
+             ON e.id = c.audit_entry_id WHERE e.action = 'second_factor.removed' \
              AND (c.client_ip IS NOT NULL OR c.user_agent IS NOT NULL)"
         )
         .await,

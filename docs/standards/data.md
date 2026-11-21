@@ -7,18 +7,18 @@ Schema, migrations, database roles, tenancy, queries and transactions.
 ### DATA-01 Naming
 These names apply to the product schema: the tables, views, columns and constraints that the files in `migrations/` create.
 - Tables and views are plural `snake_case` (`workspace_memberships`).
-- Foreign-key columns are `<singular>_id`, and timestamps are `<event>_at`.
+- A foreign-key column is named `<singular>_id`, after the table it references (`workspace_id`), or `<role>_id`, after the role of the row it references, with that singular where the role alone doesn't tell the table (`publisher_id`, `actor_user_id`). Timestamps are `<event>_at`.
 - Constraints and indexes are named explicitly:
   - `<table>_<columns>_key` for unique constraints
   - `<table>_<columns>_fkey` for foreign keys
   - `<table>_<columns>_check` for checks
   - `<table>_<columns>_idx` for indexes
 - Why: ERR-05 maps constraint violations by name, and a predictable name needs no lookup.
-- Check: `ci: check-schema`.
+- Check: `ci: check-schema`, which reads of a foreign-key column's name only that it ends in `_id`, plus `review` (what that name is taken from).
 
 ### DATA-02 Standard columns
 - Every table of the product schema (DATA-01) has `id uuid PRIMARY KEY DEFAULT uuidv7()` and `created_at timestamptz NOT NULL DEFAULT now()`.
-- A table whose rows are edited also has `updated_at` and `version`. One shared trigger maintains both. A table of `platform`'s bookkeeping, whose rows only its own mechanism changes and no client edits, such as the rate-limit buckets, has neither.
+- A table whose rows are edited, which is one that `app` may update, also has `updated_at` and `version`. One shared trigger maintains both. A foreign key's `SET NULL`, which clears a row's reference to a user as their account goes (DATA-05), is no edit. A table of `platform`'s bookkeeping, whose rows only its own mechanism changes and no client edits, such as the rate-limit buckets, has neither.
 - Pure join tables use a composite primary key instead of `id`.
 - These columns are a table's: a view, which stores no rows, needs none of its own.
 
@@ -32,7 +32,7 @@ Stored timestamps come from the database's clock in SQL, never from the applicat
 - Check: `review`.
 
 ### DATA-04 The database enforces integrity, domain types enforce values
-The schema declares keys, uniqueness, foreign keys and `NOT NULL`. Closed sets are Postgres enum types mapped to Rust enums. The rules for a value's length, format or content live only in its domain type (D25), not in `CHECK` constraints: a `CHECK` relates columns of a row, such as a job's lease to its claim.
+The schema declares keys, uniqueness, foreign keys and `NOT NULL`. Closed sets are Postgres enum types mapped to Rust enums: a set is closed when the template's own migrations fix its members, as they fix a membership's roles. A name from a set that a part, a fork or `just new-module` changes, which a permission's name, an event's, an audit action's, a job's kind and a sign-in provider's key are, is stored as `text`, written from the declaration that names it. The rules for a value's length, format or content live only in its domain type (D25), not in `CHECK` constraints: a `CHECK` relates columns of a row, such as a job's lease to its claim.
 - Why: each rule is defined once.
 - Check: `ci: check-schema` (no check constraint reads a single column), plus `review`.
 
@@ -54,7 +54,7 @@ Migrations define no stored procedures and no `SECURITY DEFINER` functions. The 
 ### DATA-08 The database generates IDs
 Inserts take their rows' IDs from the column default, using `RETURNING`, but for a row whose secret is encrypted bound to its ID, which exists before the secret is written (SEC-02): its ID comes from the database's `uuidv7()`, the default's own function, in a statement just before the insert. Application code creates no row's ID; a value that names no row, such as an email's `Message-ID`, isn't one.
 - Why: one source of IDs (D24).
-- Check: `clippy` (`Uuid::new_v4` and `Uuid::now_v7` are in `disallowed_methods`).
+- Check: `clippy` (`Uuid::new_v4`, the one function of the `uuid` crate's enabled features that generates an ID, is in `disallowed_methods`), `ci: check-table-ownership` (no `INSERT INTO` in a `sqlx` macro of `platform` or `app` names `id` among its columns, or has columns that the check can't read, but for the tables of the rows that SEC-02 binds to their IDs), plus `review` (SQL outside those macros, as the tests' and `xtask`'s).
 
 ## Migrations
 
@@ -64,7 +64,7 @@ Migrations live in `migrations/` and run through the sqlx migrator. Each file is
 - Check: `ci: check-migrations` (each name holds a module, and no migration that the newest release holds is changed or deleted).
 
 ### DATA-10 Expand, then contract
-A migration keeps the previous release working. A column or table is removed or renamed only after a release in which no code uses it. The jobs a release enqueues are data the next one reads: a job's kind is renamed or retired only after a release that still runs it and enqueues no more of it, and a payload keeps the fields that the previous release writes, since a waiting job whose kind no replica runs never runs and never dead-letters ([platform spec](../spec/platform.md#the-job-queue)). A keyed operation's stored result is data the next release reads too, for as long as its record lasts: its type keeps the fields that the previous release writes, and adds only fields that may be absent, so a retry that a deploy lets the other release answer still answers the first result (API-12, [platform spec](../spec/platform.md#idempotency)). The access-change signals that one release's replicas send, the other's hubs read while a deploy runs both: a signal keeps the fields that the previous release sends, and adds only fields that the previous release's hub ignores and the new one does without, so that every hub acts on every signal ([platform spec](../spec/platform.md#events-and-the-real-time-hub)).
+A migration keeps the previous release working. A column or table is removed or renamed only after a release in which no code uses it. The jobs a release enqueues are data the next one reads: a job's kind is renamed or retired only after a release that still runs it and enqueues no more of it, and a payload keeps the fields that the previous release writes, since a waiting job whose kind no replica runs never runs and never dead-letters ([platform spec](../spec/platform.md#the-job-queue)). A keyed operation's stored result is data the next release reads too, for as long as its record lasts: its type keeps the fields that the previous release writes, and adds only fields that may be absent, so a retry that a deploy lets the other release answer still answers the first result (API-12, [platform spec](../spec/platform.md#idempotency)). The access-change signals that one release's replicas send, the other's hubs read while a deploy runs both: a signal keeps the fields that the previous release sends, and adds only fields that the previous release's hub ignores and the new one does without, so that every hub acts on every signal ([platform spec](../spec/platform.md#events-and-the-real-time-hub)). An event that one release stores, the other's hubs deliver, while a deploy runs both and in the replays of the day that events are kept: a hub passes on the stored name and payload as they are, so they change only as API-18 lets what a client reads change. The permission that an event or an audit entry stores is a name, which the release that reads the row compares with the names its roles hold: a permission keeps its name while a stored row that a read compares holds it.
 - Why: rolling deploys run old and new code against one schema, one queue and one channel of signals (D15).
 - Check: `review`, plus `test` (a membership signal in the previous release's form, and a keyed creation's result in it).
 
@@ -145,7 +145,7 @@ A row ID alone never addresses tenant data. These reads are exempt:
 - the startup check of the versions of the key ring under which secrets are stored, which reads the versions alone, of every user's rows (AUTH-066)
 - a public file's download, which reads its row by its ID and its visibility alone, and an avatar's and a workspace's picture's, which each read their row by its ID alone, since whoever holds a public file's ID, an avatar's or a picture's, may read it ([files spec](../spec/files.md#visibility)) <!-- part: files -->
 - Why: there is no row-level security, so the application's filters are the only guard between tenants, and they are checked by machine and by test (D4).
-- Check: `ci: check-tenancy` (every query on a table with a `workspace_id` column, platform data aside, filters on it, on its `user_id` where it has one, or on the address its rows are addressed to, unless it belongs to a listed cross-tenant job or to a listed file of the reads that this rule exempts, and every other table is listed), `test` (TEST-08 sends, for every workspace route, an ID from another workspace the caller belongs to), plus `review` (the exemptions).
+- Check: `ci: check-tenancy` (every query on a table with a `workspace_id` column, platform data aside, filters on it, on its `user_id` where it has one, or on the address its rows are addressed to, and every query of a view that reads such a table filters on a tenant column that the view shows, unless a listed function holds the query: a function of a cross-tenant job, or of the reads that this rule exempts; and every other table is listed), `test` (TEST-08 sends, for every workspace route, an ID from another workspace the caller belongs to), plus `review` (the exemptions).
 
 ### DATA-17 Lists use keyset pagination on an index
 A list query filters by the cursor's sort key, with the ID as tiebreaker, and never uses `OFFSET`. An index matches its tenant filter and its order. A `search` (API-20) narrows the rows that index reaches, without an index of its own until a load test asks for one.
@@ -160,7 +160,7 @@ An update made with `If-Match` keeps its `WHERE` to the versions the header name
 ## Transactions
 
 ### DATA-20 Read committed, with row locks where the spec says so
-Transactions use `READ COMMITTED`, but for the job that builds an export's archive, which reads under `REPEATABLE READ`, through `Database::for_snapshot_job`, so that the archive holds every module's data as of one moment, and which locks its export's row before any other statement, so that its writes, all of rows it inserts or has locked, meet no serialization failure (ACCOUNTS-023). An operation whose correctness depends on rows that another request may change at the same time does one of two things, as its module spec states: it locks them with `SELECT ... FOR UPDATE`, taking locks in a consistent order, or it changes them with an update that checks what it read (DATA-18). Nothing inside the API retries a transaction. A deadlock is a defect, and surfaces as an internal error. A failed job is retried by the job system (PLATFORM-014).
+Transactions use `READ COMMITTED`, but for the job that builds an export's archive, which reads under `REPEATABLE READ`, through `Database::for_snapshot_job`, so that the archive holds every module's data as of one moment, and which locks its export's row before any other statement, so that its writes, all of rows it inserts or has locked, meet no serialization failure (ACCOUNTS-023). That lock itself meets one when it waited for a transaction that changed or deleted the export's row, as the export's expiry and a deletion of the account do: the attempt fails, and its retry, where the job is still there, finds no pending export to build ([accounts spec](../spec/accounts.md#exporting)). An operation whose correctness depends on rows that another request may change at the same time does one of two things, as its module spec states: it locks them with `SELECT ... FOR UPDATE`, taking locks in a consistent order, or it changes them with an update that checks what it read (DATA-18). Nothing inside the API retries a transaction. A unit of work may run a locking read again: under `READ COMMITTED`, a read that waited for a change that left its row no match finds none, as a read of a workspace's owner does once a transfer made the member it waited at an admin, and the same read, run again, locks the row that matches. A deadlock is a defect, and surfaces as an internal error. A failed job is retried by the job system (PLATFORM-014).
 - Why: a unit of work carries the effects of every module the operation called, so no one layer holds what it would need to re-run it. Under `READ COMMITTED` there are no serialization failures, so a deadlock means two operations took locks in different orders: a bug to fix, not to retry.
 - Check: `review`.
 

@@ -106,7 +106,7 @@ pub(in crate::modules::audit) async fn workspace(
             client.client_ip AS "client_ip?", client.user_agent AS "user_agent?"
         FROM audit_entries AS entry
         LEFT JOIN audit_entry_clients AS client
-            ON client.entry_id = entry.id AND $3::boolean
+            ON client.audit_entry_id = entry.id AND $3::boolean
         WHERE entry.workspace_id = $1
             AND (entry.permission IS NULL OR entry.permission = ANY($2::text[]))
             AND ($4::text[] IS NULL OR entry.action = ANY($4))
@@ -189,7 +189,7 @@ pub(in crate::modules::audit) async fn own(
             LIMIT $11)
         ) AS entry
         LEFT JOIN audit_entry_clients AS client
-            ON client.entry_id = entry.id AND client.user_id = $1
+            ON client.audit_entry_id = entry.id AND client.user_id = $1
         ORDER BY entry.created_at DESC, entry.id DESC
         LIMIT $11"#,
         user.uuid(),

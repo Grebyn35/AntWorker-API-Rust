@@ -139,13 +139,16 @@ enum Command {
     Schema,
     /// Fails on a query, in a `sqlx` macro of `platform` or `app`, of a table with a
     /// `workspace_id` that names neither its `workspace_id` nor, for a table with one, its
-    /// `user_id`, outside a listed job that spans tenants, and on a table without a
-    /// `workspace_id` that isn't listed as account or platform data or as the workspaces
-    /// themselves.
+    /// `user_id`, nor, for a table whose rows are addressed to a user, that address, or of a
+    /// view that reads such a table that names no tenant column the view shows, outside a listed
+    /// function of a job that spans tenants or of the reads that DATA-16 exempts, and on a table
+    /// without a `workspace_id` that isn't listed as account or platform data or as the
+    /// workspaces themselves.
     #[command(name = "check-tenancy")]
     Tenancy,
     /// Fails on a query, in a `sqlx` macro of `platform` or `app`, that names a table another
-    /// module owns: the module whose name the table's creating migration holds.
+    /// module owns: the module whose name the table's creating migration holds. Fails on an
+    /// insert of those queries that names its row's `id` too (DATA-08).
     #[command(name = "check-table-ownership")]
     TableOwnership,
     /// Fails on a source file or a deploy script over 500 lines, a module's file outside ARCH-03's

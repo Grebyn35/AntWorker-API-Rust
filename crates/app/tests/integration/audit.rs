@@ -72,7 +72,7 @@ async fn audit_003_an_entry_records_the_client_its_trace_and_only_ids() {
         .owner_reads(
             "SELECT host(client.client_ip) || ' ' || client.user_agent || ' ' || entry.trace_id \
              || ' ' || entry.details::text || ' ' || (client.user_id = entry.user_id)::text \
-             FROM audit_entries entry JOIN audit_entry_clients client ON client.entry_id = entry.id",
+             FROM audit_entries entry JOIN audit_entry_clients client ON client.audit_entry_id = entry.id",
         )
         .await;
     assert_eq!(

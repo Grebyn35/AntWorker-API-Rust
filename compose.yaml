@@ -33,7 +33,7 @@ services:
   # whose data is in memory. Each test clones a database and drops it, and each drop has the
   # server write every page that changed since the drop before, which a server that keeps its
   # data on disk writes there (D163). The data is gone when the container stops, and the first
-  # test of the next run makes the roles and the template again. It holds 2 gigabytes at most,
+  # test of the next run makes the roles and the template again. It holds 2 gibibytes at most,
   # and a test waits to create its database while too many wait to be dropped (OPS-21).
   postgres-tests:
     image: postgres:18.7@sha256:2ea8630df176ad090ec92136dee850397c5af8781e4bcf2e4162593691c61bbc

@@ -1,11 +1,11 @@
 //! `check-layers`: each layer of a feature module keeps to its job, and the API's code builds
 //! HTTP clients only where SEC-10 allows.
 //! - A module's routes name no `sqlx`, and a handler calls `check` on no `RateLimits` it
-//!   extracts: it hands them to the service, which counts the per-action limit; and it calls at
-//!   most one service function, a method of what its `State` extracts, or a function of its
-//!   module's `service`. A function of the routes that no `routes!` registers calls none, so a
-//!   helper can't make a handler's second call, and the routes call no `begin`: the service
-//!   opens a unit of work, or `Authorize` on a workspace route (ARCH-08).
+//!   extracts: it hands them to the service, which counts the per-action limit; and it makes at
+//!   most one of the calls that the check counts as a service function's, which ARCH-08's Check
+//!   lists. A function of the routes that no `routes!` registers makes none, so a helper can't
+//!   make a handler's second call, and the routes call no `begin`: the service opens a unit of
+//!   work, or `Authorize` on a workspace route (ARCH-08).
 //! - A module's service names no HTTP types: none of `axum`, `http` and the other crates of
 //!   HTTP, none of `platform::http` and its `Problem` response, and none of its routes' request
 //!   and response types (ARCH-09).

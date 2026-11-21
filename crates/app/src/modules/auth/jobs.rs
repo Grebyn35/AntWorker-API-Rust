@@ -15,10 +15,10 @@
 //!   a reset uses one (OPS-09, D128).
 //! - `auth.expire_sessions`, periodic, every hour, deletes the sessions of every user that
 //!   stopped lasting, touching `sessions` alone (AUTH-047, D131). It spans every user by nature,
-//!   so it selects sessions by expiry alone, which `check-tenancy` lets this file alone do
-//!   (DATA-16). Scheduled maintenance isn't audited (DATA-22). A run skips a row that a request
-//!   holds, which the next deletes; a run right after one that skipped none finds nothing more to
-//!   delete.
+//!   so it selects sessions by expiry alone, which DATA-16 exempts, and review checks: `sessions`
+//!   has no `workspace_id`, so `check-tenancy` checks none of its queries. Scheduled maintenance
+//!   isn't audited (DATA-22). A run skips a row that a request holds, which the next deletes; a
+//!   run right after one that skipped none finds nothing more to delete.
 //! - `auth.expire_unfinished`, periodic, every hour, deletes the setups of authenticator apps and
 //!   the sign-in challenges of every user that expired, touching `totp_setups` and
 //!   `sign_in_challenges` alone, by expiry alone, as `auth.expire_sessions` does (AUTH-067). A

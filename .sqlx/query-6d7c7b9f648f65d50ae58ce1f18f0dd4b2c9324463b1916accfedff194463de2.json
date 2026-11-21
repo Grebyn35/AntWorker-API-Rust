@@ -1,0 +1,120 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT entry.id AS \"id!\", entry.workspace_id, entry.action AS \"action!\",\n            entry.resource_type AS \"resource_type!\", entry.resource_id, entry.actor_user_id,\n            entry.target_user_id, entry.details AS \"details!\", entry.trace_id,\n            entry.created_at AS \"created_at!\",\n            client.client_ip AS \"client_ip?\", client.user_agent AS \"user_agent?\"\n        FROM (\n            (SELECT id, workspace_id, action, resource_type, resource_id, actor_user_id,\n                target_user_id, details, trace_id, created_at\n            FROM audit_entries\n            WHERE user_id = $1\n                AND ($2::text[] IS NULL OR action = ANY($2))\n                AND ($3::text[] IS NULL OR resource_type = ANY($3))\n                AND ($4::uuid[] IS NULL OR resource_id = ANY($4))\n                AND ($5::uuid[] IS NULL OR actor_user_id = ANY($5))\n                AND ($6::uuid[] IS NULL OR target_user_id = ANY($6))\n                AND ($7::timestamptz IS NULL OR created_at >= $7)\n                AND ($8::timestamptz IS NULL OR created_at < $8)\n                AND ($9::timestamptz IS NULL OR (created_at, id) < ($9, $10))\n            ORDER BY created_at DESC, id DESC\n            LIMIT $11)\n            UNION ALL\n            (SELECT id, workspace_id, action, resource_type, resource_id, actor_user_id,\n                target_user_id, details, trace_id, created_at\n            FROM audit_entries\n            WHERE target_user_id = $1 AND scope = 'workspace'\n                AND ($2::text[] IS NULL OR action = ANY($2))\n                AND ($3::text[] IS NULL OR resource_type = ANY($3))\n                AND ($4::uuid[] IS NULL OR resource_id = ANY($4))\n                AND ($5::uuid[] IS NULL OR actor_user_id = ANY($5))\n                AND ($6::uuid[] IS NULL OR target_user_id = ANY($6))\n                AND ($7::timestamptz IS NULL OR created_at >= $7)\n                AND ($8::timestamptz IS NULL OR created_at < $8)\n                AND ($9::timestamptz IS NULL OR (created_at, id) < ($9, $10))\n            ORDER BY created_at DESC, id DESC\n            LIMIT $11)\n        ) AS entry\n        LEFT JOIN audit_entry_clients AS client\n            ON client.audit_entry_id = entry.id AND client.user_id = $1\n        ORDER BY entry.created_at DESC, entry.id DESC\n        LIMIT $11",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "workspace_id",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "action!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "resource_type!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "resource_id",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "actor_user_id",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "target_user_id",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "details!",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 8,
+        "name": "trace_id",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 9,
+        "name": "created_at!",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 10,
+        "name": "client_ip?",
+        "type_info": "Inet",
+        "origin": {
+          "Table": {
+            "table": "audit_entry_clients",
+            "name": "client_ip"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "user_agent?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "audit_entry_clients",
+            "name": "user_agent"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "TextArray",
+        "TextArray",
+        "UuidArray",
+        "UuidArray",
+        "UuidArray",
+        "Timestamptz",
+        "Timestamptz",
+        "Timestamptz",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      false,
+      true
+    ]
+  },
+  "hash": "6d7c7b9f648f65d50ae58ce1f18f0dd4b2c9324463b1916accfedff194463de2"
+}

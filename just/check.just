@@ -61,21 +61,21 @@ setup-smoke: bound-build
 # as for the copies of the repository that checks make, or in target/.
 build_dir := env("CARGO_TARGET_DIR", "target") / "debug"
 
-# Removes the build directory once it holds more than 40 gigabytes, so the build after it starts
+# Removes the build directory once it holds more than 40 gibibytes, so the build after it starts
 # afresh (OPS-21): Cargo keeps the artifacts of every earlier set of dependencies and settings
 # beside the current ones, and removes none of them itself.
 [unix]
 [private]
 bound-build:
-    if [ -d "{{ build_dir }}" ] && [ "$(du -sk "{{ build_dir }}" | cut -f1)" -gt 41943040 ]; then echo "{{ build_dir }} holds more than 40 GB, which the build after it starts afresh from nothing"; cargo clean --profile dev; fi
+    if [ -d "{{ build_dir }}" ] && [ "$(du -sk "{{ build_dir }}" | cut -f1)" -gt 41943040 ]; then echo "{{ build_dir }} holds more than 40 GiB, which the build after it starts afresh from nothing"; cargo clean --profile dev; fi
 
-# Removes the build directory once it holds more than 40 gigabytes, so the build after it starts
+# Removes the build directory once it holds more than 40 gibibytes, so the build after it starts
 # afresh (OPS-21): Cargo keeps the artifacts of every earlier set of dependencies and settings
 # beside the current ones, and removes none of them itself.
 [windows]
 [private]
 bound-build:
-    if ((Test-Path -LiteralPath '{{ build_dir }}') -and ((Get-ChildItem -LiteralPath '{{ build_dir }}' -Recurse -File -Force -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum -gt 40GB)) { Write-Output '{{ build_dir }} holds more than 40 GB, which the build after it starts afresh from nothing'; cargo clean --profile dev; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } }
+    if ((Test-Path -LiteralPath '{{ build_dir }}') -and ((Get-ChildItem -LiteralPath '{{ build_dir }}' -Recurse -File -Force -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum -gt 40GB)) { Write-Output '{{ build_dir }} holds more than 40 GiB, which the build after it starts afresh from nothing'; cargo clean --profile dev; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } }
 
 [doc("Fails if the code isn't formatted")]
 [group('check')]
@@ -267,8 +267,8 @@ check-tenancy:
     {{ xtask }} check-tenancy
 
 # Fails on a query that names a table another module owns: the module whose name the table's
-# creating migration holds.
-[doc("Fails on a query that names a table another module owns")]
+# creating migration holds. Fails on an insert that names its row's ID too.
+[doc("Fails on a query that names a table another module owns, or inserts a row's ID")]
 [group('check')]
 check-table-ownership:
     {{ xtask }} check-table-ownership

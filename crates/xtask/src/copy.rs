@@ -15,7 +15,7 @@ use std::{
 
 use crate::cargo;
 
-/// The bytes that the copies hold together, at most, when a check makes one: 60 gigabytes
+/// The bytes that the copies hold together, at most, when a check makes one: 60 gibibytes
 /// (OPS-21).
 const BOUND: u64 = 60 * 1024 * 1024 * 1024;
 
@@ -74,7 +74,7 @@ impl Copy {
             .map_err(|error| format!("can't bound what the copies hold: {error}"))?;
         for removed in removed {
             report(&format!(
-                "removed {}, a copy and its build: the checks' copies held more than {} GB together",
+                "removed {}, a copy and its build: the checks' copies held more than {} GiB together",
                 removed.strip_prefix(root).unwrap_or(&removed).display(),
                 bound >> 30
             ));

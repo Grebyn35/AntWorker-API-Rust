@@ -241,7 +241,7 @@ fn value_rules(catalog: &Value) -> Vec<Problem> {
 }
 
 /// DATA-01: constraints and indexes are named `<table>_<columns>_<kind>`, and a foreign key's
-/// columns `<singular>_id`. A check may name some of the columns it reads.
+/// columns end in `_id`. A check may name some of the columns it reads.
 fn names(catalog: &Value) -> Vec<Problem> {
     let mut problems = Vec::new();
     for constraint in list(catalog, "constraints") {
@@ -274,7 +274,7 @@ fn names(catalog: &Value) -> Vec<Problem> {
                 problems.push((
                     name.to_owned(),
                     format!(
-                        "{table}.{column} is a foreign key, so its name is <singular>_id (DATA-01)"
+                        "{table}.{column} is a foreign key, so its name ends in `_id` (DATA-01)"
                     ),
                 ));
             }

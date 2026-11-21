@@ -249,9 +249,9 @@ The layers have strict jobs (ARCH-08 to ARCH-10):
 
 A module's personal data contract, in its `personal_data.rs`, is a service of its own: it applies the module's rules to a user's rows, through its repository or its `service.rs`, as a service does, adding them to the archive of their export, and erasing them once their account is deleted (D31).
 
-A module splits a file into a directory with the same name, such as `service/`, when the file outgrows its limit, or when a part of the template adds functions of its own to it, which the part then owns in a file of their own (ARCH-03, CODE-08, D119).
+A module splits a file into a directory with the same name, such as `service/`, once the file outgrows its limit, earlier where what it holds reads better apart, and when a part of the template adds routes of its own to the module, whose handlers, service functions and queries the part then owns in files of their own (ARCH-03, CODE-08, D119).
 
-A trait that abstracts a dependency either inverts a dependency the crate or module graph forbids, as the traits above do, or covers an external system with more than one implementation, such as email transport or the clock (ARCH-13). Nothing gets a trait just so it can be mocked, because tests run against the real database (D23).
+A trait that abstracts a dependency either inverts a dependency the crate or module graph forbids, as the traits above do, or covers an external system with more than one implementation, such as the clock (ARCH-13). Nothing gets a trait just so it can be mocked, because tests run against the real database (D23).
 
 ## 6. Request lifecycle
 
@@ -475,6 +475,7 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 | Stream | One client's open SSE connection. |
 | Frame type | What one frame of a stream is, which its `event` names: an event's name, or one of the frames the stream sends of its own, such as `stream.closed`; the event catalog documents each one (API-19, REALTIME-008). |
 | Listener | The instance's own connection to the database, outside its pool, on which the hub listens for what commits and readiness checks the database (OPS-05, OPS-18). |
+| Turn | A caller's place among those that take one thing one after another, named with what they take turns at: a user's turn is the lock on the user's row, which the changes of their account take (DATA-20); a turn at hashing is one of the Workers'; and the heavy turn of the end-to-end tests is one that a single deployment holds at a time (TEST-06). |
 | Workers | The turns of an instance's CPU-heavy work, such as a password's hash: one per processor it may use, each held by one caller at once, whose works run in it one after another, which `platform::blocking::Workers` hands out (PLATFORM-060). |
 | Audit entry | A record of who did what, in the user's log or the workspace's log. It is never edited, except that erasing an account anonymizes its personal data (D6, D31). |
 | File | Stored bytes plus metadata. A user file or a workspace file, each private or public. <!-- part: files --> |

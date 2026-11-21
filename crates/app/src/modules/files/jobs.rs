@@ -9,9 +9,10 @@
 //! `object_deletions` whose time has passed and that still no row names, then removes them from
 //! `object_deletions`. Both touch those six tables alone, and the bucket.
 //! Both span every workspace and user by nature, so they select objects by key alone, which
-//! `check-tenancy` lets this file and the public reads alone do (DATA-16). Scheduled maintenance
-//! isn't audited (DATA-22). A second run of either finds nothing more to do, and a deletion of an
-//! object that a run before deleted, whose record it didn't remove, succeeds.
+//! DATA-16 exempts, and `check-tenancy` lets `find_under` and `delete` do, as functions that it
+//! lists. Scheduled maintenance isn't audited (DATA-22). A second run of either finds nothing
+//! more to do, and a deletion of an object that a run before deleted, whose record it didn't
+//! remove, succeeds.
 
 use std::time::Duration;
 

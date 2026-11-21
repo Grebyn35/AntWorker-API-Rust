@@ -1,7 +1,8 @@
 //! The periodic job `audit.expire_entries` (OPS-09, AUDIT-011): owned by `audit`, run every hour,
 //! and deleting from `deletable_audit_entries` alone, whose entries' clients go with them through
 //! their foreign key. It spans every log by nature, so it selects entries by their age alone,
-//! which `check-tenancy` lets this file alone do (DATA-16). Scheduled maintenance isn't audited
+//! which DATA-16 exempts: the view shows no tenant column, so `check-tenancy` lets only a function
+//! that it lists query it, and `expire` is the one of `audit`. Scheduled maintenance isn't audited
 //! (DATA-22). A run deletes batches, the oldest first, until one deletes fewer than a batch, or
 //! until it meets an entry that another transaction holds, which a later run deletes. No entry's
 //! `created_at` ever changes, since `app` updates no entry and a foreign key's action sets only an

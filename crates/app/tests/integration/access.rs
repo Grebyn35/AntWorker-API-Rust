@@ -150,7 +150,7 @@ async fn audit_003_a_refusal_records_the_client_and_the_trace_of_its_request() {
         .database()
         .owner_reads(
             "SELECT host(client.client_ip) || ' ' || client.user_agent || ' ' || entry.trace_id \
-             FROM audit_entries entry JOIN audit_entry_clients client ON client.entry_id = entry.id \
+             FROM audit_entries entry JOIN audit_entry_clients client ON client.audit_entry_id = entry.id \
              WHERE entry.action = 'access.denied'",
         )
         .await;

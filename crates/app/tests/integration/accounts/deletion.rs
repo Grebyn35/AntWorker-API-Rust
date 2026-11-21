@@ -367,7 +367,7 @@ async fn accounts_014_the_workspace_s_log_keeps_each_entry_without_the_user_s_id
              || coalesce(entry.target_user_id::text, '-') || ' ' || entry.resource_type || ' ' \
              || entry.resource_id || ' ' || (client.id IS NOT NULL)::text \
              FROM audit_entries entry \
-             LEFT JOIN audit_entry_clients client ON client.entry_id = entry.id \
+             LEFT JOIN audit_entry_clients client ON client.audit_entry_id = entry.id \
              WHERE entry.workspace_id = '{workspace}' ORDER BY entry.created_at, entry.id"
         ))
         .await;

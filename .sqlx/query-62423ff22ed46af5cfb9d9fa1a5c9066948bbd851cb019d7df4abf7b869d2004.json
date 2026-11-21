@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT entry.id, entry.workspace_id, entry.action, entry.resource_type,\n            entry.resource_id, entry.actor_user_id, entry.target_user_id, entry.details,\n            entry.trace_id, entry.created_at,\n            client.client_ip AS \"client_ip?\", client.user_agent AS \"user_agent?\"\n        FROM audit_entries AS entry\n        LEFT JOIN audit_entry_clients AS client\n            ON client.entry_id = entry.id AND $3::boolean\n        WHERE entry.workspace_id = $1\n            AND (entry.permission IS NULL OR entry.permission = ANY($2::text[]))\n            AND ($4::text[] IS NULL OR entry.action = ANY($4))\n            AND ($5::text[] IS NULL OR entry.resource_type = ANY($5))\n            AND ($6::uuid[] IS NULL OR entry.resource_id = ANY($6))\n            AND ($7::uuid[] IS NULL OR entry.actor_user_id = ANY($7))\n            AND ($8::uuid[] IS NULL OR entry.target_user_id = ANY($8))\n            AND ($9::timestamptz IS NULL OR entry.created_at >= $9)\n            AND ($10::timestamptz IS NULL OR entry.created_at < $10)\n            AND ($11::timestamptz IS NULL OR (entry.created_at, entry.id) < ($11, $12))\n        ORDER BY entry.created_at DESC, entry.id DESC\n        LIMIT $13",
+  "query": "SELECT entry.id, entry.workspace_id, entry.action, entry.resource_type,\n            entry.resource_id, entry.actor_user_id, entry.target_user_id, entry.details,\n            entry.created_at, client.client_ip AS \"client_ip?\", client.user_agent AS \"user_agent?\"\n        FROM audit_entries AS entry\n        LEFT JOIN audit_entry_clients AS client\n            ON client.audit_entry_id = entry.id AND client.user_id = $1\n        WHERE entry.workspace_id = $2\n            AND ($3::timestamptz IS NULL OR (entry.created_at, entry.id) < ($3, $4))\n        ORDER BY entry.created_at DESC, entry.id DESC\n        LIMIT $5",
   "describe": {
     "columns": [
       {
@@ -93,17 +93,6 @@
       },
       {
         "ordinal": 8,
-        "name": "trace_id",
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "audit_entries",
-            "name": "trace_id"
-          }
-        }
-      },
-      {
-        "ordinal": 9,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -114,7 +103,7 @@
         }
       },
       {
-        "ordinal": 10,
+        "ordinal": 9,
         "name": "client_ip?",
         "type_info": "Inet",
         "origin": {
@@ -125,7 +114,7 @@
         }
       },
       {
-        "ordinal": 11,
+        "ordinal": 10,
         "name": "user_agent?",
         "type_info": "Text",
         "origin": {
@@ -139,15 +128,7 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "TextArray",
-        "Bool",
-        "TextArray",
-        "TextArray",
-        "UuidArray",
-        "UuidArray",
-        "UuidArray",
-        "Timestamptz",
-        "Timestamptz",
+        "Uuid",
         "Timestamptz",
         "Uuid",
         "Int8"
@@ -162,11 +143,10 @@
       true,
       true,
       false,
-      true,
       false,
       false,
       true
     ]
   },
-  "hash": "5bb052257dc2595e4572ad9f3c048c60866b35343e5ccbe76bace1a215d49cf8"
+  "hash": "62423ff22ed46af5cfb9d9fa1a5c9066948bbd851cb019d7df4abf7b869d2004"
 }

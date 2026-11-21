@@ -223,6 +223,10 @@ pub(super) fn build(
 
 /// What identifies every span, log record and metric the process exports. Nothing else is read
 /// into it: the SDK's detectors, which read `OTEL_RESOURCE_ATTRIBUTES`, are left out.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the instance's ID names this process, and no row (DATA-08)"
+)]
 pub(super) fn resource(service: Service, environment: Environment) -> Resource {
     Resource::builder_empty()
         .with_attributes([

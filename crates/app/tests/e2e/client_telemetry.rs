@@ -86,6 +86,10 @@ fn printed(output: &Output) -> String {
 }
 
 /// A trace ID and a span ID that no other test's telemetry has.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a trace's and a span's ID name no row (DATA-08)"
+)]
 fn ids() -> (String, String) {
     let trace = uuid::Uuid::new_v4().simple().to_string();
     let span = uuid::Uuid::new_v4().simple().to_string()[..16].to_owned();

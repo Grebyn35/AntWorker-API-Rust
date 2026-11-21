@@ -10,8 +10,9 @@ A spec has these sections, in this order:
 
 1. **Purpose.** What the module is for, in two or three sentences.
 2. **Owns.** The tables and views the module owns (ARCH-06).
-3. **Interface.** What other modules may use: types, functions and the traits it implements.
+3. **Interface.** What other modules may use: types, functions and the traits it implements. It may also list what the composition root alone takes of the module, such as a personal data contract, the registration of a job or a subcommand's operation, but not what does nothing but wire the module: its routes, their state and its settings.
 4. **Routes.** Only in a spec whose module serves routes. Each route's method and path, its access level (API-14), and the behaviors it serves. The generated OpenAPI document describes each route in full (API-17).
+   A row cites no behavior of an optional part but the one whose marker the row carries, since a line takes one part's marker: a part's behavior that a core route serves is found in that part's rows of Behaviors. <!-- part: removal -->
 5. **Behaviors.** One entry per behavior, each with:
    - an ID, using the module's prefix (for example `WORKSPACES-005`)
    - one statement a test can prove

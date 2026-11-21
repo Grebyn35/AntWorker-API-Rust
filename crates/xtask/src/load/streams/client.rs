@@ -1,7 +1,7 @@
-//! A client of the API over plain HTTP/1.1, for the hub's load test: JSON requests, each on a
-//! connection of its own, and streams of server-sent events, read frame by frame as a client's
-//! parser reads them. The task runs synchronously, with a thread for each stream, and k6 has no
-//! server-sent events of its own.
+//! A client of the API over plain HTTP/1.1, for the hub's load test: a registration's request,
+//! on a connection of its own, and streams of server-sent events, read frame by frame as a
+//! client's parser reads them. The task runs synchronously, with a thread for each stream, and
+//! k6 has no server-sent events of its own.
 
 use std::{
     io::{BufRead, BufReader, Read, Write},
@@ -15,32 +15,23 @@ use serde_json::Value;
 /// sends every 15 seconds (REALTIME-003).
 const ANSWER_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// Sends `method` to `path` of the API at `address`, as `token`'s caller when given, with `body`
-/// as JSON when given, and returns the answer's status and JSON.
-pub(super) fn request(
-    address: &str,
-    method: &str,
-    path: &str,
-    token: Option<&str>,
-    body: Option<&Value>,
-) -> Result<(u16, Value), String> {
+/// The path of a registration.
+const REGISTRATION: &str = "/v1/users";
+
+/// Registers the user that `body` holds, as JSON, with the API at `address`, and returns the
+/// answer's status and JSON.
+pub(super) fn register(address: &str, body: &Value) -> Result<(u16, Value), String> {
     let mut connection = TcpStream::connect(address)
         .map_err(|error| format!("can't connect to {address}: {error}"))?;
     connection
         .set_read_timeout(Some(ANSWER_TIMEOUT))
         .map_err(|error| error.to_string())?;
-    let body = body.map(Value::to_string).unwrap_or_default();
-    let mut head = format!(
-        "{method} {path} HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\nContent-Length: {}\r\n",
+    let body = body.to_string();
+    let head = format!(
+        "POST {REGISTRATION} HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\n\
+         Content-Type: application/json\r\nContent-Length: {}\r\n\r\n",
         body.len()
     );
-    if !body.is_empty() {
-        head.push_str("Content-Type: application/json\r\n");
-    }
-    if let Some(token) = token {
-        head.push_str(&format!("Authorization: Bearer {token}\r\n"));
-    }
-    head.push_str("\r\n");
     connection
         .write_all(format!("{head}{body}").as_bytes())
         .map_err(|error| error.to_string())?;
@@ -60,7 +51,7 @@ pub(super) fn request(
         Value::Null
     } else {
         serde_json::from_slice(&answer)
-            .map_err(|error| format!("{method} {path} answered {status}, not JSON: {error}"))?
+            .map_err(|error| format!("the registration answered {status}, not JSON: {error}"))?
     };
     Ok((status, json))
 }

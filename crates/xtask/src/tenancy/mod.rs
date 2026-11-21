@@ -1,32 +1,59 @@
 //! `check-tenancy`: every query of workspace data filters by its tenant itself, and every table is
 //! placed (DATA-16, D39).
-//! - A table that the migrations create with a `workspace_id` column holds workspace data. Each
-//!   query of one in the code of `platform` and `app`, in a `sqlx` macro, names its tenant: a
-//!   `workspace_id`, or for a table that also has a `user_id`, a `user_id`, compared in its
-//!   `WHERE` or among the columns it inserts. A table of [`ADDRESSED`] is also reached by the
-//!   address of the user its rows are addressed to, which their own queries name instead. A file
-//!   of a scheduled job that spans tenants, in [`CROSS_TENANT`], is exempt, and so is a file of
-//!   reads by a row's ID alone, of rows that whoever holds the ID may read, in [`PUBLIC_READS`].
+//! - A table that the migrations create with a `workspace_id` column holds workspace data, unless
+//!   it is listed as platform data. The check reads a table from `CREATE TABLE <name>`, and a view
+//!   from `CREATE VIEW <name>` or `CREATE OR REPLACE VIEW <name>`; a migration that creates one
+//!   with any of the words that `tables::MODIFIERS` lists between `CREATE` and `TABLE` or `VIEW`,
+//!   such as `UNLOGGED` or `MATERIALIZED`, but for a view's `OR REPLACE`, or with `IF` after
+//!   `TABLE` or `VIEW`, is a finding. Each query of one in the code of `platform` and `app`, in a
+//!   `sqlx` macro, names its tenant: a `workspace_id`, or for a table that also has a `user_id`, a
+//!   `user_id`, compared in its `WHERE` or among the columns it inserts. A table of [`ADDRESSED`]
+//!   is also reached by the address of the user its rows are addressed to, which their own queries
+//!   name instead.
+//! - A query that a listed function holds is exempt: a function, by its file and its name, of a
+//!   scheduled job that spans tenants, in [`CROSS_TENANT`], or of reads by a row's ID alone, of
+//!   rows that whoever holds the ID may read, in [`PUBLIC_READS`]. The function that holds a
+//!   query is the innermost `fn <name>` whose body holds its macro, the body being the first group
+//!   in braces that follows `fn <name>` at its level, before a `;` (`functions`). So a query in a
+//!   closure or an `async` block is its `fn`'s, one in a `fn` inside another `fn` is the inner
+//!   one's, and one that no `fn` holds is exempt in no list. A listed function is a finding when
+//!   its file holds another `fn` of its name, as two methods of one name do, or when it holds no
+//!   query that the check would refuse without it.
 //! - Every other table is listed below: as account data, keyed by a user; as platform data, whose
 //!   scope columns, if any, record whom its work is for; as a module's bookkeeping of what it keeps
 //!   outside the database, which holds no tenant's data; or as the workspaces themselves.
 //!
-//! - A view takes the columns of the table it selects from, whose rows it shows, so a view of
-//!   workspace data, such as `deletable_audit_entries`, is checked as workspace data: a query of it
-//!   names a tenant, or is in a file of [`CROSS_TENANT`]. Any other view is placed by its own name,
-//!   as a table is.
+//! - A view is workspace data when its
+//!   statement names a table of workspace data, or such a view, as a query names its tables
+//!   (`sql`). The check reads the statement after its `VIEW <name>`, each line cut at its first
+//!   `--`, as words, runs of ASCII letters, digits, `_` and `$`, strings in single quotes, and
+//!   other characters (`views`). Outside parentheses and strings, the statement ends at its first
+//!   `;`, its select list runs from the `AS SELECT` right after its name to its first `FROM`, and
+//!   the list's items are split at its commas. An item is a column, a word that starts with a
+//!   letter or `_`, alone or after another such word and a `.`, which the view shows under that
+//!   word; such a column followed by `AS` and a name, such a word, which shows the column under
+//!   the name; or any other tokens followed by `AS` and a name, which show no column. A view's
+//!   tenants are the names under which it shows a column `workspace_id` or `user_id`, whatever
+//!   table the word before its `.` names: a query of a view of workspace data names one of them,
+//!   as a query of a table names its own, or a listed function holds it, so a view that shows
+//!   none, such as `deletable_audit_entries`, is queried only in one. A view is a finding when
+//!   its name is followed by anything but `AS SELECT`, such as the names of its columns, when an
+//!   item of its list is none of those three, such as `*`, `t.*` or an expression without `AS`,
+//!   or when its statement holds a `UNION`, an `INTERSECT` or an `EXCEPT` outside parentheses.
+//!   Any other view is placed by its own name, as a table is.
 //!
-//! It reads the migrations' tables and views as `tables` does, and the code as token streams
-//! (`rust`).
+//! It reads the migrations' tables and views as `tables` and `views` do, and the code as token
+//! streams (`rust`).
 
 use std::collections::BTreeMap;
 
-use proc_macro2::{Delimiter, TokenTree};
-
 use crate::{Finding, Outcome, repo::Repo, rust::Source, sql::referenced};
 
+mod functions;
 mod tables;
+mod views;
 
+pub use functions::sql_texts;
 pub use tables::{Table, tables};
 
 /// The migrations, whose tables the check places.
@@ -106,68 +133,102 @@ const ADDRESSED: &[(&str, &str)] = &[
 // end part: superadmins
 const TENANTS: &[&str] = &["workspaces"];
 
-/// The files of scheduled jobs that span tenants, which select rows by their own criteria, such
-/// as expiry (DATA-16).
-const CROSS_TENANT: &[&str] = &[
-    "crates/app/src/modules/accounts/jobs.rs",
-    "crates/app/src/modules/audit/jobs.rs",
-    "crates/app/src/modules/auth/jobs.rs",
+/// The functions, by file and name, of scheduled jobs that span tenants, which select rows by
+/// their own criteria, such as expiry (DATA-16).
+const CROSS_TENANT: &[(&str, &str)] = &[
+    // The entries recorded before the retention, through the view that shows no tenant.
+    ("crates/app/src/modules/audit/jobs.rs", "expire"),
     // part: files
-    "crates/app/src/modules/files/jobs.rs",
+    // The objects that no row names, by their keys.
+    ("crates/app/src/modules/files/jobs.rs", "find_under"),
+    ("crates/app/src/modules/files/jobs.rs", "delete"),
     // end part: files
     // part: invitations
-    "crates/app/src/modules/invitations/jobs.rs",
+    // The expired invitations, by their expiry.
+    ("crates/app/src/modules/invitations/jobs.rs", "expire"),
     // end part: invitations
 ];
 
-/// The files of reads by a row's ID and its visibility alone, of rows that whoever holds the ID
-/// may read (DATA-16).
-const PUBLIC_READS: &[&str] = &[
+/// The functions, by file and name, of reads by a row's ID alone, or with its visibility, of rows
+/// of workspace data that whoever holds the ID may read (DATA-16).
+const PUBLIC_READS: &[(&str, &str)] = &[
     // part: files
-    // The reads of public files, avatars and workspaces' pictures, which whoever holds a public
-    // file's ID, an avatar's or a picture's, may download.
-    "crates/app/src/modules/files/repo/public.rs",
+    // The reads of a public workspace file and of a workspace's picture, which whoever holds the
+    // file's ID or the picture's may download.
+    (
+        "crates/app/src/modules/files/repo/public.rs",
+        "workspace_file",
+    ),
+    ("crates/app/src/modules/files/repo/public.rs", "picture"),
     // end part: files
-];
-
-/// The `sqlx` macros that take SQL text (DATA-14).
-const MACROS: [&str; 6] = [
-    "query",
-    "query_as",
-    "query_scalar",
-    "query_unchecked",
-    "query_as_unchecked",
-    "query_scalar_unchecked",
 ];
 
 /// Checks the migrations' tables and every query of the code.
 pub fn check(repo: &Repo) -> Outcome {
-    check_with(repo, ADDRESSED, CROSS_TENANT)
+    let exempt: Vec<(&str, &str)> = CROSS_TENANT.iter().chain(PUBLIC_READS).copied().collect();
+    check_with(repo, ADDRESSED, &exempt)
 }
 
 /// Checks the migrations' tables and every query of the code, with `addressed` as the tables
-/// whose rows are addressed to a user, and `cross_tenant` as the files of the jobs that span
-/// tenants.
-fn check_with(repo: &Repo, addressed: &[(&str, &str)], cross_tenant: &[&str]) -> Outcome {
+/// whose rows are addressed to a user, and `exempt` as the functions, by file and name, whose
+/// queries are exempt.
+fn check_with(repo: &Repo, addressed: &[(&str, &str)], exempt: &[(&str, &str)]) -> Outcome {
     let mut findings = Vec::new();
     let mut checked = 0;
+    // Each exempt function, how many `fn` of its name its file holds, and whether it holds a query
+    // that the check refuses without it.
+    let mut exemptions: Vec<(&str, &str, usize, bool)> = exempt
+        .iter()
+        .map(|(path, name)| (*path, *name, 0, false))
+        .collect();
     let tables = tables(repo);
     findings.extend(placements(&tables));
+    findings.extend(unread(repo));
     for file in repo.files() {
         let in_code = CODE.iter().any(|code| file.path.starts_with(code));
-        let exempt = cross_tenant.contains(&file.path.as_str())
-            || PUBLIC_READS.contains(&file.path.as_str());
-        if !file.path.ends_with(".rs") || !in_code || exempt {
+        if !file.path.ends_with(".rs") || !in_code {
             continue;
         }
-        match Source::read(file) {
-            Ok(source) => {
-                let (count, found) = queries(&source, &tables, addressed);
-                checked += count;
-                findings.extend(found);
+        let held = match Source::read(file) {
+            Ok(source) => functions::held(&source.tokens),
+            Err(finding) => {
+                findings.push(finding);
+                continue;
             }
-            Err(finding) => findings.push(finding),
+        };
+        for (path, name, count, _) in &mut exemptions {
+            if *path == file.path {
+                *count = held.functions.iter().filter(|held| held == name).count();
+            }
         }
+        for query in &held.queries {
+            let (count, found) = refused(&file.path, query, &tables, addressed);
+            let exemption = exemptions.iter_mut().find(|(path, name, ..)| {
+                *path == file.path && query.function.as_deref() == Some(*name)
+            });
+            match exemption {
+                Some((.., used)) => *used |= !found.is_empty(),
+                None => {
+                    checked += count;
+                    findings.extend(found);
+                }
+            }
+        }
+    }
+    for (path, name, count, used) in exemptions {
+        let problem = match (count, used) {
+            (0, _) => "which holds no `fn` of that name".to_owned(),
+            (1, false) => "which holds no query there that check-tenancy refuses without the \
+                           exemption: the lists name only the functions that need one"
+                .to_owned(),
+            (1, true) => continue,
+            _ => format!("which holds {count} of that name: an exemption names one `fn`"),
+        };
+        findings.push(Finding::new(
+            "crates/xtask/src/tenancy/mod.rs",
+            1,
+            format!("check-tenancy exempts the function `{name}` of {path}, {problem} (DATA-16)"),
+        ));
     }
     Outcome {
         report: vec![format!(
@@ -178,8 +239,30 @@ fn check_with(repo: &Repo, addressed: &[(&str, &str)], cross_tenant: &[&str]) ->
     }
 }
 
-/// Every table without a `workspace_id` that the lists don't place, and every listed name that
-/// no migration creates.
+/// Every statement of a migration that creates a table or a view in a form the check doesn't
+/// read.
+fn unread(repo: &Repo) -> Vec<Finding> {
+    let migrations = repo
+        .files()
+        .filter(|file| file.path.starts_with(MIGRATIONS) && file.path.ends_with(".sql"));
+    migrations
+        .flat_map(|file| {
+            tables::unread(&file.text).into_iter().map(|line| {
+                Finding::new(
+                    &file.path,
+                    line,
+                    "check-tenancy reads a table from `CREATE TABLE <name>` and a view from \
+                     `CREATE VIEW <name>` or `CREATE OR REPLACE VIEW <name>`, so it places and \
+                     checks nothing of what this statement creates (DATA-16)",
+                )
+            })
+        })
+        .collect()
+}
+
+/// Every table without a `workspace_id`, and every view of no workspace data, that the lists
+/// don't place, every view whose select list the check can't read, and every listed name that no
+/// migration creates.
 fn placements(tables: &BTreeMap<String, Table>) -> Vec<Finding> {
     let listed: Vec<&str> = ACCOUNT_DATA
         .iter()
@@ -188,25 +271,34 @@ fn placements(tables: &BTreeMap<String, Table>) -> Vec<Finding> {
         .chain(TENANTS)
         .copied()
         .collect();
-    let mut findings: Vec<Finding> = tables
-        .iter()
-        .filter(|(name, table)| {
-            !table.columns.iter().any(|column| column == "workspace_id")
-                && !listed.contains(&name.as_str())
-        })
-        .map(|(name, table)| {
-            Finding::new(
-                &table.path,
-                table.line,
-                format!(
-                    "`{name}` has no `workspace_id`, and check-tenancy lists it as neither account \
-                     data, platform data nor a module's bookkeeping: data a module adds for its \
-                     product lives in a workspace, and a table of another kind goes in its list in \
-                     crates/xtask/src/tenancy/mod.rs (DATA-16, D39)"
-                ),
+    let mut findings = Vec::new();
+    for (name, table) in tables {
+        let unplaced = match &table.view {
+            None => !table.columns.iter().any(|column| column == "workspace_id"),
+            Some(_) => !workspace_data(name, tables, 0),
+        };
+        let problem = if let Some(Err(problem)) = table.view.as_ref().map(|view| &view.shown) {
+            format!(
+                "check-tenancy can't read the select list of the view `{name}`: {problem}, so it \
+                 can't tell which tenant columns the view shows (DATA-16)"
             )
-        })
-        .collect();
+        } else if unplaced && !listed.contains(&name.as_str()) {
+            let kind = if table.view.is_some() {
+                "reads no workspace data"
+            } else {
+                "has no `workspace_id`"
+            };
+            format!(
+                "`{name}` {kind}, and check-tenancy lists it as neither account data, platform \
+                 data nor a module's bookkeeping: data a module adds for its product lives in a \
+                 workspace, and a table of another kind goes in its list in \
+                 crates/xtask/src/tenancy/mod.rs (DATA-16, D39)"
+            )
+        } else {
+            continue;
+        };
+        findings.push(Finding::new(&table.path, table.line, problem));
+    }
     for name in listed {
         if !tables.contains_key(name) {
             findings.push(Finding::new(
@@ -219,82 +311,94 @@ fn placements(tables: &BTreeMap<String, Table>) -> Vec<Finding> {
     findings
 }
 
-/// How many queries of `source` reach workspace data, and each that doesn't name its tenant, or
-/// for a table of `addressed`, its addressee's address.
-fn queries(
-    source: &Source<'_>,
+/// Whether `name` is a table of workspace data, one with a `workspace_id` that isn't platform
+/// data, or a view whose statement names one, or names such a view, `depth` views down.
+fn workspace_data(name: &str, tables: &BTreeMap<String, Table>, depth: usize) -> bool {
+    match tables.get(name).map(|table| (table, &table.view)) {
+        Some((table, None)) => {
+            table.columns.iter().any(|column| column == "workspace_id")
+                && !PLATFORM_DATA.contains(&name)
+        }
+        Some((_, Some(view))) => {
+            depth < tables.len()
+                && view
+                    .reads
+                    .iter()
+                    .any(|read| workspace_data(read, tables, depth + 1))
+        }
+        None => false,
+    }
+}
+
+/// How many of the tables that `query`, of the file at `path`, names hold workspace data, and the
+/// finding for each that it names no tenant of: a `workspace_id`, a table's `user_id`, a view's
+/// tenants, or for a table of `addressed`, its addressee's address.
+fn refused(
+    path: &str,
+    query: &functions::Query,
     tables: &BTreeMap<String, Table>,
     addressed: &[(&str, &str)],
 ) -> (usize, Vec<Finding>) {
-    let mut found = Vec::new();
-    sql_texts(&source.tokens, &mut found);
     let mut checked = 0;
     let mut findings = Vec::new();
-    for (sql, line) in found {
-        let lower = unquoted(&sql.to_ascii_lowercase());
-        for table in referenced(&lower) {
-            let Some(columns) = tables.get(&table).map(|table| &table.columns) else {
-                continue;
-            };
-            if !columns.iter().any(|column| column == "workspace_id")
-                || PLATFORM_DATA.contains(&table.as_str())
-            {
-                continue;
-            }
-            checked += 1;
-            let mut tenants = vec!["workspace_id"];
-            if columns.iter().any(|column| column == "user_id") {
-                tenants.push("user_id");
-            }
-            tenants.extend(
-                addressed
-                    .iter()
-                    .filter(|(addressed, _)| *addressed == table)
-                    .map(|(_, column)| *column),
-            );
-            if !names_tenant(&lower, &tenants) {
-                findings.push(Finding::new(
-                    source.path,
-                    line,
-                    format!(
-                        "a query of `{table}` names no {}: every query of workspace data filters \
-                         by its tenant itself (DATA-16)",
-                        tenants.join(" or ")
-                    ),
-                ));
-            }
+    let lower = unquoted(&query.sql.to_ascii_lowercase());
+    for name in referenced(&lower) {
+        let Some(table) = tables.get(&name) else {
+            continue;
+        };
+        if !workspace_data(&name, tables, 0) {
+            continue;
         }
+        checked += 1;
+        let mut tenants: Vec<&str> = match &table.view {
+            None => ["workspace_id", "user_id"]
+                .into_iter()
+                .filter(|tenant| table.columns.iter().any(|column| column == tenant))
+                .collect(),
+            Some(view) => view
+                .shown
+                .iter()
+                .flatten()
+                .filter(|shown| {
+                    shown
+                        .source
+                        .as_ref()
+                        .is_some_and(|source| source == "workspace_id" || source == "user_id")
+                })
+                .map(|shown| shown.name.as_str())
+                .collect(),
+        };
+        tenants.extend(
+            addressed
+                .iter()
+                .filter(|(addressed, _)| *addressed == name)
+                .map(|(_, column)| *column),
+        );
+        let problem = if tenants.is_empty() {
+            let shows = match table.view.as_ref().map(|view| &view.shown) {
+                Some(Err(_)) => "whose select list check-tenancy can't read",
+                _ => "that shows no tenant column",
+            };
+            format!(
+                "a query of `{name}`, a view of workspace data {shows}, is in no function that \
+                 check-tenancy exempts: only one may query it"
+            )
+        } else if !names_tenant(&lower, &tenants) {
+            format!(
+                "a query of `{name}` names no {}: every query of workspace data filters by its \
+                 tenant itself",
+                tenants.join(" or ")
+            )
+        } else {
+            continue;
+        };
+        findings.push(Finding::new(
+            path,
+            query.line,
+            format!("{problem} (DATA-16)"),
+        ));
     }
     (checked, findings)
-}
-
-/// The SQL text of each `sqlx` macro in `tokens`, at any depth, with its line.
-pub fn sql_texts(tokens: &[TokenTree], found: &mut Vec<(String, usize)>) {
-    for (index, token) in tokens.iter().enumerate() {
-        if let TokenTree::Group(group) = token {
-            let inner: Vec<TokenTree> = group.stream().into_iter().collect();
-            let invoked = index >= 2
-                && group.delimiter() == Delimiter::Parenthesis
-                && matches!(&tokens[index - 1], TokenTree::Punct(punct) if punct.as_char() == '!')
-                && matches!(&tokens[index - 2], TokenTree::Ident(name) if MACROS.contains(&name.to_string().as_str()));
-            let in_sqlx = index >= 5
-                && matches!(&tokens[index - 5..index - 2], [TokenTree::Ident(krate), TokenTree::Punct(_), TokenTree::Punct(_)] if *krate == "sqlx");
-            if invoked && in_sqlx {
-                let literal = inner.iter().find_map(|token| match token {
-                    TokenTree::Literal(literal) => {
-                        syn::parse_str::<syn::LitStr>(&literal.to_string())
-                            .ok()
-                            .map(|text| (text.value(), literal.span().start().line))
-                    }
-                    _ => None,
-                });
-                if let Some(found_text) = literal {
-                    found.push(found_text);
-                }
-            }
-            sql_texts(&inner, found);
-        }
-    }
 }
 
 /// Whether `sql` names one of `tenants`: among the columns an `INSERT` writes, the first statement
@@ -514,20 +618,288 @@ CREATE TABLE notes (id uuid PRIMARY KEY, body text);
             ("crates/app/src/modules/things/jobs.rs", code),
         ]);
         let tables = tables(&repo);
-        assert_eq!(
-            tables["old_things"].columns,
-            ["id", "workspace_id", "user_id", "name"]
-        );
+        assert_eq!(tables["old_things"].columns, ["id", "name"]);
         assert_eq!(tables["old_things"].line, 11);
-        assert_eq!(tables["other_things"].columns, tables["things"].columns);
-        let lines: Vec<String> = check_with(&repo, &[], &["crates/app/src/modules/things/jobs.rs"])
+        assert_eq!(tables["other_things"].columns, ["id"]);
+        let exempt = [("crates/app/src/modules/things/jobs.rs", "f")];
+        let found: Vec<String> = check_with(&repo, &[], &exempt)
             .findings
             .iter()
             .map(ToString::to_string)
-            .filter(|finding| finding.contains("names no"))
-            .map(|finding| finding.split(": ").next().unwrap().to_owned())
+            .filter(|finding| finding.contains("(DATA-16)") && !finding.starts_with("migrations/"))
             .collect();
-        assert_eq!(lines, ["crates/app/src/modules/things/repo.rs:3"]);
+        assert_eq!(
+            found,
+            [
+                "crates/app/src/modules/things/repo.rs:3: a query of `old_things`, a view of \
+                 workspace data that shows no tenant column, is in no function that check-tenancy \
+                 exempts: only one may query it (DATA-16)"
+            ]
+        );
+    }
+
+    /// The file of the code that `exempted` checks.
+    const JOBS: &str = "crates/app/src/modules/things/jobs.rs";
+
+    /// The findings of DATA-16 of a check of `code` as the file [`JOBS`], with `views` from the
+    /// third line of the migrations, and `exempt` as the exempt functions.
+    fn exempted(code: &str, views: &str, exempt: &[(&str, &str)]) -> Vec<String> {
+        let migrations = format!(
+            "CREATE TABLE things (id uuid, workspace_id uuid, user_id uuid, name text);\n\
+             CREATE TABLE jobs (id uuid, workspace_id uuid, user_id uuid);\n{views}"
+        );
+        let repo = Repo::of(&[("migrations/1_things.sql", &migrations), (JOBS, code)]);
+        check_with(&repo, &[], exempt)
+            .findings
+            .iter()
+            .map(ToString::to_string)
+            .filter(|finding| finding.contains("DATA-16"))
+            .collect()
+    }
+
+    /// The lines of [`JOBS`] that `findings` refuse.
+    fn refused_lines(findings: &[String]) -> Vec<&str> {
+        findings
+            .iter()
+            .filter_map(|finding| finding.strip_prefix(JOBS)?.strip_prefix(':'))
+            .filter_map(|rest| rest.split(':').next())
+            .collect()
+    }
+
+    #[test]
+    fn data_16_a_query_is_exempt_where_the_innermost_fn_that_holds_it_is_listed() {
+        let query = r#"sqlx::query!("DELETE FROM things WHERE id = $1", id);"#;
+        let code = format!(
+            "fn expire() {{
+                {query}
+                let later = move |context| async move {{ {query} }};
+                fn helper() {{
+                    {query}
+                }}
+            }}
+            fn register() {{
+                {query}
+                fn expire_too() {{}}
+            }}
+            impl Retention {{
+                fn sweep(&self) {{
+                    {query}
+                }}
+            }}
+            trait Sweeps {{
+                fn expire_all();
+                const QUERY: () = {{ {query} }};
+            }}
+            static OUTSIDE: () = {{ {query} }};
+            fn pointer(f: fn() -> u8) {{
+                {query}
+            }}
+            fn generic<const N: usize>() -> Sized<{{ N }}> {{
+                {query}
+            }}
+            fn nested() {{
+                fn expire() {{}}
+            }}"
+        );
+        let exempt = [
+            (JOBS, "expire"),
+            (JOBS, "sweep"),
+            (JOBS, "expire_all"),
+            (JOBS, "pointer"),
+            (JOBS, "generic"),
+        ];
+        let found = exempted(&code, "", &exempt);
+        // The helper inside `expire`, `register`, the trait's constant after a declaration, the
+        // static, and the body of `generic`, whose first group in braces is `{ N }`.
+        assert_eq!(refused_lines(&found), ["5", "9", "19", "21", "26"]);
+        let exemptions: Vec<&str> = found
+            .iter()
+            .filter_map(|finding| finding.strip_prefix("crates/xtask/src/tenancy/mod.rs:1: "))
+            .collect();
+        assert_eq!(
+            exemptions,
+            [
+                "check-tenancy exempts the function `expire` of crates/app/src/modules/things/\
+                 jobs.rs, which holds 2 of that name: an exemption names one `fn` (DATA-16)",
+                "check-tenancy exempts the function `expire_all` of crates/app/src/modules/things/\
+                 jobs.rs, which holds no query there that check-tenancy refuses without the \
+                 exemption: the lists name only the functions that need one (DATA-16)",
+                "check-tenancy exempts the function `generic` of crates/app/src/modules/things/\
+                 jobs.rs, which holds no query there that check-tenancy refuses without the \
+                 exemption: the lists name only the functions that need one (DATA-16)",
+            ]
+        );
+    }
+
+    #[test]
+    fn data_16_a_listed_function_that_exempts_nothing_or_shares_its_name_is_found() {
+        let code = r#"
+            impl Sweep {
+                fn twice(&self) {
+                    sqlx::query!("DELETE FROM things WHERE id = $1", id);
+                }
+            }
+            impl Other {
+                fn twice(&self) {}
+            }
+            fn filtered() {
+                sqlx::query!("DELETE FROM things WHERE workspace_id = $1", id);
+            }
+            fn needed() {
+                sqlx::query!("DELETE FROM things WHERE id = $1", id);
+            }
+        "#;
+        let other = "crates/app/src/modules/other/jobs.rs";
+        let exempt = [
+            (JOBS, "twice"),
+            (JOBS, "filtered"),
+            (JOBS, "missing"),
+            (other, "needed"),
+            (JOBS, "needed"),
+        ];
+        let found = exempted(code, "", &exempt);
+        let problems: Vec<&str> = found
+            .iter()
+            .filter_map(|finding| finding.split(".rs, which ").nth(1))
+            .collect();
+        assert_eq!(
+            problems,
+            [
+                "holds 2 of that name: an exemption names one `fn` (DATA-16)",
+                "holds no query there that check-tenancy refuses without the exemption: the lists \
+                 name only the functions that need one (DATA-16)",
+                "holds no `fn` of that name (DATA-16)",
+                "holds no `fn` of that name (DATA-16)",
+            ]
+        );
+        assert!(refused_lines(&found).is_empty(), "{found:?}");
+    }
+
+    #[test]
+    fn data_16_a_query_of_a_view_names_a_tenant_column_that_the_view_shows() {
+        let views = "\
+CREATE VIEW mine AS SELECT id, workspace_id AS ws, name FROM things;
+CREATE VIEW swapped AS SELECT workspace_id AS id, id AS workspace_id FROM things;
+CREATE VIEW bare AS SELECT id FROM things;
+CREATE VIEW joined AS SELECT j.id, j.user_id FROM jobs j JOIN things t ON t.id = j.id;
+CREATE VIEW of_jobs AS SELECT id, workspace_id FROM jobs;
+CREATE VIEW of_bare AS SELECT id FROM bare;
+";
+        let code = r#"
+            fn f() {
+                sqlx::query!("SELECT name FROM mine WHERE ws = $1", id);
+                sqlx::query!("SELECT name FROM mine WHERE workspace_id = $1", id);
+                sqlx::query!("SELECT workspace_id FROM swapped WHERE id = $1", id);
+                sqlx::query!("SELECT id FROM swapped WHERE workspace_id = $1", id);
+                sqlx::query!(
+                    "SELECT b.id FROM bare b JOIN things t ON t.id = b.id
+                    WHERE t.workspace_id = $1", id
+                );
+                sqlx::query!("SELECT id FROM joined WHERE user_id = $1", id);
+                sqlx::query!("SELECT id FROM of_bare WHERE id = $1", id);
+                sqlx::query!("SELECT id FROM of_jobs WHERE id = $1", id);
+            }
+        "#;
+        let found = exempted(code, views, &[]);
+        let problems: Vec<&str> = found
+            .iter()
+            .filter_map(|finding| finding.strip_prefix(JOBS))
+            .collect();
+        assert_eq!(
+            problems,
+            [
+                ":4: a query of `mine` names no ws: every query of workspace data filters by its \
+                 tenant itself (DATA-16)",
+                ":6: a query of `swapped` names no id: every query of workspace data filters by \
+                 its tenant itself (DATA-16)",
+                ":8: a query of `bare`, a view of workspace data that shows no tenant column, is \
+                 in no function that check-tenancy exempts: only one may query it (DATA-16)",
+                ":12: a query of `of_bare`, a view of workspace data that shows no tenant column, \
+                 is in no function that check-tenancy exempts: only one may query it (DATA-16)",
+            ]
+        );
+        let placed: Vec<&str> = found
+            .iter()
+            .filter(|finding| finding.starts_with("migrations/"))
+            .map(|finding| finding.split(", and").next().unwrap())
+            .collect();
+        assert_eq!(
+            placed,
+            ["migrations/1_things.sql:7: `of_jobs` reads no workspace data"]
+        );
+    }
+
+    #[test]
+    fn data_16_a_view_whose_select_list_the_check_can_t_read_is_found() {
+        let views = "\
+CREATE VIEW starred AS SELECT * FROM things;
+CREATE VIEW counted AS SELECT count(*) AS n FROM things;
+";
+        let code = r#"
+            fn f() {
+                sqlx::query!("SELECT id FROM starred WHERE workspace_id = $1", id);
+                sqlx::query!("SELECT n FROM counted", id);
+            }
+        "#;
+        let found = exempted(code, views, &[]);
+        assert_eq!(
+            found,
+            [
+                "migrations/1_things.sql:3: check-tenancy can't read the select list of the view \
+                 `starred`: its item `*` is no column, as `column` or `qualifier.column`, and no \
+                 expression followed by `AS name`, so it can't tell which tenant columns the view \
+                 shows (DATA-16)",
+                "crates/app/src/modules/things/jobs.rs:3: a query of `starred`, a view of \
+                 workspace data whose select list check-tenancy can't read, is in no function \
+                 that check-tenancy exempts: only one may query it (DATA-16)",
+                "crates/app/src/modules/things/jobs.rs:4: a query of `counted`, a view of \
+                 workspace data that shows no tenant column, is in no function that \
+                 check-tenancy exempts: only one may query it (DATA-16)",
+            ]
+        );
+    }
+
+    #[test]
+    fn data_16_a_table_or_a_view_created_in_a_form_the_check_doesn_t_read_is_found() {
+        let read = "\
+CREATE TABLE a (id uuid);
+CREATE VIEW b AS SELECT id FROM a;
+CREATE OR REPLACE VIEW c AS SELECT id FROM a;
+-- CREATE TEMP TABLE in a comment, and 'CREATE TEMP TABLE' in a string.
+CREATE INDEX a_id_idx ON a (id);
+CREATE OR REPLACE FUNCTION rows_of() RETURNS TABLE (id uuid) LANGUAGE sql AS 'SELECT 1';
+CREATE TYPE view AS ENUM ('table');
+";
+        let unread = "\
+CREATE TABLE IF NOT EXISTS d (id uuid);
+CREATE UNLOGGED TABLE e (id uuid);
+CREATE TEMP TABLE f (id uuid);
+CREATE GLOBAL TEMPORARY TABLE g (id uuid);
+CREATE MATERIALIZED VIEW h AS SELECT id FROM a;
+CREATE OR REPLACE TEMP VIEW i AS SELECT id FROM a;
+CREATE RECURSIVE VIEW j (id) AS SELECT id FROM a;
+create materialized view if not exists k AS SELECT id FROM a;
+CREATE FOREIGN TABLE l (id uuid) SERVER elsewhere;
+";
+
+        assert_eq!(tables::unread(read), Vec::<usize>::new());
+        assert_eq!(tables::unread(unread), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        let repo = Repo::of(&[(
+            "migrations/1_things.sql",
+            "CREATE UNLOGGED TABLE e (id uuid);",
+        )]);
+        let found: Vec<String> = super::unread(&repo)
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(
+            found,
+            [
+                "migrations/1_things.sql:1: check-tenancy reads a table from `CREATE TABLE <name>` \
+              and a view from `CREATE VIEW <name>` or `CREATE OR REPLACE VIEW <name>`, so it \
+              places and checks nothing of what this statement creates (DATA-16)"
+            ]
+        );
     }
 
     #[test]

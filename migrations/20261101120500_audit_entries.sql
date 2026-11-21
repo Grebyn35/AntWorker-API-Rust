@@ -39,13 +39,13 @@ CREATE INDEX audit_entries_target_user_id_idx ON audit_entries (target_user_id);
 -- (AUDIT-006).
 CREATE TABLE audit_entry_clients (
     id uuid PRIMARY KEY DEFAULT uuidv7(),
-    entry_id uuid NOT NULL,
+    audit_entry_id uuid NOT NULL,
     user_id uuid NOT NULL,
     client_ip inet,
     user_agent text,
     created_at timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT audit_entry_clients_entry_id_key UNIQUE (entry_id),
-    CONSTRAINT audit_entry_clients_entry_id_fkey FOREIGN KEY (entry_id) REFERENCES audit_entries (id) ON DELETE CASCADE,
+    CONSTRAINT audit_entry_clients_audit_entry_id_key UNIQUE (audit_entry_id),
+    CONSTRAINT audit_entry_clients_audit_entry_id_fkey FOREIGN KEY (audit_entry_id) REFERENCES audit_entries (id) ON DELETE CASCADE,
     CONSTRAINT audit_entry_clients_user_id_fkey FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 );
 
