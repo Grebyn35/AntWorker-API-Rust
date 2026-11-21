@@ -6,6 +6,3 @@
 ALTER TABLE events
     ADD COLUMN publisher_id uuid,
     ADD CONSTRAINT events_publisher_id_fkey FOREIGN KEY (publisher_id) REFERENCES users (id) ON DELETE SET NULL;
-
--- The events that a user published, which deleting their account clears of them.
-CREATE INDEX events_publisher_id_idx ON events (publisher_id);

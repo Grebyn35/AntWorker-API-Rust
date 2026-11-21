@@ -1,8 +1,6 @@
 -- Retention (the audit spec's "Retention"): the hourly job audit.expire_entries deletes each entry
--- recorded more than AUDIT_RETENTION_DAYS ago (AUDIT-011).
-
--- The entries of every log, the oldest first, which the job deletes in batches.
-CREATE INDEX audit_entries_created_at_idx ON audit_entries (created_at);
+-- recorded more than AUDIT_RETENTION_DAYS ago (AUDIT-011), through an index that the next
+-- migration builds.
 
 -- The entries recorded more than 90 days before the transaction that reads them began, through
 -- which retention deletes. Postgres deletes through the view only the rows it shows, with owner's

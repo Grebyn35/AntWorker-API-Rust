@@ -156,8 +156,9 @@ enum Command {
     /// its module's jobs.rs or with a kind of another module's.
     #[command(name = "check-layout")]
     Layout,
-    /// Fails on a migration whose name holds no module, and on a migration that the newest release
-    /// holds and the working tree changed or deleted.
+    /// Fails on a migration whose name holds no module, on a migration that the newest release
+    /// holds and the working tree changed or deleted, and on one that builds an index of another
+    /// migration's table in its transaction (DATA-10).
     #[command(name = "check-migrations")]
     Migrations,
     /// Fails when the query cache in `.sqlx/` differs from what sqlx-cli writes from a database

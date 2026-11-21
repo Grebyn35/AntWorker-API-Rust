@@ -28,11 +28,12 @@ CREATE TABLE audit_entries (
 );
 
 -- Each log's entries, the latest first, which an export reads a page at a time (ACCOUNTS-024),
--- and which also index the foreign keys (DATA-05).
+-- and the entries whose target is a user, the latest first, which their own read reads
+-- (AUDIT-008). They also index the foreign keys (DATA-05).
 CREATE INDEX audit_entries_user_id_created_at_id_idx ON audit_entries (user_id, created_at DESC, id DESC);
 CREATE INDEX audit_entries_workspace_id_created_at_id_idx ON audit_entries (workspace_id, created_at DESC, id DESC);
 CREATE INDEX audit_entries_actor_user_id_idx ON audit_entries (actor_user_id);
-CREATE INDEX audit_entries_target_user_id_idx ON audit_entries (target_user_id);
+CREATE INDEX audit_entries_target_user_id_created_at_id_idx ON audit_entries (target_user_id, created_at DESC, id DESC);
 
 -- The client of an entry recorded in a request. user_id is its actor, or, for an entry without
 -- one, the user whose log holds it, so deleting that user deletes it, while the entry stays

@@ -18,8 +18,3 @@ ADD CONSTRAINT audit_entries_scope_check CHECK (
 -- Every client that an entry records is a request's, which has an IP address, and a replica of
 -- the previous release writes one with each client too (DATA-10).
 ALTER TABLE audit_entry_clients ALTER COLUMN client_ip SET NOT NULL;
-
--- The entries whose target is a user, the latest first, which their own read reads
--- (AUDIT-008), and which also index the foreign key (DATA-05).
-DROP INDEX audit_entries_target_user_id_idx;
-CREATE INDEX audit_entries_target_user_id_created_at_id_idx ON audit_entries (target_user_id, created_at DESC, id DESC);

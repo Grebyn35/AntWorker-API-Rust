@@ -12,8 +12,21 @@ static EDITED_THEN_SECOND: Migrator =
     sqlx::migrate!("tests/integration/migrations/edited_then_second");
 /// The first of `TWO_TABLES`, then a migration that fails after creating a table.
 static SECOND_FAILS: Migrator = sqlx::migrate!("tests/integration/migrations/second_fails");
-/// One migration, marked to run outside a transaction.
+/// One migration, marked to run outside a transaction, that creates a table.
 static NO_TRANSACTION: Migrator = sqlx::migrate!("tests/integration/migrations/no_transaction");
+/// A table, then a migration that builds an index of it outside a transaction.
+static INDEX_OUTSIDE: Migrator = sqlx::migrate!("tests/integration/migrations/index_outside");
+/// A table that holds one name twice, then a migration that builds a unique index of the names
+/// outside a transaction.
+static INDEX_FAILS: Migrator = sqlx::migrate!("tests/integration/migrations/index_fails");
+
+/// Whether the index `name` can be used, as `true` or `false`, or nothing when there is none.
+async fn usable(db: &TestDatabase, name: &str) -> Vec<String> {
+    db.owner_reads(&format!(
+        "SELECT indisvalid::text FROM pg_index WHERE indexrelid = to_regclass('{name}')"
+    ))
+    .await
+}
 
 fn owned_by_owner(tables: &[&str]) -> Vec<(String, String)> {
     tables
@@ -85,7 +98,7 @@ async fn platform_005_a_failing_migration_leaves_no_trace() {
 }
 
 #[tokio::test]
-async fn platform_005_migrate_refuses_a_migration_that_runs_outside_a_transaction() {
+async fn platform_005_migrate_refuses_a_migration_outside_a_transaction_that_builds_no_index() {
     let db = TestDatabase::empty().await;
 
     let refused = migrate(&db.owner_url(), &NO_TRANSACTION).await.err();
@@ -95,6 +108,59 @@ async fn platform_005_migrate_refuses_a_migration_that_runs_outside_a_transactio
         "{refused:?}"
     );
     assert_eq!(db.tables().await, owned_by_owner(&[]));
+}
+
+#[tokio::test]
+async fn platform_005_an_index_built_outside_a_transaction_is_recorded_once_it_is_built() {
+    let db = TestDatabase::empty().await;
+
+    let applied = migrate(&db.owner_url(), &INDEX_OUTSIDE).await.unwrap();
+    let again = migrate(&db.owner_url(), &INDEX_OUTSIDE).await.unwrap();
+
+    assert_eq!(applied, [1, 2]);
+    assert_eq!(again, Vec::<i64>::new());
+    assert_eq!(db.applied_versions().await, [1, 2]);
+    assert_eq!(usable(&db, "things_name_idx").await, ["true"]);
+}
+
+#[tokio::test]
+async fn platform_005_an_index_that_was_built_and_not_recorded_is_recorded_by_the_next_run() {
+    let db = TestDatabase::empty().await;
+    migrate(&db.owner_url(), &INDEX_OUTSIDE).await.unwrap();
+    // The record is written after the build, outside its transaction, so a run that ends
+    // between the two leaves the index without it.
+    db.owner_executes("DELETE FROM _sqlx_migrations WHERE version = 2")
+        .await;
+
+    let applied = migrate(&db.owner_url(), &INDEX_OUTSIDE).await.unwrap();
+
+    assert_eq!(applied, [2]);
+    assert_eq!(db.applied_versions().await, [1, 2]);
+    assert_eq!(usable(&db, "things_name_idx").await, ["true"]);
+}
+
+#[tokio::test]
+async fn platform_005_a_failed_build_leaves_an_unusable_index_that_the_next_run_builds_again() {
+    let db = TestDatabase::empty().await;
+
+    let failed = migrate(&db.owner_url(), &INDEX_FAILS).await.err();
+
+    // The build's failure leaves the index, unusable, and no record of its migration.
+    assert!(
+        matches!(failed, Some(MigrateError::Failed(_))),
+        "{failed:?}"
+    );
+    assert_eq!(db.applied_versions().await, [1]);
+    assert_eq!(usable(&db, "things_name_key").await, ["false"]);
+
+    // Once nothing keeps the index from building, the next run drops what the first left,
+    // rather than take it for built, and builds it.
+    db.owner_executes("DELETE FROM things WHERE id = 2").await;
+    let applied = migrate(&db.owner_url(), &INDEX_FAILS).await.unwrap();
+
+    assert_eq!(applied, [2]);
+    assert_eq!(db.applied_versions().await, [1, 2]);
+    assert_eq!(usable(&db, "things_name_key").await, ["true"]);
 }
 
 #[tokio::test]

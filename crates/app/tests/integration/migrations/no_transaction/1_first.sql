@@ -1,3 +1,4 @@
 -- no-transaction
--- Runs outside a transaction, so migrate refuses it (PLATFORM-005).
+-- Marked to run outside a transaction, and no build of an index, so migrate refuses it
+-- (PLATFORM-005).
 CREATE TABLE first (id integer);

@@ -1,10 +1,19 @@
-//! `check-migrations`: the migrations keep their history (DATA-09).
+//! `check-migrations`: the migrations keep their history (DATA-09), and build an index of an
+//! earlier migration's table outside a transaction (DATA-10).
 //! - Each file of `migrations/` is named `<timestamp>_<module>_<description>.sql`: fourteen
 //!   digits, a module of `app` or `platform`, then a description in `snake_case`.
 //! - The newest release holds its migrations as they are: none of the files under `migrations/`
 //!   of the tag `v*` of the newest version, by semantic versioning, is changed or deleted, since `migrate` and `serve` refuse a database
 //!   whose applied migration differs from its file (PLATFORM-006, PLATFORM-030). A repository
 //!   without a release, such as a fork before its first, has nothing to keep.
+//! - A migration that builds an index of a table that another migration creates starts with
+//!   the line `-- no-transaction`, with which `migrate` applies only the build of one index,
+//!   `CONCURRENTLY` (PLATFORM-005). The check reads each migration as `check-tenancy` reads
+//!   one, as its words outside comments and strings in single quotes: an index's build is
+//!   `CREATE`, then `UNIQUE` or not, then `INDEX`, and its table is the word after the next
+//!   `ON`, or the one after that where the first is `ONLY`. A table that no migration creates
+//!   with `CREATE TABLE <name>` counts as another migration's, and a build with no `ON` after
+//!   it is a finding.
 //!
 //! It reads the newest release from git's tags, so a checkout needs them: CI's fetches them.
 
@@ -13,7 +22,11 @@ use std::{path::Path, process::Command};
 use crate::{
     Finding, Outcome, release,
     repo::{self, Repo},
+    tenancy,
 };
+
+/// The line that marks a migration to run outside a transaction.
+const NO_TRANSACTION: &str = "-- no-transaction";
 
 /// The directory of the migrations.
 const MIGRATIONS: &str = "migrations/";
@@ -63,6 +76,7 @@ fn check_with(
             ));
         }
     }
+    findings.extend(indexes(repo));
     let report = match release {
         None => "check-migrations: no release holds a migration yet.".to_owned(),
         Some(release) => {
@@ -93,6 +107,63 @@ fn check_with(
         report: vec![report],
         findings,
     }
+}
+
+/// A finding for each build of an index, in a migration that runs in a transaction, of a table
+/// that another migration creates, and for each build whose table the check can't read
+/// (DATA-10).
+fn indexes(repo: &Repo) -> Vec<Finding> {
+    let tables = tenancy::tables(repo);
+    let mut findings = Vec::new();
+    let migrations = repo
+        .files()
+        .filter(|file| file.path.starts_with(MIGRATIONS) && file.path.ends_with(".sql"));
+    for file in migrations {
+        let outside = file.text.starts_with(NO_TRANSACTION);
+        let words = tenancy::words(&file.text);
+        for (index, (word, line)) in words.iter().enumerate() {
+            let next = |offset: usize| words.get(index + offset).map(|(word, _)| word.as_str());
+            let built = word == "create"
+                && (next(1) == Some("index")
+                    || (next(1) == Some("unique") && next(2) == Some("index")));
+            if !built {
+                continue;
+            }
+            let mut rest = words[index + 1..].iter().map(|(word, _)| word.as_str());
+            let table = rest
+                .by_ref()
+                .find(|word| *word == "on")
+                .and_then(|_| rest.next())
+                .and_then(|word| {
+                    if word == "only" {
+                        rest.next()
+                    } else {
+                        Some(word)
+                    }
+                });
+            let message = match table {
+                None => "check-migrations can't read which table this index is built on: no \
+                         `ON` follows it (DATA-10)"
+                    .to_owned(),
+                Some(table) => {
+                    let own = tables
+                        .get(table)
+                        .is_some_and(|created| created.view.is_none() && created.path == file.path);
+                    if own || outside {
+                        continue;
+                    }
+                    format!(
+                        "this migration builds an index of `{table}`, which it doesn't create, \
+                         in its transaction, so the build holds up the table's writes: a \
+                         migration of its own, whose first line is `{NO_TRANSACTION}`, builds \
+                         it with `CREATE INDEX CONCURRENTLY IF NOT EXISTS` (DATA-10)"
+                    )
+                }
+            };
+            findings.push(Finding::new(&file.path, *line, message));
+        }
+    }
+    findings
 }
 
 /// Whether the file at `path` is a migration of `module`: one of `migrations/` whose name holds
@@ -185,6 +256,65 @@ mod tests {
             .iter()
             .map(|finding| format!("{}: {}", finding.path, finding.message))
             .collect()
+    }
+
+    #[test]
+    fn data_10_an_index_of_another_migration_s_table_is_built_outside_a_transaction() {
+        let repo = Repo::of(&[
+            (
+                "migrations/20260101000000_platform_things.sql",
+                "CREATE TABLE things (id uuid, name text);\n\
+                 CREATE UNIQUE INDEX things_name_key ON things (name);\n\
+                 -- CREATE INDEX in_a_comment ON others (id);\n",
+            ),
+            (
+                "migrations/20260101000100_platform_names.sql",
+                "CREATE INDEX things_name_idx ON things (name);\n\
+                 CREATE INDEX nowhere_idx ON ONLY nowhere (id);\n\
+                 CREATE UNIQUE INDEX without_a_table;\n",
+            ),
+            (
+                "migrations/20260101000200_platform_ids.sql",
+                "-- no-transaction\n\
+                 CREATE INDEX CONCURRENTLY IF NOT EXISTS things_id_idx ON things (id);\n",
+            ),
+            (
+                "migrations/20260101000300_platform_late.sql",
+                "-- A comment first.\n-- no-transaction\n\
+                 CREATE INDEX CONCURRENTLY IF NOT EXISTS things_late_idx ON things (id);\n",
+            ),
+        ]);
+
+        let outcome = check_with(&repo, None, |_| Ok(Vec::new()));
+
+        let built = |table: &str| {
+            format!(
+                "this migration builds an index of `{table}`, which it doesn't create, in its \
+                 transaction, so the build holds up the table's writes: a migration of its own, \
+                 whose first line is `-- no-transaction`, builds it with `CREATE INDEX \
+                 CONCURRENTLY IF NOT EXISTS` (DATA-10)"
+            )
+        };
+        assert_eq!(
+            messages(&outcome),
+            [
+                format!(
+                    "migrations/20260101000100_platform_names.sql: {}",
+                    built("things")
+                ),
+                format!(
+                    "migrations/20260101000100_platform_names.sql: {}",
+                    built("nowhere")
+                ),
+                "migrations/20260101000100_platform_names.sql: check-migrations can't read \
+                 which table this index is built on: no `ON` follows it (DATA-10)"
+                    .to_owned(),
+                format!(
+                    "migrations/20260101000300_platform_late.sql: {}",
+                    built("things")
+                ),
+            ]
+        );
     }
 
     #[test]

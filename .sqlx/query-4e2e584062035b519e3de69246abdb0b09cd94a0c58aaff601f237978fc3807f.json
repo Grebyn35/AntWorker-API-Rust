@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS (\n            SELECT 1 FROM pg_index WHERE indexrelid = to_regclass($1) AND NOT indisvalid\n        ) AS \"unusable!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "unusable!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "4e2e584062035b519e3de69246abdb0b09cd94a0c58aaff601f237978fc3807f"
+}

@@ -436,7 +436,7 @@ fn names_tenant(sql: &str, tenants: &[&str]) -> bool {
 }
 
 /// The words of `text`, lowercased, each with its line, outside its quoted strings and comments.
-fn words(text: &str) -> Vec<(String, usize)> {
+pub fn words(text: &str) -> Vec<(String, usize)> {
     let mut words = Vec::new();
     for (number, line) in text.lines().enumerate() {
         let code = line.split("--").next().unwrap_or_default();
