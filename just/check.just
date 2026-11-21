@@ -91,14 +91,33 @@ lint: bound-build
     cargo clippy --workspace --locked -- -D warnings
     cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
+# Fetches the locked crates, and RustSec's advisory database in up to three attempts: a CI runner
+# now and then fails to reach the database's host for a couple of minutes, and cargo-deny tries
+# once. The check of the advisories then reads what is fetched, without the network.
+[unix]
+[private]
+advisories:
+    cargo fetch --locked
+    cargo deny fetch db || cargo deny fetch db || cargo deny fetch db
+
+# Fetches the locked crates, and RustSec's advisory database in up to three attempts: a CI runner
+# now and then fails to reach the database's host for a couple of minutes, and cargo-deny tries
+# once. The check of the advisories then reads what is fetched, without the network.
+[windows]
+[private]
+advisories:
+    cargo fetch --locked
+    cargo deny fetch db; if ($LASTEXITCODE -ne 0) { cargo deny fetch db }; if ($LASTEXITCODE -ne 0) { cargo deny fetch db }; exit $LASTEXITCODE
+
 # Checks dependencies: advisories, bans and sources for every target, and licenses for each target
 # the API is built for, the platforms a developer builds on and the image's, one at a time, as
 # cargo-deny takes one target per run. A crate that only other targets compile, such as one for
-# WebAssembly, never reaches a build, so its license doesn't matter.
+# WebAssembly, never reaches a build, so its license doesn't matter. The advisories are read from
+# the database that the recipe has just fetched.
 [doc("Checks the dependencies' advisories, bans, sources and licenses")]
 [group('check')]
-deny:
-    cargo deny --locked check advisories bans sources
+deny: advisories
+    cargo deny --locked --offline check advisories bans sources
     cargo deny --locked --target x86_64-unknown-linux-gnu check licenses
     cargo deny --locked --target aarch64-unknown-linux-gnu check licenses
     cargo deny --locked --target x86_64-unknown-linux-musl check licenses
