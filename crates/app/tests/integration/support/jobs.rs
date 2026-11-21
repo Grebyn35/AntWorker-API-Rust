@@ -1,8 +1,13 @@
 //! Builders of jobs, written as a unit of work enqueues them (TEST-09).
 
+use std::time::Duration;
+
 use serde_json::Value;
 
 use super::TestDatabase;
+
+/// The interval of a periodic job that runs every hour.
+pub const HOUR: Duration = Duration::from_secs(3_600);
 
 /// Enqueues a job of `kind` with `payload`, as a unit of work that ran in the trace that
 /// `traceparent` names enqueues it, through the `owner` connection, for a test whose API runs in

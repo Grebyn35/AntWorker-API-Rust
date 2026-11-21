@@ -10,6 +10,7 @@ use platform::{
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
+    sync::Notify,
 };
 
 /// The host that the untrusted client of [`serving`] fetches from, beside the tests' origin: a
@@ -71,6 +72,22 @@ async fn origin(
         test_origin: Some(url::Url::parse(&origin).unwrap()),
     };
     (config, origin)
+}
+
+/// What makes a server answer no request, and what it notifies once it holds one.
+fn held() -> (
+    Arc<Notify>,
+    impl Fn(&str) -> Option<Vec<u8>> + Send + 'static,
+) {
+    let asked = Arc::new(Notify::new());
+    let holds = {
+        let asked = asked.clone();
+        move |_: &str| {
+            asked.notify_one();
+            None
+        }
+    };
+    (asked, holds)
 }
 
 /// An answer of `status`, with `headers` and `body`, which ends with its connection.
@@ -227,12 +244,16 @@ async fn sec_10_a_status_says_whether_another_fetch_may_get_the_answer() {
 
 #[tokio::test]
 async fn sec_10_the_untrusted_client_gives_up_an_answer_that_doesn_t_come_in_time() {
-    let (client, origin) = serving(|_| None).await;
-    // The client's time limit runs on tokio's time, which the runtime advances once the fetch
-    // waits for the answer alone (TEST-06).
-    tokio::time::pause();
+    let (asked, holds) = held();
+    let (client, origin) = serving(holds).await;
+    let address = format!("{origin}/ada.png");
 
-    let failed = client.get(&format!("{origin}/ada.png"), 16).await;
+    let (failed, ()) = tokio::join!(client.get(&address, 16), async {
+        asked.notified().await;
+        // Paused once the server holds the request, so tokio's time runs straight to the
+        // client's time limit, the only timer left (TEST-06).
+        tokio::time::pause();
+    });
 
     assert!(matches!(failed, Err(FetchError::Failed(_))), "{failed:?}");
 }
@@ -287,14 +308,18 @@ async fn sec_10_the_configured_client_caps_an_answer_s_size() {
 
 #[tokio::test]
 async fn sec_10_the_configured_client_gives_up_an_answer_that_doesn_t_come_in_time() {
-    let client = configured(|_| None).await;
-    // The client's time limit runs on tokio's time, which the runtime advances once the request
-    // waits for the answer alone (TEST-06).
-    tokio::time::pause();
+    let (asked, holds) = held();
+    let client = configured(holds).await;
 
-    let failed = client
-        .send(Request::get("https://provider.example.com/token"))
-        .await;
+    let (failed, ()) = tokio::join!(
+        client.send(Request::get("https://provider.example.com/token")),
+        async {
+            asked.notified().await;
+            // Paused once the server holds the request, so tokio's time runs straight to the
+            // client's time limit, the only timer left (TEST-06).
+            tokio::time::pause();
+        }
+    );
 
     assert!(failed.is_err(), "{failed:?}");
 }

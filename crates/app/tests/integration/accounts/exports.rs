@@ -793,6 +793,15 @@ async fn accounts_026_a_pending_export_answers_409() {
 }
 
 #[tokio::test]
+async fn accounts_027_the_expiry_runs_every_hour() {
+    let api = Api::new().await;
+
+    let interval = api.interval("accounts.expire_exports");
+
+    assert_eq!(interval, crate::support::jobs::HOUR);
+}
+
+#[tokio::test]
 async fn accounts_027_the_expiry_deletes_expired_exports_and_fails_those_pending_for_a_day() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;

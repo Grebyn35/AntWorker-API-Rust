@@ -107,6 +107,58 @@ async fn auth_025_an_account_that_must_verify_is_refused_but_where_verifying_nee
     assert_eq!(signed_out.status, 204);
 }
 
+/// The eight routes that verifying needs, each as its method and its path (AUTH-025).
+const VERIFYING: [(&str, &str); 8] = [
+    ("POST", "/v1/users/me/email/verification"),
+    ("POST", "/v1/users/me/email/verification/confirm"),
+    ("GET", "/v1/users/me/sessions/current"),
+    ("DELETE", "/v1/users/me/sessions/current"),
+    ("POST", "/v1/users/me/sessions/current/reauthenticate"),
+    (
+        "POST",
+        "/v1/users/me/sessions/current/reauthenticate/provider",
+    ),
+    ("POST", "/v1/users/me/email/change"),
+    ("POST", "/v1/users/me/email/change/confirm"),
+];
+
+#[tokio::test]
+async fn auth_025_every_route_that_isn_t_public_refuses_an_account_that_must_verify_but_the_eight()
+{
+    let api = Api::new().await;
+    let ada = users::register_unverified(&api, &mailbox::address("ada")).await;
+    let mut operations = api.operations();
+    // Signing out ends the session that the other requests carry, so it goes last.
+    operations.sort_by_key(|(method, path, _)| {
+        *method == http::Method::DELETE && path == "/v1/users/me/sessions/current"
+    });
+    let (mut refused, mut others) = (0, Vec::new());
+
+    for (method, path, access) in operations {
+        if access == "public" {
+            continue;
+        }
+        let response = api
+            .request(method.clone(), &path)
+            .header("content-type", "application/json")
+            .body("{}")
+            .bearer(&ada.access)
+            .send()
+            .await;
+        if response.status == 403 && response.json()["code"] == "request.email_unverified" {
+            refused += 1;
+        } else {
+            others.push((method.to_string(), path));
+        }
+    }
+
+    others.sort();
+    let mut verifying = VERIFYING.map(|(method, path)| (method.to_owned(), path.to_owned()));
+    verifying.sort();
+    assert_eq!(others, verifying);
+    assert!(refused >= 7, "only {refused} routes refused");
+}
+
 #[tokio::test]
 async fn auth_025_a_member_whose_account_must_verify_is_refused_on_a_workspace_route() {
     let api = Api::new().await;

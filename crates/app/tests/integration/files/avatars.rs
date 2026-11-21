@@ -4,12 +4,9 @@
 
 use std::time::Duration;
 
-use axum::body::Body;
-use bytes::Bytes;
-use futures_util::stream;
 use serde_json::json;
 
-use super::{errors_of, objects, uploads};
+use super::{errors_of, fetch, objects, unread, uploads};
 use crate::support::{
     Api,
     api::{Options, Response},
@@ -37,14 +34,6 @@ async fn remove(api: &Api, user: &SignedIn) -> Response {
         .await
 }
 
-/// A body that fails once it is read, so an answer to a request that sends it shows that nothing
-/// read it.
-fn unread() -> Body {
-    Body::from_stream(stream::once(async {
-        Err::<Bytes, _>(std::io::Error::other("the body was read"))
-    }))
-}
-
 /// The record's `ETag` that `user` reads.
 async fn etag(api: &Api, user: &SignedIn) -> String {
     api.get("/v1/users/me")
@@ -53,11 +42,6 @@ async fn etag(api: &Api, user: &SignedIn) -> String {
         .await
         .header("etag")
         .to_owned()
-}
-
-/// Downloads the avatar whose link is `url`, without a credential.
-async fn download(api: &Api, url: &str) -> Response {
-    api.get(url).send().await
 }
 
 /// The avatars' rows, each as its user, media type and size.
@@ -98,7 +82,7 @@ async fn accounts_008_setting_an_avatar_stores_it_records_it_and_publishes_it() 
         rows(&api).await,
         [format!("{} image/png {}", ada.user_id, files::PNG.len())]
     );
-    let downloaded = download(&api, &url).await;
+    let downloaded = fetch(&api, &url).await;
     assert_eq!(downloaded.status, 200);
     assert_eq!(downloaded.header("content-type"), "image/png");
     assert_eq!(downloaded.body, files::PNG);
@@ -149,8 +133,8 @@ async fn accounts_008_a_new_avatar_replaces_the_one_before_whose_bytes_stay() {
         rows(&api).await,
         [format!("{} image/gif {}", ada.user_id, gif.len())]
     );
-    assert_eq!(download(&api, &first).await.status, 404);
-    assert_eq!(download(&api, &url).await.status, 200);
+    assert_eq!(fetch(&api, &first).await.status, 404);
+    assert_eq!(fetch(&api, &url).await.status, 200);
     // The replaced image's object stays until the deletion of unreferenced objects (FILES-011).
     assert_eq!(objects(&api).await.len(), 2);
 }
@@ -186,7 +170,7 @@ async fn accounts_009_an_avatar_is_a_png_jpeg_gif_or_webp_image_its_kind_from_it
 
         assert_eq!(response.status, 200, "{media_type}");
         let url = response.json()["avatar_url"].as_str().unwrap().to_owned();
-        let downloaded = download(&api, &url).await;
+        let downloaded = fetch(&api, &url).await;
         assert_eq!(downloaded.header("content-type"), media_type);
     }
 }
@@ -278,7 +262,7 @@ async fn accounts_010_removing_an_avatar_deletes_it_records_it_and_publishes_it(
 
     assert_eq!(response.status, 204);
     assert!(rows(&api).await.is_empty());
-    assert_eq!(download(&api, &url).await.status, 404);
+    assert_eq!(fetch(&api, &url).await.status, 404);
     let me = api.get("/v1/users/me").bearer(&ada.access).send().await;
     assert_eq!(me.json()["avatar_url"], json!(null));
     assert_eq!(me.header("etag"), "\"4\"");
@@ -403,7 +387,7 @@ async fn files_024_an_avatar_s_download_needs_no_credential_and_names_it_by_its_
         .to_owned();
     let id = id_of(&url);
 
-    let response = download(&api, &url).await;
+    let response = fetch(&api, &url).await;
 
     assert_eq!(response.status, 200);
     assert_eq!(
@@ -412,12 +396,12 @@ async fn files_024_an_avatar_s_download_needs_no_credential_and_names_it_by_its_
     );
     assert_eq!(response.header("cache-control"), "public, max-age=300");
     assert_eq!(response.header("etag"), format!("\"{id}\""));
-    let unknown = download(
+    let unknown = fetch(
         &api,
         "/v1/public/avatars/0198f1a2-0000-7000-8000-000000000000",
     )
     .await;
-    let not_uuid = download(&api, "/v1/public/avatars/not-a-uuid").await;
+    let not_uuid = fetch(&api, "/v1/public/avatars/not-a-uuid").await;
     for missing in [&unknown, &not_uuid] {
         assert_eq!(missing.status, 404);
         assert_eq!(missing.json()["code"], "files.not_found");
@@ -644,7 +628,7 @@ async fn files_024_an_avatar_s_download_counts_in_the_bucket_of_public_downloads
         .unwrap()
         .to_owned();
 
-    let response = download(&api, &url).await;
+    let response = fetch(&api, &url).await;
 
     assert_eq!(response.status, 200);
     assert_eq!(response.header("ratelimit-policy"), "\"public\";q=7;w=60");
@@ -665,7 +649,7 @@ async fn files_024_a_replaced_or_removed_avatar_s_download_answers_404() {
     remove(&api, &ada).await;
 
     for url in [&replaced, &removed] {
-        let response = download(&api, url).await;
+        let response = fetch(&api, url).await;
 
         assert_eq!(response.status, 404);
         assert_eq!(response.json()["code"], "files.not_found");

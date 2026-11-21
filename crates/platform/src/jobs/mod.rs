@@ -270,6 +270,16 @@ impl Jobs {
         }
     }
 
+    /// The interval of the periodic job `name` and the time limit of each of its runs, as its
+    /// registration gave them, or none when no periodic job has the name: a test's way to prove
+    /// when the scheduler runs it (PLATFORM-015).
+    #[cfg(feature = "test-support")]
+    pub fn schedule(&self, name: &str) -> Option<(Duration, Duration)> {
+        self.periodic
+            .get(name)
+            .map(|job| (job.interval, job.time_limit))
+    }
+
     /// Runs the periodic job `name` once, now, outside its schedule: a test's way to prove what
     /// a periodic job does, apart from when the scheduler runs it.
     #[cfg(feature = "test-support")]

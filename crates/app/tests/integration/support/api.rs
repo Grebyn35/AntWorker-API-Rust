@@ -2,7 +2,7 @@
 //! OpenAPI document of the routes that answered it, and so is the body of every typed request
 //! (API-17, TEST-03).
 
-use std::{collections::HashMap, ffi::OsString, io, net::SocketAddr, sync::Arc};
+use std::{collections::HashMap, ffi::OsString, io, net::SocketAddr, sync::Arc, time::Duration};
 
 use axum::{Router, body::Body, extract::ConnectInfo};
 use http::{HeaderMap, HeaderName, HeaderValue, Method, Request, StatusCode};
@@ -361,6 +361,12 @@ impl Api {
     /// Runs the periodic job `name` once, now.
     pub async fn run_periodic(&self, name: &str) {
         self.jobs.run_periodic(name).await.unwrap();
+    }
+
+    /// The interval at which the scheduler runs the periodic job `name`, as its registration
+    /// gives it.
+    pub fn interval(&self, name: &str) -> Duration {
+        self.jobs.schedule(name).expect("a periodic job").0
     }
 
     /// The OpenAPI document of the routes, which every response is checked against.

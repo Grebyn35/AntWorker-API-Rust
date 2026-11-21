@@ -12,7 +12,7 @@ use std::{net::SocketAddr, process::Output, time::Duration};
 use serde_json::{Value, json};
 
 use crate::{
-    deployment::{Deployment, get_within, post, post_as, put_as},
+    deployment::{Deployment, get_within, post_as, put_as},
     docker::{Container, lossy},
     image::PORT,
     support::{self, TestDatabase, http_exchange, users},
@@ -774,20 +774,9 @@ async fn client_telemetry_009_the_stack_s_collector_refuses_a_body_that_isn_t_th
 /// Registers a user on `deployment`, has them consent to their clients' telemetry, and returns
 /// their access token.
 fn consenting(deployment: &Deployment) -> String {
-    let root = deployment.server.caddy_root();
-    let (registered, session) = post(
-        root.clone(),
-        deployment.url("https", 443, "/v1/users"),
-        users::registration("ada@example.com").to_string(),
-    );
-    assert_eq!(registered, 201, "{session}");
-    let session: Value = serde_json::from_str(&session).expect("a session");
-    let token = session["access_token"]
-        .as_str()
-        .expect("a token")
-        .to_owned();
+    let token = deployment.registered("ada@example.com");
     let consented = put_as(
-        root,
+        deployment.server.caddy_root(),
         deployment.url("https", 443, "/v1/users/me/telemetry-consent"),
         token.clone(),
         json!({ "consented": true }).to_string(),

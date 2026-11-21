@@ -40,6 +40,19 @@ use crate::support::{
     workspaces,
 };
 
+/// A body that fails once it is read, so an answer to a request that sends it shows that nothing
+/// read it.
+fn unread() -> Body {
+    Body::from_stream(stream::once(async {
+        Err::<Bytes, _>(std::io::Error::other("the body was read"))
+    }))
+}
+
+/// Downloads what the link `url` names, without a credential.
+async fn fetch(api: &Api, url: &str) -> Response {
+    api.get(url).send().await
+}
+
 /// Uploads `bytes` as the file `name` to `workspace` as `user`, with `key` as its idempotency
 /// key if given.
 async fn upload(

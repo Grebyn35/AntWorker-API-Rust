@@ -559,20 +559,31 @@ async fn behind_a_proxy() -> Api {
     Api::with(Options::default().set("TRUSTED_PROXIES", "198.51.100.0/24")).await
 }
 
+/// The names of the roles that hold `permission`, as the matrix of `access` gives them.
+fn holders(permission: &str) -> Vec<&'static str> {
+    app::permissions()
+        .into_iter()
+        .find(|(name, _)| *name == permission)
+        .expect("a permission of the matrix")
+        .1
+}
+
 // With the template's roles, every role that reads a workspace's log holds `audit.read_clients`
-// (D166), so no reader of the template's is shown the log without its clients.
+// (D166), so the test shows the log without its clients only once a matrix has a role that reads
+// the log and doesn't hold it (TEST-08).
 #[tokio::test]
-async fn audit_010_the_owner_and_an_admin_see_the_clients_of_the_workspace_s_log() {
+async fn audit_010_a_role_that_reads_the_log_sees_its_clients_only_with_the_permission() {
     let api = behind_a_proxy().await;
     let ada = users::register(&api, "ada@example.com").await;
     let grace = users::register(&api, "grace@example.com").await;
+    let carol = users::register(&api, "carol@example.com").await;
     let db = api.database();
-    let acme = workspaces::arrange(
-        db,
-        "Acme",
-        &[(&ada.user_id, "owner"), (&grace.user_id, "admin")],
-    )
-    .await;
+    let members = [
+        (ada.user_id.as_str(), "owner"),
+        (grace.user_id.as_str(), "admin"),
+        (carol.user_id.as_str(), "member"),
+    ];
+    let acme = workspaces::arrange(db, "Acme", &members).await;
     let client = [
         ("user-agent", "Desktop/1.2"),
         ("x-forwarded-for", "203.0.113.9"),
@@ -582,17 +593,26 @@ async fn audit_010_the_owner_and_an_admin_see_the_clients_of_the_workspace_s_log
     Logged::new(&acme, &grace.user_id, "thing.done")
         .record(db)
         .await;
+    let (readers, seeing) = (holders("audit.read"), holders("audit.read_clients"));
+    let mut read = 0;
 
-    for reader in [&ada, &grace] {
+    for (reader, role) in [(&ada, "owner"), (&grace, "admin"), (&carol, "member")] {
+        if !readers.contains(&role) {
+            continue;
+        }
         let body = listed(&api, reader, &log_of(&acme)).await;
 
         assert_eq!(column(&body, "action"), ["thing.done", "workspace.renamed"]);
         assert_eq!(body["items"][0]["client"], Value::Null);
-        assert_eq!(
-            body["items"][1]["client"],
+        let shown = if seeing.contains(&role) {
             json!({ "ip": "203.0.113.9", "user_agent": "Desktop/1.2" })
-        );
+        } else {
+            Value::Null
+        };
+        assert_eq!(body["items"][1]["client"], shown, "{role}");
+        read += 1;
     }
+    assert!(read >= 1, "no role reads the log");
 }
 
 #[tokio::test]

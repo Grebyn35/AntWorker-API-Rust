@@ -555,6 +555,21 @@ async fn platform_018_at_shutdown_nothing_more_is_claimed_and_runs_still_going_a
 }
 
 #[tokio::test]
+async fn platform_019_each_sweep_runs_every_hour() {
+    let api = Api::new().await;
+
+    let intervals = [
+        "platform.expire_rate_limit_buckets",
+        "platform.expire_idempotency_records",
+        "platform.expire_events",
+        "platform.expire_dead_letters",
+    ]
+    .map(|sweep| api.interval(sweep));
+
+    assert_eq!(intervals, [crate::support::jobs::HOUR; 4]);
+}
+
+#[tokio::test]
 async fn platform_019_the_sweeps_delete_what_nothing_reads_any_more() {
     let db = TestDatabase::migrated().await;
     let database = db.app().await;

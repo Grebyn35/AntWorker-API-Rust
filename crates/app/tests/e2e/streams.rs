@@ -13,10 +13,10 @@ use std::{
     time::Duration,
 };
 
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use crate::{
-    deployment::{Deployment, delete_as, post, streaming_client},
+    deployment::{Deployment, delete_as, streaming_client},
     docker::lossy,
 };
 
@@ -208,17 +208,7 @@ async fn realtime_004_a_deploy_with_an_open_stream_loses_no_event() {
     let first = deployment.apply(&deployment.api, &[]).await;
     assert!(first.status.success(), "{}", lossy(&first));
     let root = deployment.server.caddy_root();
-    let (registered, session) = post(
-        root.clone(),
-        deployment.url("https", 443, "/v1/users"),
-        json!({ "email": "ada@example.com", "password": "plum-tractor-41-quiet", "name": "Ada" })
-            .to_string(),
-    );
-    assert_eq!(registered, 201, "{session}");
-    let token = serde_json::from_str::<Value>(&session).unwrap()["access_token"]
-        .as_str()
-        .unwrap()
-        .to_owned();
+    let token = deployment.registered("ada@example.com");
     let workspace = deployment.owned_workspace("Analytical", "ada@example.com");
     let members = deployment.sql(&format!(
         "WITH added AS (INSERT INTO users (email, name) \

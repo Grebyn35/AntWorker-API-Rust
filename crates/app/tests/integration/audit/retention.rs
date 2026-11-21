@@ -108,6 +108,15 @@ async fn audit_005_the_view_s_floor_holds_whatever_time_zone_the_session_sets() 
 }
 
 #[tokio::test]
+async fn audit_011_the_job_runs_every_hour() {
+    let api = Api::new().await;
+
+    let interval = api.interval("audit.expire_entries");
+
+    assert_eq!(interval, crate::support::jobs::HOUR);
+}
+
+#[tokio::test]
 async fn audit_011_the_hourly_job_deletes_each_log_s_entries_older_than_the_retention_with_their_clients()
  {
     let api = Api::with(Options::default().set("AUDIT_RETENTION_DAYS", 100)).await;

@@ -543,6 +543,15 @@ async fn invitations_006_an_invitation_not_addressed_to_the_caller_answers_404()
 }
 
 #[tokio::test]
+async fn invitations_007_the_job_runs_every_hour() {
+    let api = Api::new().await;
+
+    let interval = api.interval("invitations.expire");
+
+    assert_eq!(interval, crate::support::jobs::HOUR);
+}
+
+#[tokio::test]
 async fn invitations_007_the_periodic_job_deletes_expired_invitations_of_every_workspace() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;

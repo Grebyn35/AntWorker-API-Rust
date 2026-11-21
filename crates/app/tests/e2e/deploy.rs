@@ -14,9 +14,6 @@ use crate::{
     docker::lossy,
     server::DEPLOYMENT,
 };
-// part: workspace_setup
-use crate::deployment::post;
-// end part: workspace_setup
 // part: files
 use crate::deployment::streaming_client;
 // end part: files
@@ -1039,17 +1036,7 @@ fn operator_subcommands_run(deployment: &Deployment) {
     // The setup of a workspace (WORKSPACES-023): with email off, it makes the account that holds
     // the address the workspace's owner, and sets nothing up for an address that no account
     // holds (WORKSPACES-026).
-    let (registered, session) = post(
-        deployment.server.caddy_root(),
-        deployment.url("https", 443, "/v1/users"),
-        serde_json::json!({
-            "email": "ada@example.com",
-            "password": "plum-tractor-41-quiet",
-            "name": "Ada"
-        })
-        .to_string(),
-    );
-    assert_eq!(registered, 201, "{session}");
+    deployment.registered("ada@example.com");
     let set_up = deployment
         .server
         .deploy(&["setup-workspace", "Acme Labs", "ada@example.com"]);
@@ -1082,17 +1069,7 @@ fn operator_subcommands_run(deployment: &Deployment) {
 /// (SUPERADMINS-003), and the list shows the operator the superadmin's address, which its log
 /// doesn't hold (SUPERADMINS-008).
 fn superadmin_subcommand_runs(deployment: &Deployment) {
-    let (registered, session) = crate::deployment::post(
-        deployment.server.caddy_root(),
-        deployment.url("https", 443, "/v1/users"),
-        serde_json::json!({
-            "email": "sam@example.com",
-            "password": "plum-tractor-41-quiet",
-            "name": "Sam"
-        })
-        .to_string(),
-    );
-    assert_eq!(registered, 201, "{session}");
+    deployment.registered("sam@example.com");
     let added = deployment
         .server
         .deploy(&["superadmin", "add", "sam@example.com"]);

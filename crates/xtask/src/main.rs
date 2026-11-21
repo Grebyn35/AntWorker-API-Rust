@@ -555,7 +555,7 @@ mod tests {
     }
 
     #[test]
-    fn auth_072_the_operator_s_removal_takes_a_server_and_an_address() {
+    fn ops_19_the_removal_of_a_second_factor_takes_a_server_and_an_address() {
         let cli = Cli::try_parse_from([
             "xtask",
             "remove-second-factor",
@@ -573,7 +573,7 @@ mod tests {
     }
 
     #[test]
-    fn auth_094_the_operator_s_end_of_sessions_takes_a_server_and_an_address_or_all() {
+    fn ops_19_the_end_of_sessions_takes_a_server_and_an_address_or_all() {
         let cli = |arguments: &[&str]| {
             Cli::try_parse_from(
                 ["xtask", "end-sessions"]
@@ -599,7 +599,7 @@ mod tests {
 
     // part: files
     #[test]
-    fn files_028_the_writing_back_of_files_takes_a_server_and_a_moment() {
+    fn ops_19_the_writing_back_of_files_takes_a_server_and_a_moment() {
         let cli = Cli::try_parse_from([
             "xtask",
             "restore-files",
@@ -619,7 +619,7 @@ mod tests {
 
     // part: workspace_setup
     #[test]
-    fn workspaces_023_the_operator_s_setup_takes_a_server_a_name_an_address_and_maybe_a_name() {
+    fn ops_19_the_setup_of_a_workspace_takes_a_server_a_name_an_address_and_maybe_a_name() {
         let cli = |arguments: &[&str]| {
             Cli::try_parse_from(
                 ["xtask", "setup-workspace"]
@@ -651,7 +651,7 @@ mod tests {
 
     // part: superadmins
     #[test]
-    fn superadmins_001_the_operator_s_subcommand_takes_a_server_and_what_to_do_there() {
+    fn ops_19_the_superadmins_task_takes_a_server_and_what_to_do_there() {
         let cli = |arguments: &[&str]| {
             Cli::try_parse_from(
                 ["xtask", "superadmin"]

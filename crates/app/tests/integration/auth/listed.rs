@@ -728,6 +728,15 @@ async fn auth_046_a_deletion_of_the_account_publishes_no_session_s_end() {
 }
 
 #[tokio::test]
+async fn auth_047_the_job_runs_every_hour() {
+    let api = Api::new().await;
+
+    let interval = api.interval("auth.expire_sessions");
+
+    assert_eq!(interval, crate::support::jobs::HOUR);
+}
+
+#[tokio::test]
 async fn auth_047_the_hourly_job_deletes_every_user_s_sessions_that_stopped_lasting() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;

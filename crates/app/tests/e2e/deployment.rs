@@ -16,15 +16,13 @@ use std::{
 
 use rustls::pki_types::{CertificateDer, pem::PemObject};
 use serde_json::Value;
-// part: files
-use serde_json::json;
-// end part: files
 
 use crate::{
     docker::{Container, compose, docker, lossy, postgres_network},
     images::Pushed,
     memory,
     server::{DEPLOYMENT, RunningDeploy, Server},
+    support::users,
 };
 
 /// The API's address in the tests: a name under `localhost`, for which Caddy signs the
@@ -751,17 +749,7 @@ impl Deployment {
     /// [`Deployment::owned_workspace`] does.
     pub fn workspace(&self) -> Workspace {
         let root = self.server.caddy_root();
-        let (registered, session) = post(
-            root.clone(),
-            self.url("https", 443, "/v1/users"),
-            json!({ "email": "ada@example.com", "password": "plum-tractor-41-quiet", "name": "Ada" })
-                .to_string(),
-        );
-        assert_eq!(registered, 201, "{session}");
-        let token = serde_json::from_str::<Value>(&session).unwrap()["access_token"]
-            .as_str()
-            .unwrap()
-            .to_owned();
+        let token = self.registered("ada@example.com");
         let workspace = self.owned_workspace("Acme", "ada@example.com");
         let files = self.url("https", 443, &format!("/v1/workspaces/{workspace}/files"));
         Workspace { root, files, token }
@@ -770,6 +758,21 @@ impl Deployment {
 // end part: files
 
 impl Deployment {
+    /// Registers a user of `email` on the deployed API, and returns their access token.
+    pub fn registered(&self, email: &str) -> String {
+        let (registered, session) = post(
+            self.server.caddy_root(),
+            self.url("https", 443, "/v1/users"),
+            users::registration(email).to_string(),
+        );
+        assert_eq!(registered, 201, "{session}");
+        let session: Value = serde_json::from_str(&session).expect("a session");
+        session["access_token"]
+            .as_str()
+            .expect("a token")
+            .to_owned()
+    }
+
     /// Arranges a workspace named `name` in the deployment's database, owned by the account that
     /// holds `email`, and returns its ID: through SQL, as the integration tests arrange theirs,
     /// rather than through one of the parts that create workspaces, so the tests hold whichever

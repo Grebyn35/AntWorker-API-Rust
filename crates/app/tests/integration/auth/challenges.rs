@@ -546,6 +546,15 @@ async fn auth_066_an_app_s_secret_is_stored_encrypted_and_moves_to_the_current_k
 }
 
 #[tokio::test]
+async fn auth_066_the_job_that_moves_the_secrets_runs_every_hour() {
+    let api = Api::new().await;
+
+    let interval = api.interval("auth.reencrypt_secrets");
+
+    assert_eq!(interval, crate::support::jobs::HOUR);
+}
+
+#[tokio::test]
 async fn auth_066_the_hourly_job_moves_every_secret_to_the_current_key() {
     let database = TestDatabase::migrated().await;
     let api = Api::on(
@@ -617,6 +626,15 @@ async fn auth_066_serve_refuses_a_ring_without_a_version_that_a_stored_secret_ne
         printed.contains("ENCRYPTION_KEYS lacks version 9"),
         "{printed}"
     );
+}
+
+#[tokio::test]
+async fn auth_067_the_job_runs_every_hour() {
+    let api = Api::new().await;
+
+    let interval = api.interval("auth.expire_unfinished");
+
+    assert_eq!(interval, crate::support::jobs::HOUR);
 }
 
 #[tokio::test]

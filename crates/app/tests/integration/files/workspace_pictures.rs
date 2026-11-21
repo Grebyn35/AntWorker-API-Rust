@@ -4,12 +4,9 @@
 
 use std::time::Duration;
 
-use axum::body::Body;
-use bytes::Bytes;
-use futures_util::stream;
 use serde_json::json;
 
-use super::{errors_of, objects, uploads};
+use super::{errors_of, fetch, objects, unread, uploads};
 use crate::support::{
     Api,
     api::{Options, Response},
@@ -57,25 +54,12 @@ async fn remove(api: &Api, user: &SignedIn, workspace: &str) -> Response {
     .await
 }
 
-/// A body that fails once it is read, so an answer to a request that sends it shows that nothing
-/// read it.
-fn unread() -> Body {
-    Body::from_stream(stream::once(async {
-        Err::<Bytes, _>(std::io::Error::other("the body was read"))
-    }))
-}
-
 /// Reads `workspace` as `user`.
 async fn read(api: &Api, user: &SignedIn, workspace: &str) -> Response {
     api.get(&format!("/v1/workspaces/{workspace}"))
         .bearer(&user.access)
         .send()
         .await
-}
-
-/// Downloads the picture whose link is `url`, without a credential.
-async fn download(api: &Api, url: &str) -> Response {
-    api.get(url).send().await
 }
 
 /// The pictures' rows, each as its workspace, media type and size.
@@ -129,7 +113,7 @@ async fn workspaces_019_setting_a_picture_stores_it_records_it_and_publishes_it(
         rows(&api).await,
         [format!("{workspace} image/png {}", files::PNG.len())]
     );
-    let downloaded = download(&api, &url).await;
+    let downloaded = fetch(&api, &url).await;
     assert_eq!(downloaded.status, 200);
     assert_eq!(downloaded.header("content-type"), "image/png");
     assert_eq!(downloaded.body, files::PNG);
@@ -183,8 +167,8 @@ async fn workspaces_019_a_new_picture_replaces_the_one_before_whose_bytes_stay()
         rows(&api).await,
         [format!("{workspace} image/gif {}", gif.len())]
     );
-    assert_eq!(download(&api, &first).await.status, 404);
-    assert_eq!(download(&api, &url).await.status, 200);
+    assert_eq!(fetch(&api, &first).await.status, 404);
+    assert_eq!(fetch(&api, &url).await.status, 200);
     // The replaced image's object stays until the deletion of unreferenced objects (FILES-011).
     assert_eq!(objects(&api).await.len(), 2);
 }
@@ -311,7 +295,7 @@ async fn workspaces_020_a_picture_is_a_png_jpeg_gif_or_webp_image_its_kind_from_
 
         assert_eq!(response.status, 200, "{media_type}");
         let url = response.json()["picture_url"].as_str().unwrap().to_owned();
-        let downloaded = download(&api, &url).await;
+        let downloaded = fetch(&api, &url).await;
         assert_eq!(downloaded.header("content-type"), media_type);
     }
 }
@@ -478,7 +462,7 @@ async fn workspaces_021_removing_a_picture_deletes_it_records_it_and_publishes_i
 
     assert_eq!(response.status, 204);
     assert!(rows(&api).await.is_empty());
-    assert_eq!(download(&api, &url).await.status, 404);
+    assert_eq!(fetch(&api, &url).await.status, 404);
     let read = read(&api, &ada, &workspace).await;
     assert_eq!(read.json()["picture_url"], json!(null));
     assert_eq!(read.header("etag"), "\"3\"");
@@ -631,7 +615,7 @@ async fn files_027_a_picture_s_download_needs_no_credential_and_names_it_by_its_
     let url = link(&api, &ada, &workspace).await;
     let id = id_of(&url);
 
-    let response = download(&api, &url).await;
+    let response = fetch(&api, &url).await;
 
     assert_eq!(response.status, 200);
     assert_eq!(response.header("content-type"), "image/png");
@@ -642,12 +626,12 @@ async fn files_027_a_picture_s_download_needs_no_credential_and_names_it_by_its_
     );
     assert_eq!(response.header("cache-control"), "public, max-age=300");
     assert_eq!(response.header("etag"), format!("\"{id}\""));
-    let unknown = download(
+    let unknown = fetch(
         &api,
         "/v1/public/workspace-pictures/0198f1a2-0000-7000-8000-000000000000",
     )
     .await;
-    let not_uuid = download(&api, "/v1/public/workspace-pictures/not-a-uuid").await;
+    let not_uuid = fetch(&api, "/v1/public/workspace-pictures/not-a-uuid").await;
     for missing in [&unknown, &not_uuid] {
         assert_eq!(missing.status, 404);
         assert_eq!(missing.json()["code"], "files.not_found");
@@ -676,7 +660,7 @@ async fn files_027_a_picture_s_download_counts_in_the_bucket_of_public_downloads
     let (ada, workspace) = owned(&api).await;
     let url = link(&api, &ada, &workspace).await;
 
-    let response = download(&api, &url).await;
+    let response = fetch(&api, &url).await;
 
     assert_eq!(response.status, 200);
     assert_eq!(response.header("ratelimit-policy"), "\"public\";q=7;w=60");
@@ -697,7 +681,7 @@ async fn files_027_the_download_of_a_picture_replaced_removed_or_gone_with_its_w
         .await;
 
     for url in [&replaced, &removed, &gone] {
-        let response = download(&api, url).await;
+        let response = fetch(&api, url).await;
 
         assert_eq!(response.status, 404);
         assert_eq!(response.json()["code"], "files.not_found");
