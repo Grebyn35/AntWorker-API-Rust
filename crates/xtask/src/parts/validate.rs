@@ -1,6 +1,6 @@
-//! What `just remove` and `check-parts` refuse before they remove anything: a marker that names
-//! no part, a block that no end marker closes, and a test that removing a part would take though
-//! its behavior stays (ARCH-07, TEST-04).
+//! What `just remove`, `just keep` and `check-parts` refuse before they remove anything: a marker
+//! that names no part, a block that no end marker closes, and a test that removing a part would
+//! take though its behavior stays (ARCH-07, TEST-04).
 
 use super::{Part, SPECS, markers, owned};
 use crate::{Finding, repo::Repo};

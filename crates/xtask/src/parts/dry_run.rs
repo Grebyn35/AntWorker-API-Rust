@@ -1,7 +1,7 @@
-//! `check-parts`: what `just remove` reads and checks before it changes a file, for each run of
-//! `parts.yaml`, and for each part alone, done in memory, so that a marker that formatting moved
-//! or a line that names a part without its marker fails `just checks` in seconds, rather than
-//! `check-removable`'s copy on `main`, or a fork's own removal (ARCH-07).
+//! `check-parts`: what `just remove` and `just keep` read and check before they change a file,
+//! for each run of `parts.yaml`, and for each part alone, done in memory, so that a marker that
+//! formatting moved or a line that names a part without its marker fails `just checks` in
+//! seconds, rather than `check-removable`'s copy on `main`, or a fork's own removal (ARCH-07).
 
 use std::collections::HashSet;
 
