@@ -436,7 +436,7 @@ mod tests {
     fn ids(value: &str) -> Result<Option<Vec<uuid::Uuid>>, Vec<(String, &'static str)>> {
         let mut errors = FieldErrors::new();
         let read = values(&mut errors, "resource_id", Some(value), |value| {
-            uuid::Uuid::parse_str(value).map_err(|_| Invalid::new("invalid", "Send UUIDs."))
+            crate::types::read_id(value).ok_or_else(|| Invalid::new("invalid", "Send UUIDs."))
         });
         errors.finish_query(read).map_err(|error| {
             error

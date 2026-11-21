@@ -114,9 +114,10 @@ pub enum BodyFault {
     ContentEncoding,
     /// The body came as gzip, and doesn't inflate (PLATFORM-090).
     Gzip,
-    /// The body of a batch of telemetry stopped before its end (PLATFORM-090).
-    Incomplete,
     // end part: client_telemetry
+    /// The body stopped before its end, as when its sender closed the connection while the
+    /// route read it.
+    Incomplete,
 }
 
 impl ErrorCode for RequestError {
@@ -254,10 +255,10 @@ impl ErrorCode for RequestError {
                 Some("The body must be sent as gzip, or with no Content-Encoding.".to_owned())
             }
             Self::InvalidBody(BodyFault::Gzip) => Some("The body isn't valid gzip.".to_owned()),
+            // end part: client_telemetry
             Self::InvalidBody(BodyFault::Incomplete) => {
                 Some("The body stopped before its end.".to_owned())
             }
-            // end part: client_telemetry
             Self::InvalidBody(BodyFault::ContentType(media_type)) => {
                 Some(format!("The body must be sent as {media_type}."))
             }

@@ -110,7 +110,7 @@ async fn read(request: Request, media_type: &'static str) -> Result<Bytes, Probl
     match request.into_body().collect().await {
         Ok(collected) => Ok(collected.to_bytes()),
         Err(error) if is_too_large(&error) => Err(Problem(RequestError::PayloadTooLarge)),
-        Err(_) => Err(Problem(RequestError::InvalidBody(BodyFault::Syntax))),
+        Err(_) => Err(Problem(RequestError::InvalidBody(BodyFault::Incomplete))),
     }
 }
 

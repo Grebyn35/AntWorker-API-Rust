@@ -28,7 +28,7 @@ What such a subcommand shows the operator who ran it, because they asked to see 
 - Check: `test`.
 
 ### OPS-04 Disabled features say so
-A route whose feature is turned off answers the 503 problem with code `request.feature_disabled`. The capabilities endpoint lists which features are on.
+A route whose feature is turned off answers the 503 problem with code `request.feature_disabled`. The capabilities endpoint lists which features are on. That 503 is no failure of the deployment: the request's completion line and its metric carry the code, the HTTP boundary writes no `ERROR` line for it (ERR-10), and the availability objective doesn't count it ([observability](../operations/observability.md#service-level-objectives)).
 - Why: clients can tell "off" apart from "broken" (D9).
 - Check: `test`.
 

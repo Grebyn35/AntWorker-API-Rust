@@ -231,11 +231,12 @@ impl<P: Permission> Authorize<P> {
     /// `request.permission_denied` for a member without `P`, each recorded first (ACCESS-003,
     /// PLATFORM-009).
     pub async fn open(self) -> Result<(UnitOfWork, Authorized<P>), PlatformError> {
-        let (uow, workspace_id, decision) = self.decide().await?;
+        let (mut uow, workspace_id, decision) = self.decide().await?;
         let Decision::Allowed(role) = decision else {
             drop(uow);
             return Err(self.refuse(workspace_id, decision).await);
         };
+        uow.authorized();
         // The request's span carries the workspace the caller was authorized in (OBS-09).
         tracing::Span::current().record(names::WORKSPACE_ID, workspace_id.to_string());
         Ok((

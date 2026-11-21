@@ -78,8 +78,9 @@ impl ToSchema for FileName {
 }
 
 /// The most bytes that `FILE_MAX_BYTES` lets an upload hold, 20 MiB: no object that the API
-/// writes holds more (FILES-004).
-pub(crate) const LARGEST_UPLOAD_BYTES: u32 = 20_971_520;
+/// writes holds more (FILES-004). It is the least that a user's budget of a day's uploads takes,
+/// by one definition (PLATFORM-093).
+pub(crate) const LARGEST_UPLOAD_BYTES: u32 = platform::config::LARGEST_UPLOAD_BYTES;
 
 /// The settings of `files` (OPS-01).
 #[derive(Clone, Copy, Debug)]

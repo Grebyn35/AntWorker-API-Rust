@@ -26,6 +26,18 @@ tests:
               summary: The API answers with 5xx fast enough to spend its availability budget within days.
               runbook: docs/operations/runbooks.md#availabilitybudgetburningfast
 
+  # 10% of requests ask for a feature that the deployment turned off: its 503 spends no budget.
+  - interval: 1m
+    input_series:
+      - series: 'http_server_request_duration_seconds_count{job="api", http_response_status_code="200"}'
+        values: "0+90x70"
+      - series: 'http_server_request_duration_seconds_count{job="api", http_response_status_code="503", error_type="request.feature_disabled"}'
+        values: "0+10x70"
+    alert_rule_test:
+      - eval_time: 65m
+        alertname: AvailabilityBudgetBurningFast
+        exp_alerts: []
+
   # 0.5% of requests fail: past the slow thresholds, below the fast ones.
   - interval: 1m
     input_series:

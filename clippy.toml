@@ -4,6 +4,8 @@ allow-unwrap-in-tests = true
 allow-expect-in-tests = true
 
 disallowed-methods = [
+    { path = "uuid::Uuid::parse_str", reason = "a request's UUID is read by platform::types::read_id, in its one form (API-11)" },
+    { path = "uuid::Uuid::try_parse", reason = "a request's UUID is read by platform::types::read_id, in its one form (API-11)" },
     { path = "std::thread::sleep", reason = "every wait goes through platform::clock (CODE-06)" },
     { path = "tokio::time::sleep", reason = "every wait goes through platform::clock (CODE-06)" },
     { path = "tokio::time::sleep_until", reason = "every wait goes through platform::clock (CODE-06)" },

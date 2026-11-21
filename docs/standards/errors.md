@@ -69,19 +69,19 @@ A 500 response has a fixed title and no detail. Its only identifying field is `t
 - Check: `test` (every `Internal` path asserts the fixed body).
 
 ### ERR-09 `detail` is for humans and never carries internals
-`detail` holds a human-readable sentence. It never includes SQL, file paths, internal identifiers, stack traces or secrets. Clients act on `code`, never on the text.
+`detail` holds a human-readable sentence, which holds on every route that answers its code: it names no field or step that only some of them have. It never includes SQL, file paths, internal identifiers, stack traces or secrets. Clients act on `code`, never on the text.
 - Why: the text can change or be translated, while the code is the contract.
 - Check: `review`.
 
 ### ERR-10 An error is logged once, where it is handled
-The HTTP boundary logs every 5xx at `ERROR`, with its cause chain and trace ID. 4xx responses appear in the request's completion log (OBS-03) and are not logged at `WARN` or `ERROR`. Code that returns an error never logs it.
+The HTTP boundary logs every 5xx at `ERROR`, with its cause chain and trace ID, but the 503 of a feature that the deployment turned off, which is no failure (OPS-04). 4xx responses appear in the request's completion log (OBS-03) and are not logged at `WARN` or `ERROR`. Code that returns an error never logs it. An error that a download's bytes meet once its status is sent can become no response: it ends the body short, and is an ignored error of ERR-11 (PLATFORM-081).
 - Why: one log entry per failure, at a level that means something (D17).
 - Check: `review`.
 
 ### ERR-11 An ignored error is explicit
 An error is deliberately ignored only through `platform::errors::ignore(error, reason)`, which logs it at `WARN` in a standard shape and counts it in the `platform.errors_ignored` metric, labelled by reason. `let _ =` on a fallible call is not allowed (CODE-03).
 - Why: every ignored failure is visible in logs and metrics (D17).
-- Check: `clippy` (`let_underscore_must_use`, and `unused_result_ok` for a `Result` dropped with `.ok()`), `test` (the line and the count), plus `review`.
+- Check: `clippy` (`let_underscore_must_use`, and `unused_result_ok` for a `Result` dropped with `.ok()`), `test` (the line and the count), plus `review` (a `Result` dropped another way, such as one that holds nothing and ends in `unwrap_or_default`, which no lint tells from a value's default).
 
 ### ERR-12 Panics become a 500 and are counted
 A catch-panic layer turns any panic in a request into the ERR-08 response. In every subcommand that logs, each panic is logged at `ERROR` and counted in `platform.panics`, on whatever thread it happens. Panics are still not allowed in code (CODE-03); the layer is the last line of defense.

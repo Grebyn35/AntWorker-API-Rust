@@ -114,7 +114,9 @@ impl<'a, D> Admitted<'a, D> {
 /// An entry, as the export of the user whose log holds it, or who is the only member of the
 /// workspace whose log holds it, holds it: its client only when it was the user's (the accounts
 /// spec's "What an export holds", AUDIT-006).
-#[derive(Debug, Serialize)]
+// It holds an IP address and a user agent, personal data, so it has no `Debug` that would print
+// them (OBS-04).
+#[derive(Serialize)]
 pub(super) struct ExportedEntry {
     pub(super) id: uuid::Uuid,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -131,7 +133,8 @@ pub(super) struct ExportedEntry {
 }
 
 /// An entry, as a list of a log shows it (AUDIT-007, AUDIT-008).
-#[derive(Debug, Serialize, ToSchema)]
+// It may hold its client, so it has no `Debug`, as `EntryClient` has none (OBS-04).
+#[derive(Serialize, ToSchema)]
 pub(crate) struct LoggedEntry {
     /// The entry's ID.
     pub(super) id: uuid::Uuid,
@@ -165,7 +168,8 @@ pub(crate) struct LoggedEntry {
 
 /// The client of the request that recorded an entry: its IP address, and its user agent, which a
 /// request may not send (AUDIT-003, AUDIT-010).
-#[derive(Debug, Serialize, ToSchema)]
+// Both are personal data, so it has no `Debug` that would print them (OBS-04).
+#[derive(Serialize, ToSchema)]
 pub(crate) struct EntryClient {
     /// The client's IP address, as the trusted proxies gave it (SEC-13).
     pub(super) ip: String,

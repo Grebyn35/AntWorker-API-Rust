@@ -389,12 +389,10 @@ fn deadline(
 ) -> watch::Receiver<bool> {
     let (passed, deadline) = watch::channel(false);
     tokio::spawn(async move {
-        // Whether the signal arrived or the sender dropped, the jobs stop, and the grace starts.
-        stopping
-            .wait_for(|stopping| *stopping)
-            .await
-            .map(drop)
-            .unwrap_or_default();
+        // Whether the signal arrived or its sender dropped, the jobs stop, and the grace starts.
+        if let Err(closed) = stopping.wait_for(|stopping| *stopping).await {
+            crate::errors::ignore(&closed, "stop_signal_closed");
+        }
         clock.sleep(grace).await;
         passed.send_replace(true);
     });

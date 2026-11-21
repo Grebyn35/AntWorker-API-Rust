@@ -42,7 +42,7 @@ use crate::{
     authn::{Authenticator, Enrolling, Verifying},
     authz::Authorizer,
     clock::SharedClock,
-    errors::{self, ErrorReport, FieldError, Internal, Problem, RequestError},
+    errors::{self, ErrorCode, ErrorReport, FieldError, Internal, Problem, RequestError},
     telemetry::{
         self,
         metrics::Histogram,
@@ -302,7 +302,8 @@ async fn trace(request: Request, next: Next) -> Response {
 struct PanicLogged;
 
 /// Writes one `INFO` line when the request completes, and before it the `ERROR` line of a 5xx
-/// with its cause chain, unless the 5xx answers a panic (PLATFORM-044). It records the request's
+/// with its cause chain, unless the 5xx answers a panic, or says that the deployment turned the
+/// route's feature off, which is no failure (PLATFORM-044, OPS-04). It records the request's
 /// duration, and gives a 5xx's error code to the metric and the request's span as `error.type`
 /// (PLATFORM-067).
 async fn log(State(clock): State<SharedClock>, request: Request, next: Next) -> Response {
@@ -321,7 +322,8 @@ async fn log(State(clock): State<SharedClock>, request: Request, next: Next) -> 
         let code = report.as_ref().map_or(OTHER, |report| report.code);
         Span::current().record(names::ERROR_TYPE, code);
         error_type = Some(code);
-        if !panicked {
+        let turned_off = code == RequestError::FeatureDisabled.code();
+        if !panicked && !turned_off {
             tracing::error!(
                 { names::ERROR_TYPE } = report.as_ref().map(|report| report.code),
                 { names::EXCEPTION_MESSAGE } = report.as_ref().map(|report| report.chain.as_str()),

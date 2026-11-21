@@ -9,7 +9,7 @@ use serde_json::Value;
 
 use crate::{
     accounts::exports::built,
-    support::{Api, TestDatabase, audit, users, workspaces},
+    support::{Api, TestDatabase, announcements, audit, users, workspaces},
 };
 
 /// The bytes of `hex`, which Postgres's `encode(..., 'hex')` wrote.
@@ -117,6 +117,25 @@ async fn platform_085_a_snapshot_job_s_unit_of_work_reads_as_its_first_statement
 
     assert_eq!(count(&mut snapshot).await, before);
     assert_eq!(count(&mut plain).await, plain_before + 1);
+}
+
+#[tokio::test]
+async fn platform_085_a_snapshot_job_s_unit_of_work_publishes_no_workspace_event() {
+    let db = TestDatabase::migrated().await;
+    let database = db.app().await;
+    let workspace = workspaces::arrange(&db, "Acme", &[]).await;
+    let context = JobContext::for_tests();
+    let mut snapshot = database.for_snapshot_job(&context).await.unwrap();
+    let mut plain = database.for_job(&context).await.unwrap();
+
+    let refused = announcements::post(&mut snapshot, &workspace).await;
+    let published = announcements::post(&mut plain, &workspace).await;
+
+    assert!(
+        refused.is_err(),
+        "the snapshot job's unit of work published"
+    );
+    assert!(published.is_ok(), "{published:?}");
 }
 
 /// How many workspaces `uow` reads.

@@ -96,13 +96,20 @@ impl UnitOfWork {
 
     /// Publishes `event` to the streams of `workspace`'s members who hold its permission, with
     /// `payload`, of the type the event declares (API-19), when the unit of work commits, and
-    /// never if it rolls back (PLATFORM-026).
+    /// never if it rolls back (PLATFORM-026). A unit of work that
+    /// [`Database::for_snapshot_job`](crate::db::Database::for_snapshot_job) opened publishes
+    /// none: it fails as an internal error (PLATFORM-085).
     pub async fn publish_to_workspace<P: Permission, T: Serialize + ToSchema>(
         &mut self,
         event: &WorkspaceEvent<P, T>,
         workspace: WorkspaceId,
         payload: &T,
     ) -> Result<(), Internal> {
+        if self.reads_one_snapshot() {
+            return Err(Internal::new(
+                "a unit of work that reads one snapshot published a workspace event",
+            ));
+        }
         self.publish(event.name, None, Some(workspace), Some(P::NAME), payload)
             .await
     }

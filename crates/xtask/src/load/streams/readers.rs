@@ -42,8 +42,11 @@ pub(super) fn open_streams(address: &str, tokens: &[String]) -> Result<Streams, 
         let tell = tell.clone();
         thread::spawn(move || {
             let ended = read(&address, &token, index, &received, &tell);
-            // The task may have finished, and the receiver gone with it.
-            tell.send(News::Ended(index, ended)).unwrap_or_default();
+            // The task may have finished, and the receiver gone with it: the news then goes
+            // unread, with the reader's end that it holds.
+            if let Err(unread) = tell.send(News::Ended(index, ended)) {
+                drop(unread);
+            }
         });
         match news.recv() {
             Ok(News::Opened) => {}

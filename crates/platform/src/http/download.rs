@@ -8,11 +8,12 @@ use axum::{
     http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, header, request::Parts},
     response::{IntoResponse, Response},
 };
-use futures_util::Stream;
+use futures_util::{Stream, StreamExt};
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::{
-    errors::{Internal, Problem},
+    errors::{self, Internal, Problem},
     ranges::{Served, Wanted, quoted},
 };
 
@@ -130,6 +131,21 @@ where
             HeaderValue::from_static(SANDBOX),
         );
         headers.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
+        // A failure of the bytes once the status is sent can become no answer: it ends the body
+        // short of its length. It is written and counted as an ignored error, in a span of its
+        // own in the request's trace, since the request's span ends with the handler (ERR-11).
+        let trace = tracing::Span::current().context();
+        let bytes = bytes.map(move |chunk| {
+            chunk.map_err(|error| {
+                let error: axum::BoxError = error.into();
+                let span = tracing::info_span!(parent: None, "download");
+                if let Err(unset) = span.set_parent(trace.clone()) {
+                    errors::ignore(&unset, "trace_parent_not_set");
+                }
+                span.in_scope(|| errors::ignore(error.as_ref(), "download_cut"));
+                error
+            })
+        });
         (status, headers, Body::from_stream(bytes)).into_response()
     }
 }

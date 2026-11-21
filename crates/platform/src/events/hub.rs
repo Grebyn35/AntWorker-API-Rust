@@ -169,7 +169,7 @@ impl Hub {
             .await?
             .remove(&user)
             .unwrap_or_default();
-        let resumed = match last_event_id.and_then(|id| uuid::Uuid::parse_str(id.trim()).ok()) {
+        let resumed = match last_event_id.and_then(|id| crate::types::read_id(id.trim())) {
             Some(id) => Some(log::position(&mut uow, id).await?),
             None if last_event_id.is_some_and(|id| !id.trim().is_empty()) => Some(None),
             None => None,

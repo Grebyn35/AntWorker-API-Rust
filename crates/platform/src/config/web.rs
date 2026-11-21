@@ -29,10 +29,11 @@ pub struct RateLimitConfig {
 }
 
 // part: files
-/// The least that a day's uploads of one user may hold: the largest `FILE_MAX_BYTES`, 20 MiB, so
-/// a window that has counted nothing takes an upload of any size that a deployment allows
-/// (D107).
-const UPLOAD_BYTES_LEAST: u32 = 20_971_520;
+/// The most bytes that an upload may hold, whatever `FILE_MAX_BYTES` says, 20 MiB (D107), and so
+/// the least that a day's uploads of one user may hold: a window that has counted nothing takes
+/// an upload of any size that a deployment allows. The two bounds are this one number, so that a
+/// fork that raises the one raises the other (PLATFORM-093).
+pub const LARGEST_UPLOAD_BYTES: u32 = 20_971_520;
 
 /// The most: one byte below the count at which a bucket's window stops, so a window's count can
 /// still pass it (PLATFORM-089).
@@ -57,7 +58,7 @@ where
             upload_bytes: self.number(
                 "UPLOAD_USER_BYTES_PER_DAY",
                 UPLOAD_BYTES,
-                UPLOAD_BYTES_LEAST..=UPLOAD_BYTES_MOST,
+                LARGEST_UPLOAD_BYTES..=UPLOAD_BYTES_MOST,
             )?,
             // end part: files
             user_requests: self.number("RATE_LIMIT_USER_REQUESTS", 300, 1..=1_000_000)?,

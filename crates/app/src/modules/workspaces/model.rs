@@ -2,7 +2,9 @@
 
 use std::borrow::Cow;
 
-use platform::types::{EmailAddress, Invalid, Timestamp, UserId, Version, WorkspaceId, one_line};
+use platform::types::{
+    EmailAddress, ID_CHARS, Invalid, Timestamp, UserId, Version, WorkspaceId, one_line, read_id,
+};
 use serde::Serialize;
 use utoipa::{
     PartialSchema, ToSchema,
@@ -13,9 +15,6 @@ use crate::modules::{access::Role, accounts::DisplayName};
 
 /// The most characters a workspace name has (WORKSPACES-002).
 const NAME_MAX_CHARS: usize = 255;
-
-/// The characters of a user ID, in the form the API writes one in (API-11).
-const MEMBER_ID_CHARS: usize = 36;
 
 /// A workspace's name: trimmed, with each run of whitespace inside collapsed to one space, in
 /// Unicode Normalization Form C, of 1 to 255 characters, with no control character
@@ -264,9 +263,7 @@ pub(crate) struct MemberId(UserId);
 impl MemberId {
     /// The ID in `value`, or why it isn't one.
     pub(crate) fn parse(value: &str) -> Result<Self, Invalid> {
-        uuid::Uuid::try_parse(value)
-            .ok()
-            .filter(|_| value.len() == MEMBER_ID_CHARS)
+        read_id(value)
             .map(|id| Self(UserId::from_uuid(id)))
             .ok_or_else(|| Invalid::new("invalid", "A user ID is a UUID."))
     }
@@ -282,8 +279,8 @@ impl PartialSchema for MemberId {
         ObjectBuilder::new()
             .schema_type(Type::String)
             .format(Some(SchemaFormat::KnownFormat(KnownFormat::Uuid)))
-            .min_length(Some(MEMBER_ID_CHARS))
-            .max_length(Some(MEMBER_ID_CHARS))
+            .min_length(Some(ID_CHARS))
+            .max_length(Some(ID_CHARS))
             .into()
     }
 }

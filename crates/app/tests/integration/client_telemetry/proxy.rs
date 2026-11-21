@@ -437,13 +437,37 @@ async fn client_telemetry_008_by_default_a_replica_s_budget_holds_four_users_ful
 }
 
 #[tokio::test]
+async fn client_telemetry_008_without_its_setting_a_replica_s_budget_is_four_times_a_user_s() {
+    let collector = collector().await;
+    let twice = 2 * u32::try_from(MEBIBYTE).unwrap();
+    let options = collector
+        .collector_options()
+        .set("CLIENT_TELEMETRY_USER_BYTES_PER_MINUTE", twice);
+    let api = Api::with(options).await;
+    let mut users = Vec::new();
+    for name in ["ada", "grace", "edsger", "barbara", "alan"] {
+        users.push(consenting(&api, &format!("{name}@example.com")).await);
+    }
+
+    // The whole budget of each of four users, two of the largest batches.
+    for user in &users[..4] {
+        for _ in 0..2 {
+            assert_eq!(send_bytes(&api, user, MEBIBYTE).await.status, 200);
+        }
+    }
+    let fifth = send_bytes(&api, &users[4], 1).await;
+
+    assert_refused_by(&fifth, "telemetry_replica", 4 * twice);
+}
+
+#[tokio::test]
 async fn client_telemetry_009_a_batch_that_the_collector_refuses_answers_400() {
     let collector = collector().await;
     let whole = u32::try_from(MEBIBYTE).unwrap();
     let api = Api::with(forwarding(&collector, whole, UNBOUNDED)).await;
     let ada = consenting(&api, "ada@example.com").await;
 
-    for status in [400, 404, 415] {
+    for status in [400, 413, 415] {
         collector.set("POST", "/v1/traces", status, json!({ "code": 3 }));
 
         let refused = send_bytes(&api, &ada, 300 * 1024).await;
@@ -462,7 +486,7 @@ async fn client_telemetry_009_a_collector_that_doesn_t_take_a_batch_answers_503(
     let (collector, api) = standing().await;
     let ada = consenting(&api, "ada@example.com").await;
 
-    for status in [302, 429, 500, 503] {
+    for status in [302, 404, 405, 429, 500, 503] {
         collector.set("POST", "/v1/traces", status, json!({}));
 
         let unavailable = send_bytes(&api, &ada, 8).await;

@@ -134,6 +134,8 @@ impl Database {
             claimed: None,
             published: Vec::new(),
             ordered: false,
+            ran: false,
+            snapshot: false,
         })
     }
 
@@ -155,6 +157,7 @@ impl Database {
         sqlx::query!("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
             .execute(uow.executor())
             .await?;
+        uow.snapshot = true;
         Ok(uow)
     }
 
@@ -175,6 +178,8 @@ impl Database {
             claimed: None,
             published: Vec::new(),
             ordered: false,
+            ran: false,
+            snapshot: false,
         })
     }
 
@@ -223,6 +228,11 @@ pub struct UnitOfWork {
     claimed: Option<(UserId, String)>,
     published: Vec<uuid::Uuid>,
     ordered: bool,
+    /// Whether a statement ran on the connection that [`UnitOfWork::executor`] gives, since
+    /// the unit of work opened, or since the authorization that opened it.
+    ran: bool,
+    /// Whether [`Database::for_snapshot_job`] opened the unit of work.
+    snapshot: bool,
 }
 
 impl UnitOfWork {
@@ -240,7 +250,20 @@ impl UnitOfWork {
     /// The connection to run this unit of work's queries on, inside its transaction:
     /// `sqlx::query!(...).fetch_one(uow.executor())`.
     pub fn executor(&mut self) -> &mut PgConnection {
+        self.ran = true;
         &mut self.tx
+    }
+
+    /// Lets a claim of an idempotency key follow the statements that authorized the caller,
+    /// which the proof that opens a route's unit of work ran in it (PLATFORM-036).
+    pub(crate) fn authorized(&mut self) {
+        self.ran = false;
+    }
+
+    /// Whether the unit of work reads under `REPEATABLE READ`, as an export's job does, so that
+    /// it publishes no workspace event (PLATFORM-085).
+    pub(crate) fn reads_one_snapshot(&self) -> bool {
+        self.snapshot
     }
 
     /// Commits every write the unit of work holds. A unit of work that claimed an idempotency
@@ -304,9 +327,10 @@ impl UnitOfWork {
         Ok(self.tx.commit().await?)
     }
 
-    /// Claims `key` for `user`, as the unit of work's first statement after a workspace route's
-    /// authorization, if one opened it, so the key's record
-    /// commits or rolls back with the operation (PLATFORM-036). With no key, or no operation
+    /// Claims `key` for `user`, as the unit of work's first statement after the authorization
+    /// that opened it, if one did, so the key's record commits or rolls back with the operation
+    /// (PLATFORM-036): a claim that follows another statement that [`UnitOfWork::executor`]
+    /// ran fails as an internal error, with or without a key. With no key, or no operation
     /// committed under it in the last 24 hours, the operation runs. The result of the one that
     /// committed with the same fingerprint answers instead, and another fingerprint is refused
     /// with 422. A record that another unit of work holds and hasn't committed is waited on for
@@ -316,6 +340,12 @@ impl UnitOfWork {
         user: UserId,
         key: Option<&IdempotencyKey>,
     ) -> Result<Claimed<T>, PlatformError> {
+        if self.ran {
+            return Err(Internal::new(
+                "an idempotency key was claimed after another statement of its unit of work",
+            )
+            .into());
+        }
         let Some(key) = key else {
             return Ok(Claimed::Fresh);
         };

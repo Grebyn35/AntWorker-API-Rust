@@ -168,6 +168,22 @@ impl ToSchema for AnyId {
     }
 }
 
+/// How many characters a UUID holds in the form that the API reads.
+pub const ID_CHARS: usize = 36;
+
+/// The UUID that `value` holds in the one form that the API reads: 36 characters, with hyphens,
+/// whose letters RFC 9562 reads in either case, the form that a schema's `format: uuid` documents
+/// (API-11). The forms that the `uuid` crate also parses, without hyphens, in braces and as a
+/// URN, hold none, so a row has one ID that names it.
+pub fn read_id(value: &str) -> Option<Uuid> {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the one reader of a UUID that a request gives (API-11)"
+    )]
+    let id = Uuid::try_parse(value).ok();
+    id.filter(|_| value.len() == ID_CHARS)
+}
+
 fn uuid_schema() -> RefOr<Schema> {
     ObjectBuilder::new()
         .schema_type(Type::String)
@@ -453,6 +469,26 @@ mod tests {
         assert!(!format!("{secret:?}").contains("hunter2"));
         assert!(!format!("{secret:#?}").contains("hunter2"));
         assert_eq!(secret.expose(), "hunter2");
+    }
+
+    #[test]
+    fn api_11_an_id_is_read_in_its_form_of_36_characters_alone() {
+        let id = "019a0000-0000-7000-8000-00000000abcd";
+        let read = read_id(id).unwrap();
+
+        assert_eq!(read.to_string(), id);
+        assert_eq!(read_id(&id.to_uppercase()), Some(read));
+        for other in [
+            "019a000000007000800000000000abcd",
+            "{019a0000-0000-7000-8000-00000000abcd}",
+            "urn:uuid:019a0000-0000-7000-8000-00000000abcd",
+            " 019a0000-0000-7000-8000-00000000abcd",
+            "019a0000-0000-7000-8000-00000000abc",
+            "019a0000-0000-7000-8000-00000000abcg",
+            "",
+        ] {
+            assert_eq!(read_id(other), None, "{other}");
+        }
     }
 
     #[test]

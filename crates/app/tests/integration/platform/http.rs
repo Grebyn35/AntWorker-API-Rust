@@ -511,6 +511,30 @@ async fn platform_044_a_5xx_writes_one_error_line_with_its_cause_chain() {
 }
 
 #[tokio::test]
+async fn platform_044_a_503_of_a_feature_turned_off_writes_no_error_line() {
+    let api = Api::without_email().await;
+
+    let response = api
+        .post(
+            "/v1/password-resets",
+            &json!({ "email": "ada@example.com" }),
+        )
+        .send()
+        .await;
+
+    problem(
+        &response,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "request.feature_disabled",
+    );
+    let (trace, _, _) = trace_context(&response);
+    let lines = testing::logged(&trace);
+    let levels: Vec<&Value> = lines.iter().map(|line| &line["level"]).collect();
+    assert_eq!(levels, ["INFO"], "{lines:#?}");
+    assert_eq!(lines[0]["http.response.status_code"], 503);
+}
+
+#[tokio::test]
 async fn platform_052_development_serves_the_api_reference_of_the_running_code() {
     let api = Api::with(Options::default().set("ENVIRONMENT", "development")).await;
 

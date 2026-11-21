@@ -16,8 +16,8 @@ pub(crate) enum ClientTelemetryError {
     /// (CLIENT_TELEMETRY-009).
     #[error("the collector refused the batch")]
     BatchRefused,
-    /// The collector didn't take the batch (CLIENT_TELEMETRY-009). The documentation of a route
-    /// lists it without its cause.
+    /// The collector neither took nor refused the batch (CLIENT_TELEMETRY-009). The
+    /// documentation of a route lists it without its cause.
     #[error("the collector is unavailable")]
     CollectorUnavailable(#[source] Option<Internal>),
     /// A budget of bytes refused the batch, or couldn't count it (CLIENT_TELEMETRY-007,

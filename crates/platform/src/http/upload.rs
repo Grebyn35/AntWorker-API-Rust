@@ -260,7 +260,7 @@ impl Upload {
         let bytes = match Limited::new(body, limit).collect().await {
             Ok(collected) => collected.to_bytes(),
             Err(error) if is_too_large(&*error) => return Err(RequestError::PayloadTooLarge.into()),
-            Err(_) => return Err(RequestError::InvalidBody(BodyFault::Syntax).into()),
+            Err(_) => return Err(RequestError::InvalidBody(BodyFault::Incomplete).into()),
         };
         Ok(Uploaded {
             bytes,

@@ -81,12 +81,15 @@ impl AuthorizeSuperadmin {
             .await?;
         let user = self.principal.user_id();
         match self.authorizer.superadmins.admits(&mut uow, user).await? {
-            Admission::Admitted => Ok((
-                uow,
-                Superadmin {
-                    principal: self.principal,
-                },
-            )),
+            Admission::Admitted => {
+                uow.authorized();
+                Ok((
+                    uow,
+                    Superadmin {
+                        principal: self.principal,
+                    },
+                ))
+            }
             Admission::WithoutSecondFactor => Err(RequestError::SecondFactorSetupRequired.into()),
             Admission::Refused => {
                 drop(uow);

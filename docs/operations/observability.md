@@ -76,7 +76,7 @@ Prometheus, Loki, Tempo and Alertmanager ask no credential of what reaches them.
 <!-- part: client_telemetry -->
 ### What the clients' telemetry adds
 
-The telemetry proxy's budgets bound the spans and the log records that the clients' telemetry adds to Tempo and Loki. Each replica forwards at most `CLIENT_TELEMETRY_REPLICA_BYTES_PER_MINUTE` bytes of batches in each of its budget's windows of a minute (CLIENT_TELEMETRY-008), of which a day holds 1,441 at most, and one more each time the replica starts again. At the default, 4,194,304 bytes, that is about 6 gigabytes a day for each replica, of which Tempo and Loki take in the spans and the log records that the collector keeps, before they compress them, and keep them for 14 days. The clients' metrics add the series that the collector's lists allow, whatever bytes their batches hold (CLIENT_TELEMETRY-015).
+The telemetry proxy's budgets bound the spans and the log records that the clients' telemetry adds to Tempo and Loki. Each replica forwards at most `CLIENT_TELEMETRY_REPLICA_BYTES_PER_MINUTE` bytes of batches in each of its budget's windows of a minute (CLIENT_TELEMETRY-008), of which a day holds 1,441 at most, and one more each time the replica starts again. At the defaults, 4,194,304 bytes, that is about 6 gigabytes a day for each replica, of which Tempo and Loki take in the spans and the log records that the collector keeps, before they compress them, and keep them for 14 days. The clients' metrics add the series that the collector's lists allow, whatever bytes their batches hold (CLIENT_TELEMETRY-015).
 
 The Clients' telemetry dashboard shows what the replicas forward, under "How many bytes of clients' telemetry does each replica forward a minute?", and `ClientTelemetryBudgetSpent` opens a ticket when a replica's budget refuses batches ([runbooks.md](runbooks.md#clienttelemetrybudgetspent)). A deployment that raises the budget gives Tempo's and Loki's volumes the disk that the new one can fill; [DiskFillingUp](runbooks.md#diskfillingup) fires for a disk of the server that fills, the one that holds those volumes among them. With a managed backend, the budgets bound the spans and the log records that the backend is sent, beside the clients' series, which the collector sends it at each scrape.
 <!-- end part: client_telemetry -->
@@ -158,7 +158,7 @@ To find the slow requests of a time range instead, the API requests dashboard li
 
 | Objective | Target, over 30 days | Error budget |
 |---|---|---|
-| Availability | 99.9% of requests answer without a 5xx | 0.1% of requests |
+| Availability | 99.9% of requests answer without a 5xx, the 503 of a feature that the deployment turned off aside (OPS-04) | 0.1% of requests |
 | Latency | 99% of requests answer within 0.5 seconds | 1% of requests |
 
 The health probes don't count, since they aren't measured (OBS-15), nor the requests that the proxy answers while no replica can (OPS-05): the objectives count the API's own measurements, and `ApiTelemetryMissing` pages once no instance has exported metrics for five minutes. The latency objective is one number in four places: the collector's latency policy, the rules that count slow requests, the dashboard's list of slow traces, and the line its slowest requests' panel draws. `check-telemetry-config` fails while they differ, and `just load-test` reads it from the collector's policy.

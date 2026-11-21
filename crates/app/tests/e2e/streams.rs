@@ -116,12 +116,16 @@ impl StreamClient {
                             seen.removed.push(member.clone());
                             drop(seen);
                             // A remover that has stopped waits for nothing more.
-                            received.send(member).unwrap_or_default();
+                            if let Err(unread) = received.send(member) {
+                                platform::errors::ignore(&unread, "test_remover_gone");
+                            }
                         }
                         Some("stream.opened") => {
                             seen.truncated |= data["data"]["truncated"] == true;
                             // Only the first opening has a test that waits for it.
-                            opened.send(()).unwrap_or_default();
+                            if let Err(unread) = opened.send(()) {
+                                platform::errors::ignore(&unread, "test_opening_unread");
+                            }
                         }
                         Some("stream.closed") => {
                             seen.closed

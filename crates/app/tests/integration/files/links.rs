@@ -242,7 +242,7 @@ async fn platform_080_a_signed_url_past_its_time_answers_401_signed_url_expired(
         "/v1/workspaces/{workspace}/files/{}/content",
         file["id"].as_str().unwrap()
     );
-    let session = SessionId::from_uuid(uuid::Uuid::parse_str(&ada.session_id).unwrap());
+    let session = SessionId::from_uuid(ada.session_id.parse().unwrap());
     // A time long past by the database's clock.
     let past =
         Timestamp::from_database(time::OffsetDateTime::from_unix_timestamp(1_577_836_800).unwrap());

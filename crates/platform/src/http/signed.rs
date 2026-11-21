@@ -46,7 +46,7 @@ pub(crate) fn presented(parts: &Parts) -> Presented {
             let parsed = expires
                 .parse::<i64>()
                 .ok()
-                .zip(uuid::Uuid::parse_str(&session).ok())
+                .zip(crate::types::read_id(&session))
                 .zip(URL_SAFE_NO_PAD.decode(tag.as_bytes()).ok());
             match parsed {
                 Some(((expires, session), tag)) => Presented::Signed(Signature {

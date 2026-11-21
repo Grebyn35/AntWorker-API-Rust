@@ -306,8 +306,8 @@ impl ErrorCode for AuthError {
                 Some("The sign-in's 5 minutes have passed, or it ended: sign in again.".to_owned())
             }
             Self::SecondFactorRequired => Some(
-                "The account has an authenticator app: send its code, or a recovery code, with \
-                 the password."
+                "The account has an authenticator app: the request must also hold the app's \
+                 code, or a recovery code."
                     .to_owned(),
             ),
             Self::SecondFactorMissing => Some(

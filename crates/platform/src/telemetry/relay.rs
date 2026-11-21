@@ -40,8 +40,8 @@ impl Signal {
 /// Why the collector didn't take a batch.
 #[derive(Debug, thiserror::Error)]
 pub enum RelayError {
-    /// The collector refused the batch, with a 4xx other than 429, as it does a body that isn't
-    /// the protocol's request.
+    /// The collector refused the batch, with a 4xx other than 404, 405 and 429, as it does a
+    /// body that isn't the protocol's request.
     #[error("the collector refused the batch")]
     Refused,
     /// The collector couldn't take the batch: no connection opened, no answer came in time, or
@@ -143,7 +143,9 @@ impl Relay {
         span.record(names::HTTP_RESPONSE_STATUS_CODE, status);
         match status {
             200..=299 => Ok(()),
-            400..=428 | 430..=499 => Err(RelayError::Refused),
+            // A 404 and a 405 say that nothing takes batches at the address, and nothing of the
+            // batch, so they are no refusal of it (PLATFORM-091).
+            400..=403 | 406..=428 | 430..=499 => Err(RelayError::Refused),
             _ => Err(RelayError::Unavailable(Internal::new(Answered(status)))),
         }
     }

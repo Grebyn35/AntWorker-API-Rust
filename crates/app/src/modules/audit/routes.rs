@@ -92,9 +92,9 @@ fn read(query: &Query<EntriesQuery>) -> Result<(Page, EntryFilter), AuditError> 
         &mut errors,
     );
     let user = |value: &str| {
-        uuid::Uuid::parse_str(value)
+        platform::types::read_id(value)
             .map(UserId::from_uuid)
-            .map_err(|_| invalid_id())
+            .ok_or_else(invalid_id)
     };
     let actions = lists::values(
         &mut errors,
@@ -112,7 +112,7 @@ fn read(query: &Query<EntriesQuery>) -> Result<(Page, EntryFilter), AuditError> 
         &mut errors,
         "resource_id",
         params.resource_id.as_deref(),
-        |value| uuid::Uuid::parse_str(value).map_err(|_| invalid_id()),
+        |value| platform::types::read_id(value).ok_or_else(invalid_id),
     );
     let actors = lists::values(
         &mut errors,

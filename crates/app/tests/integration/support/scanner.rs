@@ -130,7 +130,9 @@ async fn answering(mut stream: TcpStream, script: Script, read: Arc<Notify>) {
             let mut answer = line.as_bytes().to_vec();
             answer.push(0);
             // A client that left before the answer reads nothing of it.
-            stream.write_all(&answer).await.unwrap_or(());
+            if let Err(gone) = stream.write_all(&answer).await {
+                platform::errors::ignore(&gone, "test_client_gone");
+            }
         }
         Script::Never => std::future::pending::<()>().await,
         Script::Close => drop(stream),

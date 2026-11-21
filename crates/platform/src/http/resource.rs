@@ -10,7 +10,7 @@ use serde::Serialize;
 
 use crate::{
     errors::{Internal, Problem},
-    types::Version,
+    types::{Version, read_id},
 };
 
 /// The ID that the path parameter `name` holds, or `None` when the path holds no such parameter
@@ -28,7 +28,7 @@ fn named_id<'a>(
 ) -> Option<uuid::Uuid> {
     params
         .find(|(parameter, _)| *parameter == name)
-        .and_then(|(_, value)| uuid::Uuid::parse_str(value).ok())
+        .and_then(|(_, value)| read_id(value))
 }
 
 /// The response that answers a resource: its body as JSON, `200`, or `201` with the `Location` of
@@ -130,13 +130,19 @@ mod tests {
     #[test]
     fn platform_072_a_path_id_that_isn_t_a_uuid_names_no_row() {
         let id = "019a0000-0000-7000-8000-000000000000";
-        let params = [("workspace_id", id), ("user_id", "not-a-uuid")];
+        let params = [
+            ("workspace_id", id),
+            ("user_id", "not-a-uuid"),
+            ("thing_id", "019a000000007000800000000000abcd"),
+        ];
 
         assert_eq!(
             named_id(params.into_iter(), "workspace_id"),
-            Some(uuid::Uuid::parse_str(id).unwrap())
+            Some(read_id(id).unwrap())
         );
         assert_eq!(named_id(params.into_iter(), "user_id"), None);
+        // A UUID in another form than the one the API reads (API-11).
+        assert_eq!(named_id(params.into_iter(), "thing_id"), None);
         assert_eq!(named_id(params.into_iter(), "file_id"), None);
     }
 

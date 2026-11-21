@@ -24,6 +24,9 @@ use error::Problem;
 
 use ipnet::IpNet;
 
+// part: files
+pub use web::LARGEST_UPLOAD_BYTES;
+// end part: files
 pub use web::{Origin, RateLimitConfig};
 
 use crate::{

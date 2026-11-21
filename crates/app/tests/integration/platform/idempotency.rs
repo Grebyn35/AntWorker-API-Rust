@@ -6,8 +6,12 @@ use std::sync::Arc;
 
 use serde_json::{Value, json};
 
+use platform::{errors::PlatformError, idempotency::Claimed};
+
 use crate::support::{
-    Api, Options, execute_on, fixtures,
+    Api, Options,
+    announcements::{Note, published::NOTED},
+    execute_on, fixtures,
     users::{self, SignedIn},
 };
 
@@ -48,6 +52,28 @@ async fn platform_036_a_retry_with_the_key_answers_the_first_result_and_runs_not
         .owner_reads("SELECT key || ' ' || (result->>'run') FROM idempotency_records")
         .await;
     assert_eq!(records, ["k-1 1"]);
+}
+
+#[tokio::test]
+async fn platform_036_a_claim_that_follows_another_statement_of_its_unit_of_work_fails() {
+    let api = api().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let user = platform::types::UserId::from_uuid(ada.user_id.parse().unwrap());
+    let client = crate::support::client();
+    let mut late = api.pool().begin(&client, None).await.unwrap();
+    let mut first = api.pool().begin(&client, None).await.unwrap();
+    late.publish_to_user(&NOTED, user, &Note { label: None })
+        .await
+        .unwrap();
+
+    let refused = late.claim::<Value>(user, None).await;
+    let fresh = first.claim::<Value>(user, None).await;
+
+    assert!(
+        matches!(refused, Err(PlatformError::Internal(_))),
+        "a claim ran after another statement"
+    );
+    assert!(matches!(fresh, Ok(Claimed::Fresh)));
 }
 
 #[tokio::test]
