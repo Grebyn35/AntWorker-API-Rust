@@ -5,6 +5,7 @@
 mod cache;
 mod dry_run;
 mod markers;
+mod matrix;
 mod remove;
 mod validate;
 

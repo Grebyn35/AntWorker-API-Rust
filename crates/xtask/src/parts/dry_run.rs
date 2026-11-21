@@ -5,7 +5,9 @@
 
 use std::collections::HashSet;
 
-use super::{LIST, Part, REMOVAL, Run, is_migration, leftovers, list, markers, owned, validate};
+use super::{
+    LIST, Part, REMOVAL, Run, is_migration, leftovers, list, markers, matrix, owned, validate,
+};
 use crate::{Finding, Outcome, metrics, repo::Repo};
 
 /// The files that a removal writes again, or prunes, from the code it kept, rather than deleting
@@ -70,6 +72,11 @@ pub fn check(repo: &Repo) -> Outcome {
                 "removing the part deletes this whole line, the text after its marker too: give \
                  the part's text a line of its own, with the marker at its end (ARCH-07)",
             ));
+        }
+    }
+    if let (Some(list), Some(workflow)) = (repo.file(LIST), repo.file(matrix::WORKFLOW)) {
+        for found in matrix::disagreements(&list.text, &workflow.text) {
+            findings.push(Finding::new(matrix::WORKFLOW, 1, found));
         }
     }
     for run in &runs {
@@ -152,8 +159,9 @@ fn removed(run: &Run, parts: &[Part]) -> Run {
 
 /// Removes `run`'s parts from `repo` in memory, and returns what it removed, and a finding for
 /// each Rust file whose kept lines don't parse, for each kept path or line, other than those of
-/// the files the removal writes again, that holds a word of a part it removes, and for each kept
-/// line that cites a decision whose row it deletes.
+/// the files the removal writes again, that holds a word of a part it removes, for each kept
+/// line that cites a decision whose row it deletes, and, where it keeps `removal`, for each run
+/// that the lines it kept of the list and of CI's `removable` job don't both hold.
 fn remove(repo: &Repo, parts: &[Part], run: &Run) -> (String, Vec<Finding>) {
     let known: Vec<&str> = parts.iter().map(|part| part.name.as_str()).collect();
     let removed: Vec<&Part> = parts
@@ -180,6 +188,19 @@ fn remove(repo: &Repo, parts: &[Part], run: &Run) -> (String, Vec<Finding>) {
         }
     }
     findings.extend(dangling_decisions(repo, &kept));
+    if !removing.contains(&REMOVAL) && repo.has(matrix::WORKFLOW) {
+        // What the removal leaves of the runs and of the job that makes them still agrees.
+        let text = |path: &str| {
+            let lines = kept.iter().find(|(kept, _)| *kept == path);
+            lines.map_or_else(String::new, |(_, lines)| {
+                let lines: Vec<&str> = lines.iter().map(|(_, line)| *line).collect();
+                lines.join("\n")
+            })
+        };
+        for found in matrix::disagreements(&text(LIST), &text(matrix::WORKFLOW)) {
+            findings.push(Finding::new(matrix::WORKFLOW, 1, found));
+        }
+    }
     let paths = repo.paths().filter(|path| !owned.contains(*path));
     findings.extend(leftovers(paths, kept.into_iter(), &removed));
     for finding in &mut findings {
@@ -387,6 +408,48 @@ mod tests {
             .map(|finding| (finding.path.as_str(), finding.line))
             .collect();
         assert_eq!(places, [("docs/a.md", 1)], "{:?}", outcome.findings);
+    }
+
+    #[test]
+    fn arch_07_a_run_that_a_removal_leaves_in_ci_s_job_and_not_in_the_list_fails() {
+        // A run that goes with the part, as its marker says in the list, and whose name
+        // holds no word of the part.
+        let hash = |marker: String| format!("#{}", &marker[2..]);
+        let list = format!(
+            "{}  {}\n  - name: stall\n    parts:\n      - offers\n  {}\n",
+            list(),
+            hash(mark("offers")),
+            hash(end("offers"))
+        );
+        let job = |run: &str| {
+            format!(
+                "jobs:\n  removable:\n    strategy:\n      matrix:\n        run:\n          \
+                 - shop\n{run}"
+            )
+        };
+        let unmarked = job("          - stall\n");
+        let marked = job(&format!(
+            "          {}\n          - stall\n          {}\n",
+            hash(mark("offers")),
+            hash(end("offers"))
+        ));
+        let found = |workflow: &str| -> Vec<String> {
+            let repo = Repo::of(&[
+                (LIST, &list),
+                (matrix::WORKFLOW, workflow),
+                ("src/offers.rs", ""),
+                ("src/offers_more.rs", ""),
+            ]);
+            let findings = check(&repo).findings;
+            findings.into_iter().map(|found| found.message).collect()
+        };
+
+        assert_eq!(found(&marked), Vec::<String>::new());
+        assert_eq!(
+            found(&unmarked),
+            ["removing offers: the job `removable` makes a run `stall`, which the list of \
+                 the runs doesn't hold (ARCH-07)"; 2]
+        );
     }
 
     #[test]

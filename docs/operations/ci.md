@@ -9,7 +9,7 @@ CI runs on GitHub Actions, in workflows that only orchestrate `just` tasks (OPS-
 | Job | Runs | Needs |
 |---|---|---|
 | `checks` | `just setup`, then `just checks`: every check of the code in the table below that needs neither the image nor a copy of the repository; then `just setup-smoke` | |
-| `removable` | On `main` only, one job for each run that `crates/xtask/parts.yaml` lists: `just setup`, then `just check-removable <run>`, which runs `just checks` on a copy of the repository that `just keep` gave every part the run doesn't remove, or, for the run whose task is `remove`, from which `just remove` removed the run's parts (ARCH-07) | <!-- part: removal --> |
+| `removable` | On `main` only, one job for each run that `crates/xtask/parts.yaml` lists, whose names `check-parts` holds the job's matrix to: `just setup`, then `just check-removable <run>`, which runs `just checks` on a copy of the repository that `just keep` gave every part the run doesn't remove, or, for the run whose task is `remove`, from which `just remove` removed the run's parts (ARCH-07) | <!-- part: removal --> |
 | `new-module` | On `main` only: `just setup`, then `just check-new-module`, which runs `just checks` on a copy of the repository with two modules that `just new-module` wrote (ARCH-03) | |
 | `rename` | On `main` only: `just setup`, then `just check-rename`, which runs `just checks` on a copy of the repository that `just rename` renamed (ARCH-15) | |
 | `image` | `just image`: the API's image and the reference deployment's Postgres, each built once for linux/amd64 and linux/arm64 with its software bill of materials (SBOM) and its provenance, into an image layout of the Open Container Initiative (OCI), which the later jobs download (OPS-12) | |
