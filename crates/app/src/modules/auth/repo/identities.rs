@@ -16,6 +16,7 @@ pub(in crate::modules::auth) struct StoredPassword {
     pub(in crate::modules::auth) hash: String,
 }
 
+/// Gives `user_id` a password identity, with `hash` as its password's hash.
 pub(in crate::modules::auth) async fn insert_password_identity(
     uow: &mut UnitOfWork,
     user_id: UserId,
@@ -65,6 +66,7 @@ pub(in crate::modules::auth) async fn password_hash(
     .flatten())
 }
 
+/// Makes `hash` the password's hash of `user_id`'s password identity `identity_id`.
 pub(in crate::modules::auth) async fn update_password_hash(
     uow: &mut UnitOfWork,
     user_id: UserId,

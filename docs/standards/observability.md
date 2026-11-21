@@ -97,7 +97,7 @@ Alerts are of two kinds:
 
 Every alert has a severity (`page` or `ticket`), a runbook section in `docs/operations/runbooks.md` and a `promtool` test. The rules are the file `deploy/observability/prometheus/rules.yaml`, which the self-hosted Prometheus reads and a managed Grafana imports as rules of its own.
 - Why: an alert means action, and the action is written down (D19). A backup that fails silently is found only when it is needed (D30).
-- Check: `ci: alert-rules` (each rule has a test and a runbook anchor), plus `ci: e2e` (an alert reaches the integration a release names, and a managed Grafana imports the rules), plus `review` (what each alert reads and fires on).
+- Check: `ci: alert-rules` (each rule has a test and a runbook anchor), plus `ci: e2e` (an alert reaches the integration a release names, and a managed Grafana imports the rules), plus `review` (what each alert reads and fires on, and that a runbook's command names the service that runs in each kind of deployment, as a command that shows a collector's log names the collector of a deployment whose telemetry is self-hosted and that of one whose telemetry is managed).
 
 ### OBS-15 Health probes stay out of telemetry
 Liveness and readiness requests are excluded from request metrics, are not sampled into traces, and carry no trace ID (API-16). The reference deployment's proxy doesn't trace them either.

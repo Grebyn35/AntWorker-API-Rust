@@ -5,7 +5,7 @@
 ### DOC-01 Docs and comments describe the system as it is
 No document or comment records what changed, what something replaced, what an earlier version did, who asked for it, or when it was written. An edit rewrites the text it affects so that it reads as if it had always said that: it adds no "update", "note" or dated paragraph, and strikes nothing through. History has its homes in DOC-07: the commit messages, the architecture decision records (ADRs) and `CHANGELOG.md`. The migration workspace is the exception: the tracker records the migration's progress (DOC-14), and the inventory describes the old codebase (DOC-13).
 - Why: history goes stale, readers need the current state, not the path to it, and an edited document must read as one description (D27).
-- Check: `ci: check-docs` flags the common markers (`previously`, `no longer`, `used to`, `legacy`, `now uses`, and dates in comments), and a path to a Rust file, such as `events/hub.rs`, that names no file of the repository, plus `review`.
+- Check: `ci: check-docs` flags the common markers (`previously`, `no longer`, `used to`, `legacy`, `now uses`, and dates in comments), and a path to a Rust file, such as `events/hub.rs`, or a Rust file's name alone between backticks, such as `jobs.rs`, that names no file of the repository, plus `review`.
 
 ## The documentation set
 

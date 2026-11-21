@@ -73,6 +73,7 @@ impl DatabaseUrl {
         self.options.clone()
     }
 
+    /// The password of the URL's role, which `bootstrap` gives that role as a verifier.
     pub(crate) fn password(&self) -> &Secret<String> {
         &self.password
     }

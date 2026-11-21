@@ -119,6 +119,7 @@ impl Streams {
         self.head
     }
 
+    /// Makes `head` the last position the hub loaded.
     pub(super) fn set_head(&mut self, head: i64) {
         self.head = head;
     }
@@ -145,6 +146,9 @@ impl Streams {
         }
     }
 
+    /// Carries out what a subscription asks of the hub: it registers a stream, hands it its
+    /// memberships, or removes it. A stream whose subscription stopped waiting for the answer
+    /// is removed.
     pub(super) fn command(&mut self, command: Command) {
         match command {
             Command::Register { principal, reply } => {

@@ -6,9 +6,11 @@ use std::{ffi::OsString, io, path::Path};
 use super::{ConfigError, Problem, Settings};
 use crate::encryption::{Keyring, KeyringError};
 
+/// What `ENCRYPTION_KEYS` must be, as its refusal says it.
 pub(super) const KEYS_EXPECTED: &str = "keys separated by commas, each a version from 1 to \
      32767, a colon and the base64 of 32 random bytes, such as 1:<key>, with no version twice";
 
+/// What `ENCRYPTION_KEY_VERSION` must be, as its refusal says it.
 pub(super) const VERSION_EXPECTED: &str = "one of the versions of ENCRYPTION_KEYS";
 
 impl<E, F> Settings<E, F>

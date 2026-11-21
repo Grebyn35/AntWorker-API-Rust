@@ -111,6 +111,10 @@ impl Task {
         }
     }
 
+    /// Runs the hub until every sender of `commands` is gone: it carries out the subscriptions'
+    /// commands, closes its streams once the instance stops, checks the listener at every check
+    /// interval, handles its notifications, and re-checks its streams every `recheck`
+    /// (PLATFORM-031, PLATFORM-061, PLATFORM-062).
     pub(super) async fn run(
         mut self,
         mut commands: mpsc::UnboundedReceiver<Command>,

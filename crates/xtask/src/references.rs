@@ -147,8 +147,10 @@ fn test_prefixes(text: &str) -> Vec<(String, String)> {
     found
 }
 
-/// The paths to Rust files in `text` that name a directory, such as `events/hub.rs`: a bare file
-/// name, such as `jobs.rs`, names the file of every module.
+/// The paths to Rust files in `text` that name a directory, such as `events/hub.rs`, and the
+/// names of Rust files that stand alone between two backticks, such as `jobs.rs`, which name a
+/// file of that name in any directory. A path and a name are runs of lowercase ASCII letters,
+/// digits, `_` and, in a path, `/`; a file's name outside backticks is read as prose.
 fn rust_paths(text: &str) -> Vec<String> {
     let mut found = Vec::new();
     for (end, _) in text.match_indices(".rs") {
@@ -167,7 +169,9 @@ fn rust_paths(text: &str) -> Vec<String> {
             && !path.starts_with('/')
             && !path.contains("//")
             && !before.is_some_and(|c| c == '.' || c == '-' || c == ':' || c.is_alphanumeric());
-        if named {
+        let alone =
+            !path.contains('/') && path.len() > 3 && before == Some('`') && after == Some('`');
+        if named || alone {
             found.push(path.to_owned());
         }
     }
@@ -198,6 +202,17 @@ mod tests {
         assert_eq!(
             rust_paths("in events/hub.rs, and `system/seed.rs`; not jobs.rs, ../a/b.rs or x.rsx"),
             ["events/hub.rs", "system/seed.rs"]
+        );
+    }
+
+    #[test]
+    fn doc_01_a_rust_file_s_name_alone_in_backticks_is_read() {
+        assert_eq!(
+            rust_paths(
+                "`jobs.rs` and `gone.rs`; not jobs.rs, `<key>.rs`, `*.rs`, `.rs`, `a.rs b`, \
+                 `x jobs.rs` or `jobs.rsx`"
+            ),
+            ["jobs.rs", "gone.rs"]
         );
     }
 

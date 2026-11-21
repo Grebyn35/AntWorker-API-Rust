@@ -31,6 +31,7 @@ pub(super) enum Problem {
 }
 
 impl ConfigError {
+    /// The refusal of the setting `setting`, for `problem`.
     pub(super) fn new(setting: &str, problem: Problem) -> Self {
         Self {
             setting: setting.to_owned(),
