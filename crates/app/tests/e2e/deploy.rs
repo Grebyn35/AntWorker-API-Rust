@@ -8,8 +8,8 @@ use platform::errors::{ErrorCode, RequestError};
 
 use crate::{
     deployment::{
-        Deployment, MANAGED_TLS, Traffic, assert_all_succeeded, get, get_with_headers, get_within,
-        unanswered,
+        Deployment, MANAGED_TLS, Traffic, assert_all_succeeded, get, get_with_too_many_headers,
+        get_within, unanswered,
     },
     docker::lossy,
     server::DEPLOYMENT,
@@ -275,25 +275,31 @@ async fn ops_18_a_deploy_refuses_replicas_whose_connections_would_not_fit() {
 #[tokio::test]
 async fn ops_17_a_deploy_refuses_a_connection_that_would_leave_the_server_unencrypted() {
     let deployment = Deployment::managed(&[]);
-    let secret = format!("{DEPLOYMENT}/secrets/database_owner_url");
-    let url = deployment.server.shell_ok(&format!("cat {secret}"));
     let verified = format!("?{MANAGED_TLS}");
-    assert!(
-        url.ends_with(&verified),
-        "the tests' URL of a managed database"
-    );
-    let plain = url.trim_end_matches(&verified);
     let mut refusals = Vec::new();
-    // A managed database's URL without `sslmode`, with which the driver falls back to plain
-    // text, with one that checks no certificate, and with `verify-full` only in its fragment.
-    for query in ["", "?sslmode=require", "#?sslmode=verify-full"] {
-        deployment.server.write(&secret, &format!("{plain}{query}"));
-        refusals.push((
-            deployment.apply(&deployment.api, &[]).await,
-            "database_owner_url doesn't set sslmode=verify-full",
-        ));
+    // Each of a managed database's URLs, one at a time: without `sslmode`, with which the driver
+    // falls back to plain text, with one that checks no certificate, with `verify-full` only in
+    // its fragment, and with `verify-full` beside another, first, then last.
+    for name in ["database_url", "database_owner_url", "database_admin_url"] {
+        let secret = format!("{DEPLOYMENT}/secrets/{name}");
+        let url = deployment.server.shell_ok(&format!("cat {secret}"));
+        assert!(url.ends_with(&verified), "the tests' {name}");
+        let plain = url.trim_end_matches(&verified);
+        for query in [
+            "",
+            "?sslmode=require",
+            "#?sslmode=verify-full",
+            "?sslmode=verify-full&sslmode=disable",
+            "?sslmode=disable&sslmode=verify-full",
+        ] {
+            deployment.server.write(&secret, &format!("{plain}{query}"));
+            refusals.push((
+                deployment.apply(&deployment.api, &[]).await,
+                format!("secrets/{name} doesn't set sslmode=verify-full"),
+            ));
+        }
+        deployment.server.write(&secret, &url);
     }
-    deployment.server.write(&secret, &url);
     // Email without encryption to a mail server that isn't on the server itself.
     deployment.set(&[
         ("EMAIL", "smtp"),
@@ -303,7 +309,7 @@ async fn ops_17_a_deploy_refuses_a_connection_that_would_leave_the_server_unencr
     ]);
     refusals.push((
         deployment.apply(&deployment.api, &[]).await,
-        "SMTP_SECURITY=none sends email unencrypted",
+        "SMTP_SECURITY=none sends email unencrypted".to_owned(),
     ));
 
     for (refused, why) in &refusals {
@@ -425,7 +431,7 @@ async fn sec_12_the_proxy_sets_the_headers_that_an_answer_of_a_replica_s_own_ser
     // More headers than a replica's HTTP server takes: it refuses the request before the router,
     // with a 431 that carries none of the four headers, and Caddy passes both on.
     let (status, headers) =
-        get_with_headers(root, deployment.url("https", 443, "/v1/capabilities"), 101);
+        get_with_too_many_headers(root, deployment.url("https", 443, "/v1/capabilities"));
 
     assert_eq!(status, 431);
     assert_eq!(headers["x-content-type-options"], "nosniff");
@@ -757,17 +763,7 @@ async fn ops_14_every_container_of_a_deployment_keeps_a_capped_log() {
 
 #[tokio::test]
 async fn ops_14_a_deploy_stops_the_services_that_the_settings_no_longer_choose() {
-    let deployment = Deployment::managed(&[]);
-    let backend = deployment.server.start_otlp_backend();
-    let mut managed = vec![("TELEMETRY", "managed")];
-    managed.extend(
-        backend
-            .iter()
-            .map(|(name, value)| (name.as_str(), value.as_str())),
-    );
-    deployment.set(&managed);
-    let first = deployment.apply(&deployment.api, &[]).await;
-    assert!(first.status.success(), "{}", lossy(&first));
+    let deployment = Deployment::with_a_managed_backend().await;
     let collector = deployment.server.running("collector-managed");
     // TELEMETRY back to off, which Caddy reads, so it restarts.
     deployment.set(&[]);
@@ -915,6 +911,18 @@ async fn ops_14_a_secret_that_the_setup_replaced_recreates_the_services_that_rea
     // The same secret again, in a new file: its fingerprint is its content's.
     replace("backup_s3_key_secret", key_secret.trim_end());
     let same_again = deployment.apply(&deployment.api, &[]).await;
+    let same_postgres = deployment.server.running("postgres");
+    // A key pair that reaches the bucket, the operator's of the buckets' stand-in, in place of
+    // the server's, then a deploy with consent.
+    replace("backup_s3_key", "operator");
+    replace("backup_s3_key_secret", "operator-secret");
+    let consented = deployment
+        .apply(&deployment.api, &["--allow-restart"])
+        .await;
+    let consented_postgres = deployment.server.running("postgres");
+    let read = deployment
+        .server
+        .shell_ok("docker exec deployment-postgres-1 cat /run/secrets/backup_s3_key_secret");
 
     assert!(unchanged.status.success(), "{}", lossy(&unchanged));
     assert_eq!(kept_collector, collector);
@@ -929,7 +937,11 @@ async fn ops_14_a_secret_that_the_setup_replaced_recreates_the_services_that_rea
     );
     assert_eq!(refused_postgres, postgres);
     assert!(same_again.status.success(), "{}", lossy(&same_again));
-    assert_eq!(deployment.server.running("postgres"), postgres);
+    assert_eq!(same_postgres, postgres);
+    assert!(consented.status.success(), "{}", lossy(&consented));
+    assert_eq!(consented_postgres.len(), 1);
+    assert_ne!(consented_postgres, postgres);
+    assert_eq!(read, "operator-secret");
 }
 
 #[tokio::test]

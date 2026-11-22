@@ -39,6 +39,10 @@ pub const GRAFANA_ADMIN_USER: &str = "operator";
 /// chooses at the setup.
 pub const GRAFANA_ADMIN_PASSWORD: &str = "the password of the e2e tests' Grafana";
 
+/// The line a restore writes once its first check has passed and it has marked its full backup,
+/// before the replicas stop and its transaction commits.
+pub const STOPPING: &str = "stopping the API's replicas";
+
 /// The xtask binary, which `just e2e` builds before the tests run, into the profile's directory of
 /// the target directory, target/<profile>/xtask: the one in the nearest directory above the
 /// tests' own binary that holds one. Cargo keeps a test's binary under that directory, at a depth
@@ -315,12 +319,12 @@ impl Deployment {
     }
 
     /// Starts a restore of the latest state, as `restore_with` does with `options`, and returns
-    /// once it writes a line that contains `line`.
-    pub fn restore_until(&self, options: &[&str], line: &str) -> RunningDeploy {
+    /// once it writes a line that contains [`STOPPING`].
+    pub fn restore_until_stopping(&self, options: &[&str]) -> RunningDeploy {
         let (set, timeline) = self.restore_plan(None, None);
         self.server.deploy_until(
             &[&["restore", "", &set, &timeline][..], options].concat(),
-            line,
+            STOPPING,
         )
     }
 
@@ -464,16 +468,13 @@ pub fn unanswered(root: String, url: String) -> bool {
     .expect("the request")
 }
 
-/// Sends `GET` to `url` with `extra` headers beside the client's own, through a client that
-/// trusts `root`, and returns the response's status and headers.
-pub fn get_with_headers(
-    root: String,
-    url: String,
-    extra: usize,
-) -> (u16, reqwest::header::HeaderMap) {
+/// Sends `GET` to `url` with 101 headers beside the client's own, more than the 100 that a
+/// replica's HTTP server takes (PLATFORM-099), through a client that trusts `root`, and returns
+/// the response's status and headers.
+pub fn get_with_too_many_headers(root: String, url: String) -> (u16, reqwest::header::HeaderMap) {
     thread::spawn(move || {
         let mut request = client(&root).get(&url);
-        for index in 0..extra {
+        for index in 0..101 {
             request = request.header(format!("x-extra-{index}"), "1");
         }
         let response = request.send().expect("an answer");

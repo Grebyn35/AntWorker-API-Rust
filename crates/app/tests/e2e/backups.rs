@@ -9,7 +9,7 @@ use std::{
 use serde_json::{Value, json};
 
 use crate::{
-    deployment::{Deployment, get},
+    deployment::{Deployment, STOPPING, get},
     docker::lossy,
     images::Pushed,
     server::{DEPLOYMENT, Server},
@@ -111,10 +111,13 @@ fn undoing(restored: &Output) -> String {
     named.expect("the moment").to_owned()
 }
 
+/// The time, in seconds since the epoch, at which `retention` runs retention.jq.
+const NOW: i64 = 1_800_000_000;
+
 /// What the Postgres image's retention.jq prints for pgBackRest's info listing `backups`, with
-/// a retention of 28 days, at `now`: the retention of the next expire, then each full backup it
+/// a retention of 28 days, at [`NOW`]: the retention of the next expire, then each full backup it
 /// keeps beyond 28 days, with the time of the restore that marked it.
-fn retention(backups: &Value, now: i64) -> String {
+fn retention(backups: &Value) -> String {
     let image = Pushed::postgres();
     let mut jq = Command::new("docker")
         .args([
@@ -134,7 +137,7 @@ fn retention(backups: &Value, now: i64) -> String {
             "now",
         ])
         .args([
-            &now.to_string(),
+            &NOW.to_string(),
             "--from-file",
             "/usr/local/lib/pgbackrest/retention.jq",
         ])
@@ -169,8 +172,7 @@ fn backup(label: &str, kind: &str, run: (i64, i64), restored: Option<i64>) -> Va
 fn ops_15_the_retention_keeps_the_full_backup_a_restore_started_from_until_a_backup_after_the_restore_is_as_old()
  {
     const DAY: i64 = 86_400;
-    let now = 1_800_000_000;
-    let ago = |days: i64| now - days * DAY;
+    let ago = |days: i64| NOW - days * DAY;
     let older = backup("F1", "full", (ago(70), ago(70) + 60), None);
     // The next full backup after F1 ended 40 days ago: pgBackRest keeps F1 only with a retention
     // of 41 days.
@@ -179,33 +181,24 @@ fn ops_15_the_retention_keeps_the_full_backup_a_restore_started_from_until_a_bac
     // A full backup taken right after a restore, which ended `days` ago.
     let closing = |days: i64| backup("F3", "full", (ago(days) - 60, ago(days)), None);
 
-    let unmarked = retention(&json!([older, next]), now);
-    let marked = retention(&json!([held(ago(20) - 120), next, closing(20)]), now);
-    let unbacked = retention(&json!([held(ago(35)), next]), now);
-    let released = retention(&json!([held(ago(30) - 120), next, closing(30)]), now);
-    let newest = retention(
-        &json!([
-            older,
-            backup("F2", "full", (ago(40) - 60, ago(40)), Some(ago(20)))
-        ]),
-        now,
-    );
-    let young = retention(
-        &json!([
-            held(ago(9)),
-            backup("F2", "full", (ago(10) - 60, ago(10)), None)
-        ]),
-        now,
-    );
-    let diff = retention(
-        &json!([
-            held(ago(20) - 120),
-            backup("F1_D1", "diff", (ago(60), ago(60) + 30), None),
-            next,
-            closing(20)
-        ]),
-        now,
-    );
+    let unmarked = retention(&json!([older, next]));
+    let marked = retention(&json!([held(ago(20) - 120), next, closing(20)]));
+    let unbacked = retention(&json!([held(ago(35)), next]));
+    let released = retention(&json!([held(ago(30) - 120), next, closing(30)]));
+    let newest = retention(&json!([
+        older,
+        backup("F2", "full", (ago(40) - 60, ago(40)), Some(ago(20)))
+    ]));
+    let young = retention(&json!([
+        held(ago(9)),
+        backup("F2", "full", (ago(10) - 60, ago(10)), None)
+    ]));
+    let diff = retention(&json!([
+        held(ago(20) - 120),
+        backup("F1_D1", "diff", (ago(60), ago(60) + 30), None),
+        next,
+        closing(20)
+    ]));
 
     assert_eq!(unmarked, "28");
     assert_eq!(marked, format!("41\nF1 {}", ago(20) - 120));
@@ -825,10 +818,6 @@ async fn ops_15_a_restore_whose_replay_can_t_fetch_a_segment_fails_rather_than_e
     assert_eq!(status, 503);
 }
 
-/// The line a restore writes once its first check has passed and it has marked its full backup,
-/// before the replicas stop and its transaction commits.
-const STOPPING: &str = "stopping the API's replicas";
-
 /// Checks that `written`, what a restore that failed wrote, says it refused once the replicas had
 /// stopped, and that the deployment serves the database as the restore found it.
 fn served_again_and_refused(deployment: &Deployment, succeeded: bool, written: &str) {
@@ -860,13 +849,13 @@ async fn ops_15_a_restore_whose_log_stops_reaching_the_bucket_once_the_replicas_
          INSERT INTO restore_marker VALUES ('kept');",
     );
 
-    let running = deployment.restore_until(&[], STOPPING);
+    let running = deployment.restore_until_stopping(&[]);
     signal_archiver(&deployment, "STOP");
     let (refused, refusal) = running.finish();
     served_again_and_refused(&deployment, refused, &refusal);
     signal_archiver(&deployment, "CONT");
     // Postgres stops only once its stopped archiver is killed, at the end of the stop's grace.
-    let running = deployment.restore_until(&["--allow-unarchived"], STOPPING);
+    let running = deployment.restore_until_stopping(&["--allow-unarchived"]);
     signal_archiver(&deployment, "STOP");
     let (restored, restoring) = running.finish();
 
@@ -887,7 +876,7 @@ async fn ops_15_a_restore_whose_transaction_fails_once_the_replicas_stop_serves_
          INSERT INTO restore_marker VALUES ('kept');",
     );
 
-    let running = deployment.restore_until(&[], STOPPING);
+    let running = deployment.restore_until_stopping(&[]);
     local_connections(&deployment, false);
     let (refused, refusal) = running.finish();
     local_connections(&deployment, true);
@@ -945,7 +934,7 @@ async fn ops_15_a_restore_whose_record_of_its_timeline_fails_serves_again_and_re
 
     // The bucket stops answering once the restore has marked its backup, and
     // `--allow-unarchived` lets the restore go on past the check that then fails.
-    let running = deployment.restore_until(&["--allow-unarchived"], STOPPING);
+    let running = deployment.restore_until_stopping(&["--allow-unarchived"]);
     deployment.server.shell_ok("docker kill bucket");
     let (refused, refusal) = running.finish();
 

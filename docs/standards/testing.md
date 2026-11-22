@@ -27,7 +27,7 @@ Each permission is tested twice: a role that has it succeeds, and a role without
 - Check: `review`.
 
 ### TEST-04 No mocks of our own code
-Tests use the real database, the real routes and the real services. Fakes exist only for systems outside the codebase:
+Tests use the real database, the real routes and the real services. Fakes exist only for systems outside the codebase, and for a task of the deployment's that runs while a test starts another:
 - the mail server, reached over the Simple Mail Transfer Protocol (SMTP), which Mailpit, the mail catcher that `just services` starts, or a scripted mail server of a test's own replaces
 - OAuth providers, and the addresses that a third party gives (a local fake server, reached through the two clients in SEC-10, the configured one and the untrusted one)
 - the clock (a test clock)
@@ -39,6 +39,9 @@ Tests use the real database, the real routes and the real services. Fakes exist 
 - the process environment and file reads, which tests hand to `platform::config::Settings` directly
 - a database that stops answering on the connections it holds, which a proxy of the test support stands in for, in front of the real database, by forwarding nothing more on them (OPS-18)
 - the operator who answers `just server-setup`'s questions, whom a script of answers replaces
+- systemd's `timedatectl`, which the end-to-end tests' server lacks, and which a script there replaces that answers whether the clock is synchronized, the one question that `just server-check` asks of it (OPS-19)
+- the container of a service that the settings don't choose, which a deploy stops once its replicas serve, and which a container of Caddy's image under the managed collector's labels replaces, whose process ignores the signal to stop, so that it takes the minute that the deploy gives it (OPS-14)
+- a deploy, a backup, a restore or an operator's subcommand that runs on the end-to-end tests' server while a test starts another, which a process there that holds the locks that the running one holds replaces (OPS-14, OPS-18)
 
 The files bucket is replaced too, by the same SeaweedFS, which also serves the integration tests from `just services`, as does, for them, a scripted bucket of the test support that answers each request with one status, or never (FILES-012), and one that keeps the versions it is given, with the times a test gives them, which lists them, serves their bytes and records each write (FILES-028). <!-- part: files -->
 So is the malware scanner, which ClamAV's daemon is, with one signature of the repository's own, for the test file of the European Institute for Computer Antivirus Research (EICAR), in place of ClamAV's, from `just services` and on the end-to-end tests' server, as does, for the integration tests, a scripted scanner of the test support that answers each scan with one line, never, or by closing the connection (PLATFORM-079). <!-- part: files -->
@@ -70,7 +73,7 @@ Tests never sleep, and act at states they observe, never after a time they guess
 
 Tests make no network calls outside the test environment. A test that fails intermittently counts as failing, and CI never retries a failed test.
 - Why: a flaky test trains everyone to ignore failures, and a wait bounded by a guess fails a correct run on a slower machine.
-- Check: `clippy` (`disallowed_methods` covers sleeps and timed waits in tests, and `disallowed_types` the system clock), `test` (the watch that prints a long test's lines, and the shell of the end-to-end tests' server, which panics on a command whose first word, the text before its first white space, is `sleep`), plus `review`.
+- Check: `clippy` (`disallowed_methods` covers sleeps and timed waits in tests, and `disallowed_types` the system clock), `test` (the watch that prints a long test's lines), `ci: e2e` (the shell of the end-to-end tests' server, which panics on a command whose first word, its first run of characters other than white space, is `sleep`), plus `review`.
 
 ### TEST-07 Tests assert outcomes, not internals
 Tests assert what a client or operator can observe: HTTP responses, database rows, emitted events, enqueued jobs, sent emails and audit entries. A periodic job's interval is asserted as its registration gives it, which `platform`'s tests show the scheduler keeps (PLATFORM-015). A test is laid out as arrange, act, assert, and proves one behavior. A test of a boundary may act on each of its sides in turn, and assert after each: a request that is refused, then one that what the first lacked lets through.

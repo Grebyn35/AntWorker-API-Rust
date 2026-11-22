@@ -67,6 +67,16 @@ fn server_key_policy() -> String {
     .to_string()
 }
 
+/// Panics on `command`, a command of the server's shell, when its first word, its first run of
+/// characters other than white space, is `sleep`, which waits for a time and not for a state
+/// (TEST-06).
+fn refuse_a_sleep(command: &str) {
+    assert!(
+        command.split_whitespace().next() != Some("sleep"),
+        "{command}: wait for a state, in a loop under a timeout, as `next_second` does"
+    );
+}
+
 pub struct Server {
     container: Container,
     /// The server of its deployment's managed database, if it has one, which the replicas on the
@@ -322,13 +332,9 @@ impl Server {
         );
     }
 
-    /// Runs `command` in the server's shell. Panics on one whose first word, the text before
-    /// its first white space, is `sleep`, which waits for a time and not for a state (TEST-06).
+    /// Runs `command` in the server's shell, once `refuse_a_sleep` has taken it.
     pub fn shell(&self, command: &str) -> Output {
-        assert!(
-            command.split_whitespace().next() != Some("sleep"),
-            "{command}: wait for a state, in a loop under a timeout, as `next_second` does"
-        );
+        refuse_a_sleep(command);
         self.explained(
             Command::new("docker")
                 .args(["exec", self.container.id(), "sh", "-c", command])
@@ -1019,4 +1025,21 @@ impl Server {
         .collect()
     }
     // end part: files
+}
+
+#[test]
+fn test_06_the_server_s_shell_panics_on_a_command_whose_first_word_is_sleep() {
+    let refusal = |command: &'static str| std::panic::catch_unwind(|| refuse_a_sleep(command));
+
+    let sleeps = [
+        refusal("sleep 5"),
+        refusal("sleep"),
+        refusal("\n  sleep 5 && docker ps"),
+    ];
+    let looped = refusal("timeout 30 sh -c 'until [ -e /root/ready ]; do sleep 1; done'");
+
+    for slept in &sleeps {
+        assert!(slept.is_err());
+    }
+    assert!(looped.is_ok());
 }

@@ -1,7 +1,10 @@
 //! The reference deployment with its self-hosted observability stack (D42), on a server of the
 //! tests' own.
 
-use std::time::Duration;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    time::Duration,
+};
 
 use crate::{
     deployment::{
@@ -207,6 +210,26 @@ fn assert_the_stores_answer_the_collector_and_grafana_alone(deployment: &Deploym
     }
 }
 
+/// The server's ports that each container publishes, of those that publish one, from
+/// `containers`, a line for each container with its name, a space and its ports, as `docker ps`
+/// lists them: in each item of the ports that holds `->`, what stands between the last `:`
+/// before it and it.
+fn published(containers: &str) -> BTreeMap<&str, BTreeSet<&str>> {
+    containers
+        .lines()
+        .filter_map(|line| {
+            let (name, ports) = line.split_once(' ')?;
+            let ports: BTreeSet<&str> = ports
+                .split([' ', ','])
+                .filter_map(|item| item.split_once("->"))
+                .filter_map(|(host, _)| host.rsplit_once(':'))
+                .map(|(_, port)| port)
+                .collect();
+            (!ports.is_empty()).then_some((name, ports))
+        })
+        .collect()
+}
+
 #[tokio::test]
 async fn sec_14_a_server_publishes_only_the_proxy_and_grafana_signs_every_viewer_in() {
     // The bundled database, and a stack that a later deploy adds, after one that ran without it.
@@ -262,13 +285,9 @@ async fn sec_14_a_server_publishes_only_the_proxy_and_grafana_signs_every_viewer
         deployment.url_at(GRAFANA_ADDRESS, "http", 80, "/login"),
     );
 
-    let publishing: Vec<&str> = containers
-        .lines()
-        .filter(|line| line.contains("->"))
-        .collect();
-    assert_eq!(publishing.len(), 1, "{containers}");
-    assert!(
-        publishing[0].starts_with("deployment-caddy-1 "),
+    assert_eq!(
+        published(&containers),
+        BTreeMap::from([("deployment-caddy-1", BTreeSet::from(["443", "80"]))]),
         "{containers}"
     );
     assert!(containers.contains("deployment-grafana-1"), "{containers}");
@@ -556,17 +575,7 @@ async fn ops_14_a_deploy_installs_the_release_s_alert_rules_and_prometheus_reads
 
 #[tokio::test]
 async fn obs_08_a_managed_backend_receives_the_trace_and_the_logs_of_a_4xx_response() {
-    let deployment = Deployment::managed(&[]);
-    let backend = deployment.server.start_otlp_backend();
-    let mut changes = vec![("TELEMETRY", "managed")];
-    changes.extend(
-        backend
-            .iter()
-            .map(|(name, value)| (name.as_str(), value.as_str())),
-    );
-    deployment.set(&changes);
-    let deployed = deployment.apply(&deployment.api, &[]).await;
-    assert!(deployed.status.success(), "{}", lossy(&deployed));
+    let deployment = Deployment::with_a_managed_backend().await;
 
     let (status, headers) = get(
         deployment.server.caddy_root(),
