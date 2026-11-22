@@ -124,8 +124,9 @@ crane digest <image>:<version>
 cosign verify <image>@<digest> \
   --certificate-identity <address>/.github/workflows/ci.yml@refs/heads/main \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
+docker buildx imagetools inspect <image>@<digest> --format '{{ json .Image }}'
 docker buildx imagetools inspect <image>@<digest> --format '{{ json .SBOM }}'
 docker buildx imagetools inspect <image>@<digest> --format '{{ json .Provenance }}'
 ```
 
-`<image>` is `ghcr.io/<owner>/<repository>`, or that name with `-postgres`, in lowercase, `<address>` the third argument, and `<digest>` what the first command prints, the digest that the version's tag names. A signature covers the index, and so every platform's image, SBOM and provenance it lists. The commands check that a run of `ci.yml` on `main` signed the image, and not which commit that run built: the image's label `org.opencontainers.image.revision` names the commit ([The images](#the-images)).
+`<image>` is `ghcr.io/<owner>/<repository>`, or that name with `-postgres`, in lowercase, `<address>` the third argument, and `<digest>` what the first command prints, the digest that the version's tag names. A signature covers the index, and so every platform's image, SBOM and provenance it lists. The commands check that a run of `ci.yml` on `main` signed the image, and not which commit that run built: the image's label `org.opencontainers.image.revision` names the commit ([The images](#the-images)). The third command reads each platform's image, whose label `org.opencontainers.image.version` names the version that it was built as: the script refuses an image that names another version than the tag, as the image of an earlier release would under a later version's tag.

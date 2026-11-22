@@ -71,7 +71,7 @@ Then it runs `just check-removable`. <!-- part: removal -->
 | A list, every week, of the vulnerabilities that have a fix and are rated high or critical in each third-party image of the reference deployment, for linux/amd64 and linux/arm64, which fails on none of them | `third-party-scan` | SEC-15 |
 | `just setup` and `just dev` run end to end on Linux: `just dev` serves until the API answers ready, and stops once it has; on Windows, `just setup` and a build of every target of the workspace | `setup-smoke` | OPS-20 |
 | The end-to-end tests, against the images built from the commit, the deploys and restores of the reference deployment among them | `e2e` | OPS-12 to OPS-15, OPS-17, OPS-18, SEC-14, and the rules and behaviors they prove (TEST-03) |
-| Each of a release's tags names the tested digest, which the run on `main` signed, with the SBOM and the provenance of both platforms | `verify-release` | OPS-12 |
+| Each of a release's tags names the tested digest, which the run on `main` signed, and whose image for each platform names the tag's version in its label `org.opencontainers.image.version`, with the SBOM and the provenance of both platforms | `verify-release` | OPS-12 |
 
 `check-test-map`, `check-docs`, `check-openapi`, `check-instrument`, `check-metrics`, `check-telemetry-config`, `check-pins`, `check-shell`, `check-sql-bans`, `check-layers`, `check-deps`, `check-layout`, `check-schema`, `check-tenancy`, `check-table-ownership`, `check-migrations`, `sqlx-check`, `check-new-module` and `check-rename` are subcommands of the `xtask` crate (ARCH-01).
 So are `check-parts` and `check-removable`. <!-- part: removal -->
