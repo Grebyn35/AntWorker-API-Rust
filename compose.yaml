@@ -71,7 +71,7 @@ services:
   # each test has read its own.
   mailpit:
     logging: *logging
-    image: axllent/mailpit:v1.33.1@sha256:aef2aacc11f075ec0fb6874275ee4a421e688e11a96ebb296134d1735c7761ce
+    image: axllent/mailpit:v1.34.0@sha256:23a2ef85bc50853ab3093645d1d64679afd8887e89da5e48a88940c172591a4e
     environment:
       MP_MAX_MESSAGES: "10000"
     ports:
@@ -96,7 +96,7 @@ services:
   # each test that runs the API creates a bucket of its own, which the tests delete once it ends.
   storage:
     logging: *logging
-    image: chrislusf/seaweedfs:4.53@sha256:ccad23e18639c8b98cee17e7100b95830a06077b56d8e5b006d6dcf8ec5e94a0
+    image: chrislusf/seaweedfs:4.54@sha256:4b42c212543a0acd4c0e675215ecdcaf62a186ef98def76c7e12701871222d15
     command: ["server", "-dir=/data", "-volume.max=1000", "-s3", "-s3.port=8333"]
     environment:
       WEED_MASTER_VOLUME_GROWTH_COPY_1: "1"
@@ -241,7 +241,7 @@ services:
   # so a scan writes to disk only the database that a new day's first scan downloads.
   grype:
     profiles: [tools]
-    image: anchore/grype:v0.121.3@sha256:13113eeceab017260370cf540e1d25442c59665fd07d1b09b66d63bb0c282887
+    image: anchore/grype:v0.122.1@sha256:661583704a253c0448ed63998b5ea2cd9d5a76ee71eedc4aed439b8ce3e93a1c
     environment:
       GRYPE_DB_CACHE_DIR: /cache
     tmpfs:
@@ -259,13 +259,13 @@ services:
   # reference deployment as a server's Docker would (TEST-03, OPS-14).
   server:
     profiles: [tools]
-    image: docker:29.9.3-dind@sha256:7bf70dcb85c822e3fa6f2d332143e474b99147b9d7b39102b0cfe8b04a7dd61b
+    image: docker:29.10.0-dind@sha256:4bbc7223f81db790097c6dea42fb93e05b8fead4f0431fbe6ccaba6e8473201c
 
   # The stand-in for the reference deployment's backup bucket, which the end-to-end tests run on
   # their server: SeaweedFS, which serves the S3 protocol (OPS-15).
   bucket:
     profiles: [tools]
-    image: chrislusf/seaweedfs:4.53@sha256:ccad23e18639c8b98cee17e7100b95830a06077b56d8e5b006d6dcf8ec5e94a0
+    image: chrislusf/seaweedfs:4.54@sha256:4b42c212543a0acd4c0e675215ecdcaf62a186ef98def76c7e12701871222d15
 
   # k6, which `just load-test` runs to measure one replica's capacity (OPS-16). It reaches the
   # collector, on the same network, to count the spans the collector accepted.
