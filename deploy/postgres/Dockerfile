@@ -12,13 +12,19 @@ FROM postgres:18.6@sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc5
 # own (OPS-17); the official image has none. jq reads pgBackRest's info for the retention that
 # keeps the backups restores started from (retention.jq). zlib1g comes from Debian's security
 # updates at 1.3.1-1+deb13u1, which fixes CVE-2026-76844 and CVE-2026-85091, rated high, in the
-# 1.3.1-1+b1 that the official image's build holds (OPS-13). The build fails once the official
-# image holds the fix, so it leaves the install with the update of the digest that brings it.
+# 1.3.1-1+b1 that the official image's build holds (OPS-13). The C library's four packages come
+# from Debian's update at 2.41-12+deb13u5, which fixes CVE-2026-5435 and CVE-2026-19499, rated
+# high, in the 2.41-12+deb13u4 that the build holds. The build fails once the official image
+# holds either fix, so it leaves the install with the update of the digest that brings it.
 RUN if dpkg --compare-versions "$(dpkg-query --show --showformat='${Version}' zlib1g)" ge 1:1.3.dfsg+really1.3.1-1+deb13u1; then \
         echo "postgres:18.6 holds zlib1g 1.3.1-1+deb13u1 or later: remove it from this install" >&2; exit 1; \
     fi \
+    && if dpkg --compare-versions "$(dpkg-query --show --showformat='${Version}' libc6)" ge 2.41-12+deb13u5; then \
+        echo "postgres:18.6 holds libc6 2.41-12+deb13u5 or later: remove the C library's packages from this install" >&2; exit 1; \
+    fi \
     && apt-get update \
     && apt-get install --yes --no-install-recommends pgbackrest=2.59.3-1.pgdg13+1 ca-certificates=20250419+deb13u1 jq=1.7.1-6+deb13u4 zlib1g=1:1.3.dfsg+really1.3.1-1+deb13u1 \
+        libc6=2.41-12+deb13u5 libc-bin=2.41-12+deb13u5 libc-l10n=2.41-12+deb13u5 locales=2.41-12+deb13u5 \
     && rm -rf /var/lib/apt/lists/* /var/log/apt /var/log/dpkg.log /var/cache/apt/*.bin
 
 COPY pgbackrest.conf /etc/pgbackrest/pgbackrest.conf
