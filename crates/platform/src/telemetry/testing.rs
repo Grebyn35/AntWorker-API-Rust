@@ -152,6 +152,21 @@ pub fn all_logged() -> Vec<Value> {
         .collect()
 }
 
+/// Every line logged so far on the thread that calls it, in order: of a test, those that its
+/// runtime's tasks wrote, as a [`Watch`] reads them, and none of another test's, which the test
+/// runner runs on a thread of its own (TEST-06).
+pub fn logged_on_this_thread() -> Vec<Value> {
+    let current = thread::current().id();
+    let logged = LOGGED.lock().unwrap_or_else(PoisonError::into_inner);
+    logged
+        .lines
+        .iter()
+        .filter(|(written, _)| *written == current)
+        .flat_map(|(_, written)| written.lines())
+        .filter_map(|line| serde_json::from_str(line).ok())
+        .collect()
+}
+
 /// Prints what the test that starts it has logged, once the watch has lived for a while, then
 /// each line the test logs, until the watch is dropped, so that a test that never ends shows
 /// what it logged before CI's job time limit ends it (TEST-06). [`install`] starts one for 5

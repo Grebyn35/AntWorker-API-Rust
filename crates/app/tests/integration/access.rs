@@ -3,11 +3,12 @@
 
 use futures_util::future::BoxFuture;
 use http::{Method, StatusCode};
+use serde_json::json;
 
 use crate::support::{
     Api, TestDatabase,
     api::Response,
-    execute_on, queries_wait_on_locks,
+    execute_on, queries_wait_on_locks, query_waits_on_a_lock,
     users::{self, SignedIn},
     workspaces,
 };
@@ -404,6 +405,49 @@ async fn platform_009_authorization_waits_for_a_change_to_the_caller_s_membershi
 
     // The request waited for the removal, so it ran under the membership as it then stood.
     assert_eq!(request.await.unwrap(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn platform_009_the_operation_holds_the_membership_it_was_authorized_with_until_it_ends() {
+    let api = Api::new().await;
+    let owner = users::register(&api, "owner@example.com").await;
+    let db = api.database();
+    let workspace = workspaces::arrange(db, "Acme", &[(&owner.user_id, "owner")]).await;
+    // The rename's write waits for the workspace's row, which the test holds, once its
+    // authorization has read the caller's membership.
+    let mut held = db
+        .holding(&format!(
+            "SELECT 1 FROM workspaces WHERE id = '{workspace}' FOR UPDATE"
+        ))
+        .await;
+    let rename = api.spawn(
+        Method::PATCH,
+        &format!("/v1/workspaces/{workspace}"),
+        &owner.access,
+        Some(json!({ "name": "Renamed" })),
+    );
+    query_waits_on_a_lock(db, "UPDATE workspaces").await;
+
+    // A removal of the membership locks its row as this does, so it would wait for the operation.
+    let removal = db
+        .try_execute(
+            &db.owner_url(),
+            &format!(
+                "SELECT 1 FROM workspace_memberships WHERE workspace_id = '{workspace}' \
+                 AND user_id = '{}' FOR UPDATE NOWAIT",
+                owner.user_id
+            ),
+        )
+        .await;
+    execute_on(&mut held, "ROLLBACK").await;
+
+    assert!(
+        removal
+            .as_ref()
+            .is_err_and(|refused| refused.contains("could not obtain lock")),
+        "{removal:?}"
+    );
+    assert_eq!(rename.await.unwrap().0, StatusCode::OK);
 }
 
 /// Arranges the row a route addresses in the workspace it is given, through the `owner`

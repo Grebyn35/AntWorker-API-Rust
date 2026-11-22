@@ -127,6 +127,27 @@ async fn realtime_001_a_stream_delivers_its_caller_s_events_and_their_workspaces
 }
 
 #[tokio::test]
+async fn realtime_001_a_stream_s_opened_id_is_the_newest_event_its_caller_may_receive() {
+    let api = api().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    // The registrations' sessions published their starts (AUTH-046).
+    api.database().owner_executes("DELETE FROM events").await;
+    announce(&api, &ada, 1).await;
+    // A newer event, which only Grace may receive.
+    announce(&api, &grace, 1).await;
+
+    let mut stream = streams::connect(&api, &ada.access, None).await;
+    let opened = stream.opened().await;
+
+    let hers = api
+        .database()
+        .owner_reads("SELECT id::text FROM events ORDER BY position LIMIT 1")
+        .await;
+    assert_eq!(opened.id.as_deref(), Some(hers[0].as_str()));
+}
+
+#[tokio::test]
 async fn realtime_001_a_browser_opens_its_stream_with_its_access_cookie() {
     let api =
         Api::with(Options::routes(announcements::routes()).set("CORS_ALLOWED_ORIGINS", users::WEB))
@@ -384,14 +405,16 @@ async fn realtime_004_more_than_1000_waiting_events_truncate_the_replay() {
     announce(&api, &ada, 1).await;
     let live = again.event().await;
 
+    // The live event, then the newest event the replay skipped.
     let newest = api
         .database()
-        .owner_reads("SELECT id::text FROM events ORDER BY position DESC LIMIT 1 OFFSET 1")
+        .owner_reads("SELECT id::text FROM events ORDER BY position DESC LIMIT 2")
         .await;
     assert_eq!(opened.payload()["truncated"], true);
     // The reconnect resumes after the newest event the replay skipped.
-    assert_eq!(opened.id.as_deref(), Some(newest[0].as_str()));
-    assert_eq!(live.payload()["n"], 1);
+    assert_eq!(opened.id.as_deref(), Some(newest[1].as_str()));
+    // The first event the stream sends is the live one, which no replayed event is.
+    assert_eq!(live.id.as_deref(), Some(newest[0].as_str()));
 }
 
 #[tokio::test]

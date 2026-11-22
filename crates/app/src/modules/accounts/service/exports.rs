@@ -254,7 +254,8 @@ impl Exports {
         id: uuid::Uuid,
     ) -> Result<(), JobFailure> {
         let mut uow = self.database.for_snapshot_job(context).await?;
-        // The first statement, which locks the export's row before any other write (DATA-20).
+        // The first statement after the one that sets the isolation level, which locks the
+        // export's row before any write (DATA-20).
         if stored::lock(&mut uow, user, id).await? != Some(ExportState::Pending) {
             return Ok(());
         }

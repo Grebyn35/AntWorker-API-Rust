@@ -245,17 +245,17 @@ impl TestDatabase {
     }
 
     /// Runs the API binary with `args`, as an operator would, with its database settings
-    /// pointing at this database and `env` added to its environment. Returns its exit status
-    /// and everything it printed.
+    /// pointing at this database and `env` added to its environment, in place of any of those
+    /// settings that it names. Returns its exit status and everything it printed.
     pub async fn run_api<V: AsRef<OsStr>>(&self, args: &[&str], env: &[(&str, V)]) -> Output {
         run(self.api_command(args, env)).await
     }
 
     /// Starts `serve` from the API binary, as an operator would, on a free port of 127.0.0.1,
     /// with its database settings pointing at this database and `env` added to its
-    /// environment. It returns once the server listens, which it does before it builds its
-    /// services, which read the database, so a test that cuts the database off waits for the
-    /// readiness probe first (TEST-06).
+    /// environment, in place of any of those settings that it names. It returns once the server
+    /// listens, which it does before it builds its services, which read the database, so a test
+    /// that cuts the database off waits for the readiness probe first (TEST-06).
     pub async fn serve(&self, env: &[(&str, &str)]) -> Server {
         let mut command = self.api_command(&["serve"], env);
         command.env("LISTEN_ADDR", "127.0.0.1:0");
@@ -273,7 +273,6 @@ impl TestDatabase {
         // only when asked; a test that stores a file runs the API in process.
         command.env("S3_ENDPOINT", "https://bucket.invalid");
         // end part: files
-        command.envs(env.iter().map(|(name, value)| (name, value)));
         // The test's database on the tests' Postgres, as `settings` reaches it.
         for setting in ["DATABASE_ADMIN_URL", "DATABASE_OWNER_URL", "DATABASE_URL"] {
             let mut url =
@@ -283,6 +282,9 @@ impl TestDatabase {
             url.set_port(Some(TESTS_POSTGRES)).expect("a port");
             command.env(setting, url.as_str());
         }
+        // After the database's settings, so that a test may name a database of its own, such as
+        // one that no connection reaches.
+        command.envs(env.iter().map(|(name, value)| (name, value)));
         command
     }
 

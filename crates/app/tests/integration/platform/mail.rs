@@ -354,9 +354,6 @@ async fn platform_021_send_now_sends_at_once_and_tells_its_job_whether_to_retry(
     let failed = mail(&unreachable).send_now(secret_email(&to)).await;
     let refusing = Options::default().set("SMTP_PORT", refusing_server().await.port());
     let refused = mail(&refusing).send_now(secret_email(&to)).await;
-    let off = mail(&Options::email_off())
-        .send_now(secret_email(&to))
-        .await;
 
     // Sent at once, with no job in between, and no queue that holds the secret.
     assert_eq!(mailbox::to(&to).await.len(), 1);
@@ -370,8 +367,22 @@ async fn platform_021_send_now_sends_at_once_and_tells_its_job_whether_to_retry(
         matches!(refused, Err(JobFailure::Permanent(_))),
         "{refused:?}"
     );
-    // With email off, nothing is sent (PLATFORM-022).
-    assert!(off.is_ok());
+}
+
+#[tokio::test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test of send_now calls it, as a job's handler does (PLATFORM-022)"
+)]
+async fn platform_022_with_email_off_send_now_sends_nothing() {
+    let to = mailbox::address("unsent");
+
+    let sent = mail(&Options::email_off())
+        .send_now(secret_email(&to))
+        .await;
+
+    assert!(sent.is_ok(), "{sent:?}");
+    assert!(mailbox::to(&to).await.is_empty());
 }
 
 #[tokio::test]

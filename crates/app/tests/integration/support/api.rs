@@ -478,10 +478,11 @@ impl Api {
         call
     }
 
-    /// Sends, in a task of its own, with the access token `access`, `method` to `path`, with
-    /// `body` as JSON when there is one, which a `PATCH` sends as a merge patch, and gives the
-    /// response's status and its body's JSON, or null for an empty body: a request that a test
-    /// holds at a lock while it changes what the request then finds.
+    /// Sends, in a task of its own, with the access token `access`, `method` to `path`, or, with
+    /// a `body`, a `PATCH` of it as a merge patch when `method` is `PATCH`, and a `POST` of it as
+    /// JSON for any other `method`, and gives the response's status and its body's JSON, or null
+    /// for an empty body: a request that a test holds at a lock while it changes what the request
+    /// then finds.
     pub fn spawn(
         &self,
         method: Method,

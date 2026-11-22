@@ -155,7 +155,7 @@ The receiver `otlp/clients` takes the batches that the telemetry proxy forwards 
 
 ## JobsDeadLettered
 
-**What it means.** A job failed on each of its attempts, or with a failure that every attempt would meet, and moved to the dead-letter state, where nothing retries it ([platform spec](../spec/platform.md#the-job-queue)). For `platform.send_email`, an email didn't go out: a mail server that refused it for good, or one that didn't answer for the hours its retries span ([platform spec](../spec/platform.md#sending-email)).
+**What it means.** A job failed on each of its attempts, or with a failure that every attempt would meet, and moved to the dead-letter state, where nothing retries it ([platform spec](../spec/platform.md#the-job-queue)). For `platform.send_email`, an email didn't go out: a mail server that refused it for good, one that didn't answer for the hours its retries span, or an email that the API couldn't build, such as for a recipient that isn't an address a mail server takes ([platform spec](../spec/platform.md#sending-email)).
 
 **Look first.** The API's `ERROR` line "job dead-lettered" names the kind and the failure. With the bundled database, this lists the dead letters, without their payloads, which hold personal data such as an email's recipient:
 

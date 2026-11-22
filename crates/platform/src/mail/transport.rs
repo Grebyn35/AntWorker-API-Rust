@@ -108,8 +108,9 @@ impl Transport {
     }
 
     /// Sends `email` from the sender, with `message_id` (PLATFORM-025), in a client span of its
-    /// own (OBS-06). A reply from 500 to 599 fails permanently; any other failure may pass on
-    /// another attempt (PLATFORM-021).
+    /// own (OBS-06). A reply from 500 to 599 fails permanently (PLATFORM-021), and so do an email
+    /// that can't be built and a recipient that isn't an address SMTP takes, which no attempt
+    /// changes; any other failure may pass on another attempt.
     pub(super) async fn send(&self, message_id: String, email: Email) -> Result<(), JobFailure> {
         let span = tracing::info_span!(
             "smtp",

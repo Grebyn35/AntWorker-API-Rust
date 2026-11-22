@@ -338,6 +338,41 @@ async fn platform_031_the_recheck_closes_a_stream_whose_membership_changed_witho
 }
 
 #[tokio::test]
+async fn platform_031_the_recheck_closes_a_stream_whose_session_stopped_lasting_without_a_signal() {
+    let api = api().await;
+    let clock = api.clock();
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let workspace = workspaces::arrange(
+        api.database(),
+        "Analytical",
+        &[(&grace.user_id, "owner"), (&ada.user_id, "member")],
+    )
+    .await;
+    let mut ended = streams::opened(&api, &ada).await;
+    let mut lasting = streams::opened(&api, &grace).await;
+
+    // Gone behind the API's back, so no signal tells the hub.
+    api.database()
+        .owner_executes(&format!(
+            "DELETE FROM sessions WHERE user_id = '{}'",
+            ada.user_id
+        ))
+        .await;
+    clock.sleeping(RECHECK).await;
+    clock.advance(RECHECK);
+    // The hub sleeps again once its re-check has ended; an event that commits after it reaches
+    // each stream that stayed open.
+    clock.sleeping(RECHECK).await;
+    post(&api, &grace, &workspace, 1, false).await;
+    let closed = ended.closing().await;
+    let still = lasting.event().await;
+
+    assert_eq!(closed.payload()["reason"], "session_ended");
+    assert_eq!(still.event.as_deref(), Some("announcement.posted"));
+}
+
+#[tokio::test]
 async fn workspaces_005_removing_a_member_closes_their_stream_before_the_next_event() {
     let api = api().await;
     let ada = users::register(&api, "ada@example.com").await;
@@ -1198,9 +1233,22 @@ async fn platform_035_the_hub_records_the_events_it_owes_while_its_loads_fail() 
     assert_eq!(settled, Some(0.0));
 }
 
-/// Whether a hub has logged `message`.
+#[tokio::test]
+async fn test_06_a_wait_for_a_line_of_the_hub_ends_on_no_line_of_another_test() {
+    let _api = api().await;
+
+    // As another test's hub, which runs on that test's thread, writes it.
+    std::thread::spawn(|| tracing::warn!("the hub couldn't load events"))
+        .join()
+        .unwrap();
+
+    assert!(!logged("the hub couldn't load events"));
+}
+
+/// Whether the hub of this test has logged `message`: its runtime runs the hub on the test's own
+/// thread, so that a line of another test's hub ends no wait of this one (TEST-06).
 fn logged(message: &str) -> bool {
-    testing::all_logged()
+    testing::logged_on_this_thread()
         .iter()
         .any(|line| line["message"] == message)
 }

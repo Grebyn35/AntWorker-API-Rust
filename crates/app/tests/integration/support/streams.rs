@@ -115,7 +115,8 @@ pub async fn open(api: &Api, headers: &[(&str, &str)]) -> Opened {
 }
 
 /// Opens a stream as the caller whose access token is `token`, with the header `name` set to
-/// `value`, bytes that need not be text, and returns what that came to.
+/// `value`, bytes that need not be text, which must open: a refusal fails the test where its
+/// answer is checked against the document. It returns the stream, as [`Opened::Stream`].
 pub async fn open_with_bytes(api: &Api, token: &str, name: &str, value: &[u8]) -> Opened {
     let mut request = Request::builder()
         .method(Method::GET)

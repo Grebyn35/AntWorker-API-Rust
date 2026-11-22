@@ -19,8 +19,8 @@ async fn system_001_the_capabilities_list_each_feature_a_deployment_can_turn_off
 
     assert_eq!(response.status, StatusCode::OK);
     assert_eq!(response.header("content-type"), "application/json");
-    // Email is the one feature a deployment can turn off, beside the template's parts that the
-    // fork keeps, and no version is reported; a deployment that configures no provider lists none
+    // Email is on, and the members of the template's parts that the fork keeps are as `features`
+    // gives them; no version is reported, and a deployment that configures no provider lists none
     // (AUTH-081).
     assert_eq!(
         response.json(),
@@ -40,8 +40,9 @@ async fn system_001_a_feature_turned_off_is_false() {
     );
 }
 
-/// The features of a deployment whose email is `email`: each of the template's parts that changes
-/// what a client offers is `true` while the fork keeps it (D118).
+/// The features of the tests' API whose email is `email`: the member of each of the template's
+/// parts that changes what a client offers, while the fork keeps it, is `true`, but `false` for a
+/// part whose feature a deployment turns off, which the tests' API leaves off (D118).
 fn features(email: bool) -> Value {
     let mut features = serde_json::Map::new();
     features.insert("email".to_owned(), json!(email));
@@ -460,8 +461,8 @@ async fn system_010_sam_hands_the_workspace_over_to_olivia_and_leaves_it() {
             .await
             .contains(&("Acme Holdings".to_owned(), "owner".to_owned()))
     );
-    // Sam invited Olivia as an admin, transferred the workspace to her, and left it: its log
-    // holds each step, and Sam belongs to no workspace.
+    // Sam created the workspace, transferred it to Olivia, whom he invited as an admin, and left
+    // it: its log holds his creation, transfer and leaving, and Sam belongs to no workspace.
     assert_eq!(
         api.database()
             .owner_reads(

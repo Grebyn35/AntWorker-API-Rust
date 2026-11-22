@@ -140,11 +140,11 @@ impl Database {
         self.unattributed().await
     }
 
-    /// Opens a unit of work for the run of an export's job, under `REPEATABLE READ`, so that each
-    /// of its statements reads the rows as they were at its first, whatever commits meanwhile:
-    /// its archive then holds every module's data as of one moment (PLATFORM-085, DATA-20). Its
-    /// first statement locks the export's row, so that no write of its meets a serialization
-    /// failure.
+    /// Opens a unit of work for the run of an export's job, under `REPEATABLE READ`, which its
+    /// first statement sets, so that each statement after it reads the rows as they were at the
+    /// first of them, whatever commits meanwhile: its archive then holds every module's data as of
+    /// one moment (PLATFORM-085, DATA-20). The caller's first statement locks the export's row, so
+    /// that no write of its meets a serialization failure.
     pub async fn for_snapshot_job(&self, context: &JobContext) -> Result<UnitOfWork, Internal> {
         let mut uow = self.for_job(context).await?;
         // The transaction's first statement, as Postgres requires of its isolation level.

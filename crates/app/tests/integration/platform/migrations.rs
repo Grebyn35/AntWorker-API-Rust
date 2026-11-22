@@ -16,6 +16,9 @@ static EDITED_THEN_SECOND: Migrator =
 static SECOND_FAILS: Migrator = sqlx::migrate!("tests/integration/migrations/second_fails");
 /// One migration, marked to run outside a transaction, that creates a table.
 static NO_TRANSACTION: Migrator = sqlx::migrate!("tests/integration/migrations/no_transaction");
+/// A table, then a migration marked to run outside a transaction that creates another.
+static NO_TRANSACTION_SECOND: Migrator =
+    sqlx::migrate!("tests/integration/migrations/no_transaction_second");
 /// A table, then a migration that builds an index of it outside a transaction.
 static INDEX_OUTSIDE: Migrator = sqlx::migrate!("tests/integration/migrations/index_outside");
 /// A table that holds one name twice, then a migration that builds a unique index of the names
@@ -109,6 +112,21 @@ async fn platform_005_migrate_refuses_a_migration_outside_a_transaction_that_bui
         matches!(&refused, Some(MigrateError::OutsideTransaction(Versions(versions))) if *versions == [1]),
         "{refused:?}"
     );
+    assert_eq!(db.tables().await, owned_by_owner(&[]));
+}
+
+#[tokio::test]
+async fn platform_005_migrate_applies_nothing_while_it_holds_a_marked_migration_that_builds_no_index()
+ {
+    let db = TestDatabase::empty().await;
+
+    let refused = migrate(&db.owner_url(), &NO_TRANSACTION_SECOND).await.err();
+
+    assert!(
+        matches!(&refused, Some(MigrateError::OutsideTransaction(Versions(versions))) if *versions == [2]),
+        "{refused:?}"
+    );
+    // The migration before the marked one, which a transaction would hold, stays unapplied too.
     assert_eq!(db.tables().await, owned_by_owner(&[]));
 }
 
