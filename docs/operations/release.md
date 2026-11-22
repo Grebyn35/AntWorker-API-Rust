@@ -10,7 +10,7 @@ Each run of CI on `main` that passes publishes its commit: the commit's images g
   - the patch, as from 1.4.0 to 1.4.1, for fixes;
   - the minor version, as from 1.4.1 to 1.5.0, for new features that keep everything else working;
   - the major version, as from 1.5.0 to 2.0.0, for a change that makes a fork, a client or a deployment change something to upgrade, such as a setting that is removed.
-- **A prerelease**, such as 1.5.0-rc.1, is a release to try before the final release of its number. It comes before 1.5.0, and the next prerelease of the same number is 1.5.0-rc.2. Only a final release fixes the API's contract and migrations ([architecture.md](../architecture.md#11-glossary)).
+- **A prerelease**, such as 1.5.0-rc.1, is a release to try before the final release of its number. It comes before 1.5.0, and the next prerelease of the same number is 1.5.0-rc.2. Only a final release fixes the API's contract, while a prerelease fixes its migrations as a final release does ([architecture.md](../architecture.md#11-glossary)).
 - **A tag** is a name that git gives one commit for good. The release of 1.4.0 tags its commit `v1.4.0`, so anyone can find exactly the code of that release. CI creates the tag; nobody runs git's tag commands.
 - **The release's images** are the images CI tested for that commit, which the registry then also tags `1.4.0`, signed: the API's, and the reference deployment's Postgres. Nothing is rebuilt (OPS-12).
 

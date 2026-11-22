@@ -2,7 +2,7 @@
 //! `main.rs` opens the process's resources, such as the database, and hands them here. The
 //! modules' settings are in `config.rs`, the request pipeline that serves the routes in
 //! `pipeline.rs`, and the other subcommands that run the modules' logic in `tasks.rs`, those that
-//! an operator runs, and in `seed.rs`, the entry points of `seed`.
+//! an operator runs against the database, and in `seed.rs`, the entry points of `seed`.
 // part: files
 //! The one that an operator runs against the bucket of files' bytes is in `restore_files.rs`.
 // end part: files

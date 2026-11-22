@@ -111,7 +111,7 @@ A user signs in through each OAuth provider that `crates/app/src/modules/auth/pr
 - **A provider that follows OpenID Connect** is a declaration. It serves a discovery document at `<issuer>/.well-known/openid-configuration`, whose `authorization_endpoint`, `token_endpoint` and `userinfo_endpoint` are the three addresses that the file declares, beside the provider's name and the scopes `openid`, `email` and `profile`.
   Copy `providers/google.rs`, without its `proves` and the claims that `proves` reads, unless the provider says which addresses it is the authority for, as Google does. <!-- part: google -->
 - **A provider of OAuth 2.0 alone** serves no such document, and gives a user's identity its own way. Its file replaces `identify`, the read of the identity, and `token` or `discard` where its token endpoint's answers or its tokens differ from what RFC 6749 says.
-  Copy `providers/github.rs`, which replaces all three. <!-- part: github -->
+  Copy `providers/github.rs`, which replaces all three, and `also_redirects_to`, since GitHub sends a user back to more addresses than its app lists (AUTH-102). <!-- part: github -->
   The identity that `identify` reads also holds the address of the user's picture, when the provider gives one, which becomes a new account's avatar (AUTH-092): the registry reads the userinfo endpoint's `picture`, and a file that replaces `identify` reads its provider's own. <!-- part: files -->
   The provider's entry names where its users' pictures come from, in `pictures`: the hosts, as `providers/pictures.rs` describes them, when they are the provider's own, or the setting that lists them, `<KEY>_PICTURE_HOSTS`, when they differ between deployments; a copy of a picture fetches from the hosts that the providers name, and from no other (AUTH-097). <!-- part: files -->
 
@@ -136,6 +136,8 @@ The provider's key is in `snake_case`, such as `acme`, and its settings start wi
 What the registry asks of a provider's file:
 
 - **`declared`** gives the provider's name, as a client shows it, and its addresses: the authorization endpoint, the token endpoint, and the one that gives a user's identity.
+- **`also_redirects_to`** says whether the provider also sends a user back to an address that its client doesn't list, for one that it lists, so that startup refuses another client's redirect URI there, and a redirect URI names one provider (AUTH-081). It says no unless the file replaces it, as it does for a provider that takes more than the URIs that its client lists.
+- **`identify`** reads the user's identity with the access token: the `sub`, the `email` and the `name` of the userinfo endpoint's answer, as OpenID Connect gives them. A file replaces it for a provider that gives the identity its own way.
 - **`proves`** says whether the provider is the authority of the address it gives, so a sign-in proves the address. It says no unless the file replaces it, which it does only for the addresses that the provider's documentation calls it the authority for (D140): an address that a provider verified once may have changed owner since.
 - **`subject`** gives the provider's ID for the user, its userinfo endpoint's `sub`. A file replaces it only when the `sub` alone doesn't name one user for good.
 - **`basic`** says whether the token endpoint takes the client's ID and secret in HTTP's Basic scheme. It says no, so they go in the request's body, unless the file replaces it, as it does for a provider whose documentation asks for the scheme.

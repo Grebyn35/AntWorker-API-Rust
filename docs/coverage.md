@@ -7,7 +7,7 @@ Every foundational area of the API, and where it is decided. This file answers "
 This map works from established references down, so it covers every area, whether or not a problem has been seen there:
 
 - **The Twelve-Factor App:** how a deployable service is built and run.
-- **The Application Security Verification Standard (ASVS) of the Open Worldwide Application Security Project (OWASP):** the areas of application security. Level 2 is the target bar (D26).
+- **The Application Security Verification Standard (ASVS) of the Open Worldwide Application Security Project (OWASP):** the areas of application security. Level 2 is the target bar, but for the requirements that it leaves out, as [the security rules](standards/security.md) state (D26).
 - **Google's practice of site reliability engineering (SRE):** monitoring, release engineering, capacity, overload and recovery.
 - **Engineering foundations:** the code-level areas every codebase has to decide.
 - **Template concerns:** what a forkable skeleton needs that a normal product doesn't.

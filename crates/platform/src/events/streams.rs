@@ -76,7 +76,7 @@ struct Read {
 
 impl Read {
     /// Whether the memberships hold the membership change that the transaction `id` made: never
-    /// for a signal that names none, as the release before sends (DATA-10).
+    /// for a signal that names none (DATA-10).
     fn holds(&self, id: Option<u64>) -> bool {
         id.is_some_and(|id| self.snapshot.includes(id))
     }
@@ -463,19 +463,19 @@ mod tests {
     }
 
     #[test]
-    fn data_10_a_membership_signal_of_the_release_before_closes_every_stream_of_its_user() {
+    fn data_10_a_membership_signal_without_its_transaction_closes_every_stream_of_its_user() {
         let mut streams = Streams::new("api".to_owned(), 0);
         let ada = UserId::from_uuid(id());
         let open = register(&mut streams, ada);
         let opening = register(&mut streams, ada);
         streams.activate(open.id, Memberships::default(), snapshot("151:151:"));
-        // The release before sends the change alone, with no transaction.
+        // The change alone, with no transaction.
         let signal: Signal = serde_json::from_value(serde_json::json!({
             "kind": "membership_changed",
             "user_id": ada,
             "workspace_id": WorkspaceId::from_uuid(id()),
         }))
-        .expect("the release before's signal parses");
+        .expect("the signal without a transaction parses");
 
         streams.changed(signal);
         let activated = streams.activate(opening.id, Memberships::default(), snapshot("151:151:"));

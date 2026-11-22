@@ -13,7 +13,8 @@ Each dashboard panel's title is the question it answers (OBS-13). The overview l
 | Is the API up? | API overview: "How many instances of the API are exporting telemetry?" |
 | Which routes are slow or failing, and since when? | API requests |
 | Why did this request fail? | its trace ID, as in [Following a request](#following-a-request-from-its-trace-id) |
-| Is a dependency degrading? Postgres, for now | API platform: "Can each instance reach its database?" |
+| Is a dependency degrading? | API platform: "Can each instance reach its database?", and Sign-in: "How do exchanges of providers' codes end?" |
+| Are the bucket of files' bytes and the scanner answering? | Files: "Does the bucket answer?" and "Does the scanner answer?" <!-- part: files --> |
 | Is the telemetry pipeline itself losing data? | Telemetry pipeline |
 | Is the server running out of disk or memory? | Server |
 | Does an instance's memory only grow? | API platform: "How much memory does each instance use?" |

@@ -2,6 +2,7 @@
 
 The security bar is Level 2 of version 5.0.0 of the Application Security Verification Standard (ASVS) of the Open Worldwide Application Security Project (OWASP) (D26), but for the requirements that it leaves out. One is 6.3.3, which requires a second factor of every user to sign in: here every user may add a second factor, so a product's users can sign in without setting one up (D63), and a deployment may require one of every user, which meets the requirement in full (D133). The others are those that the reference deployment can't meet on one server, or with the tools it runs, and those that a decision of the API's design leaves out, each of which the threat model lists with its reason and the controls that stand in for it (D198, D207).
 Every superadmin must have one, whatever the deployment requires of its users (SUPERADMINS-005). <!-- part: superadmins -->
+In the part that stores files, the bar leaves out more requirements, which the threat model lists as it lists the others (D199). <!-- part: files -->
 These rules cover the mechanisms every module relies on. The threat model in `docs/operations/threat-model.md` maps each threat to the rules that mitigate it, and records, for each requirement that the bar leaves out, why, and the controls that stand in for it, as requirement 6.3.3 asks of an application that relaxes it. `docs/operations/asvs.md` maps each requirement of the bar to the rules and behaviors that meet it, and says which the bar leaves out.
 
 ## Secrets

@@ -50,7 +50,7 @@ Dockerfile          the image (OPS-13)
 compose.yaml        the services a developer runs locally, and the images of the tools the tasks run
 .env.example        the API's settings, each with its type, default and meaning (OPS-02)
 crates/
-  platform/         shared mechanisms, no product knowledge
+  platform/         shared mechanisms, no product rules
   app/              feature modules, routes, composition root, the binary
   xtask/            the custom CI checks, and the other tasks that `just` runs
 migrations/         one ordered directory; each file name names its owning module
@@ -105,7 +105,7 @@ The API has two crates. Cargo forbids `platform` from depending on `app`, so the
 | `tls` | TLS for the clients that the API builds itself: `rustls` on its ring provider, verifying a server against the operating system's certificates. | D38 |
 | `lifecycle` | Liveness, readiness and bounded graceful shutdown. | D9, D20 |
 
-`platform` knows two tenancy keys, a user ID and a workspace ID, because authorization, job scoping and event delivery need them. It knows nothing about memberships, roles or any other product rule.
+`platform` knows two tenancy keys, a user ID and a workspace ID, because authorization, job scoping and event delivery need them. It holds no rule about memberships, roles or anything else of the product (ARCH-02): the `Memberships` type, and the name of a caller's role that `Authorized<P>` holds, mean what the `AccessPolicy` that `access` implements gives them.
 
 ### `app`
 
@@ -115,6 +115,7 @@ crates/app/
     main.rs            the subcommands (§9)
     lib.rs             the crate root: makes public only the composition root's entry points (CODE-15)
     composition/       the composition root: builds every service once at startup and mounts every module's routes, in mod.rs, reads the modules' settings, in config.rs, builds the request pipeline that serves the routes, in pipeline.rs, lists the OAuth providers for the capabilities, in providers.rs, and holds the other subcommands that run the modules' logic: in seed.rs, the entry points of `seed`, and in tasks.rs, each subcommand that an operator runs against the database, with what it takes, which main.rs takes into its own
+                       and in restore_files.rs, `restore-files`, the subcommand that an operator runs against the bucket of files' bytes, with what it takes, which main.rs takes into its own <!-- part: files -->
     modules/           one directory per module (§5)
   templates/           each module's email templates, in a directory named after the module
   tests/               integration tests over HTTP, against the real services, in tests/integration/, end-to-end tests in tests/e2e/, the load tests' scripts in tests/load/, and the test of the panic hook, in a binary of its own
@@ -275,7 +276,10 @@ sequenceDiagram
   P->>H: routed request
   H->>H: timeout, body limit, query check, Principal (authn),<br/>user rate limit, idempotency key, parse to domain types
   H->>DB: on a workspace route, BEGIN and authorize (authz)
-  H->>S: call with domain types, and the unit of work on a workspace route
+  %% part: superadmins
+  H->>DB: on a superadmin's route, BEGIN and authorize (authz)
+  %% end part: superadmins
+  H->>S: call with domain types, and the unit of work where the handler began it
   S->>DB: on every other route, BEGIN
   S->>DB: domain writes + audit entries + events + jobs
   S->>DB: COMMIT
@@ -451,6 +455,7 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 | Identity | One way a user signs in: a password, or a linked OAuth provider account. A user who registered has one or more. |
 | Issuer | The URL by which an OAuth provider that follows OpenID Connect names itself. The provider serves its discovery document, which lists the addresses of its endpoints, at `/.well-known/openid-configuration` under it. |
 | Session | One signed-in device or client, holding an access token and a refresh token. |
+| Client | An application through which a user calls the API, such as the desktop client, or one that runs in a browser. Two other things take the word, with the words that tell which is meant: a provider's client is the registration by which an OAuth provider knows the deployment, with the client ID that the provider issued and the redirect URIs that it lists (AUTH-081), and a request's client is the address and the user agent that sent the request, as `platform::types::Client` and an audit entry's `client` hold them (PLATFORM-053, AUDIT-003). |
 | Device token | A token that a registration or a sign-in gives the device, for the account's email, so that the device's next sign-in to that account counts only in a limit of its own, which no attempt from elsewhere fills (AUTH-019). |
 | Second factor | A way of proving who one is beside the password: an authenticator app, with recovery codes (D134). |
 | Authenticator app | A second factor whose codes are the time-based one-time passwords (TOTP) of RFC 6238, which the API and the database call `totp`, as in `/v1/users/me/second-factors/totp` and `totp_factors`. |
@@ -485,10 +490,10 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 | Picture | The image that shows a workspace, at most one for each workspace, which `workspaces` sets and `files` keeps. Not a file, as an avatar isn't (D149). A provider's picture is the image that an OAuth provider gives for its user, which becomes a new account's avatar (D145). <!-- part: files --> |
 | Export | A copy of a user's data that they requested: an archive they download until it expires, which their export's job builds from every module's personal data contract (D31, D126). Where telemetry is the subject, as in the observability documents, `platform::telemetry` and its metrics, an export is instead telemetry's export of traces, logs and metrics to a collector, which every other document calls the telemetry export. |
 | Personal data contract | A module's export and erasure of the personal data it stores (D31). |
-| Release | A version that `just release` asked for, which a run of CI on `main` then signed and tagged `v<version>` (OPS-12). A final release is `X.Y.Z`. A prerelease, `X.Y.Z-rc.N`, comes before the final release of the same number, and is a version to try: a final release fixes the HTTP contract, the error codes and the applied migrations (API-18, ERR-02, DATA-09), and a prerelease doesn't. |
+| Release | A version that `just release` asked for, which a run of CI on `main` then signed and tagged `v<version>` (OPS-12). A final release is `X.Y.Z`. A prerelease, `X.Y.Z-rc.N`, comes before the final release of the same number, and is a version to try: a final release fixes the HTTP contract and the error codes (API-18, ERR-02), and a prerelease doesn't, while a migration that any release holds, a prerelease's included, is never edited (DATA-09). |
 | Digest | The hash of an image's content, which names exactly that image. A tag can move to another image; a digest can't. |
 | Image index | The list in a registry that names one image's version for each platform, with each one's SBOM and provenance. A multi-platform image's digest is its index's. |
-| Capability | A feature that a deployment can turn off, which the capabilities endpoint lists with whether it is on (D9). |
+| Capability | A feature that a deployment can turn off, or a part of the template that changes what a client offers, which the fork keeps: the capabilities endpoint lists each, a feature with whether it is on (D9, D118). |
 | Trace ID | The identifier, returned with every response that the router answers, except the health probes, that leads to a request's logs, and to its trace whenever the request ended in an error (D10). |
 | Personal data | In these documents: information that identifies a person directly, such as email addresses, names, IP addresses, user agents and text a user writes. User and workspace IDs are pseudonymous. The General Data Protection Regulation (GDPR) still counts them as personal data, so export and erasure cover them (D31), but they may appear in telemetry and audit entries. |
 | Point-in-time recovery | A restore of a database as it stood at any moment its backups reach, from a base backup and the write-ahead log archived after it: what the reference deployment's bundled Postgres provides, and what it requires of a managed one (OPS-15). |

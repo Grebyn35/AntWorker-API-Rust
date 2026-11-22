@@ -338,8 +338,7 @@ mod tests {
 
     #[test]
     fn data_10_a_stored_workspace_keeps_its_permissions_and_one_without_any_reads_its_role_s() {
-        // A creation's result, as `commit_with` stores it, that holds no permissions, as a
-        // release without the field stores it.
+        // A creation's result, as `commit_with` stores it, that holds no permissions.
         let mut stored = serde_json::json!({
             "workspace": {
                 "id": "01900000-0000-7000-8000-000000000000",

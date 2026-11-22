@@ -45,7 +45,8 @@ tower.workspace = true
 tracing.workspace = true
 # The redirect URIs that a provider's clients list, and those that requests name (AUTH-078).
 url.workspace = true
-utoipa.workspace = true
+# `uuid`: the schemas of the IDs that its types hold as `uuid::Uuid`.
+utoipa = { workspace = true, features = ["uuid"] }
 utoipa-axum.workspace = true
 uuid.workspace = true
 
