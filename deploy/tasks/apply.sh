@@ -124,7 +124,7 @@ caddy_finds_ready() {
 roll_back() {
     compose logs --tail 20 "api-$1" >&2 || true
     compose rm --stop --force "api-$1" > /dev/null 2>&1 || true
-    fail "$1's replicas of $api_image didn't become ready, so the deploy removed them; the live replicas never stopped"
+    fail "$1's replicas of $api_image didn't become ready, so the deploy removed them; the replicas that served before it, if any, never stopped"
 }
 
 # Prepares pgBackRest's stanza in the bucket, and takes the first full backup, so a restore can

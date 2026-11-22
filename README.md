@@ -4,7 +4,7 @@ A Rust API for workspace-based products, built as a template to fork. It is buil
 
 ## Quickstart
 
-Requires Rust (through rustup), [just](https://github.com/casey/just), Docker, [cargo-deny](https://github.com/EmbarkStudios/cargo-deny), and [watchexec](https://github.com/watchexec/watchexec) for `just dev`. `just setup` checks the versions the justfile pins.
+Requires Rust (through rustup), Docker, and these tools, at the versions that the `justfile` pins: [just](https://github.com/casey/just), [cargo-deny](https://github.com/EmbarkStudios/cargo-deny), sqlx-cli for `just prepare` and `just checks`, whose install command `just/generate.just` gives, and [watchexec](https://github.com/watchexec/watchexec) for `just dev`. `just setup` installs the Rust toolchain that `rust-toolchain.toml` pins, and checks the tools' versions.
 
 ```
 just              # lists the tasks, by group, each with what it does; those only CI runs are left out

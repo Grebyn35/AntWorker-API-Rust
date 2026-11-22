@@ -1,6 +1,6 @@
 # Releases
 
-A release is a version of the API that you have decided is ready to deploy. This document says what a release is, when to make one, how `just release` makes it, and what to do when it fails. It then describes the images a release ships, and how anyone can verify them. [ci.md](ci.md) describes the pipeline.
+A release is a version of the API that you have decided is ready to deploy. This document says what a release is, when to make one, how `just release` makes it, and what to do when it fails. It then describes the images a release ships, and how anyone can verify them. [ci.md](ci.md) describes the pipeline. An ID in parentheses names what a sentence follows: a rule of the [standards](../standards/README.md), such as OPS-12, a behavior of a [spec](../spec/README.md), such as PLATFORM-063, or a decision, such as D44, whose records [architecture.md](../architecture.md) says where to find. The [glossary](../architecture.md#11-glossary) defines the terms these documents share.
 
 ## What a release is
 
@@ -27,6 +27,8 @@ just image
 just load-test
 ```
 
+Before it measures, `just load-test` starts the services of `compose.yaml`, as `just services` does, the development Postgres among them. It fails unless `target/image` holds the image that the working tree's files build, and fails at once while a run of `just e2e`, or another load test, holds the machine (OPS-21).
+
 `just load-test` runs one replica of the image on your machine's platform, on a database of its own on the development Postgres, which goes when the run ends, with the reference deployment's default limits for a replica, `API_CPUS` and `API_MEMORY`, and sends it requests at constant rates, raising the rate until a step fails. Each step reports the replica's memory after it, which stays flat from one step to the next; a step whose replica stopped fails, and says whether its memory limit killed it. It ends with a line that starts `Capacity:`: the highest rate the replica served with no request failed and the 99th percentile within the latency objective ([observability.md](observability.md#service-level-objectives)), and how many spans the collector accepted for its requests. The number depends on the machine, so compare a release with the one before it on the same machine. The line belongs in a final release's notes. `just load-test me` measures `GET /v1/users/me` instead, as one signed-in user, so each request also verifies its session and counts in its user's bucket. `just load-test sign-ins` measures `POST /v1/sessions`, each request signing one of 20 users in with their password, whose hash is the API's CPU-heavy work, of which a replica runs one at once for each processor it may use (PLATFORM-060). Beside the sign-ins, each step sends 50 requests a second to `GET /v1/capabilities`, and passes only when none of those failed either and their 99th percentile is within the objective too, so its capacity is the rate of sign-ins that a replica serves while it serves its other requests (AUTH-093). Run it when a change touches how passwords are hashed, or what a sign-in does around the hash; a release's notes don't need its line.
 
 Then measure its hub, which delivers events to the streams of server-sent events, with `just load-test streams`. It runs one replica with the same limits, opens 1,000 streams on it, 10 for each of 100 users, and reports how much memory each stream holds. Each user owns a workspace of their own, of which they are the only member. A second replica, without limits, takes the requests that publish events, as a deployment's other replicas do: each user renames their workspace, at constant rates, raising the rate until a step fails, which publishes `workspace.updated` to the user's 10 streams on the measured replica, an event that changes no one's access, so no stream closes. A step passes when no request failed, k6 dropped none for want of a client, every event reached each of its user's streams once and in order, no stream closed, and the 99th percentile of the measured hub's lag, from commit to delivery, is within the latency objective, which the task reads from Prometheus. It ends with a line that starts `Hub capacity:`, which belongs in the release's notes beside the other.
@@ -34,7 +36,7 @@ Then measure its hub, which delivers events to the streams of server-sent events
 Then, for a final release, write its notes: its section of [CHANGELOG.md](../../CHANGELOG.md), which tells a fork what the release changes and what to port (DOC-11). A prerelease has none: what it holds stays under `## [Unreleased]` until the final release of its number.
 
 1. Change the heading `## [Unreleased]` to the version and the day's date, as `## [1.4.0] - 2026-01-31`, and start a new `## [Unreleased]` above it.
-2. Under Keep a Changelog's headings, such as `### Added` and `### Fixed`, say what the release adds, changes, removes and fixes, and put each fix of a vulnerability under `### Security`, so a fork ports it first.
+2. Under the headings of [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), such as `### Added` and `### Fixed`, say what the release adds, changes, removes and fixes, and put each fix of a vulnerability under `### Security`, so a fork ports it first.
 3. Under `### Upgrade notes`, say what a fork does to take the release: the migrations it adds, the settings it adds, renames or removes, and what a deployment runs by hand. If there is nothing to do, say that.
 4. Under `### Capacity`, put the two lines that the load tests ended with.
 5. Commit it.
@@ -113,14 +115,15 @@ A release's signatures are keyless: cosign signs each image by the Elliptic Curv
 
 ## Verifying a release
 
-`just verify-release <owner>/<repository> <version> https://github.com/<owner>/<repository>` checks a release the way anyone who pulls it can, through [deploy/verify-release.sh](../../deploy/verify-release.sh), which the reference deployment also runs before it pulls a release. For each image, it does what these commands do:
+`just verify-release <owner>/<repository> <version> https://github.com/<owner>/<repository>` checks a release the way anyone who pulls it can, through [deploy/verify-release.sh](../../deploy/verify-release.sh), which the reference deployment also runs before it pulls a release. It runs on Linux or macOS, in a checkout, after `just env` and a sign-in to the registry, so anyone who can pull the images can run it. Its first argument is the repository, whose name it writes in lowercase for the images' ([Where it is published](#where-it-is-published)), and its third the repository's address, with the name as GitHub writes it, capitals included, which the identity of the run that signed the release holds. For each image, it does what these commands do, then prints `<image>@<digest>`, as the `release` job's last lines do:
 
 ```
-cosign verify ghcr.io/<owner>/<repository>@<digest> \
-  --certificate-identity https://github.com/<owner>/<repository>/.github/workflows/ci.yml@refs/heads/main \
+crane digest <image>:<version>
+cosign verify <image>@<digest> \
+  --certificate-identity <address>/.github/workflows/ci.yml@refs/heads/main \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
-docker buildx imagetools inspect ghcr.io/<owner>/<repository>@<digest> --format '{{ json .SBOM }}'
-docker buildx imagetools inspect ghcr.io/<owner>/<repository>@<digest> --format '{{ json .Provenance }}'
+docker buildx imagetools inspect <image>@<digest> --format '{{ json .SBOM }}'
+docker buildx imagetools inspect <image>@<digest> --format '{{ json .Provenance }}'
 ```
 
-A signature covers the index, and so every platform's image, SBOM and provenance it lists.
+`<image>` is `ghcr.io/<owner>/<repository>`, or that name with `-postgres`, in lowercase, `<address>` the third argument, and `<digest>` what the first command prints, the digest that the version's tag names. A signature covers the index, and so every platform's image, SBOM and provenance it lists. The commands check that a run of `ci.yml` on `main` signed the image, and not which commit that run built: the image's label `org.opencontainers.image.revision` names the commit ([The images](#the-images)).

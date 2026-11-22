@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** step 6.3, under way: the review of the whole codebase, whose scope names the copy of the `minimal` run. No decision waits on the owner, and no known gap is open. This repository stays public until the migration closes, then becomes the private template repository, whose `SECURITY.md` names an address the owner gives then (D208). The weekly rescan fails on 0.1.0-rc.11's Postgres image until the next release. The trial server runs that prerelease; its Grafana Cloud alerts reach no contact point. Its next release needs a B2 files bucket as [deploy.md](operations/deploy.md) asks, then `just server-setup` and `--allow-restart`, and first proves on B2 the buckets' check, the scanner's start, Caddy's certificates, a signed upload, `just restore-files`, a restore's downtime, and a restore after a restore.
+**Next:** step 6.3, under way. Before the review of the whole codebase, whose scope names the copy of the `minimal` run, comes the one [known gap](#known-gaps): a database transaction's span. No decision waits on the owner. This repository stays public until the migration closes, then becomes the private template repository, whose `SECURITY.md` names an address the owner gives then (D208). The weekly rescan fails on 0.1.0-rc.11's Postgres image until the next release. The trial server runs that prerelease; its Grafana Cloud alerts reach no contact point. Its next release needs a B2 files bucket as [deploy.md](operations/deploy.md) asks, then `just server-setup` and `--allow-restart`, and first proves on B2 the buckets' check, the scanner's start, Caddy's certificates, a signed upload, `just restore-files`, a restore's downtime, and a restore after a restore.
 
 ## Build order
 
@@ -113,6 +113,7 @@ Built code that doesn't follow a rule or a behavior yet ([Changing a rule](stand
 
 | Rule or behavior | Built code that doesn't follow it | Closed by |
 |---|---|---|
+| OBS-06 | No database transaction gets a child span. `Database::begin` and `Database::unattributed`, in `crates/platform/src/db/mod.rs`, which open every transaction that the API runs, open no span, so a trace shows the time that a request or a job spent in a transaction only as time of its own span | 6.3, before the review of the whole codebase |
 
 ## Rule proposals
 
@@ -121,6 +122,7 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | From | Proposal | Decided in |
 |---|---|---|
 | Conformance review of 13b5891..e6d2a02 | ARCH-07: whether the tracker's rows of D1 to D36 that decide one part alone carry its marker, as a later decision's row does, such as D34's, of `invitations` | 6, with the ADRs <!-- part: removal --> |
+| A reading of release.md by a reader new to the codebase | OPS-12: whether a release's signature names its version, and `verify-release` holds the version's tag to it. As it is, the task checks that a run of `ci.yml` on `main` signed the image that the tag names, which holds for any image that such a run signed, an earlier release's among them, so an earlier release's image under a later version's tag would verify. The releases signed before such a change carry no version in their signatures | 6.3, with the review of the whole codebase; the first release that carries it is the owner's to start |
 
 ## Conformance reviews
 

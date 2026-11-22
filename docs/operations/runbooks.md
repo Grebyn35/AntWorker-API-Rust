@@ -1,6 +1,8 @@
 # Runbooks
 
-What to do when an alert fires: one section per alert in [rules.yaml](../../deploy/observability/prometheus/rules.yaml), whose `runbook` annotation links here (OBS-14). A `page` alert needs someone now; a `ticket` alert needs someone within the working day. [observability.md](observability.md) describes the dashboards and how to follow a request from its trace ID.
+What to do when an alert fires: one section per alert in [rules.yaml](../../deploy/observability/prometheus/rules.yaml), whose `runbook` annotation links here (OBS-14). A `page` alert needs someone now; a `ticket` alert needs someone within the working day. [observability.md](observability.md) describes the dashboards and how to follow a request from its trace ID. An ID in parentheses names what a sentence follows: a rule of the [standards](../standards/README.md), such as OBS-14, a behavior of a [spec](../spec/README.md), such as AUTH-077, or a decision, such as D57, whose records [architecture.md](../architecture.md) says where to find. The [glossary](../architecture.md#11-glossary) defines the terms these documents share.
+
+Each `just` command here runs on your machine, in your checkout of the repository, as [deploy.md](deploy.md#deploying-a-release) says: `<host>` is the server as Secure Shell (SSH) names it, such as `production`, and `<version>` the release that serves, which `just status <host>` shows. To change a setting, run `just server-setup <host>` again, and the next deploy applies it ([deploy.md](deploy.md#setting-up-a-server)).
 
 ## AvailabilityBudgetBurningFast
 
@@ -9,11 +11,12 @@ What to do when an alert fires: one section per alert in [rules.yaml](../../depl
 **Look first.** The API requests dashboard: "Which routes answer with a 5xx, and with which error?" names the routes and the error codes, and the time the failures started.
 
 **What to do,** by error code:
-- `request.overloaded`: instances shed load, because more requests arrived than `MAX_CONCURRENT_REQUESTS` lets them serve at once. Add instances, or find what made requests slower, since slower requests hold their places longer.
-- `request.timed_out`: requests ran past their timeout, usually waiting on the database. Check the API platform dashboard, and the database's own load.
-- `request.internal_error`: a bug or a failing dependency. Find a failed request's trace ID in Loki with `{service_name="antworker-api"} | severity_text="ERROR"`, then follow it as [observability.md](observability.md#following-a-request-from-its-trace-id) says. The `ERROR` line holds the cause chain.
+- `request.overloaded`: instances shed load, because more requests arrived than `MAX_CONCURRENT_REQUESTS` lets them serve at once. Add instances, by raising `API_REPLICAS` ([deploy.md](deploy.md#scaling)), or find what made requests slower, since slower requests hold their places longer.
+- `request.timed_out`: requests ran past their timeout, usually waiting on the database. Check the API platform dashboard, and the database's own load: the bundled database's, which runs on the server, on the Server dashboard's "How busy are the server's CPUs?", and a managed one's in its provider's console.
+- `request.internal_error`: a bug or a failing dependency. Find a failed request's trace ID in Loki with `{service_name="antworker-api"} |= "request failed"`, which selects the API's `ERROR` lines of its 5xx responses by their message, then follow it as [observability.md](observability.md#following-a-request-from-its-trace-id) says. That line holds the cause chain. A panic writes the line `panicked` instead, which the API platform dashboard counts under "Did anything panic?".
+- A module's code starts with its module's name, and that module's spec says when it answers it: `auth.provider_unavailable`, for one, means that an OAuth provider gave no identity, for a reason that [SignInProviderUnavailable](#signinproviderunavailable) lists.
 
-If a deploy started the failures, roll it back first, then investigate.
+If the failures started when a deploy did, roll it back first ([deploy.md](deploy.md#rolling-back)), then investigate: `just status <host>` shows the version that serves, and how long its replicas have run.
 
 ## AvailabilityBudgetBurningSlowly
 
@@ -54,7 +57,7 @@ If a deploy started the failures, roll it back first, then investigate.
 
 **Look first.** The Files dashboard: "Does the bucket answer?" shows when the calls stopped being answered. The `ERROR` lines of the 503s name the S3 operation and the failure, such as a connection's or a status.
 
-**What to do.** Check the provider's status page, and that the server reaches the bucket's endpoint: `just server-check` reads the bucket with the deployment's key pair. A provider's outage clears with it; uploads that failed meanwhile were stored nowhere, so their clients send them again.
+**What to do.** Check the provider's status page, and that the server reaches the bucket's endpoint: `just server-check <host>` reads the bucket with the deployment's key pair. A provider's outage clears with it; uploads that failed meanwhile were stored nowhere, so their clients send them again.
 
 ## ScannerUnreachable
 
@@ -62,7 +65,7 @@ If a deploy started the failures, roll it back first, then investigate.
 
 **Look first.** `just status <host>`, which shows whether the `scanner` container runs and is healthy, then `just logs <host> scanner`. A scanner that restarted loads its signatures again first ([deploy.md](deploy.md#the-scanner)); one that has none yet, as on a new server, downloads them first, and its log says so. The Files dashboard: "Does the scanner answer?" shows when the scans stopped being answered, and the `ERROR` lines of the 503s name the failure.
 
-**What to do.** A scanner that runs but answers late is short of CPU: a burst of large Word, Excel or PowerPoint files, which scan the slowest ([files spec](../spec/files.md#scanning)), shares the scanner's `SCANNER_CPUS`, so each of their scans takes longer ([deploy.md](deploy.md#the-scanner)). Raise `SCANNER_CPUS` on a server with processors to spare, and deploy with `--allow-restart`. A scanner that stopped, such as one the kernel killed for its memory while it loaded new signatures, restarts on its own; give the server the memory that [deploy.md](deploy.md#what-a-server-needs) asks for. Uploads that failed meanwhile were stored nowhere, so their clients send them again.
+**What to do.** A scanner that runs but answers late is short of CPU: a burst of large Word, Excel or PowerPoint files, which scan the slowest ([files spec](../spec/files.md#scanning)), shares the scanner's `SCANNER_CPUS`, so each of their scans takes longer ([deploy.md](deploy.md#the-scanner)). Raise `SCANNER_CPUS` on a server with processors to spare, and deploy with `just deploy <host> <version> --allow-restart`. A scanner that stopped, such as one the kernel killed for its memory while it loaded new signatures, restarts on its own; give the server the memory that [deploy.md](deploy.md#what-a-server-needs) asks for. Uploads that failed meanwhile were stored nowhere, so their clients send them again.
 
 ## ScannerSignaturesOutdated
 
@@ -79,7 +82,7 @@ If a deploy started the failures, roll it back first, then investigate.
 
 **Look first.** The Sign-in dashboard: "How do exchanges of providers' codes end?" shows when the provider stopped answering. The `ERROR` lines of the 503s name the provider and the failure, such as a connection's, a status, or the refusal of the client.
 
-**What to do.** A refusal of the client is the deployment's to fix: compare the client's ID and secret with the provider's console, and set them again with `just server-setup` ([deploy.md](deploy.md#signing-in-through-a-provider)).
+**What to do.** A refusal of the client is the deployment's to fix: compare the client's ID and secret with the provider's console, and set them again with `just server-setup <host>` ([deploy.md](deploy.md#signing-in-through-a-provider)).
 For `openid_connect`, compare the addresses in the settings with the provider's discovery document too, which a provider may change; and an `ERROR` line that says its token endpoint's answer doesn't say when its token lapses clears only once the provider gives access tokens that lapse, which its own settings decide (AUTH-103). <!-- part: openid_connect -->
 For any other failure, check the provider's status page, and that the server reaches the provider's endpoints; a provider's outage clears with it, and its users sign in again once it does.
 
@@ -162,7 +165,7 @@ ssh <host> "docker exec deployment-postgres-1 psql --username=postgres --dbname=
 
 With a managed database, run the same query in the provider's console. Add `payload` to the columns only when the failure doesn't say enough: it holds what the job needed, such as an email's recipient.
 
-**What to do.** Fix what the failure names, such as the mail server's settings or credentials with `just server-setup`, or the sender's domain at the provider. A dead letter's remedy is the operation that caused it, done again, such as the request that sent an email, which sends a new one. The sweep deletes dead letters after `JOB_DEAD_LETTER_RETENTION_DAYS`, and the alert clears an hour after the last one.
+**What to do.** Fix what the failure names, such as the mail server's settings or credentials with `just server-setup <host>`, or the sender's domain at the provider. A dead letter's remedy is the operation that caused it, done again, such as the request that sent an email, which sends a new one. The sweep deletes dead letters after `JOB_DEAD_LETTER_RETENTION_DAYS`, and the alert clears an hour after the last one.
 
 ## PeriodicJobFailing
 
@@ -182,7 +185,7 @@ The alert clears 3 hours after the last failure, or, for a daily job, once a run
 
 **Look first.** `just logs <host> postgres` shows pgBackRest's error for each attempt, such as a key pair the bucket refuses, an endpoint that doesn't answer, or a certificate the deployment doesn't trust.
 
-**What to do.** Fix what the error names: the bucket itself, after which Postgres retries on its own, or the bucket's key pair or its settings, with `just server-setup`, then `just deploy <host> --allow-restart`, since Postgres reads them only as it starts ([deploy.md](deploy.md#restarting-a-service-that-runs-once)); `just server-check` reads the bucket as Postgres does. The alert clears with the next archive that succeeds. Then take a base backup with `just backup`, so a restore needs no segment from before the failure.
+**What to do.** Fix what the error names: the bucket itself, after which Postgres retries on its own, or the bucket's key pair or its settings, with `just server-setup <host>`, then `just deploy <host> <version> --allow-restart`, since Postgres reads them only as it starts ([deploy.md](deploy.md#restarting-a-service-that-runs-once)); `just server-check <host>` reads the bucket as Postgres does. A bucket whose certificate a private authority signed needs that authority's certificate, `certs/backup-ca.crt`, which `just server-setup <host>` asks for, and the same deploy then applies ([backups.md](backups.md#the-bucket)). The alert clears with the next archive that succeeds. Then take a base backup with `just backup <host>`, so a restore needs no segment from before the failure.
 
 ## BaseBackupTooOld
 
@@ -190,7 +193,7 @@ The alert clears 3 hours after the last failure, or, for a daily job, once a run
 
 **Look first.** `just logs <host> backup` shows a line for each scheduled backup that failed, after pgBackRest's error. If the backup service isn't running, `just status <host>` shows how it exited, and its logs why.
 
-**What to do.** Fix what the error names, often the same as for [BackupArchivingFailing](#backuparchivingfailing), then take a full backup at once with `just backup`. The alert clears when it completes.
+**What to do.** Fix what the error names, often the same as for [BackupArchivingFailing](#backuparchivingfailing), then take a full backup at once with `just backup <host>`. The alert clears when it completes. A backup service that stopped starts again with the next deploy, such as `just deploy <host> <version>`, which starts the services that the replicas use ([deploy.md](deploy.md#deploying-a-release)).
 
 ## ObservabilityServiceDown
 
@@ -222,4 +225,4 @@ The alert clears 3 hours after the last failure, or, for a daily job, once a run
 
 **Look first.** The Server dashboard: "How much of the server's memory is available?" shows since when it fell, and the API platform dashboard's "How much memory does each instance use?" whether a replica's grows. On the server, `docker stats --no-stream` shows each container's memory.
 
-**What to do.** A replica whose memory only grows points to a leak: deploy the release before it, and report it. Otherwise lower `API_REPLICAS` or `API_MEMORY`, or move to a server with more memory.
+**What to do.** A replica whose memory only grows points to a leak: deploy the release before it ([deploy.md](deploy.md#rolling-back)), and report it. Otherwise lower `API_REPLICAS` or `API_MEMORY`, or move to a server with more memory.

@@ -1,6 +1,6 @@
 # Adding a module
 
-How to add a module that holds a product's data, how to add a route to a module, new or old, how to add a provider that users sign in through, and how to add a subcommand that an operator runs. It names where each piece goes and which rules it follows; the rules themselves are in [the standards](../standards/README.md), and how the parts fit together in [architecture.md](../architecture.md).
+How to add a module that holds a product's data, how to add a route to a module, new or old, how to add a provider that users sign in through, and how to add a subcommand that an operator runs. It names where each piece goes and which rules it follows; the rules themselves are in [the standards](../standards/README.md), and how the parts fit together in [architecture.md](../architecture.md). An ID in parentheses names what a sentence follows: a rule of the [standards](../standards/README.md), such as ARCH-06, a behavior of a [spec](../spec/README.md), such as PLATFORM-005, or a decision, such as D125, whose records [architecture.md](../architecture.md) says where to find. The [glossary](../architecture.md#11-glossary) defines the terms these documents share.
 
 ## Module or route
 
@@ -14,7 +14,9 @@ just new-module people person            # a resource that the regular plural do
 just new-module categories category      # a name whose ending two kinds of plural share, as movies' does
 ```
 
-The module's name is plural and the resource's singular, both in `snake_case`. The task refuses a module that the repository has, or had, and its table's or permissions' name if they exist, and a resource whose type the module's code names already, such as `page`, whose `Page` is `platform::lists::Page`, or whose schema name a type of the code takes, such as `role`'s `Role`; it says why, and suggests naming the resource. `just new-module` writes a module that already follows every rule, with one resource: a row of a workspace with a `name`, which the workspace's members create, list, read, rename and delete. It needs Postgres, which it starts, and leaves the development database as it was: `just dev` and `just migrate` apply the new migration to it. A step that fails undoes what the task wrote.
+The module's name is plural and the resource's singular, both in `snake_case`. The task refuses a module that the repository has, or had, and its table's or permissions' name if they exist, and a resource whose type the module's code names already, such as `page`, whose `Page` is `platform::lists::Page`, or whose schema name a type of the code takes, such as `role`'s `Role`; it says why, and suggests naming the resource. `just new-module` writes a module that already follows every rule, with one resource: a row of a workspace with a `name`. Every role may create, list, read and rename the rows, and an owner or an admin delete them; each change commits with an entry in the workspace's audit log and an event to the members who may read the rows. A step that fails undoes what the task wrote.
+
+The task needs Postgres, which it starts, and leaves the development database as it was. Stop `just dev` before you run it, and start it again once the migration holds the columns you need: `just dev` applies the new migrations whenever a `.rs`, `.sql` or `.toml` file under `crates/` or `migrations/` changes, and `migrate` refuses a migration whose file changed after it was applied, until the database is recreated, as [Migrations and the query cache](#migrations-and-the-query-cache) says.
 
 It writes these files, each holding what [architecture §5](../architecture.md#inside-a-module) says its name holds, where `<module>` is the module's name, such as `order_items`:
 
@@ -42,12 +44,12 @@ Then it rewrites `.sqlx/` and `openapi.json`, and formats the code. Before it wr
 
 ## Making it the module you need
 
-Work in this order, running `just checks` as you go, and `just ci` once you are done:
+Work in this order, and run `just ci` once you are done:
 
 1. **The spec first.** Rewrite its Purpose, its table's columns, its routes and its behaviors for what the module is for ([spec README](../spec/README.md#sections)), and the module's row in architecture.md. Each behavior keeps an ID and a test prefix (DOC-08, TEST-01); an ID you delete is never reused, and goes in the spec's line of retired IDs ([spec README](../spec/README.md#ids)).
 2. **The table.** Edit the migration for the columns you need, while no release holds it (DATA-09), then run `just migrate` before you write a query that needs them, as [Migrations and the query cache](#migrations-and-the-query-cache) explains.
-3. **The code and its tests,** piece by piece, as the next section places them. Delete what the module doesn't need, such as a route, with its permission, its fixture in TEST-08's test, its behavior and its tests.
-4. **The generated files.** `just prepare` rewrites `.sqlx/` once the queries compile against the migrated database, and `just openapi` rewrites `openapi.json` once the routes change.
+3. **The code and its tests,** piece by piece, as the next section places them, each piece followed by step 4. Delete what the module doesn't need, such as a route, with its permission, its fixture in TEST-08's test, its behavior and its tests.
+4. **The generated files, then the checks.** After a query changes, `just prepare` rewrites `.sqlx/` from the migrated development database, as [Migrations and the query cache](#migrations-and-the-query-cache) explains. After a route changes, `just openapi` rewrites `openapi.json`. Then run `just checks`.
 
 ## Migrations and the query cache
 
@@ -59,7 +61,7 @@ A migration that adds a foreign key, a check or a `NOT NULL` to a table that an 
 
 A database that a release migrated gets the schema of a new one. One of `just test`'s tests applies the migrations of the newest release, then the migrations as they are, and compares that database's schema with a new database's (DATA-11). A new migration whose timestamp comes before the release's last, as one that a fork ports from the template can, runs after the release's migrations on the first database and among them on the second, and the test fails when the two then differ.
 
-Editing a migration that no release contains (DATA-09) means recreating the development database, which `migrate` refuses once its applied file differs. Recreate it before changing the queries, while the cache in `.sqlx/` still matches them, so the binary compiles without the database: `docker compose exec postgres psql -U postgres -d postgres -c "DROP DATABASE api WITH (FORCE)" -c "CREATE DATABASE api"`, then `SQLX_OFFLINE=true just migrate`. Once the queries have changed, build the binary first, with `cargo build --package app`, while the old database still holds what they read, then recreate the database and run that binary's `bootstrap` and `migrate` with the settings of `.env`, and then `just prepare`. The tests' databases need nothing: their template is named after the migrations' checksums. A checksum reads the file's bytes on disk, and `.gitattributes` commits every text file with lines that end in a line feed alone, so save files that way: one whose lines end in a carriage return and a line feed, as Python's text writes do on Windows, commits unchanged, but migrates with a checksum that no checkout reproduces.
+Editing a migration that no release contains (DATA-09) means recreating the development database, since `migrate` refuses a migration whose file changed after it was applied. Recreate it before changing the queries, while the cache in `.sqlx/` still matches them, so the binary compiles without the database: `docker compose exec postgres psql -U postgres -d postgres -c "DROP DATABASE api WITH (FORCE)" -c "CREATE DATABASE api"`, then `just migrate`, which builds against the cache. Once the queries have changed, build the binary first, with `cargo build --package app`, while the old database still holds what they read. Then recreate the database with the same command, run the binary's `bootstrap` and `migrate` with the settings of `.env`, through `just --command target/debug/antworker-api bootstrap` and `just --command target/debug/antworker-api migrate`, and run `just prepare`. The tests' databases need nothing: their template is named after the migrations' checksums. A checksum reads the file's bytes on disk, and `.gitattributes` commits every text file with lines that end in a line feed alone, so save files that way: one whose lines end in a carriage return and a line feed, as Python's text writes do on Windows, commits unchanged, but migrates with a checksum that no checkout reproduces.
 
 ## Where each piece goes
 

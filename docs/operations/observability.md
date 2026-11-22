@@ -1,6 +1,6 @@
 # Observability
 
-How to see what the API does: its logs, traces and metrics, the dashboards that answer an operator's questions, and the alerts that say when to act. It is written for someone who hasn't used these tools before.
+How to see what the API does: its logs, traces and metrics, the dashboards that answer an operator's questions, and the alerts that say when to act. A trace records one request, or one run of a background job, as spans: one for each step, such as the proxy's handling of the request and the API's, each with its duration and its attributes. It is written for someone who hasn't used these tools before. An ID in parentheses names what a sentence follows: a rule of the [standards](../standards/README.md), such as OBS-08, a behavior of a [spec](../spec/README.md), such as PLATFORM-099, or a decision, such as D10, whose records [architecture.md](../architecture.md) says where to find. The [glossary](../architecture.md#11-glossary) defines the terms these documents share.
 
 Everything here serves D10's guarantee: any trace ID the API returns leads to that request's logs, and to its trace whenever the request ended in an error (OBS-08).
 
@@ -46,7 +46,7 @@ flowchart LR
 - **The proxy**, Caddy, in the reference deployment, exports a span for each request but the probes, to the same collector, and the API's server span is its child, so a trace starts at the proxy (OBS-06). It writes a line for each request it answers itself, while no replica can (D53), to a file the collector reads; the API writes the line of every other request. The collector keeps only those of the span's attributes whose names `platform::telemetry` lists, and the line's method and status, so neither holds a client's address or user agent (OBS-04, [proxy.yaml](../../deploy/observability/collector/proxy.yaml)).
 - **The collector** ([config](../../deploy/observability/collector/config.yaml)) refuses data before it runs out of memory, and passes each signal to its store. It also reads the times of the bundled database's backup status files, for the backups' alerts, and the host's CPU, memory and filesystems, from the host's filesystem mounted read-only, for the server's: a filesystem it reports is one mounted whole, not a bind mount of part of one. On a server, it reads that mount as its image's user, which isn't root, with no capability and a root filesystem that it can't write, so the host's own permissions bound what it reads: `secrets/`, which admits only the deployment's user, stays closed to it.
   It reads the time of the malware scanner's daily signatures too, for the alert on their age. <!-- part: files -->
-  Its tail sampling waits 15 seconds for a trace's spans, then keeps the trace if any policy keeps it (OBS-08):
+  Its tail sampling decides which traces to keep, and drops the rest: it waits 15 seconds for a trace's spans, then keeps the trace if any policy keeps it (OBS-08):
   - every trace with an error status, or a response of 400 or above
   - every trace slower than the [latency objective](#service-level-objectives)
   - 10% of the rest
@@ -88,7 +88,7 @@ Each part of a deployment writes a log of its own, and this is what each holds, 
 | Log | What it holds | Form | Where it goes | Kept |
 |---|---|---|---|---|
 | The API's, of its replicas and its subcommands | A line for each event, at the level that OBS-03 gives it, each request's completion among them (PLATFORM-044), with no personal data and no secret (OBS-04) | JSON, with `timestamp`, `level`, `message` and the fields of OBS-02 | The container's output, and, with telemetry, the collector, which passes it to Loki or to a managed backend | In Loki for 14 days, at a managed backend as its plan says |
-| The audit log | Who did what to which resource, when, and from which client, for each change that a module's behaviors record (SEC-18, AUDIT-001, AUDIT-002) | Rows of the database, with the time of the database's clock (DATA-03) | The database, and its backups | For `AUDIT_RETENTION_DAYS` (AUDIT-011) |
+| The audit log | Who did what to which resource, and when, for each change that a module's behaviors record, with, for a change that a request made, the request's client IP address, user agent and trace ID (SEC-18, AUDIT-001 to AUDIT-003) | Rows of the database, with the time of the database's clock (DATA-03) | The database, and its backups; the routes of the [audit spec](../spec/audit.md) read it | For `AUDIT_RETENTION_DAYS` (AUDIT-011) |
 | Caddy's own | Its start, the reloads of its sites, and what it does about its certificates, without its health checks' lines | JSON, with `ts`, the seconds since 1970 | The container's output | As a container's output is |
 | Caddy's, of the requests it answers itself | A line for each such request, such as its 503 while no replica runs, with the request's trace ID and no field that holds personal data (OBS-04) | JSON | A file that Caddy starts anew at 10 mebibytes, keeping the 2 before it; with telemetry, the collector reads it into Loki | In Loki, as the API's |
 | The bundled Postgres's | Its start and its stop, each checkpoint, and each error, without the error's detail (OBS-04), with the statement that failed, which holds none of its values, since the API binds them (DATA-14), but the statement with which `bootstrap` sets a role's password, which holds the password as a verifier of the Salted Challenge Response Authentication Mechanism (SCRAM), and never the password itself; and what pgBackRest archived, each backup's lines being in the `backup` service's output | Text, each line with its time | The container's output | As a container's output is |
@@ -124,7 +124,7 @@ CI sends to a stand-in backend, a collector that admits only the deployment's cr
 
 ## Running it on your machine
 
-`just dev observe` starts the stack in Compose, next to Postgres, and runs the API with its telemetry exported to the collector. Each service answers on 127.0.0.1:
+Once `just setup` has checked the tools, watchexec among them, and written `.env` ([README](../../README.md)), `just dev observe` starts the stack in Compose, next to Postgres, and runs the API with its telemetry exported to the collector, restarting it whenever its code or a migration changes, until you stop the task. The API answers at `http://127.0.0.1:8080`, the `LISTEN_ADDR` of `.env`, and each service of the stack on 127.0.0.1:
 
 | Service | Address |
 |---|---|
@@ -138,15 +138,19 @@ CI sends to a stand-in backend, a collector that admits only the deployment's cr
 
 The API forwards its clients' telemetry to that receiver once `.env` sets `CLIENT_TELEMETRY_ENDPOINT=http://127.0.0.1:4319`; `.env.example` leaves it unset, so `just dev` without the stack forwards none, and tells its clients so (CLIENT_TELEMETRY-010). <!-- part: client_telemetry -->
 
+To see a trace, send a request that fails, such as `curl -i http://127.0.0.1:8080/v1/no-such-resource`, which answers 404 with its trace ID, and follow it as [Following a request](#following-a-request-from-its-trace-id) says once tail sampling's 15 seconds have passed: the collector keeps every trace of a response of 400 or above, and a successful fast request's one time in ten.
+
 Grafana opens without signing in, as a viewer who can explore. On a server, it answers on an address of its own behind Caddy, where every viewer signs in ([deploy.md](deploy.md#grafana)). Its dashboards are read-only: each is a file in [deploy/observability/grafana/dashboards](../../deploy/observability/grafana/dashboards), and changing one means changing its file. A running collector or Prometheus keeps the configuration that it started with: after a change of its file, `docker compose --profile observability restart collector prometheus` has it read the new one. `docker compose stop collector prometheus alertmanager loki tempo grafana` stops the stack and leaves Postgres running. `docker compose --profile observability down` stops every service, Postgres among them, and adding `--volumes` deletes what each stored, the development database included.
 
 ## Following a request from its trace ID
 
 Every response except the health probes carries its trace context in `server-timing`, as `trace;desc=00-<trace ID>-<span ID>-01`, and every error body holds the trace ID as `trace_id` (API-16, API-07), the proxy's `request.unavailable` too (D53). The one answer without either is the bare 400, 431 or 414 that a replica's HTTP server gives a request that it can't read, or whose headers or target are more than it takes: the API logs nothing of such a request (PLATFORM-099). A user who reports a failure can quote it. To follow it:
 
-1. In Grafana, open Explore, choose the Loki data source, and run `{service_name=~".+"} | trace_id="<trace ID>"`. Every log line of the request appears, with its fields: the API's, or, for a request that no replica answered, the proxy's.
+1. In Grafana, open Explore, choose the Loki data source, set a time range that holds the request, and run `{service_name=~".+"} | trace_id="<trace ID>"`. Every log line of the request appears, with its fields: the API's, or, for a request that no replica answered, the proxy's.
 2. Open a line, and choose "Open the trace" under its links. The trace opens beside the logs, with each span's duration and attributes.
 3. From a span, "Related logs" runs the query of the first step for the span's trace.
+
+Of the caller, the API's span of the request carries `user.id` once authentication proved who they are, and `workspace.id` once authorization admitted them to a workspace (OBS-09, [platform spec](../spec/platform.md#telemetry-names)). No log line of the API's or the proxy's carries either, and none of their spans or lines carries the caller's IP address or user agent (OBS-04): the audit log records those two, for a change that a request made, with its trace ID ([the logs](#the-logs)).
 
 Without telemetry (`TELEMETRY=off`), the request's lines are only in the services' output on the server: `just logs production api caddy | grep <trace ID>` finds the API's, or, for a request that no replica answered, the proxy's ([deploy.md](deploy.md#checking-on-a-deployment)).
 
@@ -171,4 +175,10 @@ Every alert has a severity, `page` or `ticket`, a section in [runbooks.md](runbo
 
 ## Adding a metric
 
-A metric is declared in code, as OBS-11 says, and a dashboard or an alert must read it (OBS-12). `just metrics` rewrites [metrics.md](metrics.md) from the declarations, and `check-metrics` fails while the committed catalog differs from it.
+A metric is declared in code, as OBS-11 says, and a dashboard or an alert must read it (OBS-12). To add one:
+
+1. Declare it in the module's `metrics.rs`, which its `mod.rs` names with `mod metrics;`, as a `static` of `Counter`, `Histogram` or `Gauge` from `platform::telemetry::metrics`, named `<module>.<name>`, with its unit, its description and its labels, each a constant of `platform::telemetry::names`, where a new label's name joins the list (OBS-05, OBS-11). Record it with the declaration's `add`, `observe` or `set`, as [auth's metrics.rs](../../crates/app/src/modules/auth/metrics.rs) does.
+2. Run `just metrics`, which rewrites [metrics.md](metrics.md) from the declarations. Its "In Prometheus" column gives the name that a query reads, such as `auth_sign_ins_total` for `auth.sign_ins`.
+3. Add a panel whose query reads it, and whose title is the question it answers, ending in a question mark, to its area's dashboard in [deploy/observability/grafana/dashboards](../../deploy/observability/grafana/dashboards) (OBS-13). A new area's dashboard is a new file there, as `sign-in.json` is: a `uid` of its own, `editable` set to `false`, the tag `area`, by which the overview links to it, and no data source but those whose uids are `prometheus`, `loki` and `tempo`, which [a managed backend's](#a-managed-backend) import maps.
+4. An alert, of a kind that OBS-14 lists, is a rule in [rules.yaml](../../deploy/observability/prometheus/rules.yaml), with the label `severity`, `page` or `ticket`, and the annotation `runbook`, `docs/operations/runbooks.md#` and the anchor of its section in [runbooks.md](runbooks.md), which says what to do; a test in [rules.test.yaml](../../deploy/observability/prometheus/rules.test.yaml) expects it to fire, as OBS-14 asks.
+5. Run `just check-metrics`, whose checks the rules OBS-11 to OBS-13 name, and, for an alert, `just alert-rules`, which checks each alert's severity, runbook and test, then runs promtool's checks and tests of the rules in Docker. `just checks` runs both, with `check-telemetry-config`, which holds the thresholds of a panel of the requests' durations, and of a list of slow traces, to the latency objective.

@@ -247,8 +247,8 @@ jobs:
           name: image
           path: target
       # The mirror's store, kept between runs under the platform and the list of the images
-      # that fill it, so `just e2e` asks Docker Hub for them only in a job whose list no
-      # earlier job's store holds (docs/operations/ci.md).
+      # that fill it, so `just e2e` asks Docker Hub for them only in a job for whose list
+      # GitHub's cache holds no store (docs/operations/ci.md).
       - id: mirror
         run: |
           images=$(just mirror-images)
