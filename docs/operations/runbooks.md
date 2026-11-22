@@ -86,6 +86,14 @@ If the failures started when a deploy did, roll it back first ([deploy.md](deplo
 For `openid_connect`, compare the addresses in the settings with the provider's discovery document too, which a provider may change; and an `ERROR` line that says its token endpoint's answer doesn't say when its token lapses clears only once the provider gives access tokens that lapse, which its own settings decide (AUTH-103). <!-- part: openid_connect -->
 For any other failure, check the provider's status page, and that the server reaches the provider's endpoints; a provider's outage clears with it, and its users sign in again once it does.
 
+## MailServerUnreachable
+
+**What it means.** For 20 minutes, the mail server took or refused none of the API's sends, while some of them failed otherwise, such as a connection that didn't open, TLS that failed, a reply of 421, by which the server says that its service isn't available, a server that can't upgrade the connection to TLS while `SMTP_SECURITY` is `starttls`, or a send that took longer than its 30 seconds (PLATFORM-105). No request waits on the mail server, so every route serves, but each email, a sign-up's verification code and a password reset's code among them, waits for its job's next attempt, and dead-letters once its 12 attempts, which span about 2 to 3.5 hours, have all failed ([platform spec](../spec/platform.md#sending-email)).
+
+**Look first.** The API platform dashboard: "Does the mail server answer?" shows since when the sends go unanswered. Each failed attempt that its job runs again writes the `WARN` line "job failed, and runs again later", whose `job.kind` is `platform.send_email`, or the job of a module that sends an email at once, such as `auth.send_verification_code`, and whose `exception.message` names the failure, such as "the connection to the mail server failed" or "the mail server replied 421", by its kind or its reply's code, never the reply's text.
+
+**What to do.** Check the provider's status page, and that the server reaches `SMTP_HOST` on `SMTP_PORT`, through its firewall and its name servers. A failure of TLS, or a server that can't upgrade the connection to it, is the settings' or the provider's: compare `SMTP_SECURITY` and the port with what the provider offers ([deploy.md](deploy.md#email)), and set them with `just server-setup <host>`. The emails that wait go out at their jobs' next attempts once the server answers; one whose last attempt failed meanwhile is a dead letter, for [JobsDeadLettered](#jobsdeadlettered). The alert clears once the server takes or refuses a send, and also once 15 minutes pass without a send that failed otherwise: the attempts of an email that waits come further apart, up to an hour, so while few emails are sent, the alert may clear and fire again within one outage.
+
 ## ApiTelemetryMissing
 
 **What it means.** No instance of the API exported metrics for five minutes. Either no instance runs, or their telemetry doesn't reach Prometheus.
@@ -155,7 +163,7 @@ The receiver `otlp/clients` takes the batches that the telemetry proxy forwards 
 
 ## JobsDeadLettered
 
-**What it means.** A job failed on each of its attempts, or with a failure that every attempt would meet, and moved to the dead-letter state, where nothing retries it ([platform spec](../spec/platform.md#the-job-queue)). For `platform.send_email`, an email didn't go out: a mail server that refused it for good, one that didn't answer for the hours its retries span, or an email that the API couldn't build, such as for a recipient that isn't an address a mail server takes ([platform spec](../spec/platform.md#sending-email)).
+**What it means.** A job failed on each of its attempts, or with a failure that every attempt would meet, and moved to the dead-letter state, where nothing retries it ([platform spec](../spec/platform.md#the-job-queue)). For `platform.send_email`, an email didn't go out: a mail server that refused it for good, one that didn't answer for the hours its retries span, which [MailServerUnreachable](#mailserverunreachable) pages for first, or an email that the API couldn't build, such as for a recipient that isn't an address a mail server takes ([platform spec](../spec/platform.md#sending-email)).
 
 **Look first.** The API's `ERROR` line "job dead-lettered" names the kind and the failure. With the bundled database, this lists the dead letters, without their payloads, which hold personal data such as an email's recipient:
 

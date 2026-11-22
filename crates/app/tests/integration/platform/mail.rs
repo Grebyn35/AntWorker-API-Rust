@@ -1,13 +1,14 @@
 //! Sending email from jobs (the platform spec's Sending email), with an email of the tests' own, which
 //! the fixture `POST /v1/mail` sends (TEST-04).
 
-use std::{net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use platform::{
     clock::{SharedClock, TestClock},
     jobs::JobFailure,
     lifecycle::Readiness,
     mail::{Email, Mail},
+    telemetry::testing,
     types::EmailAddress,
 };
 use serde_json::json;
@@ -18,7 +19,7 @@ use tokio::{
 
 use crate::support::{
     Api, Options,
-    api::{application, configuration},
+    api::{SERVICE, application, configuration},
     fixtures, mailbox,
     users::{self, SignedIn},
     workspaces,
@@ -65,6 +66,13 @@ async fn closed() -> SocketAddr {
 /// A mail server on a port of its own that refuses every recipient with a permanent reply,
 /// which quotes the recipient's address, as many servers' replies do.
 async fn refusing_server() -> SocketAddr {
+    scripted_server("220 refusing ESMTP", "550 5.1.1").await
+}
+
+/// A mail server on a port of its own that greets with `greeting`, offers no extension, such as
+/// STARTTLS, and answers every recipient with `refusal`, a reply's code and its enhanced code,
+/// followed by the recipient's address.
+async fn scripted_server(greeting: &'static str, refusal: &'static str) -> SocketAddr {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     tokio::spawn(async move {
@@ -72,13 +80,16 @@ async fn refusing_server() -> SocketAddr {
             tokio::spawn(async move {
                 let (read, mut write) = stream.into_split();
                 let mut lines = BufReader::new(read).lines();
-                write.write_all(b"220 refusing ESMTP\r\n").await.unwrap();
+                write
+                    .write_all(format!("{greeting}\r\n").as_bytes())
+                    .await
+                    .unwrap();
                 while let Ok(Some(line)) = lines.next_line().await {
                     let upper = line.to_ascii_uppercase();
                     let reply = if upper.starts_with("EHLO") || upper.starts_with("HELO") {
-                        "250 refusing\r\n".to_owned()
+                        "250 scripted\r\n".to_owned()
                     } else if upper.starts_with("RCPT TO:") {
-                        format!("550 5.1.1 {} no such user\r\n", &line[8..])
+                        format!("{refusal} {} no such user\r\n", &line[8..])
                     } else if upper.starts_with("QUIT") {
                         // The client may have closed the connection already.
                         if let Err(gone) = write.write_all(b"221 bye\r\n").await {
@@ -322,10 +333,17 @@ async fn platform_025_a_second_run_of_a_mail_job_sends_a_copy_with_the_same_mess
     }
 }
 
-/// A `Mail` of `options`'s settings, as a module's job holds one.
+/// A `Mail` of `options`'s settings, as a module's job holds one, on a clock that never moves.
 fn mail(options: &Options) -> Mail {
+    mail_on(options, Arc::new(TestClock::default()))
+}
+
+/// A `Mail` of `options`'s settings, whose sends `clock` bounds, with the tests' telemetry
+/// installed, which counts its sends (PLATFORM-105).
+fn mail_on(options: &Options, clock: Arc<TestClock>) -> Mail {
+    testing::install(SERVICE).unwrap();
     let (config, _) = configuration(options);
-    Mail::new(config.mail, Arc::new(TestClock::default())).unwrap()
+    Mail::new(config.mail, clock).unwrap()
 }
 
 /// An email of the tests' own to `to`, which holds a secret, as one that `send_now` sends does.
@@ -408,6 +426,137 @@ async fn platform_025_each_email_that_send_now_sends_carries_a_message_id_of_its
             email.message_id
         );
     }
+}
+
+/// How many sends to the mail server ended as `outcome`, in every test that runs alongside.
+fn sends(outcome: &str) -> f64 {
+    testing::recorded("platform.mail_sends")
+        .into_iter()
+        .filter(|point| point.labels.get("mail.outcome").map(String::as_str) == Some(outcome))
+        .map(|point| point.value)
+        .sum()
+}
+
+/// A mail server on a port of its own that takes each connection, and never answers on it.
+async fn silent_server() -> SocketAddr {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let mut held = Vec::new();
+        while let Ok((stream, _)) = listener.accept().await {
+            held.push(stream);
+        }
+    });
+    address
+}
+
+#[tokio::test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test of send_now calls it, as a job's handler does (PLATFORM-105)"
+)]
+async fn platform_105_a_send_the_server_takes_counts_as_sent_by_a_job_and_by_send_now() {
+    let (api, ada) = api(Options::default()).await;
+    let to = mailbox::address("counted");
+    let sent = sends("sent");
+
+    send(&api, &ada, &to).await;
+    assert_eq!(api.run_jobs().await, 1);
+    mail(&Options::default())
+        .send_now(secret_email(&to))
+        .await
+        .unwrap();
+
+    assert_eq!(mailbox::to(&to).await.len(), 2);
+    // Tests running alongside send too, so the count grows by at least these.
+    let after = sends("sent");
+    assert!(after >= sent + 2.0, "{after} after {sent}");
+}
+
+#[tokio::test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test of send_now calls it, as a job's handler does (PLATFORM-105)"
+)]
+async fn platform_105_a_reply_from_400_to_599_but_421_counts_as_refused() {
+    let to = mailbox::address("refused");
+    let permanent = Options::default().set("SMTP_PORT", refusing_server().await.port());
+    let busy = scripted_server("220 busy ESMTP", "451 4.3.0").await;
+    let transient = Options::default().set("SMTP_PORT", busy.port());
+    let refused = sends("refused");
+
+    let rejected = mail(&permanent).send_now(secret_email(&to)).await;
+    let deferred = mail(&transient).send_now(secret_email(&to)).await;
+
+    assert!(
+        matches!(rejected, Err(JobFailure::Permanent(_))),
+        "{rejected:?}"
+    );
+    assert!(
+        matches!(deferred, Err(JobFailure::Transient(_))),
+        "{deferred:?}"
+    );
+    let after = sends("refused");
+    assert!(after >= refused + 2.0, "{after} after {refused}");
+}
+
+#[tokio::test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test of send_now calls it, as a job's handler does (PLATFORM-105)"
+)]
+async fn platform_105_a_send_that_no_server_serves_counts_as_unavailable() {
+    let to = mailbox::address("unavailable");
+    let closed = Options::default().set("SMTP_PORT", closed().await.port());
+    let down = scripted_server("421 4.3.2 the service isn't available", "550 5.1.1").await;
+    let not_serving = Options::default().set("SMTP_PORT", down.port());
+    let plain = Options::default()
+        .set("SMTP_PORT", refusing_server().await.port())
+        .set("SMTP_SECURITY", "starttls");
+    let unavailable = sends("unavailable");
+
+    let failed = [
+        mail(&closed).send_now(secret_email(&to)).await,
+        mail(&not_serving).send_now(secret_email(&to)).await,
+        mail(&plain).send_now(secret_email(&to)).await,
+    ];
+
+    for failure in &failed {
+        assert!(
+            matches!(failure, Err(JobFailure::Transient(_))),
+            "{failure:?}"
+        );
+    }
+    let after = sends("unavailable");
+    assert!(after >= unavailable + 3.0, "{after} after {unavailable}");
+}
+
+#[tokio::test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test of send_now calls it, as a job's handler does (PLATFORM-105)"
+)]
+async fn platform_105_a_send_that_takes_longer_than_its_30_seconds_counts_as_unavailable() {
+    let silent = Options::default().set("SMTP_PORT", silent_server().await.port());
+    let clock = Arc::new(TestClock::default());
+    let mail = mail_on(&silent, clock.clone());
+    let unavailable = sends("unavailable");
+
+    let (sent, ()) = tokio::join!(
+        mail.send_now(secret_email(&mailbox::address("unanswered"))),
+        async {
+            clock.sleeping(Duration::from_secs(30)).await;
+            clock.advance(Duration::from_secs(30));
+        }
+    );
+
+    let failure = format!("{sent:?}");
+    assert!(
+        failure.contains("the send took longer than its timeout"),
+        "{failure}"
+    );
+    let after = sends("unavailable");
+    assert!(after >= unavailable + 1.0, "{after} after {unavailable}");
 }
 
 #[tokio::test]

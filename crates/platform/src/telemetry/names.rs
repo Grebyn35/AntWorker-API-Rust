@@ -120,6 +120,9 @@ pub const JOB_ID: &str = "job.id";
 pub const JOB_ATTEMPT: &str = "job.attempt";
 /// How a job's run ended, such as `succeeded` or `retried` (PLATFORM-020).
 pub const JOB_OUTCOME: &str = "job.outcome";
+/// How a send of an email to the mail server ended, such as `sent` or `unavailable`
+/// (PLATFORM-105).
+pub const MAIL_OUTCOME: &str = "mail.outcome";
 /// Why the hub closed a stream, such as `access_changed` (PLATFORM-034).
 pub const STREAM_CLOSE_REASON: &str = "stream.close_reason";
 /// The part of startup that failed, such as `database` or `listen`, or the subcommand that an

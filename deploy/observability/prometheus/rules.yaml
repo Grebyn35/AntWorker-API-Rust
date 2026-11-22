@@ -167,6 +167,26 @@ groups:
           summary: An OAuth provider gave no identity for 20 minutes, while some sign-ins through it went unanswered.
           runbook: docs/operations/runbooks.md#signinproviderunavailable
 
+      # Sends to the mail server (OBS-14, PLATFORM-105). A series of platform_mail_sends_total
+      # appears with its first send, so the window counts the answered sends of a series that
+      # existed at its start by their increase, and those of a newer one by its value, which
+      # increase() would miss the first of.
+      - alert: MailServerUnreachable
+        expr: |
+          sum(increase(platform_mail_sends_total{mail_outcome="unavailable"}[15m])) > 0
+            unless sum(
+              (increase(platform_mail_sends_total{mail_outcome=~"sent|refused"}[15m])
+                and platform_mail_sends_total{mail_outcome=~"sent|refused"} offset 15m)
+              or (platform_mail_sends_total{mail_outcome=~"sent|refused"}
+                unless platform_mail_sends_total{mail_outcome=~"sent|refused"} offset 15m)
+            ) > 0
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: For 20 minutes, the mail server took or refused none of the API's sends, while some of them failed otherwise.
+          runbook: docs/operations/runbooks.md#mailserverunreachable
+
       - alert: ApiTelemetryMissing
         expr: absent_over_time(platform_database_reachable[2m])
         for: 3m

@@ -604,6 +604,46 @@
         "x": 12,
         "y": 48
       }
+    },
+    {
+      "type": "timeseries",
+      "title": "Does the mail server answer?",
+      "description": "Sends of emails to the mail server in the last 5 minutes, by a job of platform.send_email or by a module's job that sends an email at once, by how each ended: sent, when the server took the email, refused, when it answered with a reply from 400 to 599 other than 421, or unavailable, for any other failure, such as a connection that didn't open, a reply of 421, or a send that took longer than its 30 seconds (PLATFORM-105). Unavailable sends, with none taken or refused for 20 minutes, are the alert MailServerUnreachable.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (mail_outcome) (increase(platform_mail_sends_total[5m]))",
+          "legendFormat": "{{mail_outcome}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "id": 15,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 56
+      }
     }
   ]
 }
