@@ -1,7 +1,8 @@
-//! What the lines that a removal keeps cite and link to, read once for every removal that
+//! What the lines that a removal keeps cite, link to and name, read once for every removal that
 //! `check-parts` does in memory: the removal deletes every link and ID that points into what it
 //! removes (ARCH-07), so a kept line that cites a decision, a behavior or a rule whose row or
-//! heading it deletes, or that links to a file or a heading that it deletes, fails.
+//! heading it deletes, that links to a file or a heading that it deletes, or that names a Rust
+//! file of which it deletes every one, fails.
 
 use std::collections::{BTreeSet, HashMap};
 
@@ -43,6 +44,8 @@ pub(super) struct Index<'a> {
     cited: Vec<(&'a str, usize, String)>,
     /// Each link to a file, or a directory, that the repository holds.
     links: Vec<Link<'a>>,
+    /// Each Rust file that a line names: its file, its line, and the path or the name.
+    named: Vec<(&'a str, usize, String)>,
     /// The anchors of each document's headings.
     anchors: HashMap<&'a str, BTreeSet<String>>,
 }
@@ -54,13 +57,16 @@ impl<'a> Index<'a> {
     /// ASCII letter or digit right before or after, so `D12` cites no `D1`; the behaviors and the
     /// rules that each line cites, outside the inventory and the tests of the checks, as
     /// `check-docs` reads them: an ID-shaped token that stands as a word of its own, and the test
-    /// prefix, such as `workspaces_005`, of a document's line or of a comment; and the links of
-    /// each document, and of each Rust file's doc comments, that `check-docs` resolves.
+    /// prefix, such as `workspaces_005`, of a document's line or of a comment; the links of
+    /// each document, and of each Rust file's doc comments, that `check-docs` resolves; and the
+    /// Rust files that each document's line and each comment names, outside the inventory, by
+    /// the paths and the names that `check-docs` reads there (DOC-01).
     pub(super) fn read(repo: &'a Repo) -> Self {
         let mut index = Self {
             defined: Vec::new(),
             cited: Vec::new(),
             links: Vec::new(),
+            named: Vec::new(),
             anchors: HashMap::new(),
         };
         for file in repo.files().filter(|file| !is_rewritten(&file.path)) {
@@ -89,15 +95,20 @@ impl<'a> Index<'a> {
                 for id in decisions(line) {
                     index.cited.push((path, number, id.to_owned()));
                 }
+                let described = if path.ends_with(".md") {
+                    Some(line)
+                } else {
+                    text::comment(path, line)
+                };
+                if !path.starts_with(INVENTORY) {
+                    for name in described.map(references::rust_paths).unwrap_or_default() {
+                        index.named.push((path, number, name));
+                    }
+                }
                 if at < citing {
                     for token in text::id_tokens(line) {
                         index.cited.push((path, number, token.id()));
                     }
-                    let described = if path.ends_with(".md") {
-                        Some(line)
-                    } else {
-                        text::comment(path, line)
-                    };
                     for (prefix, digits) in
                         described.map(references::test_prefixes).unwrap_or_default()
                     {
@@ -142,7 +153,8 @@ impl<'a> Index<'a> {
 
     /// A finding for each line that `removal` keeps and that cites an ID whose defining line it
     /// deletes, or links to a file or a directory that it deletes whole, or to an anchor of a
-    /// document that it edits and whose kept text has no heading with that anchor.
+    /// document that it edits and whose kept text has no heading with that anchor, or names a
+    /// Rust file that it deletes, as [`Index::names_gone`] says.
     pub(super) fn dangling(&self, repo: &Repo, removal: &Removal<'_>) -> Vec<Finding> {
         let deleted: HashMap<&str, (&str, Definition)> = self
             .defined
@@ -209,6 +221,35 @@ impl<'a> Index<'a> {
                 link.line,
                 format!("links to `{}`, {message} (ARCH-07)", link.destination),
             ));
+        }
+        findings.extend(self.names_gone(repo, removal));
+        findings
+    }
+
+    /// A finding for each line that `removal` keeps and that names a Rust file while the
+    /// removal deletes every file of the repository that the name names.
+    fn names_gone(&self, repo: &Repo, removal: &Removal<'_>) -> Vec<Finding> {
+        let mut findings = Vec::new();
+        let mut goes: HashMap<&str, bool> = HashMap::new();
+        for (path, number, name) in &self.named {
+            if !removal.keeps(path, *number) {
+                continue;
+            }
+            // A name that names no file fails `check-docs` before any removal (DOC-01).
+            let gone = *goes.entry(name).or_insert_with(|| {
+                let mut named = repo
+                    .paths()
+                    .filter(|file| file.ends_with(".rs") && references::names(name, file))
+                    .peekable();
+                named.peek().is_some() && named.all(|file| removal.deletes_file(file))
+            });
+            if gone {
+                findings.push(Finding::new(
+                    path,
+                    *number,
+                    format!("names `{name}`, which the removal deletes (ARCH-07)"),
+                ));
+            }
         }
         findings
     }

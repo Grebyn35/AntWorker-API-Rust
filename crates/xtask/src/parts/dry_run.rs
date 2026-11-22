@@ -600,6 +600,44 @@ mod tests {
     }
 
     #[test]
+    fn arch_07_a_kept_line_that_names_a_rust_file_the_removal_deletes_fails() {
+        let marker = format!("<!-- {} offers -->", "part:");
+        // The part owns the directory `src/shop/`, which holds the only file of one name, and
+        // one of the two files of another.
+        let doc = format!(
+            "# A\n\nSee `prices.rs`.\nSee shop/jobs.rs, and `jobs.rs`.\nSee `prices.rs`. {marker}\n\
+             See `a.rs` and src/a.rs.\n"
+        );
+        let code = "// As `shop/prices.rs` does.\nfn a() {}\n";
+        let list = shop_list();
+        let repo = Repo::of(&[
+            (LIST, &list),
+            ("docs/a.md", &doc),
+            ("docs/inventory/old.md", "See `prices.rs`.\n"),
+            ("src/a.rs", code),
+            ("src/jobs.rs", ""),
+            ("src/shop/jobs.rs", ""),
+            ("src/shop/prices.rs", ""),
+            ("docs/spec/shop.md", ""),
+        ]);
+
+        let found = found(&repo);
+
+        assert_eq!(
+            places(&found),
+            [("docs/a.md", 3), ("docs/a.md", 4), ("src/a.rs", 1)],
+            "{found:?}"
+        );
+        assert_eq!(
+            [found[0].2.as_str(), found[1].2.as_str()],
+            [
+                "removing offers: names `prices.rs`, which the removal deletes (ARCH-07)",
+                "removing offers: names `shop/jobs.rs`, which the removal deletes (ARCH-07)",
+            ]
+        );
+    }
+
+    #[test]
     fn arch_07_a_kept_line_that_names_an_export_that_only_deleted_lines_give_fails() {
         let open = mark("offers");
         let close = end("offers");

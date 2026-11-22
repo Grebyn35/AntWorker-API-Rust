@@ -68,10 +68,7 @@ pub fn check(repo: &Repo, catalog: &Catalog) -> Vec<Finding> {
                 }
             }
             for cited in described.map(rust_paths).unwrap_or_default() {
-                let exists = rust_files
-                    .iter()
-                    .any(|file| *file == cited || file.ends_with(&format!("/{cited}")));
-                if !exists {
+                if !rust_files.iter().any(|file| names(&cited, file)) {
                     found(format!(
                         "`{cited}` names no file of the repository (DOC-01)"
                     ));
@@ -110,6 +107,15 @@ pub fn check(repo: &Repo, catalog: &Catalog) -> Vec<Finding> {
         }
     }
     findings
+}
+
+/// Whether `cited`, a path or a name that [`rust_paths`] read, names the Rust file at `file`: it
+/// is the file's whole path from the repository root, or its last components.
+pub fn names(cited: &str, file: &str) -> bool {
+    file == cited
+        || file
+            .strip_suffix(cited)
+            .is_some_and(|before| before.ends_with('/'))
 }
 
 /// The test prefixes in `text`: a word of lowercase letters and underscores, then `_` and two or
@@ -151,7 +157,7 @@ pub fn test_prefixes(text: &str) -> Vec<(String, String)> {
 /// names of Rust files that stand alone between two backticks, such as `jobs.rs`, which name a
 /// file of that name in any directory. A path and a name are runs of lowercase ASCII letters,
 /// digits, `_` and, in a path, `/`; a file's name outside backticks is read as prose.
-fn rust_paths(text: &str) -> Vec<String> {
+pub fn rust_paths(text: &str) -> Vec<String> {
     let mut found = Vec::new();
     for (end, _) in text.match_indices(".rs") {
         let after = text[end + 3..].chars().next();
