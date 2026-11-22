@@ -96,10 +96,9 @@ The argument is the server as SSH names it, signed in as `root`, or as a user th
   - With a managed backend: `managed_otlp_token`, the token the collector signs in with, and with `MANAGED_GRAFANA_URL`, `managed_grafana_token`, the token of a service account of that Grafana with the Admin role, which imports the dashboards and the alert rules ([observability.md](observability.md#a-managed-backend)).
   - With the self-hosted stack: `grafana_admin_password`, the password that Grafana's administrator signs in with, under the name in `GRAFANA_ADMIN_USER`: one of your own, of 15 characters or more ([Grafana](#grafana)); and each credential of an alert integration that the release's `alertmanager.yaml` names, in `secrets/alertmanager/` ([observability.md](observability.md#alerts)).
   - With `EMAIL=smtp` and an `SMTP_USERNAME`: `smtp_password`, the mail server's password ([Email](#email)). Without one, the deploy writes the file empty, which the API reads as no password.
-  - With a provider's client ID: that client's secret ([Signing in through a provider](#signing-in-through-a-provider)). Without one, the deploy writes the file empty, which turns the client off.
-    `github_client_secret`, with `GITHUB_CLIENT_ID`. <!-- part: github -->
-    `google_client_secret`, with `GOOGLE_CLIENT_ID`, and `google_desktop_client_secret`, with `GOOGLE_DESKTOP_CLIENT_ID`. <!-- part: google -->
-    `openid_connect_client_secret`, with `OPENID_CONNECT_CLIENT_ID`. <!-- part: openid_connect -->
+  - With `GITHUB_CLIENT_ID`: `github_client_secret`, that client's secret ([Signing in through a provider](#signing-in-through-a-provider)). Without the ID, the deploy writes the file empty, which turns the client off. <!-- part: github -->
+  - With `GOOGLE_CLIENT_ID`: `google_client_secret`, and with `GOOGLE_DESKTOP_CLIENT_ID`: `google_desktop_client_secret`, each that client's secret ([Signing in through a provider](#signing-in-through-a-provider)). Without a client's ID, the deploy writes its file empty, which turns the client off. <!-- part: google -->
+  - With `OPENID_CONNECT_CLIENT_ID`: `openid_connect_client_secret`, that client's secret ([Signing in through a provider](#signing-in-through-a-provider)). Without the ID, the deploy writes the file empty, which turns the client off. <!-- part: openid_connect -->
 - For the certificate of a private authority, as a file on your machine, when one signed the certificate of a managed database, of a bucket of your own or of a managed backend.
 - For a token that can read the repository's packages, through which the server pulls the release's images, and for its user, the owner that `IMAGE_REPOSITORY` names, if it names one, unless you type another; a public repository's images need none.
 

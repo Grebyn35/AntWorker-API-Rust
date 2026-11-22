@@ -56,6 +56,6 @@ Until then, `just remove <part>...` removes parts and keeps what makes the other
 
 ## Next
 
-The README's [quickstart](../../README.md#quickstart) runs the product on a developer's machine. A sign-in through a provider is off there until `.env` sets that provider's client, as `.env.example` says of each (AUTH-081), and a client then runs it, as the [auth spec](../spec/auth.md#signing-in-through-a-provider) says. `just seed` creates the first workspaces, as the parts that the product keeps create them on a deployment, playing the operator where one is needed ([system spec](../spec/system.md#seed)).
+The README's [quickstart](../../README.md#quickstart) runs the product on a developer's machine. A sign-in through a provider is off there until `.env` sets that provider's client (AUTH-081), and a client then runs it, as the [auth spec](../spec/auth.md#signing-in-through-a-provider) says. `just seed` creates the first workspaces, as the parts that the product keeps create them on a deployment, playing the operator where one is needed ([system spec](../spec/system.md#seed)).
 
 [The guide to adding a module](adding-a-module.md) adds the product's first module, and [deploy.md](../operations/deploy.md) sets up a server for it.

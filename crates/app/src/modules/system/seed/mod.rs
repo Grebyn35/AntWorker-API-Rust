@@ -134,9 +134,9 @@ pub(crate) async fn seed(seed: Seed<'_>) -> Result<Seeded, SystemError> {
         router: seed.router,
     };
     let olivia = api.register("owner@example.com", "Olivia Owner").await?;
-    let adam = api.register("admin@example.com", "Adam Admin").await?;
     let mia = api.register("member@example.com", "Mia Member").await?;
     // part: invitations
+    let adam = api.register("admin@example.com", "Adam Admin").await?;
     let ian = api.register("invitee@example.com", "Ian Invitee").await?;
     // end part: invitations
     // part: superadmins
@@ -144,9 +144,9 @@ pub(crate) async fn seed(seed: Seed<'_>) -> Result<Seeded, SystemError> {
         .register("superadmin@example.com", "Sam Superadmin")
         .await?;
     // end part: superadmins
-    let registered = vec![&olivia, &adam, &mia];
+    let registered = vec![&olivia, &mia];
     // part: invitations
-    let registered = [registered, vec![&ian]].concat();
+    let registered = [registered, vec![&adam, &ian]].concat();
     // end part: invitations
     // part: superadmins
     let registered = [registered, vec![&sam]].concat();
@@ -196,9 +196,9 @@ pub(crate) async fn seed(seed: Seed<'_>) -> Result<Seeded, SystemError> {
     }
     api.invite(&olivia, shared, &ian, "member").await?;
     // end part: invitations
-    let accounts = vec![olivia, adam, mia];
+    let accounts = vec![olivia, mia];
     // part: invitations
-    let accounts = [accounts, vec![ian]].concat();
+    let accounts = [accounts, vec![adam, ian]].concat();
     // end part: invitations
     // part: superadmins
     let superadmin = (sam.email, app_secret);

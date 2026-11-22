@@ -60,13 +60,14 @@ x-api: &api
     SIGN_IN_WINDOW_SECONDS: ${SIGN_IN_WINDOW_SECONDS:-900}
     DEVICE_TOKEN_SECONDS: ${DEVICE_TOKEN_SECONDS:-31536000}
     SECOND_FACTOR_REQUIRED: ${SECOND_FACTOR_REQUIRED:-false}
-    # A client of a provider, unset as each is empty, counts as off (AUTH-081).
     # part: github
+    # GitHub's client, unset as each of its settings is empty, counts as off (AUTH-081).
     GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
     GITHUB_CLIENT_SECRET_FILE: /run/secrets/github_client_secret
     GITHUB_REDIRECT_URIS: ${GITHUB_REDIRECT_URIS:-}
     # end part: github
     # part: google
+    # Each of Google's clients, unset as each of its settings is empty, counts as off (AUTH-081).
     GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
     GOOGLE_CLIENT_SECRET_FILE: /run/secrets/google_client_secret
     GOOGLE_REDIRECT_URIS: ${GOOGLE_REDIRECT_URIS:-}
@@ -75,6 +76,8 @@ x-api: &api
     GOOGLE_DESKTOP_REDIRECT_URIS: ${GOOGLE_DESKTOP_REDIRECT_URIS:-}
     # end part: google
     # part: openid_connect
+    # The client of the provider that the settings name, unset as each of its settings is empty,
+    # counts as off (AUTH-081).
     OPENID_CONNECT_CLIENT_ID: ${OPENID_CONNECT_CLIENT_ID:-}
     OPENID_CONNECT_CLIENT_SECRET_FILE: /run/secrets/openid_connect_client_secret
     OPENID_CONNECT_REDIRECT_URIS: ${OPENID_CONNECT_REDIRECT_URIS:-}

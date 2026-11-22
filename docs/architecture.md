@@ -16,7 +16,15 @@ flowchart LR
   api --> clamd[ClamAV's daemon<br/>malware scanning]
   %% end part: files
   api --> smtp[SMTP]
-  api --> oauth[OAuth providers]
+  %% part: github
+  api --> github[GitHub's OAuth]
+  %% end part: github
+  %% part: google
+  api --> google[Google's OAuth]
+  %% end part: google
+  %% part: openid_connect
+  api --> oidc[An OpenID Connect<br/>provider]
+  %% end part: openid_connect
   api --> otel[OpenTelemetry<br/>Collector]
   otel --> prom[Prometheus] & loki[Loki] & tempo[Tempo]
   prom & loki & tempo --> grafana[Grafana]
@@ -462,7 +470,7 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 | Recovery code | One of ten codes, each of which stands in once for an authenticator app's code (AUTH-062). |
 | Challenge | What a sign-in whose password matched answers for an account with an authenticator app: a token that the app's code, or a recovery code, completes into a session (AUTH-058). |
 | Principal | The authenticated caller of a request, produced by `platform::authn` (D18). |
-| Workspace | A space whose members share its data: a team's, an organization's, or one user's own (§5). Owns the data its members share, and its audit log. |
+| Workspace | A space whose members share its data (§5). Owns the data its members share, and its audit log. |
 | Part | A piece of the template that a product can do without, such as a module, a sign-in provider or a way of creating workspaces, with everything that exists only for it. A fork keeps it or leaves it out when it starts (§5). |
 | Workspace shape | How a product uses workspaces: who creates them and who joins them, which the parts of the template that a fork keeps decide (§5). |
 | Membership | A user's place in a workspace, with exactly one role. Owned by `access`. |
@@ -501,4 +509,6 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 An avatar and a file's name are personal data in the glossary's sense too. <!-- part: files -->
 The documents call a part an optional part while a fork can still leave it out ([ARCH-07](standards/architecture.md#arch-07-optional-parts-are-removable)). <!-- part: removal -->
 
-The documents assume a developer knows these acronyms, and don't spell them out (DOC-06): API, ASCII, CI, CPU, CSV, DNS, GIF, HTML, HTTP, HTTPS, ID, IP, JPEG, JSON, PDF, PNG, REST, RFC, SDK, SQL, TCP, TLS, UI, URL, UTC, UTF and UUID. These names are written in capitals, and aren't acronyms to spell out: AES, BSD, CDLA, GCM, IETF, ISC, MIT, QEMU, README, S3, SHA, SIGINT, SIGKILL, SIGTERM, SOC, W3C, ZIP and ZIP64.
+The documents assume a developer knows these acronyms, and don't spell them out (DOC-06): API, ASCII, CI, CPU, DNS, HTML, HTTP, HTTPS, ID, IP, JSON, REST, RFC, SDK, SQL, TCP, TLS, UI, URL, UTC, UTF and UUID.
+The documents assume a developer knows these acronyms too: CSV, GIF, JPEG, PDF and PNG. <!-- part: files -->
+These names are written in capitals, and aren't acronyms to spell out: AES, BSD, CDLA, GCM, IETF, ISC, MIT, QEMU, README, S3, SHA, SIGINT, SIGKILL, SIGTERM, SOC, W3C, ZIP and ZIP64.

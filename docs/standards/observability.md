@@ -84,7 +84,9 @@ Every metric is declared once, as a `static` of one of the declaration types in 
 ## Dashboards and alerts
 
 ### OBS-13 Dashboards answer named questions
-Dashboards are the files in `deploy/observability/grafana/`, and read-only in Grafana: the self-hosted Grafana provisions them, and a managed Grafana, which can't read provisioning files, imports them into a folder that only the import and the managed Grafana's administrators may change (D42). One overview dashboard links to one dashboard per area, by the tag `area` that each of them carries, so a dashboard that a part of the template owns leaves no link behind once a fork leaves the part out (D119). Each panel's title is the question it answers.
+Dashboards are the files in `deploy/observability/grafana/`, and read-only in Grafana: the self-hosted Grafana provisions them, and a managed Grafana, which can't read provisioning files, imports them into a folder that only the import and the managed Grafana's administrators may change (D42). One overview dashboard links to one dashboard per area, by the tag `area` that each of them carries.
+So a dashboard that a part of the template owns leaves no link behind once a fork leaves the part out (D119). <!-- part: removal -->
+Each panel's title is the question it answers.
 - Why: a dashboard is read under pressure, and must say what it shows (D19). Whichever Grafana shows them, the files are the dashboards, and the checks read the files.
 - Check: `ci: check-metrics` (queries, titles that end in a question mark, read-only provisioning, and an overview that links to every other dashboard, by its address or by its tags), `ci: e2e` (the import into a managed Grafana), plus `review` (what each title asks, and one dashboard per area).
 

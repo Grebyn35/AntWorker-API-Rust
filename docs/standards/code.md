@@ -81,8 +81,10 @@ A concept has the same name in code, SQL, the API and the docs: a workspace is a
 ## Dependencies
 
 ### CODE-12 Dependencies are declared once and kept minimal
-Versions live in `[workspace.dependencies]`, and each crate inherits them. Default features are turned off unless needed. Each crate turns on the features it uses of each dependency, instead of relying on another dependency to turn them on. A crate declares only the dependencies its code names: a normal one in its `src/` or build script, a development one there or in its tests, and a build one in its build script. Git and path dependencies outside the workspace are not allowed.
-- Why: one version of each crate, and a smaller build and attack surface. A dependency that only a part of the template that the fork left out used goes with it.
+Versions live in `[workspace.dependencies]`, and each crate inherits them. Default features are turned off unless needed. Each crate turns on the features it uses of each dependency, instead of relying on another dependency to turn them on. A crate declares only the dependencies its code names: a normal one in its `src/` or build script, a development one there or in its tests, and a build one in its build script.
+So a dependency that only a part of the template that the fork left out used goes with it. <!-- part: removal -->
+Git and path dependencies outside the workspace are not allowed.
+- Why: one version of each crate, and a smaller build and attack surface.
 - Check: `ci: deny` (`cargo-deny` bans), `ci: check-deps` (each dependency is named in the code its kind builds), plus `review`.
 
 ### CODE-13 Dependency licenses are permissive

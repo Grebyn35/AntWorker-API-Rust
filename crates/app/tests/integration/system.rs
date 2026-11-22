@@ -175,21 +175,17 @@ async fn system_003_seed_registers_its_accounts_through_the_routes() {
     let password = seed(&database).await;
 
     let api = Api::on(database, Options::default()).await;
-    for email in [
-        "owner@example.com",
-        "admin@example.com",
-        "member@example.com",
-    ] {
+    for email in ["owner@example.com", "member@example.com"] {
         sign_in(&api, email, &password).await;
     }
     let names = api
         .database()
         .owner_reads(
             "SELECT name FROM users WHERE email IN \
-             ('owner@example.com', 'admin@example.com', 'member@example.com') ORDER BY email",
+             ('owner@example.com', 'member@example.com') ORDER BY email",
         )
         .await;
-    assert_eq!(names, ["Adam Admin", "Mia Member", "Olivia Owner"]);
+    assert_eq!(names, ["Mia Member", "Olivia Owner"]);
     // Each request went through the pipeline as a client's does, from 127.0.0.1, and recorded
     // and published what a client's does: each registration its entry, and its session's start.
     assert_eq!(
@@ -519,7 +515,7 @@ async fn system_003_the_subcommand_prints_the_accounts_their_password_and_the_wo
     let accounts = database
         .owner_reads("SELECT email || '|' || name FROM users")
         .await;
-    assert!(accounts.len() >= 3, "{accounts:?}");
+    assert!(accounts.len() >= 2, "{accounts:?}");
     for account in accounts {
         let (email, name) = account.split_once('|').unwrap();
         assert!(printed(email, name), "{email} in {stdout}");
@@ -685,9 +681,12 @@ async fn system_005_seed_has_olivia_invite_adam_and_mia_who_accept_and_ian_whose
     assert!(workspaces(&api, &ian).await.is_empty());
     assert_eq!(
         api.database()
-            .owner_reads("SELECT name FROM users WHERE email = 'invitee@example.com'")
+            .owner_reads(
+                "SELECT name FROM users WHERE email IN \
+                 ('admin@example.com', 'invitee@example.com') ORDER BY email"
+            )
             .await,
-        ["Ian Invitee"]
+        ["Adam Admin", "Ian Invitee"]
     );
 }
 // end part: invitations

@@ -42,7 +42,7 @@ An error that only a subcommand reports, such as `seed`'s, implements no `ErrorC
 ## Moving errors
 
 ### ERR-04 Infrastructure errors stay in their adapter
-The errors of the libraries that reach other systems, such as the database driver and the clients for object storage, email and HTTP, never appear in a service or route signature. The repository or adapter turns each one into either a domain outcome or a `platform::errors::Internal` value. That value keeps the cause for logs only.
+The errors of the libraries that reach other systems, such as the database driver and the clients for email and HTTP, never appear in a service or route signature. The repository or adapter turns each one into either a domain outcome or a `platform::errors::Internal` value. That value keeps the cause for logs only.
 - Why: a database error must never decide a response or reach a client (D17).
 - Check: `ci: check-layers` (no infrastructure error types in `service.rs` or `routes.rs`), plus `compiler`.
 

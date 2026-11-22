@@ -117,7 +117,7 @@
         "x-audit-action": "access.denied"
       },
       "Acted": {
-        "description": "The details of `workspace.created` and `workspace.deleted`, which say how the caller acted,\nwhen they acted other than as a user of the workspace.",
+        "description": "The details of `workspace.created` and `workspace.deleted`.\nThey say how the caller acted, when they acted other than as a user of the workspace.",
         "properties": {
           "access": {
             "$ref": "#/components/schemas/Access",

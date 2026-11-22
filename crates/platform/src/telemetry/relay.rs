@@ -82,7 +82,7 @@ impl Relay {
     /// no route from serving. An `https` endpoint is verified against the operating system's
     /// certificate store (D38).
     pub fn new(endpoint: &OtlpEndpoint, clock: SharedClock) -> Result<Self, RelayBuildError> {
-        let tls = crate::tls::client_config(endpoint.is_https(), None).map_err(RelayBuildError)?;
+        let tls = crate::tls::client_config(endpoint.is_https()).map_err(RelayBuildError)?;
         let client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .tls_backend_preconfigured(tls)

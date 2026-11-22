@@ -384,7 +384,7 @@ fn answered<T: Send + 'static>(
 /// connection's: the waits for the bucket's answers are the clock's, in [`Storage`]. It follows
 /// no redirect, so a request reaches the endpoint that the settings name, or fails (SEC-10).
 fn client(ca_path: Option<&std::path::Path>) -> Result<reqwest::Client, Internal> {
-    let tls = crate::tls::client_config(true, ca_path).map_err(Internal::new)?;
+    let tls = crate::tls::client_config_trusting(true, ca_path).map_err(Internal::new)?;
     reqwest::Client::builder()
         .connect_timeout(CONNECT_TIMEOUT)
         .redirect(reqwest::redirect::Policy::none())

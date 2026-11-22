@@ -1401,7 +1401,7 @@ async fn answering_while_the_owner_is_deleted(
 }
 
 #[tokio::test]
-async fn access_008_a_join_that_waited_for_the_owner_s_deletion_adds_no_member() {
+async fn access_010_a_join_that_waited_for_the_owner_s_deletion_adds_no_member() {
     let (api, bob, _) = answering_while_the_owner_is_deleted("accept").await;
 
     let memberships = api

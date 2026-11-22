@@ -45,7 +45,8 @@ So is the malware scanner, which ClamAV's daemon is, with one signature of the r
 
 Routes that only the tests serve, registered through the builders of API-14, show three kinds of behavior:
 - the pipeline's that no route of the API shows, such as a panic or a request that never ends
-- those of `platform`'s mechanisms that only the routes of a part of the template show, such as an idempotency key's, so that a fork that leaves the part out keeps `platform`'s tests passing
+- those of `platform`'s mechanisms that only the routes of a part of the template show, such as an idempotency key's
+  so that a fork that leaves the part out keeps `platform`'s tests passing <!-- part: removal -->
 - those of a mechanism that the API's routes show, but not when a test asks, such as a unit of work that publishes many events at once, which the announcing routes do, or an event that a permission no role lacks would gate
 - Why: a mock tests your assumptions about the code, not the code (ARCH-13).
 - Check: `review`.

@@ -135,8 +135,10 @@ pub(crate) struct ChangedRole {
     pub(crate) to: Role,
 }
 
-/// The details of `workspace.created` and `workspace.deleted`, which say how the caller acted,
-/// when they acted other than as a user of the workspace.
+/// The details of `workspace.created` and `workspace.deleted`.
+// part: superadmins
+/// They say how the caller acted, when they acted other than as a user of the workspace.
+// end part: superadmins
 #[derive(Clone, Copy, Debug, Default, Serialize, ToSchema)]
 pub(super) struct Acted {
     // part: superadmins

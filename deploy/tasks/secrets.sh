@@ -43,14 +43,16 @@ write_secrets() {
     if [ ! -f "$secrets/smtp_password" ]; then
         : > "$secrets/smtp_password"
     fi
-    # The secret of each client of a provider, empty for a client the deployment doesn't use,
-    # which the API reads as unset (AUTH-081).
     # part: github
+    # The secret of GitHub's client, empty while the deployment doesn't use the client, which the
+    # API reads as unset (AUTH-081).
     if [ ! -f "$secrets/github_client_secret" ]; then
         : > "$secrets/github_client_secret"
     fi
     # end part: github
     # part: google
+    # The secret of each of Google's clients, empty for a client the deployment doesn't use, which
+    # the API reads as unset (AUTH-081).
     for client in google_client_secret google_desktop_client_secret; do
         if [ ! -f "$secrets/$client" ]; then
             : > "$secrets/$client"
@@ -58,6 +60,8 @@ write_secrets() {
     done
     # end part: google
     # part: openid_connect
+    # The secret of the client of the provider that the settings name, empty while the deployment
+    # doesn't use the client, which the API reads as unset (AUTH-081).
     if [ ! -f "$secrets/openid_connect_client_secret" ]; then
         : > "$secrets/openid_connect_client_secret"
     fi

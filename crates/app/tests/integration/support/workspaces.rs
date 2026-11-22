@@ -1,6 +1,8 @@
 //! Builders of workspaces and memberships, through the `owner` connection rather than any part
-//! that creates workspaces, so the other tests pass in a fork that leaves such a part out
-//! (TEST-05, the workspaces spec's "Creating a workspace").
+//! that creates workspaces (TEST-05, the workspaces spec's "Creating a workspace").
+// part: removal
+//! So the other tests pass in a fork that leaves such a part out.
+// end part: removal
 
 use serde_json::{Value, json};
 

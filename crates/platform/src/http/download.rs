@@ -126,16 +126,19 @@ where
             }
         };
         let Ok(media_type) = HeaderValue::from_str(&self.media_type) else {
-            return Problem(Internal::new("a stored media type isn't a header's value"))
-                .into_response();
+            return Problem(Internal::new("a media type isn't a header's value")).into_response();
         };
         headers.insert(header::CONTENT_TYPE, media_type);
         headers.insert(header::CONTENT_LENGTH, HeaderValue::from(length));
-        let kind = "attachment";
+        let disposition = attachment(&self.name);
         // part: files
-        let kind = if self.inline { "inline" } else { kind };
+        let disposition = if self.inline {
+            inline(&self.name)
+        } else {
+            disposition
+        };
         // end part: files
-        headers.insert(header::CONTENT_DISPOSITION, disposition(kind, &self.name));
+        headers.insert(header::CONTENT_DISPOSITION, disposition);
         headers.insert(
             header::CONTENT_SECURITY_POLICY,
             HeaderValue::from_static(SANDBOX),
@@ -163,17 +166,33 @@ where
     }
 }
 
-/// `Content-Disposition` of the type `kind` for bytes named `name`: the type, then the name as
-/// `filename`, an ASCII fallback, and as `filename*`, in UTF-8 percent-encoded as RFC 8187 says
+/// `Content-Disposition: attachment` for bytes named `name`, with [`named`]'s parameters
 /// (RFC 6266).
-fn disposition(kind: &str, name: &str) -> HeaderValue {
-    let value = format!(
-        "{kind}; filename=\"{}\"; filename*=UTF-8''{}",
+fn attachment(name: &str) -> HeaderValue {
+    as_header(&format!("attachment; {}", named(name)))
+}
+
+// part: files
+/// `Content-Disposition: inline` for bytes named `name`, with [`named`]'s parameters (RFC 6266).
+fn inline(name: &str) -> HeaderValue {
+    as_header(&format!("inline; {}", named(name)))
+}
+// end part: files
+
+/// The parameters of `Content-Disposition` that name bytes `name`: the name as `filename`, an
+/// ASCII fallback, and as `filename*`, in UTF-8 percent-encoded as RFC 8187 says (RFC 6266).
+fn named(name: &str) -> String {
+    format!(
+        "filename=\"{}\"; filename*=UTF-8''{}",
         fallback(name),
         percent_encoded(name)
-    );
+    )
+}
+
+/// `value`, a `Content-Disposition`, as a header's value.
+fn as_header(value: &str) -> HeaderValue {
     // Both forms of the name hold only visible ASCII, so the value is always a header's.
-    match HeaderValue::from_str(&value) {
+    match HeaderValue::from_str(value) {
         Ok(value) => value,
         Err(error) => {
             errors::ignore(&error, "disposition_name_not_set");
@@ -220,13 +239,13 @@ mod tests {
 
     #[test]
     fn platform_081_a_name_is_served_in_ascii_and_in_utf_8() {
-        let value = disposition("attachment", "Ré\"port 100%.pdf");
+        let value = attachment("Ré\"port 100%.pdf");
         assert_eq!(
             value.to_str().unwrap(),
             "attachment; filename=\"R__port 100_.pdf\"; filename*=UTF-8''R%C3%A9%22port%20100%25.pdf"
         );
         // A name that names a header or a parameter stays inside the parameters.
-        let value = disposition("attachment", "a.txt\r\nSet-Cookie: x; filename=evil");
+        let value = attachment("a.txt\r\nSet-Cookie: x; filename=evil");
         assert_eq!(
             value.to_str().unwrap(),
             "attachment; filename=\"a.txt__Set-Cookie: x; filename=evil\"; \

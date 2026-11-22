@@ -6,8 +6,8 @@
 use std::collections::{HashMap, HashSet};
 
 use super::{
-    LIST, Part, REMOVAL, Run, citations, exports, imports, is_migration, leftovers, list, markers,
-    matrix, owned, validate,
+    LIST, Part, REMOVAL, Run, asvs, citations, exports, imports, is_migration, leftovers, list,
+    markers, matrix, owned, validate,
 };
 use crate::{
     Finding, Outcome, metrics,
@@ -270,6 +270,14 @@ fn remove(repo: &Repo, parts: &[Part], run: &Run, read: &Read<'_>) -> (String, V
         .collect();
     let removing: Vec<&str> = removed.iter().map(|part| part.name.as_str()).collect();
     let owned: HashSet<String> = removed.iter().flat_map(|part| owned(repo, part)).collect();
+    // The security map as the removal keeps it, before its marked lines go.
+    let known: Vec<&str> = parts.iter().map(|part| part.name.as_str()).collect();
+    let map = repo
+        .file(asvs::MAP)
+        .and_then(|file| asvs::keeping(&file.text, &removing, &known));
+    let map_owners = map
+        .as_deref()
+        .and_then(|text| markers::owners(text, &known).ok());
     let mut findings = Vec::new();
     let mut kept = Vec::new();
     let mut edited = 0;
@@ -277,7 +285,11 @@ fn remove(repo: &Repo, parts: &[Part], run: &Run, read: &Read<'_>) -> (String, V
         let Some(owners) = read.owners.get(file.path.as_str()) else {
             continue;
         };
-        let lines = markers::kept(&file.text, owners, &removing);
+        let (text, owners) = match (map.as_deref(), map_owners.as_ref()) {
+            (Some(map), Some(map_owners)) if file.path == asvs::MAP => (map, map_owners),
+            _ => (file.text.as_str(), owners),
+        };
+        let lines = markers::kept(text, owners, &removing);
         if lines.len() < owners.len() {
             edited += 1;
             if file.path.ends_with(".rs") {

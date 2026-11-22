@@ -246,8 +246,8 @@ pub(super) fn resource(service: Service, environment: Environment) -> Resource {
 /// system's certificate store, as a verified database connection is (D38). It follows no
 /// redirect, so an export reaches the endpoint that the settings name, or fails (SEC-10).
 fn client(endpoint: &OtlpEndpoint) -> Result<reqwest::blocking::Client, ExportError> {
-    let tls = crate::tls::client_config(endpoint.0.scheme() == "https", None)
-        .map_err(ExportError::Client)?;
+    let tls =
+        crate::tls::client_config(endpoint.0.scheme() == "https").map_err(ExportError::Client)?;
     reqwest::blocking::Client::builder()
         .timeout(EXPORT_TIMEOUT)
         .redirect(reqwest::redirect::Policy::none())

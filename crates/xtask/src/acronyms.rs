@@ -48,20 +48,30 @@ pub fn check(repo: &Repo, catalog: &Catalog) -> Vec<Finding> {
     findings
 }
 
-/// The words a sentence that starts with `opening` lists after its colon, such as
-/// "…: API, CI and URL." gives API, CI and URL.
+/// The words that each sentence that starts with `opening` lists after its colon, such as
+/// "…: API, CI and URL." gives API, CI and URL, or `None` while no such sentence lists any.
 fn listed(text: &str, opening: &str) -> Option<Vec<String>> {
-    let start = text.find(opening)?;
-    let sentence = &text[start..];
-    let after_colon = &sentence[sentence.find(": ")? + 2..];
-    let list = &after_colon[..after_colon.find('.')?];
-    Some(
-        list.split(", ")
-            .flat_map(|part| part.split(" and "))
-            .map(|word| word.trim().to_owned())
-            .filter(|word| !word.is_empty())
-            .collect(),
-    )
+    let mut words = Vec::new();
+    let mut found = false;
+    for (start, _) in text.match_indices(opening) {
+        let sentence = &text[start..];
+        let Some(colon) = sentence.find(": ") else {
+            continue;
+        };
+        let after_colon = &sentence[colon + 2..];
+        let Some(end) = after_colon.find('.') else {
+            continue;
+        };
+        found = true;
+        words.extend(
+            after_colon[..end]
+                .split(", ")
+                .flat_map(|part| part.split(" and "))
+                .map(|word| word.trim().to_owned())
+                .filter(|word| !word.is_empty()),
+        );
+    }
+    found.then_some(words)
 }
 
 /// Each acronym whose first use in the document isn't spelled out.
@@ -212,6 +222,29 @@ mod tests {
             findings,
             [
                 "NEW_THING isn't spelled out where the document first uses it, and the glossary doesn't list it (DOC-06)"
+            ]
+        );
+    }
+
+    #[test]
+    fn doc_06_each_sentence_of_the_glossary_that_lists_assumed_acronyms_counts() {
+        let glossary = format!(
+            "{GLOSSARY_TEXT}The documents assume a developer knows these acronyms too: PNG and \
+             SVG.\n"
+        );
+        let document = "A PNG holds an image. An SVG holds a drawing. A GIF moves.\n";
+        let repo = Repo::of(&[(GLOSSARY, &glossary), ("docs/coverage.md", document)]);
+        let catalog = Catalog::read(&repo);
+
+        let findings: Vec<String> = check(&repo, &catalog)
+            .into_iter()
+            .map(|finding| finding.message)
+            .collect();
+
+        assert_eq!(
+            findings,
+            [
+                "GIF isn't spelled out where the document first uses it, and the glossary doesn't list it (DOC-06)"
             ]
         );
     }

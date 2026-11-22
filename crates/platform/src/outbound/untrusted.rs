@@ -67,7 +67,7 @@ impl Untrusted {
     /// When the TLS configuration, which trusts the operating system's certificates, can't be
     /// built.
     pub fn new(config: &OutboundConfig, hosts: Vec<String>) -> Result<Self, OutboundError> {
-        let tls = crate::tls::client_config(true, None)
+        let tls = crate::tls::client_config(true)
             .map_err(|error| OutboundError(format!("the TLS configuration: {error}")))?;
         let hosts: Arc<[String]> = hosts.into();
         let test_origin = config.test_origin.clone();
