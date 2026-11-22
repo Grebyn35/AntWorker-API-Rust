@@ -279,6 +279,14 @@ enum Command {
     /// value of the example's, which `just setup` and `just dev` run (OPS-20).
     #[command(name = "env-drift")]
     EnvDrift,
+    /// Writes the migrations that the newest release holds into a directory, which then holds
+    /// nothing else. `just test` runs it before the tests, one of which applies the migrations
+    /// on top of them (DATA-11).
+    #[command(name = "release-migrations")]
+    ReleaseMigrations {
+        /// The directory that `RELEASE_MIGRATIONS` names for the tests.
+        directory: std::path::PathBuf,
+    },
     /// Restarts each running service of compose.yaml whose configuration, the files that it
     /// mounts from `deploy/`, changed since it started. `just services` runs it first.
     #[command(name = "stale-services")]
@@ -392,7 +400,7 @@ fn main() -> ExitCode {
         Command::TestMap => test_map::check(&repo, &catalog),
         Command::SentRoutes { file } => test_map::sent::check_file(&repo, &file),
         Command::Docs => docs::check(&repo, &catalog),
-        Command::Openapi => openapi::check(&repo),
+        Command::Openapi => openapi::check_against_release(&repo),
         Command::Instrument => instrument::check(&repo),
         Command::Metrics => metrics::check(&repo),
         Command::MetricCatalog => write_catalog(&repo),
@@ -412,6 +420,7 @@ fn main() -> ExitCode {
         Command::TableOwnership => ownership::check(&repo),
         Command::Layout => layout::check(&repo),
         Command::Migrations => migrations::check(&repo),
+        Command::ReleaseMigrations { directory } => migrations::write_release(&directory),
         Command::SqlxCheck => query_cache::check(),
         // part: removal
         Command::Parts => parts::check(&repo),

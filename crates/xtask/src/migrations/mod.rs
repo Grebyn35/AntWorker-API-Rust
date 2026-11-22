@@ -20,7 +20,7 @@
 
 mod constraints;
 
-use std::{path::Path, process::Command};
+use std::{io, path::Path, process::Command};
 
 use crate::{
     Finding, Outcome, release,
@@ -237,6 +237,65 @@ fn newest_release(root: &Path) -> Result<Option<Release>, String> {
         migrations.push((path.to_owned(), bytes));
     }
     Ok(Some(Release { tag, migrations }))
+}
+
+/// Writes the migrations that the newest release holds into `directory`, which then holds
+/// nothing else: each file under `migrations/` of the release's tag, under the path it has
+/// there. Without a release, the directory is empty. `just test` runs it before the tests, one
+/// of which applies the migrations on top of the release's (DATA-11).
+pub fn write_release(directory: &Path) -> Outcome {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let written = newest_release(&root).and_then(|release| {
+        let failed = |error: io::Error| format!("can't write {}: {error}", directory.display());
+        emptied(directory).map_err(failed)?;
+        let Some(release) = release else {
+            return Ok("release-migrations: no release holds a migration yet.".to_owned());
+        };
+        for (path, bytes) in &release.migrations {
+            let file = directory.join(path.strip_prefix(MIGRATIONS).unwrap_or(path));
+            written(&file, bytes).map_err(failed)?;
+        }
+        Ok(format!(
+            "release-migrations: wrote the {} migrations of {}.",
+            release.migrations.len(),
+            release.tag
+        ))
+    });
+    match written {
+        Ok(report) => Outcome {
+            report: vec![report],
+            findings: Vec::new(),
+        },
+        Err(error) => Outcome {
+            report: Vec::new(),
+            findings: vec![Finding::new(MIGRATIONS, 1, error)],
+        },
+    }
+}
+
+/// Makes `directory` an empty directory, whatever it held.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the checks run as a synchronous program, with no async runtime to stall"
+)]
+fn emptied(directory: &Path) -> io::Result<()> {
+    match std::fs::remove_dir_all(directory) {
+        Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
+        _ => {}
+    }
+    std::fs::create_dir_all(directory)
+}
+
+/// Writes `bytes` to the file at `path`, creating the directories above it that don't exist yet.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the checks run as a synchronous program, with no async runtime to stall"
+)]
+fn written(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, bytes)
 }
 
 /// What `git args` writes, run at `root`.

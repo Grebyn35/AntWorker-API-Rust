@@ -6,6 +6,7 @@
 //! The decisions are pure functions of what git reports, so tests cover them without a
 //! repository; [`run`] gathers that state, and makes the change.
 
+mod notes;
 mod version;
 
 use std::{
@@ -225,6 +226,16 @@ pub fn run(requested: Option<&str>) -> ExitCode {
     if let Some(refused) = refusal(&state, requested) {
         return refuse(&refused);
     }
+    match read(&root.join(notes::CHANGELOG)).map(|changelog| notes::lacks(&changelog, requested)) {
+        Ok(None) => {}
+        Ok(Some(lack)) => {
+            return refuse(&format!(
+                "{lack} Write it as docs/operations/release.md says, commit it, and run this \
+                 again."
+            ));
+        }
+        Err(error) => return refuse(&format!("Can't read {}: {error}", notes::CHANGELOG)),
+    }
     if let Err(error) = write_version(&root, state.current, requested) {
         return refuse(&error);
     }
@@ -257,8 +268,9 @@ pub fn run(requested: Option<&str>) -> ExitCode {
     ))
 }
 
-/// Fails unless `version` can be a new release after the repository's release tags. The run on
-/// `main` calls it before it releases a version.
+/// Fails unless `version` can be a new release after the repository's release tags, and the
+/// changelog holds what [`notes::lacks`] asks of a final release's section. The run on `main`
+/// calls it before it releases a version.
 pub fn check(version: &str) -> ExitCode {
     let Ok(version) = version.parse::<Version>() else {
         return refuse(&format!(
@@ -267,15 +279,38 @@ pub fn check(version: &str) -> ExitCode {
         ));
     };
     let root = root();
-    match (Git { root: &root }).releases() {
-        Ok(releases) => match version_refusal(&releases, version) {
-            Some(refused) => refuse(&format!(
-                "{MANIFEST} sets {version}, so this commit isn't released. {refused}"
-            )),
-            None => ExitCode::SUCCESS,
-        },
-        Err(error) => refuse(&error),
+    let releases = match (Git { root: &root }).releases() {
+        Ok(releases) => releases,
+        Err(error) => return refuse(&error),
+    };
+    if let Some(refused) = version_refusal(&releases, version) {
+        return refuse(&format!(
+            "{MANIFEST} sets {version}, so this commit isn't released. {refused}"
+        ));
     }
+    match read(&root.join(notes::CHANGELOG)).map(|changelog| notes::lacks(&changelog, version)) {
+        Ok(None) => ExitCode::SUCCESS,
+        Ok(Some(lack)) => refuse(&format!(
+            "{lack} So this commit isn't released. Write it as docs/operations/release.md says, \
+             and push it: its run releases {version}."
+        )),
+        Err(error) => refuse(&format!("Can't read {}: {error}", notes::CHANGELOG)),
+    }
+}
+
+/// The file at `path`, from the repository's root, as the newest final release holds it, with
+/// that release's version, or `None` before the first final release.
+pub fn in_last_final_release(root: &Path, path: &str) -> Result<Option<(Version, String)>, String> {
+    let git = Git { root };
+    let finals = git
+        .releases()?
+        .into_iter()
+        .filter(|version| !version.is_prerelease());
+    let Some(newest) = finals.max() else {
+        return Ok(None);
+    };
+    let text = git.run(&["show", &format!("v{newest}:{path}")])?;
+    Ok(Some((newest, text)))
 }
 
 /// The versions that the repository's release tags name, none before the first release.

@@ -69,9 +69,9 @@ A migration keeps the previous release working. A column or table is removed or 
 - Check: `ci: check-migrations` (a migration that builds an index of a table that another migration creates is marked `-- no-transaction`, as the check's own doc says how it reads one, and an `ALTER TABLE` of such a table adds and validates a constraint in the forms that the doc of [its `constraints.rs`](../../crates/xtask/src/migrations/constraints.rs) names), `ci: check-schema` (the schema that every migration built holds no constraint that isn't valid), `review`, plus `test` (a membership signal in the previous release's form, and a keyed creation's result in it).
 
 ### DATA-11 Migrations are tested both ways
-CI applies every migration to an empty database, and applies the new migrations on top of the previous release's schema.
+A test applies every migration to an empty database. To a second, it applies the migrations that the newest release holds (DATA-09), then the migrations as they are, which adds the new ones. The two databases then hold one schema, by the lines that the test reads of each one's catalog, a table's columns in their order among them. In a repository without a release, such as a fork before its first, the second database takes every migration as the first does.
 - Why: fresh installs and upgrades both work.
-- Check: `ci: test-migrations`.
+- Check: `test`.
 
 ## Roles
 

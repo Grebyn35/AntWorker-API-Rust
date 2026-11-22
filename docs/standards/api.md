@@ -150,7 +150,7 @@ A batch of telemetry is documented as the OpenTelemetry Protocol defines it and 
 ### API-18 `/v1` only grows
 Within `/v1`, changes are additive: new routes, new optional request fields, new response fields, and a request that is taken where it was refused, such as one without a field that was required and is optional now (D151). Removing or changing anything else that exists requires `/v2`.
 - Why: a client built against `/v1` keeps working.
-- Check: `ci: check-openapi` (a breaking-change diff against the last final release).
+- Check: `ci: check-openapi` (a breaking-change diff against the last final release, which reads of the two documents what the comment of [`breaking`](../../crates/xtask/src/openapi/breaking/mod.rs) says), plus `review` (what the documents don't hold, such as what a route does with a request that it takes).
 
 ### API-19 Event names and payloads
 Server-sent events (SSE) are named `<resource>.<past-tense verb>`, for example `member.removed`. A payload carries IDs and non-sensitive fields only, and is a type that its event declares, whose schema the event catalog documents (REALTIME-008). Clients fetch details over REST.

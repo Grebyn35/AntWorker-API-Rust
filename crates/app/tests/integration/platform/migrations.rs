@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use platform::db::{ConnectError, Database, MigrateError, SchemaProblem, Versions, migrate};
 use sqlx::migrate::Migrator;
 
@@ -245,4 +247,156 @@ async fn platform_030_serve_starts_against_the_api_migrations() {
     let connected = Database::connect(&db.app_url(), 1, &app::MIGRATIONS).await;
 
     assert!(connected.is_ok(), "{:?}", connected.err());
+}
+
+/// The variable in which `just test` names the directory that holds the migrations of the
+/// newest release and nothing else.
+const RELEASE_MIGRATIONS: &str = "RELEASE_MIGRATIONS";
+
+/// A database's schema as its catalog holds it, in lines that it orders. Of the schemas that
+/// aren't Postgres's own, a line holds: a table, view or sequence with its owner, its row
+/// security, its privileges, its options, whether it is logged, the identity that replication
+/// reads, and its partitions' key and bound; a column with its place among its table's, its
+/// type, its default, its privileges, its collation and how it is stored; a constraint, an
+/// index, a trigger and a view as Postgres writes its definition; a function or procedure with
+/// its owner, its privileges and its definition; an enum, domain or range type; a collation;
+/// and the schema with its owner and privileges. Of the whole database, a line holds: a
+/// policy, a rule, a sequence's bounds, the statistics that a migration asks for, the default
+/// privileges, an extension with its version, and a comment on what isn't Postgres's own.
+const SCHEMA: &str = r"
+WITH own AS (
+  SELECT oid FROM pg_namespace WHERE nspname <> 'information_schema' AND nspname NOT LIKE 'pg\_%'
+)
+SELECT line FROM (
+  SELECT format('relation %s kind=%s owner=%s row_security=%s forced=%s privileges=%s options=%s '
+        || 'persistence=%s replica_identity=%s partition_key=%s partition_bound=%s',
+      c.oid::regclass, c.relkind, pg_get_userbyid(c.relowner), c.relrowsecurity,
+      c.relforcerowsecurity, c.relacl, c.reloptions, c.relpersistence, c.relreplident,
+      pg_get_partkeydef(c.oid), pg_get_expr(c.relpartbound, c.oid)) AS line
+    FROM pg_class c
+    WHERE c.relnamespace IN (SELECT oid FROM own) AND c.relkind IN ('r', 'p', 'v', 'm', 'S')
+  UNION ALL
+  SELECT format('column %s %s %s type=%s not_null=%s default=%s identity=%s generated=%s '
+        || 'privileges=%s collation=%s storage=%s compression=%s statistics=%s',
+      a.attrelid::regclass, row_number() OVER (PARTITION BY a.attrelid ORDER BY a.attnum),
+      a.attname, format_type(a.atttypid, a.atttypmod), a.attnotnull,
+      pg_get_expr(d.adbin, d.adrelid), a.attidentity, a.attgenerated, a.attacl,
+      a.attcollation::regcollation, a.attstorage, a.attcompression, a.attstattarget)
+    FROM pg_attribute a
+    JOIN pg_class c ON c.oid = a.attrelid
+    LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+    WHERE c.relnamespace IN (SELECT oid FROM own) AND c.relkind IN ('r', 'p', 'v', 'm')
+      AND a.attnum > 0 AND NOT a.attisdropped
+  UNION ALL
+  SELECT format('constraint %s on %s: %s',
+      con.conname, con.conrelid::regclass, pg_get_constraintdef(con.oid))
+    FROM pg_constraint con WHERE con.connamespace IN (SELECT oid FROM own)
+  UNION ALL
+  SELECT format('index %s usable=%s: %s',
+      i.indexrelid::regclass, i.indisvalid, pg_get_indexdef(i.indexrelid))
+    FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
+    WHERE c.relnamespace IN (SELECT oid FROM own)
+  UNION ALL
+  SELECT format('trigger %s on %s enabled=%s: %s',
+      t.tgname, t.tgrelid::regclass, t.tgenabled, pg_get_triggerdef(t.oid))
+    FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
+    WHERE NOT t.tgisinternal AND c.relnamespace IN (SELECT oid FROM own)
+  UNION ALL
+  SELECT format('view %s: %s', c.oid::regclass, pg_get_viewdef(c.oid))
+    FROM pg_class c
+    WHERE c.relnamespace IN (SELECT oid FROM own) AND c.relkind IN ('v', 'm')
+  UNION ALL
+  SELECT format('function %s owner=%s privileges=%s: %s',
+      p.oid::regprocedure, pg_get_userbyid(p.proowner), p.proacl, pg_get_functiondef(p.oid))
+    FROM pg_proc p
+    WHERE p.pronamespace IN (SELECT oid FROM own) AND p.prokind IN ('f', 'p')
+  UNION ALL
+  SELECT format('policy %s on %s.%s permissive=%s command=%s roles=%s using=%s check=%s',
+      policyname, schemaname, tablename, permissive, cmd, roles, qual, with_check)
+    FROM pg_policies
+  UNION ALL
+  SELECT format('type %s kind=%s owner=%s labels=%s base=%s',
+      t.oid::regtype, t.typtype, pg_get_userbyid(t.typowner),
+      (SELECT array_agg(e.enumlabel ORDER BY e.enumsortorder) FROM pg_enum e
+       WHERE e.enumtypid = t.oid),
+      format_type(t.typbasetype, t.typtypmod))
+    FROM pg_type t
+    WHERE t.typnamespace IN (SELECT oid FROM own) AND t.typtype IN ('e', 'd', 'r')
+  UNION ALL
+  SELECT format('sequence %s.%s type=%s start=%s min=%s max=%s step=%s cycles=%s',
+      schemaname, sequencename, data_type, start_value, min_value, max_value, increment_by,
+      cycle)
+    FROM pg_sequences
+  UNION ALL
+  SELECT format('schema %s owner=%s privileges=%s',
+      n.nspname, pg_get_userbyid(n.nspowner), n.nspacl)
+    FROM pg_namespace n WHERE n.oid IN (SELECT oid FROM own)
+  UNION ALL
+  SELECT format('default privileges of %s in %s for %s: %s',
+      pg_get_userbyid(d.defaclrole), d.defaclnamespace::regnamespace, d.defaclobjtype,
+      d.defaclacl)
+    FROM pg_default_acl d
+  UNION ALL
+  SELECT format('extension %s %s', extname, extversion) FROM pg_extension
+  UNION ALL
+  SELECT format('rule %s on %s.%s: %s', rulename, schemaname, tablename, definition)
+    FROM pg_rules
+  UNION ALL
+  SELECT format('statistics %s', pg_get_statisticsobjdef(s.oid)) FROM pg_statistic_ext s
+  UNION ALL
+  SELECT format('collation %s provider=%s locale=%s deterministic=%s',
+      c.oid::regcollation, c.collprovider, coalesce(c.colllocale, c.collcollate),
+      c.collisdeterministic)
+    FROM pg_collation c WHERE c.collnamespace IN (SELECT oid FROM own)
+  UNION ALL
+  -- Postgres numbers its own objects below 16384.
+  SELECT format('comment on %s: %s',
+      pg_describe_object(d.classoid, d.objoid, d.objsubid), d.description)
+    FROM pg_description d WHERE d.objoid >= 16384
+) lines
+ORDER BY line
+";
+
+#[tokio::test]
+async fn data_11_the_migrations_build_on_the_newest_release_s_schema_what_they_build_on_an_empty_database()
+ {
+    let directory = std::env::var_os(RELEASE_MIGRATIONS)
+        .expect("`just test` names the directory of the release's migrations");
+    let release = Migrator::new(Path::new(&directory))
+        .await
+        .expect("read the release's migrations");
+    let upgraded = TestDatabase::empty().await;
+    let earlier = migrate(&upgraded.owner_url(), &release).await.unwrap();
+
+    let new = migrate(&upgraded.owner_url(), &app::MIGRATIONS)
+        .await
+        .unwrap();
+
+    // The template of `fresh` is an empty database to which `migrate` applied every migration.
+    let fresh = TestDatabase::migrated().await;
+    // A new migration may come before one of the release's, as one that a fork ports does.
+    let mut applied = [earlier, new].concat();
+    applied.sort_unstable();
+    let every: Vec<i64> = app::MIGRATIONS
+        .iter()
+        .map(|migration| migration.version)
+        .collect();
+    assert_eq!(applied, every);
+    let (upgraded, fresh) = (
+        upgraded.owner_reads(SCHEMA).await,
+        fresh.owner_reads(SCHEMA).await,
+    );
+    assert!(fresh.iter().any(|line| line.starts_with("relation users ")));
+    let only = |of: &[String], other: &[String]| -> Vec<String> {
+        of.iter()
+            .filter(|line| !other.contains(line))
+            .cloned()
+            .collect()
+    };
+    assert_eq!(
+        (only(&upgraded, &fresh), only(&fresh, &upgraded)),
+        (Vec::new(), Vec::new()),
+        "the lines of the upgraded database's schema alone, then those of the new one's alone"
+    );
+    assert_eq!(upgraded, fresh);
 }

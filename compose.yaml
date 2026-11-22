@@ -214,13 +214,17 @@ services:
 
   # A cache of Docker Hub, from which the end-to-end tests' servers pull every image that Docker
   # Hub serves. `just e2e` fills it for the servers' platform before the tests run, so no test
-  # reaches a registry outside (TEST-06). It keeps what it holds between runs.
+  # reaches a registry outside (TEST-06). It keeps what it holds until its volume is removed,
+  # with no time to live: with one, the registry deletes a layer that two repositories share
+  # once the entry of the first that fetched it ends, and goes on answering the other's requests
+  # for it with a 200 and no bytes.
   mirror:
     logging: *logging
     profiles: [tools]
     image: registry:3.1.2@sha256:d4032d4cc323c1731c707931ecada07a53076eac38e3b61ae57533f170f2c6c3
     environment:
       REGISTRY_PROXY_REMOTEURL: https://registry-1.docker.io
+      REGISTRY_PROXY_TTL: 0
     volumes:
       - mirror:/var/lib/registry
     healthcheck: *registry-health

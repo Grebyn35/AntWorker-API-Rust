@@ -14,6 +14,11 @@ export SQLX_OFFLINE := "true"
 sent_routes := justfile_directory() / "target" / "sent-routes.tsv"
 export SENT_ROUTES := sent_routes
 
+# The directory into which `just test` writes the migrations of the newest release, which one of
+# the integration tests applies before the migrations as they are (DATA-11).
+release_migrations := justfile_directory() / "target" / "release-migrations"
+export RELEASE_MIGRATIONS := release_migrations
+
 api := "cargo run --locked --package app --bin antworker-api --"
 xtask := "cargo run --locked --quiet --package xtask --"
 

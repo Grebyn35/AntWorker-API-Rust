@@ -33,6 +33,11 @@ impl Version {
         ]
     }
 
+    /// Whether `self` is a prerelease, such as 1.4.0-rc.2, and not a final release.
+    pub fn is_prerelease(self) -> bool {
+        self.rc.is_some()
+    }
+
     /// The next prerelease of the same version, after a prerelease, such as 1.4.0-rc.3 after
     /// 1.4.0-rc.2.
     pub fn next_prerelease(self) -> Option<Self> {

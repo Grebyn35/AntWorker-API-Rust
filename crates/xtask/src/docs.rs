@@ -27,6 +27,12 @@ const INVENTORY: &str = "docs/inventory/";
 /// The migration tracker, the other part of the migration workspace (DOC-13).
 const TRACKER: &str = "docs/MIGRATION.md";
 
+/// The release notes for forks, one of history's homes (DOC-01, DOC-11).
+const CHANGELOG: &str = "CHANGELOG.md";
+
+/// The architecture decision records, another of history's homes (DOC-01, DOC-10).
+const ADRS: &str = "docs/adr/";
+
 /// Runs the check.
 pub fn check(repo: &Repo, catalog: &Catalog) -> Outcome {
     let documents: BTreeMap<&str, markdown::Document> = repo
@@ -282,16 +288,20 @@ fn column(text: &str, section: &str, chooses: impl Fn(&str) -> bool) -> Vec<Stri
     spans
 }
 
-/// Prose outside the inventory holds no history markers (DOC-01) and no unfinished-work markers
-/// (DOC-04). Code spans and code blocks aren't prose, so a document can name a marker in one.
+/// Prose outside the inventory holds no unfinished-work markers (DOC-04), and no history markers
+/// (DOC-01) outside the documents that are history's homes, the changelog and the ADRs. Code
+/// spans and code blocks aren't prose, so a document can name a marker in one.
 fn prose_markers(documents: &BTreeMap<&str, markdown::Document>) -> Vec<Finding> {
     let mut findings = Vec::new();
     for (path, document) in documents {
         if path.starts_with(INVENTORY) {
             continue;
         }
+        let records_history = *path == CHANGELOG || path.starts_with(ADRS);
         for (line, prose) in &document.prose {
-            findings.extend(history(path, *line, prose));
+            if !records_history {
+                findings.extend(history(path, *line, prose));
+            }
             findings.extend(unfinished(path, *line, prose));
         }
     }
@@ -375,7 +385,7 @@ fn in_documentation_set(path: &str) -> bool {
         "README.md",
         "CLAUDE.md",
         "SECURITY.md",
-        "CHANGELOG.md",
+        CHANGELOG,
         "docs/architecture.md",
         "docs/coverage.md",
         TRACKER,
@@ -383,7 +393,7 @@ fn in_documentation_set(path: &str) -> bool {
     const DIRECTORIES: [&str; 7] = [
         "docs/standards/",
         "docs/spec/",
-        "docs/adr/",
+        ADRS,
         "docs/operations/",
         "docs/guides/",
         ".claude/",
@@ -542,6 +552,27 @@ mod tests {
                 "docs/MIGRATION.md:5: \"no longer\" describes history; describe the current state (DOC-01)",
                 "docs/guides/history.md:3: \"previously\" describes history; describe the current state (DOC-01)",
                 "Cargo.toml:1: a date in a comment records when something was written; describe the current state (DOC-01)"
+            ]
+        );
+    }
+
+    #[test]
+    fn doc_01_the_changelog_and_an_adr_say_what_changed_and_no_other_document_does() {
+        let notes = "# Changelog\n\nA task no longer takes its lock, as it previously did.\n";
+        let marked: Vec<String> = findings(&[
+            (CHANGELOG, notes),
+            ("docs/adr/0001-locks.md", notes),
+            ("docs/guides/locks.md", notes),
+        ])
+        .into_iter()
+        .filter(|finding| finding.ends_with("(DOC-01)"))
+        .collect();
+
+        assert_eq!(
+            marked,
+            [
+                "docs/guides/locks.md:3: \"previously\" describes history; describe the current state (DOC-01)",
+                "docs/guides/locks.md:3: \"no longer\" describes history; describe the current state (DOC-01)",
             ]
         );
     }

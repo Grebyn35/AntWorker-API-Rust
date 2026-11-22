@@ -6,6 +6,7 @@
 //! reads, and the schema names it reads in the code in `schema_names`.
 
 pub mod actions;
+mod breaking;
 mod codes;
 pub mod events;
 mod lists;
@@ -33,6 +34,15 @@ const ORIGIN_NOT_ALLOWED: &str = "request.origin_not_allowed";
 const METHODS: [&str; 8] = [
     "get", "put", "post", "delete", "options", "head", "patch", "trace",
 ];
+
+/// Checks the committed document, and what it breaks of the last final release's (`breaking`).
+pub fn check_against_release(repo: &Repo) -> Outcome {
+    let mut outcome = check(repo);
+    let (report, broken) = breaking::check(repo);
+    outcome.report.extend(report);
+    outcome.findings.extend(broken);
+    outcome
+}
 
 /// Checks the committed document.
 pub fn check(repo: &Repo) -> Outcome {
