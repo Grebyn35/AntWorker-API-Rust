@@ -504,6 +504,13 @@ async fn auth_029_asking_for_codes_counts_in_a_bucket_of_the_address() {
 
     assert_eq!(refused.status, 429);
     assert_eq!(refused.json()["code"], "request.rate_limited");
+    assert!(
+        refused
+            .header("ratelimit-policy")
+            .starts_with("\"verification_email\";q=3;w=900"),
+        "{}",
+        refused.header("ratelimit-policy")
+    );
     assert_eq!(
         api.database()
             .owner_reads("SELECT count(*)::text FROM jobs")
@@ -551,6 +558,13 @@ async fn auth_029_registering_counts_in_the_bucket_of_its_address() {
 
     assert_eq!(refused.status, 429);
     assert_eq!(refused.json()["code"], "request.rate_limited");
+    assert!(
+        refused
+            .header("ratelimit-policy")
+            .starts_with("\"registration_email\";q=3;w=900"),
+        "{}",
+        refused.header("ratelimit-policy")
+    );
 }
 
 #[tokio::test]
@@ -1108,6 +1122,13 @@ async fn auth_033_every_check_counts_in_a_bucket_of_the_user_s() {
 
     assert_eq!(refused.status, 429);
     assert_eq!(refused.json()["code"], "request.rate_limited");
+    assert!(
+        refused
+            .header("ratelimit-policy")
+            .starts_with("\"code_check\";q=10;w=86400"),
+        "{}",
+        refused.header("ratelimit-policy")
+    );
     assert_eq!(
         api.database()
             .owner_reads("SELECT email_verified::text FROM users")

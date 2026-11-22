@@ -740,6 +740,44 @@ async fn auth_038_an_unknown_address_a_missing_code_an_expired_one_and_a_wrong_o
 }
 
 #[tokio::test]
+async fn auth_038_an_unknown_address_and_a_wrong_code_hash_the_password_before_they_answer() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    users::register(&api, &address).await;
+    ask(&api, &address).await;
+    let code = code_sent(&api, &address).await;
+    let unknown = mailbox::address("nobody");
+    let wrong = mailbox::other_grouped_code(&code);
+    // Every turn of the CPU-heavy work, which a hash waits for.
+    let turns = api.every_turn().await;
+
+    let mut confirming = Vec::new();
+    for (email, code) in [(&unknown, &code), (&address, &wrong)] {
+        let call = {
+            let (api, email, code) = (api.clone(), email.clone(), code.clone());
+            tokio::spawn(async move { confirm(&api, &email, &code).await })
+        };
+        // It waits for a turn, to hash its password, or it answers.
+        while api.workers().waiting() < confirming.len() + 1 && !call.is_finished() {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(
+            api.workers().waiting(),
+            confirming.len() + 1,
+            "{email}: the confirmation waits to hash its password"
+        );
+        confirming.push(call);
+    }
+
+    drop(turns);
+    for call in confirming {
+        let answer = call.await.unwrap();
+        assert_eq!(answer.status, 401);
+        assert_eq!(answer.json()["code"], "auth.invalid_reset_code");
+    }
+}
+
+#[tokio::test]
 async fn auth_038_a_malformed_address_code_and_password_answer_400_with_every_field() {
     let api = Api::new().await;
 

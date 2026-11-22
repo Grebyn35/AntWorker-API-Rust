@@ -5,7 +5,7 @@
 use serde_json::json;
 
 use crate::support::{
-    Api, Options, TestDatabase, execute_on, mailbox,
+    Api, Options, TestDatabase, answer_before_a_lock_wait, execute_on, mailbox,
     second_factors::{add_app, challenge, code, complete, forget_steps, other_code},
     users::{self, PASSWORD, WEB},
 };
@@ -360,11 +360,12 @@ async fn auth_060_a_wrong_code_answers_401_records_it_and_leaves_the_challenge()
     assert_eq!(
         reads(
             &api,
-            "SELECT user_id || ' ' || coalesce(actor_user_id::text, '-') FROM audit_entries \
+            "SELECT user_id || ' ' || coalesce(actor_user_id::text, '-') || ' ' || resource_type \
+             || ' ' || resource_id || ' ' || details::text FROM audit_entries \
              WHERE action = 'second_factor.check_failed'"
         )
         .await,
-        [format!("{ada_id} -")]
+        [format!("{ada_id} - user {ada_id} {{}}")]
     );
     let recovery = complete(
         &api,
@@ -506,8 +507,56 @@ async fn auth_061_a_signed_in_user_s_checks_of_codes_count_in_one_bucket_of_thei
         "{}",
         changed.header("ratelimit-policy")
     );
+    // The 13 requests counted in the bucket of codes, which refused the last 3, so the 2 that
+    // carry a password never reached the password's bucket.
+    assert_eq!(
+        users::counted_in(&api, "second_factor_check", &ada).await,
+        Some(13)
+    );
+    assert_eq!(users::counted_in(&api, "password_check", &ada).await, None);
     // Another user's bucket is their own.
     add_app(&api, &bob).await;
+}
+
+#[tokio::test]
+async fn auth_061_a_check_of_a_code_beyond_its_limit_answers_429_before_its_unit_of_work_takes_the_user_s_turn()
+ {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let secret = crate::support::second_factors::start_setup(&api, &ada)
+        .await
+        .json()["secret"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let right = code(&api, &secret).await;
+    for _ in 0..10 {
+        let wrong = crate::support::second_factors::confirm(&api, &ada, &other_code(&right)).await;
+        assert_eq!(wrong.status, 422);
+    }
+    let db = api.database();
+    // Held against the user's turn, which the confirmation's unit of work takes first.
+    let mut held = db
+        .holding(&format!(
+            "SELECT 1 FROM users WHERE id = '{}' FOR UPDATE",
+            ada.user_id
+        ))
+        .await;
+
+    let refused = answer_before_a_lock_wait(
+        db,
+        crate::support::second_factors::confirm(&api, &ada, &right),
+    )
+    .await;
+
+    execute_on(&mut held, "COMMIT").await;
+    assert!(
+        refused.is_some(),
+        "the confirmation waited for the user's turn"
+    );
+    let refused = refused.unwrap();
+    assert_eq!(refused.status, 429, "{}", refused.json());
+    assert_eq!(refused.json()["code"], "request.rate_limited");
 }
 
 #[tokio::test]
@@ -543,6 +592,31 @@ async fn auth_066_an_app_s_secret_is_stored_encrypted_and_moves_to_the_current_k
     assert_eq!(completed.status, 201, "{}", completed.json());
     let versions = reads(&next, "SELECT key_version::text FROM totp_factors").await;
     assert_eq!(versions, ["2"]);
+}
+
+#[tokio::test]
+async fn auth_066_a_run_of_the_job_moves_the_secrets_of_more_apps_than_one_batch_holds() {
+    let database = TestDatabase::migrated().await;
+    // 1,001 apps whose secret the old key holds, one more than a batch of 1,000.
+    let users = users::many_with_a_session(&database, 1001).await;
+    crate::support::second_factors::apps_sealed_by(&database, &users, &format!("1:{}", key(1)))
+        .await;
+    let api = Api::on(
+        database,
+        Options::default().set("ENCRYPTION_KEYS", format!("1:{},2:{}", key(1), key(2))),
+    )
+    .await;
+
+    api.run_periodic("auth.reencrypt_secrets").await;
+
+    assert_eq!(
+        reads(
+            &api,
+            "SELECT key_version || ' ' || count(*) FROM totp_factors GROUP BY key_version"
+        )
+        .await,
+        ["2 1001"]
+    );
 }
 
 #[tokio::test]

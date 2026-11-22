@@ -260,6 +260,7 @@ async fn auth_043_the_caller_lists_their_sessions_that_last_and_no_other_user_s(
         assert!(newest[field].is_string(), "{field}");
     }
     for item in body["items"].as_array().unwrap() {
+        assert_eq!(item.get("provider"), Some(&json!(null)), "a password's");
         assert!(item.get("access_token").is_none());
         assert!(item.get("refresh_token").is_none());
         assert!(item.get("user_id").is_none());

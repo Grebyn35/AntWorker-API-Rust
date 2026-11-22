@@ -62,6 +62,24 @@ async fn auth_009_a_browser_s_access_cookie_authenticates_without_an_authorizati
 }
 
 #[tokio::test]
+async fn auth_009_an_authorization_header_that_holds_no_bearer_token_leaves_the_access_cookie_unread()
+ {
+    let api = browsers_api().await;
+    let signed_in = browser_sign_in(&api).await;
+    let access = cookie(&signed_in, "access_token");
+
+    let response = api
+        .get("/v1/users/me")
+        .header("authorization", "Basic YWRhOnB3")
+        .header("cookie", &format!("__Host-access_token={access}"))
+        .send()
+        .await;
+
+    assert_eq!(response.status, 401);
+    assert_eq!(response.json()["code"], "request.unauthenticated");
+}
+
+#[tokio::test]
 async fn auth_010_refreshing_rotates_the_pair_and_keeps_the_old_refresh_hash() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
@@ -79,11 +97,24 @@ async fn auth_010_refreshing_rotates_the_pair_and_keeps_the_old_refresh_hash() {
     assert_eq!(body["id"], ada.session_id.as_str());
     let access = body["access_token"].as_str().unwrap();
     assert_ne!(access, ada.access);
-    assert_ne!(body["refresh_token"].as_str().unwrap(), ada.refresh);
+    let refresh = body["refresh_token"].as_str().unwrap();
+    assert_ne!(refresh, ada.refresh);
     let old = api.get("/v1/users/me").bearer(&ada.access).send().await;
     assert_eq!(old.status, 401);
     let new = api.get("/v1/users/me").bearer(access).send().await;
     assert_eq!(new.status, 200);
+    assert_eq!(
+        api.database()
+            .owner_reads(&format!(
+                "SELECT coalesce(refresh_token_hash = sha256(convert_to('{refresh}', 'UTF8')) \
+                 AND previous_refresh_token_hash = sha256(convert_to('{}', 'UTF8')), false)::text \
+                 FROM sessions",
+                ada.refresh
+            ))
+            .await,
+        ["true"],
+        "the old refresh hash is kept as the previous one"
+    );
     assert_eq!(
         api.database()
             .owner_reads("SELECT action FROM audit_entries WHERE action = 'session.refreshed'")
@@ -749,6 +780,7 @@ async fn auth_016_the_current_session_is_readable_without_its_tokens() {
     assert_eq!(session["user_id"], signed_in["user_id"]);
     assert_eq!(session["device_id"], "phone_2");
     assert_eq!(session["device_name"], "Ada's phone");
+    assert_eq!(session.get("provider"), Some(&json!(null)), "a password's");
     assert!(session.get("access_token").is_none());
     assert!(session.get("refresh_token").is_none());
     for field in [

@@ -19,19 +19,9 @@ use crate::support::{
 
 const NEW_PASSWORD: &str = "walnut-ferry-88-bright";
 
-/// Takes every turn of the API's CPU-heavy work, as a burst of sign-ins does.
-async fn every_turn(api: &Api) -> Vec<Turn> {
-    let workers = api.workers();
-    let mut turns = Vec::new();
-    for _ in 0..workers.turns() {
-        turns.push(workers.turn().await.unwrap());
-    }
-    turns
-}
-
 /// Takes every turn but one, which the test's requests hash in, one at once.
 async fn every_turn_but_one(api: &Api) -> Vec<Turn> {
-    let mut turns = every_turn(api).await;
+    let mut turns = api.every_turn().await;
     turns.pop();
     turns
 }
@@ -83,7 +73,7 @@ fn identity_row(user: &users::SignedIn) -> String {
 async fn auth_093_sign_ins_that_wait_for_their_turn_at_hashing_hold_no_connection_of_the_pool() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
-    let turns = every_turn(&api).await;
+    let turns = api.every_turn().await;
     // More sign-ins than the pool has connections, each of which waits for a turn.
     let waiting: Vec<_> = (0..usize::try_from(TestDatabase::POOL_SIZE).unwrap() + 2)
         .map(|_| signing_in(&api, "ada@example.com"))
@@ -106,7 +96,7 @@ async fn auth_093_sign_ins_that_wait_for_their_turn_at_hashing_hold_no_connectio
 async fn auth_093_checks_of_a_signed_in_user_s_password_wait_for_their_turn_the_same_way() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
-    let turns = every_turn(&api).await;
+    let turns = api.every_turn().await;
     // More checks than the pool has connections, and as many as their bucket takes (AUTH-022).
     let waiting: Vec<_> = (0..usize::try_from(TestDatabase::POOL_SIZE).unwrap() + 1)
         .map(|_| {
@@ -150,7 +140,7 @@ async fn auth_093_a_sign_in_s_rehash_is_made_in_the_turn_it_took_first() {
     ))
     .await;
     let mut held = db.holding(&identity_row(&bob)).await;
-    let mut turns = every_turn(&api).await;
+    let mut turns = api.every_turn().await;
     // Ada's sign-in waits for a turn, and Bob's behind it.
     let ada_signing_in = signing_in(&api, "ada@example.com");
     wait_for_turns(&api, 1).await;
@@ -181,7 +171,7 @@ async fn auth_093_a_change_s_new_password_is_hashed_in_the_turn_its_check_took()
     let bob = users::register(&api, "bob@example.com").await;
     let db = api.database();
     let mut held = db.holding(&identity_row(&bob)).await;
-    let mut turns = every_turn(&api).await;
+    let mut turns = api.every_turn().await;
     // Ada's change waits for a turn, and Bob's sign-in behind it.
     let body = json!({ "current_password": PASSWORD, "password": NEW_PASSWORD });
     let ada_changing = changing(&api, &ada, body);

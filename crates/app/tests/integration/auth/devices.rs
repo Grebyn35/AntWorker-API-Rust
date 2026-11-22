@@ -42,8 +42,8 @@ fn bucket(response: &Response) -> String {
     policy.split('"').nth(1).unwrap_or_default().to_owned()
 }
 
-/// Whether each of `tokens` is stored, by its hash, in the order of the rows' creation, each with
-/// its lifetime in seconds.
+/// Whether each of `tokens` is stored, by its hash, in the order of `tokens`: its lifetime in
+/// seconds, or `none`.
 async fn stored(api: &Api, tokens: &[&str]) -> Vec<String> {
     let mut rows = Vec::new();
     for token in tokens {

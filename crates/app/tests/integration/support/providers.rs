@@ -1,6 +1,7 @@
 //! The tests' stand-in provider: the settings of an API that signs in through it, what it gives,
 //! and the requests that sign in through it (the auth spec's "Signing in through a provider").
 
+use platform::telemetry::testing;
 use serde_json::{Value, json};
 
 use super::{
@@ -63,4 +64,28 @@ pub async fn signed_in(api: &Api) -> SignedIn {
     let response = sign_in(api, &grant()).await;
     assert_eq!(response.status, 201, "{}", response.json());
     SignedIn::from(&response)
+}
+
+/// Whether the request whose answer `response` is logged that it ignored a token's deletion
+/// that failed, with `cause` in what it wrote of it (ERR-11).
+pub fn kept_token_logged(response: &Response, cause: &str) -> bool {
+    testing::logged(response.trace_id()).iter().any(|line| {
+        line["error.type"] == "provider_token_not_deleted"
+            && line["exception.message"]
+                .as_str()
+                .is_some_and(|message| message.contains(cause))
+    })
+}
+
+/// How many deletions of a provider's token that failed the process has counted, as ignored
+/// errors, so far (ERR-11). Tests running alongside count them too, so a test compares the
+/// count after its request with the count before it, which grows by at least its own.
+pub fn kept_tokens_counted() -> f64 {
+    testing::recorded("platform.errors_ignored")
+        .into_iter()
+        .filter(|point| {
+            point.labels.get("error.type").map(String::as_str) == Some("provider_token_not_deleted")
+        })
+        .map(|point| point.value)
+        .sum()
 }

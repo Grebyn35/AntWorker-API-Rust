@@ -8,11 +8,12 @@ use axum::{Router, body::Body, extract::ConnectInfo};
 use http::{HeaderMap, HeaderName, HeaderValue, Method, Request, StatusCode};
 use http_body_util::BodyExt;
 use platform::{
-    blocking::Workers,
+    blocking::{Turn, Workers},
     clock::{SharedClock, TestClock},
     config::{ConfigError, ServerConfig, Settings},
     db::Database,
     events::Hub,
+    hashing::HmacKey,
     http::Routes,
     jobs::Jobs,
     lifecycle::Readiness,
@@ -32,6 +33,13 @@ pub(crate) const SERVICE: Service = Service {
 
 /// The base64 of the tests' `HMAC_KEY`: 32 bytes of 7.
 const HMAC_KEY: &str = "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=";
+
+/// The key of the tests' `HMAC_KEY`, with which a test finds what an API with that setting keys
+/// by an HMAC, such as a rate-limit bucket (PLATFORM-057).
+pub fn hmac_key() -> HmacKey {
+    let bytes = data_encoding::BASE64.decode(HMAC_KEY.as_bytes()).unwrap();
+    HmacKey::new(&bytes).unwrap()
+}
 
 /// The tests' `ENCRYPTION_KEYS`: one key, version 1, of 32 bytes of 7.
 const ENCRYPTION_KEYS: &str = "1:BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=";
@@ -323,6 +331,16 @@ impl Api {
     /// (PLATFORM-060).
     pub fn workers(&self) -> &Workers {
         &self.workers
+    }
+
+    /// Takes every turn of the API's CPU-heavy work, as a burst of sign-ins does, so that each
+    /// work of a request waits for a turn until the test drops them (PLATFORM-060).
+    pub async fn every_turn(&self) -> Vec<Turn> {
+        let mut turns = Vec::new();
+        for _ in 0..self.workers.turns() {
+            turns.push(self.workers.turn().await.unwrap());
+        }
+        turns
     }
 
     /// Waits until the API's hub has loaded every event that committed so far, so that a stream

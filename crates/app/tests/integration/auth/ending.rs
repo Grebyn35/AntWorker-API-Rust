@@ -209,19 +209,8 @@ async fn auth_046_the_operator_s_end_publishes_session_ended_for_each_session_it
 #[tokio::test]
 async fn auth_094_with_all_the_subcommand_ends_the_sessions_of_more_users_than_one_read_takes() {
     let api = Api::new().await;
-    let db = api.database();
     // 1,001 users with a session each, one more than a read of the users takes.
-    db.owner_executes(
-        "WITH added AS (INSERT INTO users (email, name) \
-         SELECT 'user' || n || '@example.com', 'User ' || n FROM generate_series(1, 1001) AS n \
-         RETURNING id) \
-         INSERT INTO sessions (user_id, access_token_hash, refresh_token_hash, \
-         access_token_expires_at, refresh_token_expires_at, expires_at) \
-         SELECT id, sha256(('access ' || id)::bytea), sha256(('refresh ' || id)::bytea), \
-         now() + interval '1 hour', now() + interval '1 day', now() + interval '2 days' \
-         FROM added",
-    )
-    .await;
+    users::many_with_a_session(api.database(), 1001).await;
 
     let ended = end(&api, &["--all"]).await;
 

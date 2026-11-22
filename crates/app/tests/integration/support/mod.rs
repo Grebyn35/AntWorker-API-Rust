@@ -616,6 +616,25 @@ impl Server {
             .await
             .expect("a response from the server")
     }
+
+    /// Sends `body` as JSON to `path`, in the trace `trace`, whose ID is 32 hexadecimal digits,
+    /// and returns the whole response as text.
+    pub async fn post_in_trace(&self, path: &str, body: &Value, trace: &str) -> String {
+        let body = body.to_string();
+        http_exchange(
+            self.address,
+            "POST",
+            path,
+            &[
+                ("traceparent", &format!("00-{trace}-b7ad6b7169203331-01")),
+                ("content-type", "application/json"),
+                ("content-length", &body.len().to_string()),
+            ],
+            &body,
+        )
+        .await
+        .expect("a response from the server")
+    }
 }
 
 impl Drop for Server {
@@ -688,6 +707,20 @@ pub async fn query_waits_on_a_lock(db: &TestDatabase, text: &str) {
         .any(|query| query.contains(text))
     {
         tokio::task::yield_now().await;
+    }
+}
+
+/// What `request` answers, or none once a query of the test database waits on a lock first: a
+/// test holds a lock that a request must not wait for, such as one on a row that it reads only
+/// once a limit lets it through, and the request answers, or comes to wait on the lock, with no
+/// bound of its own (TEST-06).
+pub async fn answer_before_a_lock_wait<T>(
+    db: &TestDatabase,
+    request: impl std::future::Future<Output = T>,
+) -> Option<T> {
+    tokio::select! {
+        answer = request => Some(answer),
+        () = queries_wait_on_locks(db, 1) => None,
     }
 }
 

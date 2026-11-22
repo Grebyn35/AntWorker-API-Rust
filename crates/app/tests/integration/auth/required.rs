@@ -84,8 +84,8 @@ async fn auth_070_an_account_without_an_app_is_refused_but_where_setting_one_up_
         "request.second_factor_setup_required"
     );
 
-    // The routes that verifying an address needs pass, the session's among them, and those that
-    // setting an app up needs.
+    // Two of the routes that verifying an address needs pass, reading the session and
+    // re-authenticating, and so do those that setting an app up needs.
     let session = current(&api, &ada).await;
     assert_eq!(session.status, 200);
     assert_eq!(session.json()["second_factor_setup_required"], true);
@@ -133,6 +133,25 @@ async fn auth_070_an_account_without_an_app_is_refused_but_where_setting_one_up_
         .send()
         .await;
     assert_eq!(signed_out.status, 204);
+}
+
+#[tokio::test]
+async fn auth_070_an_account_without_an_app_signs_out() {
+    let api = requiring().await;
+    let ada = users::register(&api, "ada@example.com").await;
+
+    let signed_out = api
+        .request(http::Method::DELETE, "/v1/users/me/sessions/current")
+        .bearer(&ada.access)
+        .send()
+        .await;
+
+    assert_eq!(signed_out.status, 204);
+    assert!(
+        reads(&api, "SELECT id::text FROM sessions")
+            .await
+            .is_empty()
+    );
 }
 
 #[tokio::test]

@@ -16,7 +16,7 @@ use tracing::{Instrument, instrument::WithSubscriber};
 use crate::support::{
     Server, TestDatabase,
     events::{self, Event},
-    execute_on, http_exchange, query_waits_on_a_lock, users,
+    execute_on, query_waits_on_a_lock, users,
 };
 
 fn hex(bytes: &[u8]) -> String {
@@ -31,24 +31,6 @@ async fn serve(database: &TestDatabase, collector: &Collector) -> Server {
             ("OTEL_EXPORTER_OTLP_ENDPOINT", &collector.endpoint()),
         ])
         .await
-}
-
-/// Sends `body` as JSON to `path` of `server`, in the trace `trace`, and returns the response.
-async fn post(server: &Server, path: &str, body: &serde_json::Value, trace: &str) -> String {
-    let body = body.to_string();
-    http_exchange(
-        server.address(),
-        "POST",
-        path,
-        &[
-            ("traceparent", &format!("00-{trace}-b7ad6b7169203331-01")),
-            ("content-type", "application/json"),
-            ("content-length", &body.len().to_string()),
-        ],
-        &body,
-    )
-    .await
-    .expect("a response from the server")
 }
 
 /// The spans among `received` whose parent is `parent`.
@@ -96,22 +78,22 @@ async fn platform_104_a_request_s_unit_of_work_and_its_limits_counts_run_in_chil
     let collector = Collector::start().await.unwrap();
     let database = TestDatabase::migrated().await;
     let server = serve(&database, &collector).await;
-    let registered = post(
-        &server,
-        "/v1/users",
-        &users::registration("ada@example.com"),
-        "0af7651916cd43dd8448eb211c80319c",
-    )
-    .await;
+    let registered = server
+        .post_in_trace(
+            "/v1/users",
+            &users::registration("ada@example.com"),
+            "0af7651916cd43dd8448eb211c80319c",
+        )
+        .await;
     let trace = "5bf1a8b1a1e04e7a8c0f1d2e3a4b5c6d";
 
-    let signed_in = post(
-        &server,
-        "/v1/sessions",
-        &serde_json::json!({ "email": "ada@example.com", "password": users::PASSWORD }),
-        trace,
-    )
-    .await;
+    let signed_in = server
+        .post_in_trace(
+            "/v1/sessions",
+            &serde_json::json!({ "email": "ada@example.com", "password": users::PASSWORD }),
+            trace,
+        )
+        .await;
     let is_the_request_s = |span: &Span| -> bool {
         hex(&span.trace_id) == trace && span.kind == i32::from(SpanKind::Server)
     };

@@ -83,6 +83,24 @@ pub async fn without_password(db: &TestDatabase, email: &str) -> String {
     .remove(0)
 }
 
+/// Creates `count` accounts, `user1@example.com` and on, that hold no password, each with a
+/// session that lasts, through the `owner` connection, in one statement, so a test has more of
+/// them than a batch of the code takes; returns their IDs.
+pub async fn many_with_a_session(db: &TestDatabase, count: u32) -> Vec<String> {
+    db.owner_reads(&format!(
+        "WITH added AS (INSERT INTO users (email, name) \
+         SELECT 'user' || n || '@example.com', 'User ' || n FROM generate_series(1, {count}) AS n \
+         RETURNING id), \
+         started AS (INSERT INTO sessions (user_id, access_token_hash, refresh_token_hash, \
+         access_token_expires_at, refresh_token_expires_at, expires_at) \
+         SELECT id, sha256(('access ' || id)::bytea), sha256(('refresh ' || id)::bytea), \
+         now() + interval '1 hour', now() + interval '1 day', now() + interval '2 days' \
+         FROM added) \
+         SELECT id::text FROM added"
+    ))
+    .await
+}
+
 // part: workspace_setup
 /// Creates an account of `email` whose one identity is an account at a provider, as a sign-in
 /// through a provider registers one, through the `owner` connection, with its address proved
@@ -219,6 +237,25 @@ pub async fn buckets(api: &Api) -> Vec<String> {
     api.database()
         .owner_reads("SELECT id::text FROM rate_limit_buckets ORDER BY 1")
         .await
+}
+
+/// What the window of `user`'s bucket named `name`, such as `password_check`, has counted, or
+/// none when it has counted no request: the bucket whose key is the HMAC of `name` and the user's
+/// ID under the tests' `HMAC_KEY`, as a module keys a bucket of a user's (PLATFORM-057).
+pub async fn counted_in(api: &Api, name: &str, user: &SignedIn) -> Option<u32> {
+    let id = platform::types::read_id(&user.user_id).unwrap();
+    let key: String = super::api::hmac_key()
+        .hash(name, id.as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    api.database()
+        .owner_reads(&format!(
+            "SELECT count::text FROM rate_limit_buckets WHERE key_hash = decode('{key}', 'hex')"
+        ))
+        .await
+        .first()
+        .map(|count| count.parse().unwrap())
 }
 
 /// The ID of the one bucket that `request`, sent once, adds to those there before it.

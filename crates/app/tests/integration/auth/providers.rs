@@ -5,10 +5,13 @@ use platform::telemetry::testing;
 use serde_json::{Value, json};
 
 use crate::support::{
-    Api,
+    Api, TestDatabase,
     api::{self, Options, Response},
     execute_on,
-    providers::{self, VERIFIER, gives, grant, identity, sign_in, signed_in},
+    providers::{
+        self, VERIFIER, gives, grant, identity, kept_token_logged, kept_tokens_counted, sign_in,
+        signed_in,
+    },
     queries_wait_on_locks, second_factors,
     upstream::Upstream,
     users::{self, SignedIn},
@@ -53,17 +56,6 @@ fn deletions(upstream: &Upstream) -> Vec<Option<String>> {
         .collect()
 }
 
-/// Whether the request whose answer `response` is logged that it ignored a token's deletion
-/// that failed, with `cause` in what it wrote of it (ERR-11).
-fn kept_token_logged(response: &Response, cause: &str) -> bool {
-    testing::logged(response.trace_id()).iter().any(|line| {
-        line["error.type"] == "provider_token_not_deleted"
-            && line["exception.message"]
-                .as_str()
-                .is_some_and(|message| message.contains(cause))
-    })
-}
-
 /// The actions of the entries whose details name the stand-in.
 async fn provider_entries(api: &Api) -> Vec<String> {
     api.database()
@@ -71,6 +63,18 @@ async fn provider_entries(api: &Api) -> Vec<String> {
             "SELECT action FROM audit_entries WHERE details->>'provider' = 'stand_in' \
              ORDER BY created_at, id",
         )
+        .await
+}
+
+/// The scope, the log, the actor, the resource and the details of each entry of `action`, the
+/// actor `-` when there is none, in order (SEC-18).
+async fn entries(api: &Api, action: &str) -> Vec<String> {
+    api.database()
+        .owner_reads(&format!(
+            "SELECT scope || ' ' || user_id || ' ' || coalesce(actor_user_id::text, '-') || ' ' \
+             || resource_type || ' ' || resource_id || ' ' || details::text \
+             FROM audit_entries WHERE action = '{action}' ORDER BY id"
+        ))
         .await
 }
 
@@ -205,6 +209,24 @@ async fn auth_074_without_a_name_the_address_s_part_before_its_at_names_the_acco
 }
 
 #[tokio::test]
+async fn auth_074_a_part_before_the_at_of_more_than_100_characters_is_cut_to_100() {
+    let (upstream, api) = standing().await;
+    let local = format!("{}{}", "a".repeat(100), "b".repeat(20));
+    gives(
+        &upstream,
+        json!({ "sub": "s", "email": format!("{local}@example.com"), "proved": true }),
+    );
+
+    let response = sign_in(&api, &grant()).await;
+
+    assert_eq!(response.status, 201, "{}", response.json());
+    assert_eq!(
+        api.database().owner_reads("SELECT name FROM users").await,
+        ["a".repeat(100)]
+    );
+}
+
+#[tokio::test]
 async fn auth_074_a_registration_through_a_provider_records_user_registered_with_the_provider() {
     let (upstream, api) = standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
@@ -251,6 +273,29 @@ async fn auth_075_a_provider_that_proves_the_address_registers_it_proved_and_sen
 }
 
 #[tokio::test]
+async fn auth_075_with_email_off_a_provider_that_proves_the_address_registers_it_proved() {
+    let upstream = Upstream::start().await;
+    let api = Api::with(providers::stand_in(&upstream).set("EMAIL", "off")).await;
+    gives(&upstream, identity("subject-1", "ada@example.com", true));
+
+    let response = sign_in(&api, &grant()).await;
+
+    assert_eq!(response.status, 201, "{}", response.json());
+    assert_eq!(
+        api.database()
+            .owner_reads("SELECT email_verified::text FROM users")
+            .await,
+        ["true"]
+    );
+    assert!(
+        api.database()
+            .owner_reads("SELECT kind FROM jobs WHERE kind = 'auth.send_verification_code'")
+            .await
+            .is_empty()
+    );
+}
+
+#[tokio::test]
 async fn auth_075_a_sign_in_whose_provider_proves_the_account_s_address_proves_it() {
     let (upstream, api) = standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", false));
@@ -261,11 +306,10 @@ async fn auth_075_a_sign_in_whose_provider_proves_the_account_s_address_proves_i
 
     assert_eq!(response.status, 201, "{}", response.json());
     assert_eq!(response.json()["email_verification_required"], false);
+    let ada = response.json()["user_id"].as_str().unwrap().to_owned();
     assert_eq!(
-        api.database()
-            .owner_reads("SELECT action FROM audit_entries WHERE action = 'email.verified'")
-            .await,
-        ["email.verified"]
+        entries(&api, "email.verified").await,
+        [format!("user {ada} - user {ada} {{}}")]
     );
 }
 
@@ -350,39 +394,74 @@ async fn auth_077_the_exchange_sends_the_client_the_code_its_verifier_and_its_re
     }
 }
 
-#[tokio::test]
-async fn auth_077_invalid_grant_answers_401_and_any_other_refusal_or_failure_503() {
-    let (upstream, api) = standing().await;
-    upstream.set("POST", "/token", 400, json!({ "error": "invalid_grant" }));
-    let response = sign_in(&api, &grant()).await;
-    assert_eq!(response.status, 401);
-    assert_eq!(response.json()["code"], "auth.provider_code_rejected");
-
-    upstream.set("POST", "/token", 401, json!({ "error": "invalid_client" }));
-    let response = sign_in(&api, &grant()).await;
-    assert_eq!(response.status, 503, "a refusal of the API's own client");
-
-    upstream.set("POST", "/token", 500, json!({}));
-    let response = sign_in(&api, &grant()).await;
-    assert_eq!(response.status, 503);
+/// Asserts that `response` is AUTH-077's answer of a provider that the API can't exchange at.
+fn unavailable(response: &Response) {
+    assert_eq!(response.status, 503, "{}", response.json());
     assert_eq!(response.json()["code"], "auth.provider_unavailable");
     assert_eq!(response.header("retry-after"), "30");
+}
 
+/// How many accounts there are.
+async fn accounts(api: &Api) -> Vec<String> {
+    api.database()
+        .owner_reads("SELECT count(*)::text FROM users")
+        .await
+}
+
+#[tokio::test]
+async fn auth_077_invalid_grant_answers_401() {
+    let (upstream, api) = standing().await;
+    upstream.set("POST", "/token", 400, json!({ "error": "invalid_grant" }));
+
+    let response = sign_in(&api, &grant()).await;
+
+    assert_eq!(response.status, 401);
+    assert_eq!(response.json()["code"], "auth.provider_code_rejected");
+}
+
+#[tokio::test]
+async fn auth_077_a_refusal_of_the_api_s_own_client_answers_503() {
+    let (upstream, api) = standing().await;
+    upstream.set("POST", "/token", 401, json!({ "error": "invalid_client" }));
+
+    let response = sign_in(&api, &grant()).await;
+
+    unavailable(&response);
+}
+
+#[tokio::test]
+async fn auth_077_a_server_error_answers_503() {
+    let (upstream, api) = standing().await;
+    upstream.set("POST", "/token", 500, json!({}));
+
+    let response = sign_in(&api, &grant()).await;
+
+    unavailable(&response);
+}
+
+#[tokio::test]
+async fn auth_077_an_identity_that_the_api_can_t_read_answers_503() {
+    let (upstream, api) = standing().await;
     upstream.set("POST", "/token", 200, json!({ "access_token": "t" }));
     upstream.set("GET", "/identity", 200, json!({ "unexpected": true }));
-    let response = sign_in(&api, &grant()).await;
-    assert_eq!(response.status, 503, "an answer the API can't read");
 
+    let response = sign_in(&api, &grant()).await;
+
+    unavailable(&response);
+    assert_eq!(accounts(&api).await, ["0"]);
+}
+
+#[tokio::test]
+async fn auth_077_an_identity_without_a_subject_answers_503() {
+    let (upstream, api) = standing().await;
+    upstream.set("POST", "/token", 200, json!({ "access_token": "t" }));
     let nameless = json!({ "sub": "", "email": "ada@example.com" });
     upstream.set("GET", "/identity", 200, nameless);
+
     let response = sign_in(&api, &grant()).await;
-    assert_eq!(response.status, 503, "an identity without a subject");
-    assert_eq!(response.json()["code"], "auth.provider_unavailable");
-    let users = api
-        .database()
-        .owner_reads("SELECT count(*)::text FROM users")
-        .await;
-    assert_eq!(users, ["0"]);
+
+    unavailable(&response);
+    assert_eq!(accounts(&api).await, ["0"]);
 }
 
 #[tokio::test]
@@ -401,6 +480,62 @@ async fn auth_077_a_provider_that_doesn_t_answer_answers_503_at_the_exchange_s_d
     let response = call.await.unwrap();
     assert_eq!(response.status, 503);
     assert_eq!(response.json()["code"], "auth.provider_unavailable");
+}
+
+#[tokio::test]
+async fn auth_077_a_provider_whose_identity_doesn_t_come_answers_503_at_the_exchange_s_deadline() {
+    let (upstream, api) = standing().await;
+    upstream.set("POST", "/token", 200, json!({ "access_token": "t" }));
+    upstream.hang("GET", "/identity");
+    let clock = api.clock();
+    let call = {
+        let api = api.clone();
+        tokio::spawn(async move { sign_in(&api, &grant()).await })
+    };
+
+    // The token came, and the read of the identity waits.
+    while !upstream
+        .received()
+        .iter()
+        .any(|received| received.method == "GET" && received.path == "/identity")
+    {
+        tokio::task::yield_now().await;
+    }
+    clock.sleeping(std::time::Duration::from_secs(6)).await;
+    clock.advance(std::time::Duration::from_secs(6));
+
+    let response = call.await.unwrap();
+    unavailable(&response);
+}
+
+#[tokio::test]
+async fn auth_100_sign_ins_that_wait_for_the_provider_hold_no_connection_of_the_pool() {
+    let (upstream, api) = standing().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    upstream.hang("POST", "/token");
+    // More sign-ins than the pool has connections, each of which waits for the provider.
+    let waiting: Vec<_> = (0..usize::try_from(TestDatabase::POOL_SIZE).unwrap() + 2)
+        .map(|_| {
+            let api = api.clone();
+            tokio::spawn(async move { sign_in(&api, &grant()).await })
+        })
+        .collect();
+    while exchanges(&upstream).len() < waiting.len() {
+        tokio::task::yield_now().await;
+    }
+
+    // Other requests, each of which needs a connection of the pool, are served meanwhile.
+    let capabilities = api.get("/v1/capabilities").send().await;
+    let record = api.get("/v1/users/me").bearer(&ada.access).send().await;
+
+    assert_eq!(capabilities.status, 200);
+    assert_eq!(record.status, 200);
+    let clock = api.clock();
+    clock.sleeping(std::time::Duration::from_secs(6)).await;
+    clock.advance(std::time::Duration::from_secs(6));
+    for sign_in in waiting {
+        unavailable(&sign_in.await.unwrap());
+    }
 }
 
 #[tokio::test]
@@ -432,16 +567,13 @@ async fn auth_100_a_malformed_code_verifier_or_redirect_uri_answers_400_before_t
         .send()
         .await;
     assert_eq!(response.status, 400);
-    let body = response.json();
-    let fields: Vec<&str> = body["errors"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|error| error["field"].as_str().unwrap())
-        .collect();
     assert_eq!(
-        fields,
-        ["/code", "/code_verifier", "/redirect_uri"],
+        refused_fields(&response),
+        [
+            "/code invalid_code",
+            "/code_verifier invalid_code_verifier",
+            "/redirect_uri invalid_redirect_uri"
+        ],
         "API-10"
     );
 
@@ -450,7 +582,20 @@ async fn auth_100_a_malformed_code_verifier_or_redirect_uri_answers_400_before_t
         body["code"] = json!(code);
         let response = api.post_raw("/v1/sessions/provider", &body).send().await;
         assert_eq!(response.status, 400);
-        assert_eq!(response.json()["errors"][0]["field"], "/code");
+        assert_eq!(refused_fields(&response), ["/code invalid_code"]);
+    }
+    // 42 characters, 129, and 43 with one that RFC 7636 doesn't allow.
+    let short = "v".repeat(42);
+    for verifier in [short.clone(), "v".repeat(129), format!("{short}+")] {
+        let mut body = grant();
+        body["code_verifier"] = json!(verifier);
+        let response = api.post_raw("/v1/sessions/provider", &body).send().await;
+        assert_eq!(response.status, 400, "{verifier}");
+        assert_eq!(
+            refused_fields(&response),
+            ["/code_verifier invalid_code_verifier"],
+            "{verifier}"
+        );
     }
 
     let unlisted = json!({
@@ -464,6 +609,35 @@ async fn auth_100_a_malformed_code_verifier_or_redirect_uri_answers_400_before_t
     assert_eq!(response.json()["errors"][0]["field"], "/redirect_uri");
     assert_eq!(response.json()["errors"][0]["code"], "invalid_redirect_uri");
     assert!(upstream.received().is_empty());
+}
+
+#[tokio::test]
+async fn auth_100_a_code_of_2048_characters_and_verifiers_of_43_and_128_reach_the_exchange() {
+    let (upstream, api) = standing().await;
+    upstream.set("POST", "/token", 400, json!({ "error": "invalid_grant" }));
+
+    for (code, verifier) in [
+        ("c".repeat(2_048), "v".repeat(43)),
+        ("a-code".to_owned(), format!("{}-._~", "V9".repeat(62))),
+    ] {
+        let mut body = grant();
+        body["code"] = json!(code);
+        body["code_verifier"] = json!(verifier);
+        let response = sign_in(&api, &body).await;
+        assert_eq!(response.status, 401, "{}", response.json());
+    }
+
+    assert_eq!(exchanges(&upstream).len(), 2);
+}
+
+/// Each field that `response`, a 400, names, with its code.
+fn refused_fields(response: &Response) -> Vec<String> {
+    response.json()["errors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|error| format!("{} {}", error["field"], error["code"]).replace('"', ""))
+        .collect()
 }
 
 #[tokio::test]
@@ -569,11 +743,12 @@ async fn auth_101_another_subject_answers_403_records_it_and_changes_nothing() {
 
     assert_eq!(response.status, 403);
     assert_eq!(response.json()["code"], "auth.wrong_identity");
+    let id = &ada.user_id;
     assert_eq!(
-        api.database()
-            .owner_reads("SELECT action FROM audit_entries WHERE action = 'identity.check_failed'")
-            .await,
-        ["identity.check_failed"]
+        entries(&api, "identity.check_failed").await,
+        [format!(
+            "user {id} {id} user {id} {{\"provider\": \"stand_in\"}}"
+        )]
     );
     let deleted = api
         .request(http::Method::DELETE, "/v1/users/me/sessions/others")
@@ -741,7 +916,7 @@ async fn auth_029_a_registration_through_a_provider_that_sends_a_code_counts_in_
 }
 
 #[tokio::test]
-async fn auth_029_a_linked_account_s_sign_ins_count_in_no_registration_bucket() {
+async fn auth_099_a_linked_account_s_sign_ins_count_in_no_registration_bucket() {
     let (upstream, api) = standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", false));
 
@@ -888,14 +1063,30 @@ async fn auth_100_the_log_of_a_refusal_names_its_status_and_rfc_6749_s_code_alon
         401,
         json!({ "error": "invalid_client", "error_description": "detail-that-no-log-holds" }),
     );
-    assert_eq!(sign_in(&api, &grant()).await.status, 503);
+    let client_refused = sign_in(&api, &grant()).await;
     upstream.set(
         "POST",
         "/token",
         400,
         json!({ "error": "a_code_that_no_log_holds" }),
     );
-    assert_eq!(sign_in(&api, &grant()).await.status, 503);
+    let other_code = sign_in(&api, &grant()).await;
+
+    // The answer holds nothing of what the provider sent, its code of a refusal included.
+    for response in [&client_refused, &other_code] {
+        let mut body = response.json();
+        body["trace_id"] = json!(null);
+        assert_eq!(
+            body,
+            json!({
+                "type": "/problems/auth.provider_unavailable",
+                "title": "Provider unavailable",
+                "status": 503,
+                "code": "auth.provider_unavailable",
+                "trace_id": null,
+            })
+        );
+    }
 
     let failures: Vec<String> = testing::all_logged()
         .into_iter()
@@ -973,17 +1164,7 @@ async fn auth_079_a_deletion_that_fails_is_logged_and_counted_and_refuses_nothin
     let (upstream, api) = standing_with_both_clients().await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     upstream.set("DELETE", "/token", 500, json!({}));
-    let ignored = || -> f64 {
-        testing::recorded("platform.errors_ignored")
-            .into_iter()
-            .filter(|point| {
-                point.labels.get("error.type").map(String::as_str)
-                    == Some("provider_token_not_deleted")
-            })
-            .map(|point| point.value)
-            .sum()
-    };
-    let before = ignored();
+    let before = kept_tokens_counted();
 
     let response = sign_in(&api, &second_grant()).await;
 
@@ -993,7 +1174,7 @@ async fn auth_079_a_deletion_that_fails_is_logged_and_counted_and_refuses_nothin
         "ERR-11's line"
     );
     // Tests running alongside ignore errors too, so the count grows by at least this one.
-    assert!(ignored() >= before + 1.0, "ERR-11's count");
+    assert!(kept_tokens_counted() >= before + 1.0, "ERR-11's count");
 }
 
 #[tokio::test]
@@ -1038,13 +1219,10 @@ async fn auth_080_a_wrong_second_factor_answers_403_and_a_recovery_code_proves_i
     .await;
     assert_eq!(wrong.status, 403);
     assert_eq!(wrong.json()["code"], "auth.wrong_second_factor");
+    let id = &ada.user_id;
     assert_eq!(
-        api.database()
-            .owner_reads(
-                "SELECT action FROM audit_entries WHERE action = 'second_factor.check_failed'"
-            )
-            .await,
-        ["second_factor.check_failed"]
+        entries(&api, "second_factor.check_failed").await,
+        [format!("user {id} {id} user {id} {{}}")]
     );
 
     let recovered = reauthenticate(
@@ -1437,6 +1615,7 @@ async fn auth_061_a_re_authentication_through_a_provider_that_carries_a_code_cou
     let right = second_factors::code(&api, &app.secret).await;
     let limited = reauthenticate(&api, &ada, json!({ "second_factor_code": right })).await;
     let exchanged = upstream.received().len();
+    let password_checks = users::counted_in(&api, "password_check", &ada).await;
     let without_a_code = reauthenticate(&api, &ada, json!({})).await;
 
     assert_eq!(limited.status, 429, "{}", limited.json());
@@ -1451,6 +1630,10 @@ async fn auth_061_a_re_authentication_through_a_provider_that_carries_a_code_cou
     assert_eq!(
         exchanged, received,
         "before it reads the code, it exchanges nothing"
+    );
+    assert_eq!(
+        password_checks, None,
+        "the bucket of codes refused it before the password's counted it"
     );
     // One that carries no code counts in no such bucket.
     assert_eq!(without_a_code.status, 403, "{}", without_a_code.json());
@@ -1531,14 +1714,14 @@ async fn auth_100_a_re_authentication_refuses_a_malformed_body_before_the_exchan
         .send()
         .await;
     assert_eq!(malformed.status, 400);
-    let body = malformed.json();
-    let fields: Vec<&str> = body["errors"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|error| error["field"].as_str().unwrap())
-        .collect();
-    assert_eq!(fields, ["/code", "/code_verifier", "/redirect_uri"]);
+    assert_eq!(
+        refused_fields(&malformed),
+        [
+            "/code invalid_code",
+            "/code_verifier invalid_code_verifier",
+            "/redirect_uri invalid_redirect_uri"
+        ]
+    );
     assert!(upstream.received().is_empty(), "before the exchange");
 
     upstream.hang("POST", "/token");
