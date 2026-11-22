@@ -396,6 +396,55 @@
         "x": 0,
         "y": 24
       }
+    },
+    {
+      "type": "timeseries",
+      "title": "Is the API dropping telemetry from full queues?",
+      "description": "Spans and log records that each instance dropped in the last 5 minutes because they arrived while its queue for them held 2,048 already, by signal and instance (PLATFORM-106). Any drop is the alert ApiDroppingTelemetry.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (instance) (increase(otel_sdk_processor_span_processed_total{error_type=\"queue_full\"}[5m]))",
+          "legendFormat": "spans on {{instance}}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (instance) (increase(otel_sdk_processor_log_processed_total{error_type=\"queue_full\"}[5m]))",
+          "legendFormat": "log records on {{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "id": 8,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      }
     }
   ]
 }

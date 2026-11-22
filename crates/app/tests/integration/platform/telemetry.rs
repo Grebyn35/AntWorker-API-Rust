@@ -1,6 +1,7 @@
-//! The export of telemetry over OTLP (PLATFORM-066, PLATFORM-068, OBS-10), the metrics the
-//! pipeline and the readiness check record (PLATFORM-067, PLATFORM-069), and what the health
-//! probes leave out of the telemetry (OBS-15, PLATFORM-044).
+//! The export of telemetry over OTLP (PLATFORM-066, PLATFORM-068, OBS-10), the counts of what its
+//! queues drop (PLATFORM-106), the metrics the pipeline and the readiness check record
+//! (PLATFORM-067, PLATFORM-069), and what the health probes leave out of the telemetry (OBS-15,
+//! PLATFORM-044).
 
 use std::{
     collections::BTreeMap,
@@ -14,6 +15,7 @@ use std::{
 use http::{Method, StatusCode};
 use opentelemetry_proto::tonic::{
     common::v1::any_value,
+    metrics::v1::metric,
     resource::v1::Resource,
     trace::v1::{Span, span::SpanKind},
 };
@@ -25,7 +27,7 @@ use platform::telemetry::testing::{
 use serde_json::json;
 
 use crate::support::{
-    Api, CHECK_INTERVAL, Options, TestDatabase, fixtures, hex, jobs, mailbox, service_name,
+    Api, CHECK_INTERVAL, Options, Server, TestDatabase, fixtures, hex, jobs, mailbox, service_name,
 };
 
 /// The requests that `points` recorded with exactly `labels`.
@@ -821,4 +823,115 @@ async fn obs_10_an_export_that_fails_is_counted_and_the_subcommand_goes_on() {
     assert!(received.logs.is_empty());
     let failed = received.count("otel.sdk.exporter.log.exported", Some("export_failed"));
     assert!(failed >= 1, "{failed}");
+}
+
+/// Each metric of the scope in which the SDK counts itself, among every export of `received`, by
+/// its name, with the names of the attributes its data points carry.
+fn sdk_metrics(received: &Received) -> BTreeMap<String, Vec<String>> {
+    let mut metrics: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let scopes = received
+        .metrics
+        .iter()
+        .flat_map(|export| &export.resource_metrics)
+        .flat_map(|resource| &resource.scope_metrics)
+        .filter(|scope| {
+            scope
+                .scope
+                .as_ref()
+                .is_some_and(|scope| scope.name == "otel.sdk")
+        });
+    for metric in scopes.flat_map(|scope| &scope.metrics) {
+        let keys = metrics.entry(metric.name.clone()).or_default();
+        if let Some(metric::Data::Sum(sum)) = &metric.data {
+            keys.extend(
+                sum.data_points
+                    .iter()
+                    .flat_map(|point| &point.attributes)
+                    .map(|pair| pair.key.clone()),
+            );
+        }
+        keys.sort();
+        keys.dedup();
+    }
+    metrics
+}
+
+/// The `serve` of `database` that exports to `collector`.
+async fn exporting_to(database: &TestDatabase, collector: &Collector) -> Server {
+    database
+        .serve(&[
+            ("ENVIRONMENT", "production"),
+            ("OTEL_EXPORTER_OTLP_ENDPOINT", &collector.endpoint()),
+        ])
+        .await
+}
+
+/// Sends `server` `requests` requests for the capabilities, 16 at a time, so a queue fills
+/// before a held export's timeout lets its processor take another batch. Each ends at least two
+/// spans, its own and its rate limit's count, and writes a log record.
+async fn flood(server: &Server, requests: u16) {
+    for _ in 0..requests / 16 {
+        futures_util::future::join_all(
+            (0..16).map(|_| server.request("GET", "/v1/capabilities", &[])),
+        )
+        .await;
+    }
+}
+
+#[tokio::test]
+async fn platform_106_a_full_queue_of_spans_counts_what_it_drops_and_the_sdk_exports_no_other_count()
+ {
+    const REQUESTS: u16 = 2_000;
+    let collector = Collector::holding_traces().await.unwrap();
+    let database = TestDatabase::migrated().await;
+    let server = exporting_to(&database, &collector).await;
+
+    flood(&server, REQUESTS).await;
+    // The log records aren't held: the metrics that count their export were collected after
+    // the requests' spans ended.
+    let received = collector
+        .wait_for(|received| {
+            received.count("otel.sdk.exporter.log.exported", None) >= i64::from(REQUESTS)
+        })
+        .await;
+
+    let dropped = received.count("otel.sdk.processor.span.processed", Some("queue_full"));
+    let handed = received.count("otel.sdk.processor.span.processed", None);
+    assert!(dropped > 0, "{dropped}");
+    assert!(handed > 0, "{handed}");
+    assert_eq!(
+        sdk_metrics(&received),
+        BTreeMap::from([
+            (
+                "otel.sdk.processor.log.processed".to_owned(),
+                vec!["error.type".to_owned()]
+            ),
+            (
+                "otel.sdk.processor.span.processed".to_owned(),
+                vec!["error.type".to_owned()]
+            ),
+        ])
+    );
+}
+
+#[tokio::test]
+async fn platform_106_a_full_queue_of_log_records_counts_what_it_drops() {
+    const REQUESTS: u16 = 4_000;
+    let collector = Collector::holding_logs().await.unwrap();
+    let database = TestDatabase::migrated().await;
+    let server = exporting_to(&database, &collector).await;
+
+    flood(&server, REQUESTS).await;
+    // The spans aren't held: the metrics that count their export were collected after the
+    // requests wrote their log records.
+    let received = collector
+        .wait_for(|received| {
+            received.count("otel.sdk.exporter.span.exported", None) >= 2 * i64::from(REQUESTS)
+        })
+        .await;
+
+    let dropped = received.count("otel.sdk.processor.log.processed", Some("queue_full"));
+    let handed = received.count("otel.sdk.processor.log.processed", None);
+    assert!(dropped > 0, "{dropped}");
+    assert!(handed > 0, "{handed}");
 }

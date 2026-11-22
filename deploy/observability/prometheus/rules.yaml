@@ -207,6 +207,30 @@ groups:
           summary: An instance of the API failed to export spans, log records or metrics in the last 10 minutes.
           runbook: docs/operations/runbooks.md#telemetryexportfailing
 
+      # What an instance's queues of spans and of log records drop while they are full
+      # (PLATFORM-106). A series appears with the instance's first export of metrics, so the window
+      # counts a series that existed at its start by its increase, and a newer one by its value,
+      # which increase() would miss.
+      - alert: ApiDroppingTelemetry
+        expr: |
+          sum by (job, instance) (
+            (increase(otel_sdk_processor_span_processed_total{error_type="queue_full"}[10m])
+              and otel_sdk_processor_span_processed_total{error_type="queue_full"} offset 10m)
+            or (otel_sdk_processor_span_processed_total{error_type="queue_full"}
+              unless otel_sdk_processor_span_processed_total{error_type="queue_full"} offset 10m)
+          ) > 0
+          or sum by (job, instance) (
+            (increase(otel_sdk_processor_log_processed_total{error_type="queue_full"}[10m])
+              and otel_sdk_processor_log_processed_total{error_type="queue_full"} offset 10m)
+            or (otel_sdk_processor_log_processed_total{error_type="queue_full"}
+              unless otel_sdk_processor_log_processed_total{error_type="queue_full"} offset 10m)
+          ) > 0
+        labels:
+          severity: ticket
+        annotations:
+          summary: An instance of the API dropped spans or log records in the last 10 minutes, which arrived while its queue for them was full.
+          runbook: docs/operations/runbooks.md#apidroppingtelemetry
+
       # One alert for each receiver that refused and each exporter that failed, which its
       # `receiver` or its `exporter` names.
       - alert: CollectorDroppingTelemetry

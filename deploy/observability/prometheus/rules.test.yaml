@@ -306,6 +306,82 @@ tests:
               summary: An instance of the API failed to export spans, log records or metrics in the last 10 minutes.
               runbook: docs/operations/runbooks.md#telemetryexportfailing
 
+  # An instance's queue of spans drops spans between the 14th and the 15th minute: the alert
+  # fires from the 15th, and ends at the 24th, when the window of 10 minutes holds the count of
+  # after the drop alone.
+  - interval: 1m
+    input_series:
+      - series: 'otel_sdk_processor_span_processed_total{job="api", instance="a"}'
+        values: "0+100x30"
+      - series: 'otel_sdk_processor_span_processed_total{job="api", instance="a", error_type="queue_full"}'
+        values: "0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4 4"
+    alert_rule_test:
+      - eval_time: 14m
+        alertname: ApiDroppingTelemetry
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: ApiDroppingTelemetry
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              job: api
+              instance: a
+            exp_annotations:
+              summary: An instance of the API dropped spans or log records in the last 10 minutes, which arrived while its queue for them was full.
+              runbook: docs/operations/runbooks.md#apidroppingtelemetry
+      - eval_time: 23m
+        alertname: ApiDroppingTelemetry
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              job: api
+              instance: a
+            exp_annotations:
+              summary: An instance of the API dropped spans or log records in the last 10 minutes, which arrived while its queue for them was full.
+              runbook: docs/operations/runbooks.md#apidroppingtelemetry
+      - eval_time: 24m
+        alertname: ApiDroppingTelemetry
+        exp_alerts: []
+
+  # A replica that starts at the 12th minute dropped log records before its first export of
+  # metrics, its series' first value; another that starts with it dropped none; and drops at
+  # shutdown are no queue's that was full.
+  - interval: 1m
+    input_series:
+      - series: 'otel_sdk_processor_log_processed_total{job="api", instance="b", error_type="queue_full"}'
+        values: "_ _ _ _ _ _ _ _ _ _ _ _ 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2"
+      - series: 'otel_sdk_processor_log_processed_total{job="api", instance="c", error_type="queue_full"}'
+        values: "_ _ _ _ _ _ _ _ _ _ _ _ 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0"
+      - series: 'otel_sdk_processor_log_processed_total{job="api", instance="c", error_type="already_shutdown"}'
+        values: "_ _ _ _ _ _ _ _ _ _ _ _ 0+1x18"
+    alert_rule_test:
+      - eval_time: 11m
+        alertname: ApiDroppingTelemetry
+        exp_alerts: []
+      - eval_time: 12m
+        alertname: ApiDroppingTelemetry
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              job: api
+              instance: b
+            exp_annotations:
+              summary: An instance of the API dropped spans or log records in the last 10 minutes, which arrived while its queue for them was full.
+              runbook: docs/operations/runbooks.md#apidroppingtelemetry
+      - eval_time: 21m
+        alertname: ApiDroppingTelemetry
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              job: api
+              instance: b
+            exp_annotations:
+              summary: An instance of the API dropped spans or log records in the last 10 minutes, which arrived while its queue for them was full.
+              runbook: docs/operations/runbooks.md#apidroppingtelemetry
+      - eval_time: 22m
+        alertname: ApiDroppingTelemetry
+        exp_alerts: []
+
   # An exporter that fails to send, and a receiver that refuses, beside ones that do neither: the
   # alert names each.
   - interval: 1m

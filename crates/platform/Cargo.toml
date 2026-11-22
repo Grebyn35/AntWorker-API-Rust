@@ -30,7 +30,12 @@ opentelemetry-otlp.workspace = true
 opentelemetry-proto = { workspace = true, optional = true }
 # The names of semantic conventions still in development, such as the SDK's own metrics.
 opentelemetry-semantic-conventions = { workspace = true, features = ["semconv_experimental"] }
-opentelemetry_sdk.workspace = true
+# The SDK's own counts of what its processors drop, and the view that keeps those alone, each with
+# `error.type` alone (the platform spec's Telemetry export).
+opentelemetry_sdk = { workspace = true, features = [
+    "experimental_metrics_bound_instruments",
+    "spec_unstable_metrics_views",
+] }
 percent-encoding.workspace = true
 postgres-protocol.workspace = true
 prost = { workspace = true, optional = true }

@@ -150,9 +150,6 @@ pub fn init(service: Service, config: &TelemetryConfig) -> Result<Telemetry, Tel
         .with(lines)
         .with(records);
     tracing::subscriber::set_global_default(subscriber).map_err(|_| TelemetryError::Installed)?;
-    if let Some(metrics) = &metrics {
-        opentelemetry::global::set_meter_provider(metrics.clone());
-    }
     self::metrics::provided();
     std::panic::set_hook(Box::new(log_panic));
     Ok(Telemetry {

@@ -108,7 +108,15 @@ For any other failure, check the provider's status page, and that the server rea
 
 **Look first.** The Telemetry pipeline dashboard: "Is the API failing to export telemetry?" names the instance and the signal.
 
-**What to do.** Check that the collector runs and accepts data, and that the instance can reach `OTEL_EXPORTER_OTLP_ENDPOINT`. A collector that answers slowly fails exports too, once each outlasts the [export timeout](../spec/platform.md#telemetry-export).
+**What to do.** Check that the collector runs and accepts data, and that the instance can reach `OTEL_EXPORTER_OTLP_ENDPOINT`. A collector that answers slowly fails exports too, once each outlasts the [export timeout](../spec/platform.md#telemetry-export); within it, it fills the instance's queues, which [ApiDroppingTelemetry](#apidroppingtelemetry) reports.
+
+## ApiDroppingTelemetry
+
+**What it means.** An instance of the API dropped spans or log records in the last 10 minutes, which arrived while its queue for them held 2,048 already, as each queue holds ([platform spec](../spec/platform.md#telemetry-export), PLATFORM-106): its exports didn't carry them away as fast as they came, as when the collector answers each export slowly, or not before the export's timeout. The API goes on serving, but the traces and logs of its requests from that time may be missing, so their trace IDs may lead nowhere.
+
+**Look first.** The Telemetry pipeline dashboard: "Is the API dropping telemetry from full queues?" names the instance and the signal, and "Is the API failing to export telemetry?" shows whether its exports fail too, which [TelemetryExportFailing](#telemetryexportfailing) reports.
+
+**What to do.** Follow [TelemetryExportFailing](#telemetryexportfailing)'s checks of the collector, whether or not it fires: a collector that answers each export within the timeout, but slowly, fails none and still fills the queues. If the collector answers promptly, the instance ended more spans or wrote more lines than its exports carried, such as in a burst of requests beyond the capacity at which its queues keep up ([platform spec](../spec/platform.md#telemetry-export)): add replicas ([deploy.md](deploy.md#scaling)). The alert clears once 10 minutes have passed without a drop.
 
 ## CollectorDroppingTelemetry
 

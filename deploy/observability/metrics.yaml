@@ -1,5 +1,5 @@
-# The metrics that the dashboards and alerts read and that other parts of the stack produce, by
-# their names in Prometheus. check-metrics fails on a query of a metric that neither the API's
+# The metrics that the dashboards and alerts read and that the API's OpenTelemetry SDK counts
+# itself or other parts of the stack produce, by their names in Prometheus. check-metrics fails on a query of a metric that neither the API's
 # declarations nor this list holds, and on a metric here that nothing reads (OBS-12).
 
 metrics:
@@ -67,6 +67,14 @@ metrics:
     kind: counter
     producer: the collector
     description: Traces each sampling policy decided, by the policy and whether it kept them.
+  - name: otel_sdk_processor_span_processed_total
+    kind: counter
+    producer: the API's OpenTelemetry SDK
+    description: The spans that an instance's queue handed its exporter, with no error_type, and those it dropped, with error_type queue_full when they arrived while it was full (PLATFORM-106).
+  - name: otel_sdk_processor_log_processed_total
+    kind: counter
+    producer: the API's OpenTelemetry SDK
+    description: The log records that an instance's queue handed its exporter, with no error_type, and those it dropped, with error_type queue_full when they arrived while it was full (PLATFORM-106).
   # part: client_telemetry
   - name: http_client_request_duration_seconds_count
     kind: counter

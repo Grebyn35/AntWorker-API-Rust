@@ -3,7 +3,7 @@
 
 use std::{fmt, str::FromStr, time::Duration};
 
-use opentelemetry::KeyValue;
+use opentelemetry::{Key, KeyValue};
 use opentelemetry_otlp::{
     ExporterBuildError, LogExporter, MetricExporter, Protocol, SpanExporter, WithExportConfig,
     WithHttpConfig,
@@ -13,7 +13,7 @@ use opentelemetry_sdk::{
     error::OTelSdkResult,
     logs::{BatchLogProcessor, LogBatch, LogExporter as ExportsLogs, SdkLoggerProvider},
     metrics::{
-        PeriodicReader, SdkMeterProvider, Temporality,
+        Aggregation, Instrument, PeriodicReader, SdkMeterProvider, Stream, Temporality,
         data::{AggregatedMetrics, MetricData, ResourceMetrics},
         exporter::PushMetricExporter,
     },
@@ -47,6 +47,22 @@ const EXPORT_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long the tracer and the logger each have to write out what they hold at shutdown. The
 /// meter's SDK allows itself 5 seconds.
 pub(super) const FLUSH_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// The scope of the metrics that the SDK counts itself.
+const SDK_SCOPE: &str = "otel.sdk";
+
+/// The metrics that count what the processors of spans and of log records hand on and drop,
+/// which [`sdk_view`] keeps of the SDK's own.
+const PROCESSED: [&str; 2] = [
+    convention(
+        "otel.sdk.processor.span.processed",
+        otel::OTEL_SDK_PROCESSOR_SPAN_PROCESSED,
+    ),
+    convention(
+        "otel.sdk.processor.log.processed",
+        otel::OTEL_SDK_PROCESSOR_LOG_PROCESSED,
+    ),
+];
 
 static SPANS_EXPORTED: Counter<1> = Counter::new(
     convention(
@@ -144,9 +160,12 @@ pub enum ExportError {
     /// An exporter refused its configuration.
     #[error("an exporter couldn't be built")]
     Exporter(#[source] ExporterBuildError),
+    /// The view of the metrics that the SDK counts itself couldn't be built.
+    #[error("the view of the SDK's own metrics couldn't be built: {0}")]
+    View(String),
 }
 
-/// The providers that export, built and not yet installed.
+/// The providers that export, built, of which only the meter provider is installed yet.
 pub(super) struct Exporting {
     pub(super) spans: BatchSpanProcessor,
     pub(super) logs: SdkLoggerProvider,
@@ -154,7 +173,9 @@ pub(super) struct Exporting {
     pub(super) resource: Resource,
 }
 
-/// Builds the exporters for `endpoint` and the providers that batch for them.
+/// Builds the exporters for `endpoint` and the providers that batch for them, and installs the
+/// meter provider as the process's before it builds the processors, which count what they drop
+/// in it (the platform spec's Telemetry export).
 pub(super) fn build(
     service: Service,
     environment: Environment,
@@ -197,6 +218,21 @@ pub(super) fn build(
         .with_max_export_batch_size(EXPORT_BATCH)
         .with_max_queue_size(QUEUE)
         .build();
+    for kept in [true, false] {
+        sdk_stream(kept).map_err(|error| ExportError::View(error.to_string()))?;
+    }
+    let metrics = SdkMeterProvider::builder()
+        .with_resource(resource.clone())
+        .with_view(sdk_view)
+        .with_reader(
+            PeriodicReader::builder(CountedMetrics(metrics))
+                .with_interval(METRIC_INTERVAL)
+                .build(),
+        )
+        .build();
+    // Each processor makes its counters from the process's meter provider as it is built, so
+    // the API's is the process's first.
+    opentelemetry::global::set_meter_provider(metrics.clone());
     Ok(Exporting {
         spans: BatchSpanProcessor::builder(CountedSpans(spans))
             .with_batch_config(batches)
@@ -209,16 +245,34 @@ pub(super) fn build(
                     .build(),
             )
             .build(),
-        metrics: SdkMeterProvider::builder()
-            .with_resource(resource.clone())
-            .with_reader(
-                PeriodicReader::builder(CountedMetrics(metrics))
-                    .with_interval(METRIC_INTERVAL)
-                    .build(),
-            )
-            .build(),
+        metrics,
         resource,
     })
+}
+
+/// The view of the metrics that the SDK counts itself, in its scope `otel.sdk`: it keeps the two
+/// that count what the processors of spans and of log records hand on and drop, each with
+/// `error.type` alone of its attributes, and drops every other, so the API exports none that
+/// nothing reads (OBS-12). The metrics of every other scope keep the SDK's default view.
+fn sdk_view(instrument: &Instrument) -> Option<Stream> {
+    if instrument.scope().name() != SDK_SCOPE {
+        return None;
+    }
+    // `build` built both streams before it built the meter provider, so neither fails here.
+    sdk_stream(PROCESSED.contains(&instrument.name())).ok()
+}
+
+/// The stream of one of the SDK's own metrics: one that keeps `error.type` alone of its
+/// attributes when it is `kept`, and one that drops the metric otherwise.
+fn sdk_stream(kept: bool) -> Result<Stream, Box<dyn std::error::Error>> {
+    let stream = Stream::builder();
+    if kept {
+        stream
+            .with_allowed_attribute_keys([Key::from_static_str(names::ERROR_TYPE)])
+            .build()
+    } else {
+        stream.with_aggregation(Aggregation::Drop).build()
+    }
 }
 
 /// What identifies every span, log record and metric the process exports. Nothing else is read

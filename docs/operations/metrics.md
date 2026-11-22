@@ -1,6 +1,6 @@
 # Metric catalog
 
-Every metric the dashboards and alerts read: the API's own, from their declarations in code (OBS-11), and those that other parts of the stack produce, from `deploy/observability/metrics.yaml`. `just metrics` writes this file, and `check-metrics` fails while it differs from what the declarations give (OBS-12).
+Every metric the dashboards and alerts read: the API's own, from their declarations in code (OBS-11), and those that the API's OpenTelemetry SDK counts itself or other parts of the stack produce, from `deploy/observability/metrics.yaml`. `just metrics` writes this file, and `check-metrics` fails while it differs from what the declarations give (OBS-12).
 
 Prometheus stores each metric under the name in its "In Prometheus" column: its receiver of the OpenTelemetry Protocol (OTLP) turns the dots into underscores, and adds the unit and the kind as suffixes. A label's dots become underscores too.
 
@@ -38,7 +38,7 @@ Prometheus stores each metric under the name in its "In Prometheus" column: its 
 | `platform.streams` | gauge | `{stream}` | `db.namespace` | `platform_streams` | `crates/platform/src/events/streams.rs` | The streams open on the replica, by the name of the database whose events its hub delivers (PLATFORM-034). |
 | `process.memory.usage` | gauge | `By` | none | `process_memory_usage_bytes` | `crates/platform/src/telemetry/process.rs` | The physical memory the instance's process uses: its resident set. |
 
-## Metrics of the rest of the stack
+## Metrics of the API's SDK and of the rest of the stack
 
 | In Prometheus | Kind | Produced by | Description |
 |---|---|---|---|
@@ -58,6 +58,8 @@ Prometheus stores each metric under the name in its "In Prometheus" column: its 
 | `otelcol_processor_tail_sampling_sampling_trace_dropped_too_early_total` | counter | the collector | Traces tail sampling dropped before deciding them, because it held too many. |
 | `otelcol_processor_tail_sampling_sampling_traces_on_memory` | gauge | the collector | The traces tail sampling holds while it waits to decide them. |
 | `otelcol_processor_tail_sampling_count_traces_sampled_total` | counter | the collector | Traces each sampling policy decided, by the policy and whether it kept them. |
+| `otel_sdk_processor_span_processed_total` | counter | the API's OpenTelemetry SDK | The spans that an instance's queue handed its exporter, with no error_type, and those it dropped, with error_type queue_full when they arrived while it was full (PLATFORM-106). |
+| `otel_sdk_processor_log_processed_total` | counter | the API's OpenTelemetry SDK | The log records that an instance's queue handed its exporter, with no error_type, and those it dropped, with error_type queue_full when they arrived while it was full (PLATFORM-106). |
 | `http_client_request_duration_seconds_count` | counter | the collector, from the metrics of users' clients | The requests that users' clients measured, added up over every installation, by the response's status, and for a request that got none, by error_type (CLIENT_TELEMETRY-014, CLIENT_TELEMETRY-015). |
 | `http_client_request_duration_seconds_bucket` | counter | the collector, from the metrics of users' clients | Those requests that took at most le seconds each. |
 | `otelcol_deltatocumulative_datapoints_total` | counter | the collector | The points of clients' metrics that reached the collector's sums, and with an error, those that it left out of them, by why, such as limit. |
