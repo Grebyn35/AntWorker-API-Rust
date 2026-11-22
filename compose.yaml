@@ -71,7 +71,7 @@ services:
   # each test has read its own.
   mailpit:
     logging: *logging
-    image: axllent/mailpit:v1.33.1@sha256:aef2aacc11f075ec0fb6874275ee4a421e688e11a96ebb296134d1735c7761ce
+    image: axllent/mailpit:v1.34.0@sha256:23a2ef85bc50853ab3093645d1d64679afd8887e89da5e48a88940c172591a4e
     environment:
       MP_MAX_MESSAGES: "10000"
     ports:
@@ -253,7 +253,7 @@ services:
   # so a scan writes to disk only the database that a new day's first scan downloads.
   grype:
     profiles: [tools]
-    image: anchore/grype:v0.121.3@sha256:13113eeceab017260370cf540e1d25442c59665fd07d1b09b66d63bb0c282887
+    image: anchore/grype:v0.122.1@sha256:661583704a253c0448ed63998b5ea2cd9d5a76ee71eedc4aed439b8ce3e93a1c
     environment:
       GRYPE_DB_CACHE_DIR: /cache
     tmpfs:
@@ -271,7 +271,7 @@ services:
   # reference deployment as a server's Docker would (TEST-03, OPS-14).
   server:
     profiles: [tools]
-    image: docker:29.9.3-dind@sha256:7bf70dcb85c822e3fa6f2d332143e474b99147b9d7b39102b0cfe8b04a7dd61b
+    image: docker:29.10.0-dind@sha256:4bbc7223f81db790097c6dea42fb93e05b8fead4f0431fbe6ccaba6e8473201c
 
   # The stand-in for the reference deployment's backup bucket, which the end-to-end tests run on
   # their server: SeaweedFS, which serves the S3 protocol (OPS-15).
