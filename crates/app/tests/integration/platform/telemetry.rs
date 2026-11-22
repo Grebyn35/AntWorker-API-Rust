@@ -240,6 +240,25 @@ async fn platform_067_patch_is_a_method_http_defines() {
 }
 
 #[tokio::test]
+async fn platform_067_query_is_a_method_http_defines() {
+    let api = Api::new().await;
+    let labels = [
+        ("http.request.method", "QUERY"),
+        ("http.route", "/v1/capabilities"),
+        ("http.response.status_code", "405"),
+    ];
+    let before = requests(&durations(), &labels);
+
+    let response = api
+        .request(Method::from_bytes(b"QUERY").unwrap(), "/v1/capabilities")
+        .send()
+        .await;
+
+    assert_eq!(response.status, StatusCode::METHOD_NOT_ALLOWED);
+    assert!(requests(&durations(), &labels) > before);
+}
+
+#[tokio::test]
 async fn obs_15_the_health_probes_record_no_request_metric() {
     let api = Api::new().await;
 

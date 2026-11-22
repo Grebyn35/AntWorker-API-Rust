@@ -12,6 +12,7 @@ async fn platform_049_a_body_that_isn_t_the_route_s_json_answers_400() {
     for (content_type, body, field) in [
         ("text/plain", valid.clone(), None),
         ("application/json", "{\"email\":".to_owned(), None),
+        ("application/json", format!("{valid}{valid}"), None),
         (
             "application/json",
             json!({ "email": "ada@example.com", "password": users::PASSWORD, "name": "Ada", "role": "admin" })

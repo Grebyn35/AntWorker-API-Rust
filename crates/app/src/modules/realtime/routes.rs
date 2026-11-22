@@ -141,7 +141,13 @@ async fn events(
                 opened: false,
                 ended: false,
             };
-            Sse::new(frames.into_stream()).into_response()
+            let mut response = Sse::new(frames.into_stream()).into_response();
+            // In place of the `no-cache` that `Sse` sets, which lets a cache keep the stream
+            // (SEC-12).
+            response
+                .headers_mut()
+                .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            response
         }
         Err(error) => {
             let error = RealtimeError::from(error);

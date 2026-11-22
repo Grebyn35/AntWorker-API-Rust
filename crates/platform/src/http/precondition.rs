@@ -10,10 +10,11 @@ use axum::{
 use crate::types::Version;
 
 /// The `If-Match` of an update: the versions of the resource it may change, or `None` when the
-/// request sent no `If-Match`, or `*`, which any version matches. A tag names the version whose
-/// `ETag` it is, character for character, so a weak tag, or one the API never sent, such as
-/// `"03"`, names none, and a request that sent only such tags names an empty set, which no
-/// version matches (PLATFORM-071).
+/// request sent no `If-Match`, or one line that holds `*` alone, which any version matches. A tag
+/// names the version whose `ETag` it is, character for character, so a weak tag, one the API
+/// never sent, such as `"03"`, and a `*` in a list or beside another line name none, and a
+/// request that sent only such members names an empty set, which no version matches
+/// (PLATFORM-071).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IfMatch(Option<Vec<Version>>);
 
@@ -24,24 +25,18 @@ impl IfMatch {
     }
 
     fn read(headers: &HeaderMap) -> Self {
-        let mut values = headers.get_all(header::IF_MATCH).iter().peekable();
-        if values.peek().is_none() {
-            return Self(None);
+        let values: Vec<_> = headers.get_all(header::IF_MATCH).iter().collect();
+        match values.as_slice() {
+            [] => return Self(None),
+            [only] if only.as_bytes().trim_ascii() == b"*" => return Self(None),
+            _ => {}
         }
-        let mut versions = Vec::new();
-        for value in values {
-            let Ok(text) = value.to_str() else {
-                continue;
-            };
-            for tag in text.split(',').map(str::trim) {
-                if tag == "*" {
-                    return Self(None);
-                }
-                if let Some(version) = Version::from_etag(tag) {
-                    versions.push(version);
-                }
-            }
-        }
+        let versions = values
+            .iter()
+            .filter_map(|value| value.to_str().ok())
+            .flat_map(|text| text.split(','))
+            .filter_map(|tag| Version::from_etag(tag.trim()))
+            .collect();
         Self(Some(versions))
     }
 }
@@ -82,6 +77,15 @@ mod tests {
     fn platform_071_no_if_match_or_a_star_lets_any_version_through() {
         assert_eq!(read(&[]).versions(), None);
         assert_eq!(read(&["*"]).versions(), None);
+    }
+
+    #[test]
+    fn platform_071_a_star_in_a_list_or_beside_another_line_names_no_version() {
+        assert_eq!(read(&["\"1\", *"]).0, versions(&[1]));
+        assert_eq!(read(&["*, \"1\""]).0, versions(&[1]));
+        assert_eq!(read(&["\"1\"", "*"]).0, versions(&[1]));
+        assert_eq!(read(&["*", "*"]).0, versions(&[]));
+        assert_eq!(read(&["*, *"]).0, versions(&[]));
     }
 
     #[test]

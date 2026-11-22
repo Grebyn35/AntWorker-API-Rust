@@ -12,7 +12,7 @@ use crate::support::{
     api::Response,
     execute_on,
     fixtures::{self, Gate},
-    queries_wait_on_locks, users, workspaces,
+    queries_wait_on_locks, streams, users, workspaces,
 };
 
 /// A valid inbound trace context, sampled.
@@ -195,6 +195,48 @@ async fn platform_045_a_head_request_is_checked_like_its_get() {
 }
 
 #[tokio::test]
+async fn platform_045_an_unlisted_name_is_refused_before_any_value_is_read() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let listed = |query: &'static str| {
+        api.get(&format!("/v1/workspaces?{query}"))
+            .bearer(&ada.access)
+            .send()
+    };
+
+    let beside_an_unlisted_name = listed("limit=0&nope=1").await;
+    let alone = listed("limit=0").await;
+
+    let unknown = problem(
+        &beside_an_unlisted_name,
+        StatusCode::BAD_REQUEST,
+        "request.invalid_query",
+    );
+    let fields = |problem: &Value| -> Vec<(String, String)> {
+        problem["errors"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|error| {
+                (
+                    error["field"].as_str().unwrap().to_owned(),
+                    error["code"].as_str().unwrap().to_owned(),
+                )
+            })
+            .collect()
+    };
+    assert_eq!(
+        fields(&unknown),
+        [("/nope".to_owned(), "unknown".to_owned())]
+    );
+    let refused = problem(&alone, StatusCode::BAD_REQUEST, "request.invalid_query");
+    assert_eq!(
+        fields(&refused),
+        [("/limit".to_owned(), "out_of_range".to_owned())]
+    );
+}
+
+#[tokio::test]
 async fn platform_045_a_documented_query_parameter_passes() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
@@ -209,7 +251,25 @@ async fn platform_045_a_documented_query_parameter_passes() {
 }
 
 #[tokio::test]
-async fn platform_092_a_body_that_names_a_member_twice_answers_400() {
+async fn platform_092_a_json_body_that_names_a_member_twice_answers_400() {
+    let api = Api::new().await;
+    let twice = format!(
+        r#"{{"email": "ada@example.com", "password": "{}", "name": "Ada", "name": "Grace"}}"#,
+        users::PASSWORD
+    );
+
+    let response = api
+        .request(Method::POST, "/v1/users")
+        .header("content-type", "application/json")
+        .body(twice)
+        .send()
+        .await;
+
+    problem(&response, StatusCode::BAD_REQUEST, "request.invalid_body");
+}
+
+#[tokio::test]
+async fn platform_092_a_merge_patch_that_names_a_member_twice_answers_400() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
 
@@ -279,6 +339,25 @@ async fn platform_092_a_header_on_several_lines_is_read_by_its_first() {
     );
     assert_eq!(as_a_patch.status, StatusCode::OK);
     problem(&as_text, StatusCode::BAD_REQUEST, "request.invalid_body");
+}
+
+#[tokio::test]
+async fn platform_092_a_cookie_named_first_on_a_line_with_a_byte_outside_ascii_is_no_token() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+
+    let response = api
+        .get("/v1/users/me")
+        .header("cookie", "__Host-access_token=café")
+        .header("cookie", &format!("__Host-access_token={}", ada.access))
+        .send()
+        .await;
+
+    problem(
+        &response,
+        StatusCode::UNAUTHORIZED,
+        "request.unauthenticated",
+    );
 }
 
 #[tokio::test]
@@ -475,6 +554,8 @@ async fn platform_044_a_panic_leaves_its_error_line_to_the_panic_hook() {
 #[tokio::test]
 async fn sec_12_every_response_carries_the_security_headers() {
     let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let mut answers = Vec::new();
 
     for path in [
         "/v1/capabilities",
@@ -482,18 +563,19 @@ async fn sec_12_every_response_carries_the_security_headers() {
         "/health/live",
         "/health/ready",
     ] {
-        let response = api.get(path).send().await;
+        answers.push((path, api.get(path).send().await.headers));
+    }
+    let stream = streams::connect(&api, &ada.access, None).await;
+    answers.push((streams::PATH, stream.headers().clone()));
 
+    for (path, headers) in &answers {
+        let header = |name: &str| headers.get(name).and_then(|value| value.to_str().ok());
+        assert_eq!(header("x-content-type-options"), Some("nosniff"), "{path}");
+        assert_eq!(header("referrer-policy"), Some("no-referrer"), "{path}");
+        assert_eq!(header("cache-control"), Some("no-store"), "{path}");
         assert_eq!(
-            response.header("x-content-type-options"),
-            "nosniff",
-            "{path}"
-        );
-        assert_eq!(response.header("referrer-policy"), "no-referrer", "{path}");
-        assert_eq!(response.header("cache-control"), "no-store", "{path}");
-        assert_eq!(
-            response.header("content-security-policy"),
-            "default-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+            header("content-security-policy"),
+            Some("default-src 'none'; base-uri 'none'; frame-ancestors 'none'"),
             "{path}"
         );
     }

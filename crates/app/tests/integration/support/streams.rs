@@ -203,6 +203,11 @@ pub async fn opened(api: &Api, user: &SignedIn) -> Stream {
 }
 
 impl Stream {
+    /// The headers of the response that opened the stream.
+    pub fn headers(&self) -> &http::HeaderMap {
+        &self.headers
+    }
+
     /// The trace ID of the request that opened the stream, from its `server-timing` (API-16).
     pub fn trace_id(&self) -> String {
         let timing = self.headers["server-timing"].to_str().unwrap();
