@@ -165,8 +165,10 @@ After creating one, it lists the user's workspaces again before working in any, 
 The template keeps every part and serves the teams shape. <!-- part: invitations -->
 A user who belongs to no workspace is offered to create one.
 <!-- end part: workspace_creation -->
+
 Registration creates no workspace (D16).
 An invited user joins only the workspace they were invited to. <!-- part: invitations -->
+
 <!-- part: superadmins -->
 A fork may keep `superadmins` in any shape, for seeing and deleting workspaces.
 In the provisioned shape, it is the one part that creates them. <!-- part: invitations -->
@@ -175,6 +177,7 @@ They set it up and invite its people first, its next owner among them. <!-- part
 They see its content as a member, never as a superadmin, and may leave it once it is handed over.
 A workspace that nobody else joins stays the superadmin's own: a transfer swaps the roles of two members, so a superadmin's creation gives someone else a workspace only where people join one.
 <!-- end part: superadmins -->
+
 How each part creates a workspace is in the [workspaces spec](spec/workspaces.md#creating-a-workspace).
 In every shape, the same authorization and the same tenancy checks guard the data (DATA-16, TEST-08).
 
@@ -244,7 +247,8 @@ modules/workspaces/
   personal_data.rs   its export and erasure contract (D31)
 ```
 
-Three modules have one extra entry each: `access/permissions.rs` holds the permission matrix, `auth/providers/` holds one file per OAuth provider together with their registry, in `mod.rs`, `clients.rs`, `exchange.rs` and `pictures.rs`, and the tests' stand-in provider, and `system/seed/` holds `seed`, a client of the API's routes, which names HTTP types as a service may not ([system spec](spec/system.md#seed)).
+Three modules have one extra entry each: `access/permissions.rs` holds the permission matrix, `auth/providers/` holds one file per OAuth provider together with their registry, in `mod.rs`, `clients.rs` and `exchange.rs`, and the tests' stand-in provider, and `system/seed/` holds `seed`, a client of the API's routes, which names HTTP types as a service may not ([system spec](spec/system.md#seed)).
+The registry of `auth/providers/` also says where each provider's users' pictures come from, in `pictures.rs`. <!-- part: files -->
 
 The layers have strict jobs (ARCH-08 to ARCH-10):
 - **Handlers** contain no SQL and no business rules.

@@ -122,6 +122,7 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | From | Proposal | Decided in |
 |---|---|---|
 | Conformance review of 13b5891..e6d2a02 | ARCH-07: whether the tracker's rows of D1 to D36 that decide one part alone carry its marker, as a later decision's row does, such as D34's, of `invitations` | 6, with the ADRs <!-- part: removal --> |
+| CI's run of 469dbf2, whose `removable` jobs failed on a document that named a part's file | ARCH-07: whether `check-parts` also fails on a line left that names, between backticks, a Rust file that the removal deletes. `check-docs` fails on such a name (DOC-01) only in a copy without the part, so `just checks` passes on it, and the `removable` jobs of the push find it | 6.3, with the review of the whole codebase <!-- part: removal --> |
 | A reading of release.md by a reader new to the codebase | OPS-12: whether a release's signature names its version, and `verify-release` holds the version's tag to it. As it is, the task checks that a run of `ci.yml` on `main` signed the image that the tag names, which holds for any image that such a run signed, an earlier release's among them, so an earlier release's image under a later version's tag would verify. The releases signed before such a change carry no version in their signatures | 6.3, with the review of the whole codebase; the first release that carries it is the owner's to start |
 
 ## Conformance reviews

@@ -86,6 +86,7 @@ Each kind of fact has one home, listed below. A fact is written in its home as s
 
 ### DOC-15 Sentences, paragraphs and cells are bounded
 A sentence of a document holds at most 100 words, a paragraph or an item of a list at most 300, and a cell of a table at most 200. The doc comment of [`words.rs`](../../crates/xtask/src/words.rs) says what the check counts as a word, as a sentence, and as each of those blocks. The migration workspace is exempt (DOC-13).
+A line that holds only a part's marker ends no paragraph for the check: it goes when a fork chooses its parts (ARCH-07), and the lines around it are one paragraph from then on. <!-- part: removal -->
 - Why: a reviewer answers a statement one guarantee at a time, and a reader new to the codebase holds only so much of a sentence; a bound that a check holds every document to has each place over it split, where a reader's taste would choose some (D217).
 - Check: `ci: check-docs`.
 
