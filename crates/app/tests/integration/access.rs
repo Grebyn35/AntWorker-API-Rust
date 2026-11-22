@@ -1189,6 +1189,58 @@ async fn audit_004_a_member_s_refusal_whose_workspace_went_meanwhile_is_in_their
 }
 
 #[tokio::test]
+async fn audit_004_a_refused_member_whose_account_went_meanwhile_gets_401_and_no_entry() {
+    let api = Api::new().await;
+    let owner = users::register(&api, "owner@example.com").await;
+    let member = users::register(&api, "member@example.com").await;
+    let db = api.database();
+    let workspace = workspaces::arrange(
+        db,
+        "Acme",
+        &[(&owner.user_id, "owner"), (&member.user_id, "member")],
+    )
+    .await;
+    // A deletion of the member's account, which holds their row.
+    let mut deletion = db
+        .holding(&format!(
+            "SELECT 1 FROM users WHERE id = '{}' FOR UPDATE",
+            member.user_id
+        ))
+        .await;
+
+    // A member may not delete the workspace.
+    let refused = api.spawn(
+        Method::DELETE,
+        &format!("/v1/workspaces/{workspace}"),
+        &member.access,
+        None,
+    );
+    // The refusal's entry, which names the member, waits at their row.
+    query_waits_on_a_lock(db, "INSERT INTO audit_entries").await;
+    execute_on(
+        &mut deletion,
+        &format!(
+            "DELETE FROM workspace_memberships WHERE user_id = '{0}'; \
+             DELETE FROM users WHERE id = '{0}'",
+            member.user_id
+        ),
+    )
+    .await;
+    execute_on(&mut deletion, "COMMIT").await;
+    let (status, problem) = refused.await.unwrap();
+
+    // The entry names an actor whose row is gone, so the request fails as any whose caller's
+    // account went (PLATFORM-097).
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(problem["code"], "request.unauthenticated");
+    assert_eq!(
+        db.owner_reads("SELECT count(*)::text FROM audit_entries WHERE action = 'access.denied'")
+            .await,
+        ["0"]
+    );
+}
+
+#[tokio::test]
 async fn platform_010_a_rank_refusal_whose_workspace_went_meanwhile_is_in_the_caller_s_own_log() {
     // An admin may remove members, but not the owner, who outranks them.
     let (answer, entries, (admin, workspace)) =

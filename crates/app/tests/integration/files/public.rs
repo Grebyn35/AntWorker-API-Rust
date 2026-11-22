@@ -185,7 +185,7 @@ async fn files_023_a_private_file_or_one_of_the_other_kind_answers_404() {
 }
 
 #[tokio::test]
-async fn files_023_a_member_s_download_of_a_public_file_is_no_one_else_s_to_keep() {
+async fn sec_12_a_member_s_download_of_a_public_file_is_no_one_else_s_to_keep() {
     let api = Api::new().await;
     let (workspace, ada, _) = acme(&api, "member").await;
     let db = api.database();

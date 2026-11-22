@@ -369,7 +369,7 @@ pub async fn refuse<P: Permission>(uow: UnitOfWork, authorized: &Authorized<P>) 
 }
 
 /// Records `refusal` and counts it. A refusal the sink can't record fails the request, so none
-/// goes unrecorded while a log is left to hold it (DATA-22, AUDIT-004).
+/// goes unrecorded while its caller's account is left (DATA-22, AUDIT-004).
 async fn report(
     sink: &dyn SecurityEventSink,
     refusal: &Refusal,

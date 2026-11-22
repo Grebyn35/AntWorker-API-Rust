@@ -207,8 +207,9 @@ async fn files_028_each_object_is_written_from_its_version_at_the_moment_page_af
 
 #[tokio::test]
 async fn files_028_an_object_that_the_api_can_t_have_written_is_left_and_counted() {
-    // The largest object that the API writes, and the bytes of one byte more, which the
-    // stand-in holds for as long as the test's process runs.
+    // The bytes of the largest object that the API writes, which the stand-in holds for as long
+    // as the test's process runs, and an object that the listing gives one byte more, whose
+    // bytes no run reads.
     let largest: &'static [u8] = Box::leak(vec![b'a'; 20_971_520].into_boxed_slice());
     let kept = vec![
         Kept::marker("users/large", "2", true, at(40)),

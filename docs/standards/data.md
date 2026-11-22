@@ -52,7 +52,7 @@ Migrations define no stored procedures and no `SECURITY DEFINER` functions. The 
 - Check: `ci: check-schema` (the schema's one function is the trigger function that the `BEFORE UPDATE` row triggers of the tables outside `platform`'s bookkeeping run, and it isn't `SECURITY DEFINER`).
 
 ### DATA-08 The database generates IDs
-Inserts take their rows' IDs from the column default, using `RETURNING`, but for a row whose secret is encrypted bound to its ID, which exists before the secret is written (SEC-02): its ID comes from the database's `uuidv7()`, the default's own function, in a statement just before the insert. Application code creates no row's ID; a value that names no row, such as an email's `Message-ID`, isn't one.
+Inserts take their rows' IDs from the column default, using `RETURNING`, but for a row whose secret is encrypted bound to its ID, which exists before the secret is written (SEC-02): its ID comes from the database's `uuidv7()`, the default's own function, in a statement just before the insert. Application code creates no row's ID; a value that names no row, such as an email's `Message-ID`, isn't one. A test's arrangement may give a row that it inserts an ID of its own, by which the test names the row without reading it back.
 - Why: one source of IDs (D24).
 - Check: `clippy` (`Uuid::new_v4`, the one function of the `uuid` crate's enabled features that generates an ID, is in `disallowed_methods`), `ci: check-table-ownership` (no `INSERT INTO` in a `sqlx` macro of `platform` or `app` names `id` among its columns, or has columns that the check can't read, but for the tables of the rows that SEC-02 binds to their IDs), plus `review` (SQL outside those macros, as the tests' and `xtask`'s).
 

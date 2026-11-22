@@ -17,7 +17,7 @@ use crate::support::{
 };
 
 /// Ada, and a workspace that she owns.
-async fn owned(api: &Api) -> (SignedIn, String) {
+pub(super) async fn owned(api: &Api) -> (SignedIn, String) {
     let ada = users::register(api, "ada@example.com").await;
     let workspace = workspaces::arrange(api.database(), "Acme", &[(&ada.user_id, "owner")]).await;
     (ada, workspace)

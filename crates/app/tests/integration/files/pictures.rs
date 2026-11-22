@@ -54,9 +54,9 @@ fn pictured(upstream: &Upstream, picture: &str) {
     );
 }
 
-/// Registers Ada through the stand-in, which serves `bytes` as her picture.
-async fn registered(upstream: &Upstream, api: &Api, bytes: &[u8]) -> SignedIn {
-    upstream.set_bytes("GET", PICTURE, 200, bytes);
+/// Registers Ada through the stand-in, which serves [`files::PNG`] as her picture.
+async fn registered(upstream: &Upstream, api: &Api) -> SignedIn {
+    upstream.set_bytes("GET", PICTURE, 200, files::PNG);
     pictured(upstream, &upstream.url(PICTURE));
     signed_in(api).await
 }
@@ -94,7 +94,7 @@ fn fetches(upstream: &Upstream) -> usize {
 /// of work waits for the row, and the other change gives her an avatar before it commits. Gives
 /// Ada, and the link of the avatar that the other change gave her.
 async fn overtaken(upstream: &Upstream, api: &Api) -> (SignedIn, String) {
-    let ada = registered(upstream, api, files::PNG).await;
+    let ada = registered(upstream, api).await;
     let db = api.database();
     let mut change = db
         .holding(&format!(
@@ -142,7 +142,7 @@ fn not_copied() -> f64 {
 #[tokio::test]
 async fn accounts_028_a_registration_through_a_provider_gets_its_picture_as_its_avatar() {
     let (upstream, api) = standing(Options::default()).await;
-    let ada = registered(&upstream, &api, files::PNG).await;
+    let ada = registered(&upstream, &api).await;
     workspaces::member_of_many(api.database(), &ada.user_id, 1, "owner").await;
     let before = api.get("/v1/users/me").bearer(&ada.access).send().await;
     assert_eq!(before.json()["avatar_url"], Value::Null);
@@ -187,7 +187,7 @@ async fn accounts_028_a_registration_through_a_provider_gets_its_picture_as_its_
 #[tokio::test]
 async fn accounts_030_a_second_run_of_the_job_changes_nothing() {
     let (upstream, api) = standing(Options::default()).await;
-    let ada = registered(&upstream, &api, files::PNG).await;
+    let ada = registered(&upstream, &api).await;
     api.run_jobs().await;
     let first = avatar_url(&api, &ada).await;
     // The job again, as a second delivery runs it.
@@ -244,7 +244,7 @@ async fn files_013_a_copy_of_a_provider_s_picture_counts_as_an_avatar_s_upload()
     let (upstream, api) = standing(Options::default()).await;
     let (stored, failed) = (uploads("stored"), uploads("failed"));
 
-    registered(&upstream, &api, files::PNG).await;
+    registered(&upstream, &api).await;
     api.run_jobs().await;
     let copied = uploads("stored");
     let (overtaken_upstream, overtaken_api) = standing(Options::default()).await;
@@ -258,7 +258,7 @@ async fn files_013_a_copy_of_a_provider_s_picture_counts_as_an_avatar_s_upload()
 #[tokio::test]
 async fn accounts_030_an_account_that_set_an_avatar_before_the_job_ran_keeps_it() {
     let (upstream, api) = standing(Options::default()).await;
-    let ada = registered(&upstream, &api, files::PNG).await;
+    let ada = registered(&upstream, &api).await;
     let set = api
         .request(http::Method::PUT, "/v1/users/me/avatar")
         .header("content-type", "application/octet-stream")
@@ -309,7 +309,7 @@ async fn accounts_029_a_picture_in_which_the_scanner_finds_malware_leaves_no_ava
     let stand_in = scanner::scripted(Script::Answer("stream: Eicar-Test-Signature FOUND")).await;
     let options = Options::default().set("CLAMD_ADDRESS", &stand_in.address);
     let (upstream, api) = standing(options).await;
-    let ada = registered(&upstream, &api, files::PNG).await;
+    let ada = registered(&upstream, &api).await;
 
     api.run_jobs().await;
 
@@ -386,7 +386,7 @@ async fn accounts_029_a_scanner_that_doesn_t_answer_is_tried_again_until_the_fif
     let stand_in = scanner::scripted(Script::Close).await;
     let options = Options::default().set("CLAMD_ADDRESS", &stand_in.address);
     let (upstream, api) = standing(options).await;
-    let ada = registered(&upstream, &api, files::PNG).await;
+    let ada = registered(&upstream, &api).await;
 
     api.run_jobs().await;
 
@@ -414,7 +414,7 @@ async fn accounts_029_a_storage_that_doesn_t_answer_is_tried_again_until_the_fif
     // Nothing listens on port 9 of the loopback address.
     let options = Options::default().set("S3_ENDPOINT", "http://127.0.0.1:9");
     let (upstream, api) = standing(options).await;
-    let ada = registered(&upstream, &api, files::PNG).await;
+    let ada = registered(&upstream, &api).await;
 
     api.run_jobs().await;
 

@@ -9,7 +9,7 @@ use std::ops::Range;
 use platform::{
     db::UnitOfWork,
     errors::Internal,
-    personal_data::{ExportArchive, next_after},
+    personal_data::{ExportArchive, next_after, pages},
     storage::{ObjectBytes, ObjectKey},
     types::{Timestamp, UserId, WorkspaceId},
 };
@@ -119,30 +119,43 @@ pub(in crate::modules::files) async fn export(
         workspace_files(uow, export, &mut document, &mut held, *workspace).await?;
     }
     export.finish(uow, document).await?;
-    let mut records = Vec::new();
-    for workspace in sole {
-        if let Some(row) = repo::picture(uow, workspace).await? {
-            let path = format!(
-                "files/workspace_pictures/{}/{}.{}",
-                workspace.uuid(),
-                row.id,
-                extension(&row)?
-            );
-            records.push(PictureRecord {
-                id: row.id,
-                workspace_id: workspace,
-                media_type: row.media_type.clone(),
-                size_bytes: size(&row)?,
-                created_at: Timestamp::from_database(row.created_at),
-                path: path.clone(),
-            });
-            held.add(&row, path)?;
+    workspace_pictures(uow, export, &mut held, &sole).await
+}
+
+/// Writes `files/workspace_pictures.json`: the picture of each of the workspaces `sole` that has
+/// one, those of a page of the workspaces at a time, holding their bytes.
+async fn workspace_pictures(
+    uow: &mut UnitOfWork,
+    export: &mut ExportArchive,
+    held: &mut Held,
+    sole: &[WorkspaceId],
+) -> Result<(), Internal> {
+    let mut document = export.document("files/workspace_pictures.json");
+    for page in pages(sole) {
+        let mut records = Vec::with_capacity(page.len());
+        for &workspace in page {
+            if let Some(row) = repo::picture(uow, workspace).await? {
+                let path = format!(
+                    "files/workspace_pictures/{}/{}.{}",
+                    workspace.uuid(),
+                    row.id,
+                    extension(&row)?
+                );
+                records.push(PictureRecord {
+                    id: row.id,
+                    workspace_id: workspace,
+                    media_type: row.media_type.clone(),
+                    size_bytes: size(&row)?,
+                    created_at: Timestamp::from_database(row.created_at),
+                    path: path.clone(),
+                });
+                held.add(&row, path)?;
+            }
         }
+        export.write(uow, &mut document, &records).await?;
+        held.store(uow, export).await?;
     }
-    export
-        .whole(uow, "files/workspace_pictures.json", &records)
-        .await?;
-    held.store(uow, export).await
+    export.finish(uow, document).await
 }
 
 /// Writes into `document` every file of `workspace`, a page at a time, holding their bytes.

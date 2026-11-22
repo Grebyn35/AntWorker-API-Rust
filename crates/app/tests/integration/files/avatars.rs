@@ -590,7 +590,7 @@ async fn accounts_010_removing_an_avatar_with_a_stale_etag_answers_412_and_with_
 }
 
 #[tokio::test]
-async fn accounts_008_setting_an_avatar_reads_no_idempotency_key() {
+async fn platform_074_setting_an_avatar_by_put_reads_no_idempotency_key() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
 

@@ -28,7 +28,7 @@ use serde_json::{Value, json};
 use tokio::sync::Notify;
 
 use crate::support::{
-    Api,
+    Api, TestDatabase,
     api::{Options, Response},
     bucket,
     events::{self, Event},
@@ -636,9 +636,6 @@ fn upload_streamed(
 async fn declared_over_the_limit() -> Response {
     let api = Api::with(Options::default().set("FILE_MAX_BYTES", 10)).await;
     let (workspace, ada, _) = acme(&api, "member").await;
-    let unread = Body::from_stream(stream::once(async {
-        Err::<Bytes, _>(std::io::Error::other("the body was read"))
-    }));
     api.request(
         http::Method::POST,
         &format!("/v1/workspaces/{workspace}/files"),
@@ -647,7 +644,7 @@ async fn declared_over_the_limit() -> Response {
     .header("content-disposition", "attachment; filename=\"a.txt\"")
     .header("content-length", "11")
     .bearer(&ada.access)
-    .send_streamed(unread)
+    .send_streamed(unread())
     .await
 }
 
@@ -758,9 +755,6 @@ async fn files_006_the_upload_s_unit_of_work_authorizes_the_caller_again() {
 async fn platform_073_a_check_refuses_a_member_without_the_permission_with_403() {
     let api = Api::new().await;
     let (workspace, _, grace) = acme(&api, "member").await;
-    let unread = Body::from_stream(stream::once(async {
-        Err::<Bytes, _>(std::io::Error::other("the body was read"))
-    }));
 
     // The picture's upload asks for a permission that a member lacks, as a file's doesn't.
     let response = api
@@ -770,7 +764,7 @@ async fn platform_073_a_check_refuses_a_member_without_the_permission_with_403()
         )
         .header("content-type", "application/octet-stream")
         .bearer(&grace.access)
-        .send_streamed(unread)
+        .send_streamed(unread())
         .await;
 
     assert_eq!(response.status, 403);
@@ -1259,6 +1253,37 @@ async fn files_011_the_comparison_records_each_object_no_row_names_written_an_ho
 }
 
 #[tokio::test]
+async fn files_011_the_comparison_records_an_object_written_over_an_hour_ago_and_none_within_it() {
+    // The bucket lists two objects that no row names, written 61 and 59 minutes before now, by
+    // the database's clock, which the comparison reads them by.
+    let database = TestDatabase::migrated().await;
+    let ago = |minutes: u32| {
+        format!(
+            "SELECT to_char((now() - interval '{minutes} minutes') AT TIME ZONE 'UTC', \
+             'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')"
+        )
+    };
+    let over = database.owner_reads(&ago(61)).await.remove(0);
+    let within = database.owner_reads(&ago(59)).await.remove(0);
+    let bucket =
+        bucket::listing(&[("workspaces/over", &over), ("workspaces/within", &within)]).await;
+    let api = Api::on(
+        database,
+        Options::default().set("S3_ENDPOINT", &bucket.endpoint),
+    )
+    .await;
+
+    api.run_periodic("files.find_unreferenced_objects").await;
+
+    assert_eq!(
+        api.database()
+            .owner_reads("SELECT object_key FROM object_deletions")
+            .await,
+        ["workspaces/over"]
+    );
+}
+
+#[tokio::test]
 async fn files_011_an_unreferenced_object_goes_once_its_delay_has_passed() {
     let api = Api::new().await;
     let (workspace, ada, _) = acme(&api, "member").await;
@@ -1350,11 +1375,13 @@ fn errors_of(response: &Response) -> Vec<Value> {
         .collect()
 }
 
-/// How many calls to the bucket ended as `outcome`, in every test that runs alongside.
-fn storage_calls(outcome: &str) -> f64 {
+/// How many calls to the bucket ended as `unavailable`, in every test that runs alongside.
+fn unavailable_calls() -> f64 {
     testing::recorded("platform.storage_requests")
         .into_iter()
-        .filter(|point| point.labels.get("storage.outcome").map(String::as_str) == Some(outcome))
+        .filter(|point| {
+            point.labels.get("storage.outcome").map(String::as_str) == Some("unavailable")
+        })
         .map(|point| point.value)
         .sum()
 }
@@ -1366,7 +1393,7 @@ async fn files_012_a_bucket_that_doesn_t_answer_makes_the_routes_of_bytes_answer
     let (workspace, ada, _) = acme(&api, "member").await;
     let id = files::arrange_row(api.database(), &workspace, "Blue").await;
     let key = object_key(&api, &id).await;
-    let unavailable = storage_calls("unavailable");
+    let unavailable = unavailable_calls();
 
     let uploaded = upload(&api, &ada, &workspace, "a.txt", b"hello", None).await;
     let downloaded = download(&api, &ada, &workspace, &id).await;
@@ -1382,7 +1409,7 @@ async fn files_012_a_bucket_that_doesn_t_answer_makes_the_routes_of_bytes_answer
     assert_eq!(errors.len(), 1, "{errors:#?}");
     assert!(!errors[0].to_string().contains(&key), "{errors:#?}");
     // Tests running alongside call the bucket too, so the count grows by at least these.
-    assert!(storage_calls("unavailable") >= unavailable + 2.0);
+    assert!(unavailable_calls() >= unavailable + 2.0);
 }
 
 #[tokio::test]

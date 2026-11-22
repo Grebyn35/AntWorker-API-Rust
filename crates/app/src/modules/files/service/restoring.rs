@@ -7,12 +7,12 @@ use bytes::{Bytes, BytesMut};
 use futures_util::StreamExt;
 use platform::{
     errors::Internal,
-    storage::{Content, Object, Storage, StorageError, Version},
+    storage::{Content, Object, Storage, Version},
     types::Timestamp,
 };
 
 use super::{USER_PREFIX, WORKSPACE_PREFIX, avatar::AVATAR_PREFIX, picture::PICTURE_PREFIX};
-use crate::modules::files::model::LARGEST_UPLOAD_BYTES;
+use crate::modules::files::{error::RestoreFailure, model::LARGEST_UPLOAD_BYTES};
 
 /// What a run of `restore-files` did (FILES-028).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -35,24 +35,6 @@ pub(crate) struct Stopped {
     pub(crate) cause: Internal,
 }
 
-/// What stopped a run.
-#[derive(Debug, thiserror::Error)]
-enum Cause {
-    /// The first version that the bucket listed of an object wasn't its latest, or a later one
-    /// was.
-    #[error("the bucket listed an object's versions in another order than S3's, the latest first")]
-    Order,
-    /// A version's bytes were more or fewer than its listing said.
-    #[error("the bucket gave a version's bytes at another size than it listed them at")]
-    Size,
-    /// A request to the bucket failed.
-    #[error(transparent)]
-    Storage(#[from] StorageError),
-    /// A version's bytes stopped coming.
-    #[error(transparent)]
-    Bytes(#[from] Internal),
-}
-
 /// Which of an object's versions the bucket wrote last at `moment` or before it, among those
 /// seen so far.
 enum Then {
@@ -73,9 +55,9 @@ struct Seen {
 
 impl Seen {
     /// An object whose first listed version is `version`, which must be its latest.
-    fn first(version: Version, moment: Timestamp) -> Result<Self, Cause> {
+    fn first(version: Version, moment: Timestamp) -> Result<Self, RestoreFailure> {
         if !version.latest {
-            return Err(Cause::Order);
+            return Err(RestoreFailure::Order);
         }
         let then = if version.written_at <= moment.at() {
             Then::Current
@@ -90,9 +72,9 @@ impl Seen {
 
     /// Takes `version`, the next that the bucket lists of the object, which is older than those
     /// before it.
-    fn older(&mut self, version: Version, moment: Timestamp) -> Result<(), Cause> {
+    fn older(&mut self, version: Version, moment: Timestamp) -> Result<(), RestoreFailure> {
         if version.latest {
-            return Err(Cause::Order);
+            return Err(RestoreFailure::Order);
         }
         if matches!(self.then, Then::Later) && version.written_at <= moment.at() {
             self.then = Then::Older(version);
@@ -140,7 +122,7 @@ async fn restore_under(
     prefix: &str,
     moment: Timestamp,
     done: &mut Restored,
-) -> Result<(), Cause> {
+) -> Result<(), RestoreFailure> {
     let mut versions = storage.versions(prefix);
     let mut object: Option<Seen> = None;
     while let Some(version) = versions.next().await {
@@ -164,7 +146,7 @@ async fn restore_under(
 
 /// Counts the object `seen` in `done`, and writes it again when its version at the moment is
 /// due: reads that version whole, and writes its bytes under its key, with its media type.
-async fn settle(storage: &Storage, seen: &Seen, done: &mut Restored) -> Result<(), Cause> {
+async fn settle(storage: &Storage, seen: &Seen, done: &mut Restored) -> Result<(), RestoreFailure> {
     done.seen += 1;
     let Some((version, content)) = seen.due() else {
         return Ok(());
@@ -181,23 +163,23 @@ async fn settle(storage: &Storage, seen: &Seen, done: &mut Restored) -> Result<(
 }
 
 /// The bytes of `object`, all `size` of them, which is at most `LARGEST_UPLOAD_BYTES`.
-async fn whole(mut object: Object, size: u64) -> Result<Bytes, Cause> {
-    let length = usize::try_from(size).map_err(|_| Cause::Size)?;
+async fn whole(mut object: Object, size: u64) -> Result<Bytes, RestoreFailure> {
+    let length = usize::try_from(size).map_err(|_| RestoreFailure::Size)?;
     if object.size != size {
-        return Err(Cause::Size);
+        return Err(RestoreFailure::Size);
     }
     let mut bytes = BytesMut::with_capacity(length);
     while let Some(chunk) = object.bytes.next().await {
         let chunk = chunk?;
         if bytes.len() + chunk.len() > length {
-            return Err(Cause::Size);
+            return Err(RestoreFailure::Size);
         }
         bytes.extend_from_slice(&chunk);
     }
     if bytes.len() == length {
         Ok(bytes.freeze())
     } else {
-        Err(Cause::Size)
+        Err(RestoreFailure::Size)
     }
 }
 
@@ -324,7 +306,7 @@ mod tests {
         let mut two_latest = Seen::first(version("2", true, 40, None), moment()).unwrap();
         let second = two_latest.older(version("1", true, 20, Some("a")), moment());
 
-        assert!(matches!(oldest_first, Err(Cause::Order)));
-        assert!(matches!(second, Err(Cause::Order)));
+        assert!(matches!(oldest_first, Err(RestoreFailure::Order)));
+        assert!(matches!(second, Err(RestoreFailure::Order)));
     }
 }
