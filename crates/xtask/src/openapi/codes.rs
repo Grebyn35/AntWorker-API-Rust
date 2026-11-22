@@ -6,12 +6,13 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use serde_json::Value;
+use serde_json::{Map, Value};
 use syn::{
     Expr, ExprLit, ExprPath, ImplItem, ItemConst, ItemImpl, ItemMod, Lit, LitStr,
     visit::{self, Visit},
 };
 
+use super::{METHODS, listed_codes};
 use crate::{Finding, declarations::only_tests, repo::Repo};
 
 /// The code the API runs, where errors implement `ErrorCode`.
@@ -20,8 +21,7 @@ const CODE: [&str; 2] = ["crates/platform/src/", "crates/app/src/"];
 /// A finding for each code that an `ErrorCode`'s `code` returns, outside tests, and that no
 /// problem of `document` lists.
 pub fn check(repo: &Repo, document: &Value) -> Vec<Finding> {
-    let mut listed = BTreeSet::new();
-    listed_codes(document, &mut listed);
+    let listed = problem_codes(document);
     let files: Vec<(&str, syn::File)> = repo
         .files()
         .filter(|file| {
@@ -59,27 +59,33 @@ pub fn check(repo: &Repo, document: &Value) -> Vec<Finding> {
     findings
 }
 
-/// Every string that a `code` property's `enum` lists, anywhere in `value`.
-fn listed_codes(value: &Value, listed: &mut BTreeSet<String>) {
-    match value {
-        Value::Object(object) => {
-            if let Some(values) = object
-                .get("properties")
-                .and_then(|properties| properties["code"]["enum"].as_array())
-            {
-                listed.extend(values.iter().filter_map(Value::as_str).map(str::to_owned));
-            }
-            for value in object.values() {
-                listed_codes(value, listed);
-            }
-        }
-        Value::Array(values) => {
-            for value in values {
-                listed_codes(value, listed);
-            }
-        }
-        _ => {}
-    }
+/// The codes that the problem responses of `document` list: each response of an operation, and
+/// each of `components/responses`, with the codes that the `allOf` of its
+/// `application/problem+json` schema lists, as [`listed_codes`] reads them.
+fn problem_codes(document: &Value) -> BTreeSet<String> {
+    let empty = Map::new();
+    let operations = document["paths"]
+        .as_object()
+        .unwrap_or(&empty)
+        .values()
+        .flat_map(|item| METHODS.iter().filter_map(|method| item.get(*method)));
+    let responses = operations
+        .flat_map(|operation| {
+            operation["responses"]
+                .as_object()
+                .unwrap_or(&empty)
+                .values()
+        })
+        .chain(
+            document["components"]["responses"]
+                .as_object()
+                .unwrap_or(&empty)
+                .values(),
+        );
+    responses
+        .flat_map(listed_codes)
+        .map(str::to_owned)
+        .collect()
 }
 
 /// The string literals in the `code` methods of a file's implementations of `ErrorCode`, and the
@@ -232,5 +238,39 @@ mod tests {
                 "crates/app/src/modules/things/error.rs:6"
             ]
         );
+    }
+
+    #[test]
+    fn err_13_a_code_that_only_a_schema_other_than_a_problem_s_lists_fails() {
+        let error = "impl ErrorCode for ThingsError {\n\
+                     \x20   fn code(&self) -> &'static str {\n\
+                     \x20       match self {\n\
+                     \x20           Self::Gone => \"things.gone\",\n\
+                     \x20           Self::Taken => \"things.taken\",\n\
+                     \x20       }\n\
+                     \x20   }\n\
+                     }\n";
+        let repo = Repo::of(&[("crates/app/src/modules/things/error.rs", error)]);
+        let document = json!({
+            "paths": { "/v1/things": { "get": { "responses": {
+                "200": { "content": { "application/json": { "schema": {
+                    "properties": { "code": { "enum": ["things.taken"] } },
+                } } } },
+                "404": { "content": { "application/problem+json": { "schema": { "allOf": [
+                    { "$ref": "#/components/schemas/ProblemBody" },
+                    { "properties": { "code": { "enum": ["things.gone"] } } },
+                ] } } } },
+            } } } },
+            "components": { "schemas": { "Outcome": {
+                "properties": { "code": { "enum": ["things.taken"] } },
+            } } },
+        });
+
+        let messages: Vec<String> = check(&repo, &document)
+            .into_iter()
+            .map(|finding| format!("{}:{}", finding.path, finding.line))
+            .collect();
+
+        assert_eq!(messages, ["crates/app/src/modules/things/error.rs:5"]);
     }
 }

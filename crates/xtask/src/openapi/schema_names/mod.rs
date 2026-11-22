@@ -34,7 +34,10 @@ pub struct Schema {
 /// read.
 #[derive(Default)]
 pub struct Reading {
-    /// The names, in the order of the files and of their lines.
+    /// The names, file by file: a file's derives in the order of their lines, then the names of
+    /// its impls in theirs, where an impl inside a `macro_rules!` gives those of the macro's
+    /// invocations, and one whose name is its type parameter's constant those of the trait's
+    /// impls, each of every file in turn.
     pub schemas: Vec<Schema>,
     /// The findings.
     pub refused: Vec<Finding>,

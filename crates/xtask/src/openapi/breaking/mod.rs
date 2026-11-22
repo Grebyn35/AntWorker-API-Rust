@@ -44,7 +44,7 @@ use self::{
 use super::{DOCUMENT, METHODS};
 use crate::{Finding, release, repo::Repo};
 
-/// The content type of a problem (ERR-01).
+/// The content type of a problem (API-07).
 const PROBLEM: &str = "application/problem+json";
 
 /// What the committed document of `repo` breaks of the one that the last final release holds:

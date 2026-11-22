@@ -92,8 +92,9 @@ pub struct Comparison<'a> {
     pub current: &'a Value,
     /// What the committed document breaks.
     pub findings: Vec<String>,
-    /// The pairs of schemas whose comparison is under way, so that a schema that holds itself
-    /// is compared once.
+    /// The pairs of schemas whose comparison is under way, in this comparison or in the one whose
+    /// alternative of a `oneOf` it tries, so that a schema that holds itself, through a property,
+    /// an item or an alternative, is compared once.
     comparing: Vec<(Vec<*const Value>, Vec<*const Value>)>,
 }
 
@@ -331,8 +332,11 @@ impl<'a> Comparison<'a> {
                 .iter()
                 .find(|(other, _)| other == name)
                 .map(|(_, schema)| *schema);
+            // A trial takes the pairs under way, so that an alternative that holds the schema
+            // whose alternative it is ends its comparison there, as a property that does ends.
             let kept = |this: &Self, of_current: &'a Value| {
                 let mut trial = Self::new(this.release, this.current);
+                trial.comparing.clone_from(&this.comparing);
                 trial.compare(place, side, &[*of_release], &[of_current]);
                 trial.findings.is_empty()
             };
@@ -842,6 +846,32 @@ mod tests {
             [
                 "it's `children[].name` is of integer where it was of string",
                 "it's `name` is of integer where it was of string"
+            ]
+        );
+    }
+
+    #[test]
+    fn api_18_a_schema_that_holds_itself_through_an_alternative_is_compared_once() {
+        let document = json!({"components": {"schemas": {
+            "Node": {"oneOf": [{"$ref": "#/components/schemas/Leaf"}, {"$ref": "#/components/schemas/Branch"}]},
+            "Leaf": {"properties": {"name": {"type": "string"}}, "required": ["name"]},
+            "Branch": {"properties": {"children": {"type": "array", "items": {"$ref": "#/components/schemas/Node"}}}, "required": ["children"]}
+        }}});
+        let mut renamed = document.clone();
+        renamed["components"]["schemas"]["Leaf"]["properties"]["name"]["type"] = json!("integer");
+        let node = json!({"$ref": "#/components/schemas/Node"});
+
+        let mut same = Comparison::new(&document, &document);
+        same.compare(&Place::root("it"), Side::Response, &[&node], &[&node]);
+        let mut comparison = Comparison::new(&document, &renamed);
+        comparison.compare(&Place::root("it"), Side::Response, &[&node], &[&node]);
+
+        assert_eq!(same.findings, none());
+        assert_eq!(
+            comparison.findings,
+            [
+                "it's `<Leaf>.name` is of integer where it was of string",
+                "it's `<Branch>.children[]<Leaf>.name` is of integer where it was of string"
             ]
         );
     }

@@ -196,8 +196,9 @@ fn listed(status: &str) -> bool {
     matches!(status, "200" | "201" | "202" | "204" | "206")
 }
 
-/// Whether API-04 lets an outcome of `method` answer the success `status`: a read 200, a delete
-/// 202 or 204, an update 200 or 204, and any other outcome 200, 201, 202 or 204.
+/// Whether API-04 lets an outcome of `method` answer the success `status`: a read 200, or 206 for
+/// a range of a download's bytes, a delete 202 or 204, an update 200 or 204, and any other outcome
+/// 200, 201, 202 or 204.
 fn allowed(method: &str, status: &str) -> bool {
     match (method, status) {
         ("get", "200") | ("delete", "202" | "204") | ("patch" | "put", "200" | "204") => true,
