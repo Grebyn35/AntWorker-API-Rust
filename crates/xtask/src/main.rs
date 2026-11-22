@@ -302,9 +302,16 @@ enum Command {
         #[arg(default_value = "capabilities")]
         route: String,
     },
-    /// Fills the cache of Docker Hub that Compose runs with the images the end-to-end tests'
+    /// Fills the store of the mirror that Compose runs with the images the end-to-end tests'
     /// servers pull, for `platform`, such as linux/amd64 (TEST-06).
     Mirror {
+        /// The servers' platform.
+        platform: String,
+    },
+    /// Prints the platform and the images that `mirror` fills the mirror's store with for
+    /// `platform`, as the store names what filled it (OPS-21).
+    #[command(name = "mirror-images")]
+    MirrorImages {
         /// The servers' platform.
         platform: String,
     },
@@ -385,6 +392,7 @@ fn main() -> ExitCode {
         Command::EnvDrift => return env_drift::run(),
         Command::StaleServices => return services::run(),
         Command::Mirror { platform } => return mirror::run(&platform),
+        Command::MirrorImages { platform } => return mirror::list(&platform),
         Command::RestorePlan {
             moment,
             bucket_as_of,
@@ -441,7 +449,8 @@ fn main() -> ExitCode {
         | Command::LoadTest { .. }
         | Command::EnvDrift
         | Command::StaleServices
-        | Command::Mirror { .. } => Outcome::default(),
+        | Command::Mirror { .. }
+        | Command::MirrorImages { .. } => Outcome::default(),
     };
     print(&outcome)
 }

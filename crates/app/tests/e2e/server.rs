@@ -204,7 +204,7 @@ impl Server {
             "1s",
             "--health-retries",
             "3",
-            // Docker Hub's images come through the mirror, which `just e2e` filled, and Docker
+            // Docker Hub's images come from the mirror, whose store `just e2e` filled, and Docker
             // Hub itself is out of reach (TEST-06).
             "--add-host",
             "registry-1.docker.io:127.0.0.1",
@@ -958,9 +958,14 @@ impl Server {
     }
 
     /// Starts the buckets' stand-in, as `start_buckets` does, and writes the bundled database's
-    /// secrets beside its bucket's, then returns the settings of its backup bucket.
+    /// secrets beside its bucket's, then returns the settings of its backup bucket, and the
+    /// hour of its daily backup: the one twelve hours after the server's clock now. At that
+    /// hour the deployment's backup service takes a backup that no test asked for, which a test
+    /// that lists the bucket's backups while it runs across that hour finds among them, as two
+    /// did across the setting's default, 03:00 UTC (TEST-06).
     pub fn start_bucket(&self) -> Vec<(String, String)> {
         let address = self.start_buckets();
+        let hour = self.shell_ok("echo $(( ($(date -u +%s) / 3600 + 12) % 24 ))");
         self.write(
             &format!("{DEPLOYMENT}/secrets/backup_cipher_pass"),
             "the passphrase of the e2e tests' backups",
@@ -976,6 +981,7 @@ impl Server {
             ("BACKUP_S3_REGION", "us-east-1"),
             ("BACKUP_S3_BUCKET", "backups"),
             ("BACKUP_S3_URI_STYLE", "path"),
+            ("BACKUP_HOUR", hour.as_str()),
         ]
         .iter()
         .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))

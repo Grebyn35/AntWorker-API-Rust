@@ -1,14 +1,22 @@
-//! `mirror`, which `just e2e` runs before the end-to-end tests: it fills the cache of Docker Hub
-//! that Compose runs as `mirror` with every image the tests' servers pull from Docker Hub, for the
-//! servers' platform, and with the attestations that the image's index lists for that platform's
-//! image, such as its provenance, which a server's Docker pulls with the image, so no test
-//! reaches a registry outside (TEST-06). The servers pull those images through the cache, and the
-//! API's and the deployment's Postgres from Compose's registry. It reads the images from the
-//! reference deployment's Compose files, the tools' that a deploy runs from
-//! deploy/tools/compose.yaml, and the stand-ins' for the bucket and the mail server from
-//! compose.yaml.
+//! `mirror`, which `just e2e` runs before the end-to-end tests: it fills the store of the
+//! registry that Compose runs as `mirror` with every image the tests' servers pull from Docker
+//! Hub, for the servers' platform, and with the attestations that the image's index lists for
+//! that platform's image, such as its provenance, which a server's Docker pulls with the image.
+//! The servers pull those images from `mirror`, which has no upstream, and the API's and the
+//! deployment's Postgres from Compose's registry, so no test reaches a registry outside
+//! (TEST-06). It reads the images from the reference deployment's Compose files, the tools' that
+//! a deploy runs from deploy/tools/compose.yaml, and the stand-ins' for the bucket and the mail
+//! server from compose.yaml.
+//!
+//! It fetches them through `mirror-fill`, a cache of Docker Hub on the same store, which it
+//! starts for the fill and removes after it. The store holds what one list of images filled it
+//! with (OPS-21): once filled, its file [`FILLED`] holds the platform and the list, as
+//! `mirror-images` prints them. A run whose platform and list the file holds fetches nothing,
+//! and starts no cache. Any other run deletes everything in the store, fills it, writes the
+//! file, and restarts `mirror`, which keeps in memory what its store held.
 
 use std::{
+    io::Write as _,
     path::Path,
     process::{Command, ExitCode, Stdio},
 };
@@ -33,7 +41,38 @@ const ON_SERVER: [(&str, &[&str]); 2] = [
     ("deploy/tools/compose.yaml", &["curl", "yq"]),
 ];
 
-/// Fills the cache with the images the servers pull, for `platform`, such as linux/amd64.
+/// The file of the store that holds what filled it: the platform, then each image, as
+/// [`filled`] writes them.
+const FILLED: &str = "/var/lib/registry/filled";
+
+/// The address, on Compose's network, of the cache of Docker Hub that fills the store.
+const CACHE: &str = "mirror-fill:5000";
+
+/// Prints the platform and the images that `run` fills the store with for `platform`, as the
+/// store's file [`FILLED`] holds them once it has.
+pub fn list(platform: &str) -> ExitCode {
+    match Repo::load()
+        .map_err(|error| error.to_string())
+        .and_then(|repo| images(&repo))
+    {
+        Ok(images) => {
+            report(filled(platform, &images).trim_end());
+            ExitCode::SUCCESS
+        }
+        Err(error) => fail(&format!("can't list the servers' images: {error}")),
+    }
+}
+
+/// What the store's file [`FILLED`] holds once `images` have filled the store for `platform`:
+/// a line with the platform, then a line with each image.
+fn filled(platform: &str, images: &[String]) -> String {
+    std::iter::once(platform)
+        .chain(images.iter().map(String::as_str))
+        .fold(String::new(), |lines, line| lines + line + "\n")
+}
+
+/// Fills the store with the images the servers pull, for `platform`, such as linux/amd64,
+/// unless they filled it before.
 pub fn run(platform: &str) -> ExitCode {
     let images = match Repo::load()
         .map_err(|error| error.to_string())
@@ -43,44 +82,150 @@ pub fn run(platform: &str) -> ExitCode {
         Err(error) => return fail(&format!("can't list the servers' images: {error}")),
     };
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let filled = filled(platform, &images);
+    match holds(&root, &filled) {
+        Ok(true) => {
+            report("mirror: the store holds the images, which filled it before");
+            return ExitCode::SUCCESS;
+        }
+        Ok(false) => {}
+        Err(error) => return fail(&error),
+    }
+    // The store as another list left it, or a fill that stopped, goes first; then the cache
+    // fetches into it, and goes whether the fill ended well or not.
+    let emptied = steps(
+        &root,
+        &[
+            &[
+                "exec",
+                "--no-TTY",
+                "mirror",
+                "find",
+                "/var/lib/registry",
+                "-mindepth",
+                "1",
+                "-delete",
+            ],
+            &["up", "--detach", "--wait", "mirror-fill"],
+        ],
+    );
+    let fetched = emptied.and_then(|()| fetch(&root, platform, &images));
+    let removed = steps(&root, &[&["rm", "--stop", "--force", "mirror-fill"]]);
+    let recorded = fetched.and(removed).and_then(|()| record(&root, &filled));
+    // `mirror` read the store before the fill, so it starts again on what the store holds now.
+    match recorded.and_then(|()| {
+        steps(
+            &root,
+            &[
+                &["restart", "mirror"],
+                &["up", "--detach", "--wait", "mirror"],
+            ],
+        )
+    }) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => fail(&error),
+    }
+}
+
+/// `docker compose` with `arguments`, in the repository at `root`.
+fn compose(root: &Path, arguments: &[&str]) -> Command {
+    let mut compose = Command::new("docker");
+    compose.arg("compose").args(arguments).current_dir(root);
+    compose
+}
+
+/// Runs `docker compose` with each of `steps`, in order, and stops at the first that fails.
+fn steps(root: &Path, steps: &[&[&str]]) -> Result<(), String> {
+    for step in steps {
+        let done = compose(root, step)
+            .stdout(Stdio::null())
+            .status()
+            .map_err(|error| format!("can't run docker compose: {error}"))?;
+        if !done.success() {
+            return Err(format!("`docker compose {}` failed", step.join(" ")));
+        }
+    }
+    Ok(())
+}
+
+/// Whether the store's file [`FILLED`] holds `filled`, read through `mirror`'s container.
+fn holds(root: &Path, filled: &str) -> Result<bool, String> {
+    let held = compose(root, &["exec", "--no-TTY", "mirror", "cat", FILLED])
+        .stderr(Stdio::null())
+        .output()
+        .map_err(|error| format!("can't run docker compose: {error}"))?;
+    Ok(held.status.success() && held.stdout == filled.as_bytes())
+}
+
+/// Writes `filled` to the store's file [`FILLED`], once the store holds every image.
+fn record(root: &Path, filled: &str) -> Result<(), String> {
+    let run = |error: std::io::Error| format!("can't run docker compose: {error}");
+    let write = format!("cat > {FILLED}");
+    let mut child = compose(
+        root,
+        &[
+            "exec",
+            "--no-TTY",
+            "--interactive",
+            "mirror",
+            "sh",
+            "-c",
+            &write,
+        ],
+    )
+    .stdin(Stdio::piped())
+    .spawn()
+    .map_err(run)?;
+    if let Some(mut input) = child.stdin.take() {
+        input.write_all(filled.as_bytes()).map_err(run)?;
+    }
+    if child.wait().map_err(run)?.success() {
+        Ok(())
+    } else {
+        Err(format!("can't write {FILLED} in the mirror's store"))
+    }
+}
+
+/// Fetches each of `images` through the cache, for `platform`, with its attestations.
+fn fetch(root: &Path, platform: &str, images: &[String]) -> Result<(), String> {
+    let run = |error: std::io::Error| format!("can't run docker compose: {error}");
     let crane = || {
-        let mut crane = Command::new("docker");
-        crane
-            .args(["compose", "run", "--rm", "--no-TTY", "crane", "--insecure"])
-            .current_dir(&root);
+        let mut crane = compose(root, &["run", "--rm", "--no-TTY", "crane", "--insecure"]);
+        crane.stdin(Stdio::null());
         crane
     };
-    for image in &images {
+    for image in images {
         // crane fetches the image's index, and its manifest and layers for `platform`, through
         // the cache, which keeps them.
         let fetched = crane()
             .args(["--platform", platform, "validate", "--remote"])
-            .arg(format!("mirror:5000/{image}"))
+            .arg(format!("{CACHE}/{image}"))
             .stdout(Stdio::null())
-            .status();
-        match fetched {
-            Ok(status) if status.success() => {}
-            Ok(_) => return fail(&format!("can't fetch {image} through the mirror")),
-            Err(error) => return fail(&format!("can't run docker compose: {error}")),
+            .status()
+            .map_err(run)?;
+        if !fetched.success() {
+            return Err(format!("can't fetch {image} through the cache"));
         }
         // The index, which the cache now holds, lists the attestations of the platform's image,
         // which crane left out, and which a server's Docker pulls with the image.
-        let index = match crane()
+        let index = crane()
             .arg("manifest")
-            .arg(format!("mirror:5000/{image}"))
+            .arg(format!("{CACHE}/{image}"))
             .stderr(Stdio::null())
             .output()
-        {
-            Ok(output) if output.status.success() => output.stdout,
-            Ok(_) => return fail(&format!("can't read the index of {image} from the mirror")),
-            Err(error) => return fail(&format!("can't run docker compose: {error}")),
-        };
-        if let Err(error) = attest(&crane, image, &String::from_utf8_lossy(&index), platform) {
-            return fail(&error);
+            .map_err(run)?;
+        if !index.status.success() {
+            return Err(format!("can't read the index of {image} from the cache"));
         }
+        attest(
+            &crane,
+            image,
+            &String::from_utf8_lossy(&index.stdout),
+            platform,
+        )?;
         report(&format!("mirror: {image}"));
     }
-    ExitCode::SUCCESS
+    Ok(())
 }
 
 /// Fetches through the cache the attestations that `index` lists for `image`'s image of
@@ -95,7 +240,7 @@ fn attest(
     let repository = image.split_once('@').map_or(image, |(name, _)| name);
     let run = |error: std::io::Error| format!("can't run docker compose: {error}");
     for attestation in attestations(index, platform) {
-        let reference = format!("mirror:5000/{repository}@{attestation}");
+        let reference = format!("{CACHE}/{repository}@{attestation}");
         let manifest = crane()
             .args(["manifest", &reference])
             .stderr(Stdio::null())
@@ -109,7 +254,7 @@ fn attest(
         for blob in blobs(&String::from_utf8_lossy(&manifest.stdout)) {
             let fetched = crane()
                 .arg("blob")
-                .arg(format!("mirror:5000/{repository}@{blob}"))
+                .arg(format!("{CACHE}/{repository}@{blob}"))
                 .stdout(Stdio::null())
                 .status()
                 .map_err(run)?;
@@ -170,8 +315,8 @@ fn attestations(index: &str, platform: &str) -> Vec<String> {
         .collect()
 }
 
-/// The images that the servers pull from Docker Hub, by their paths in the cache, or why they
-/// can't be listed, such as an image of another registry, which no server could pull through it.
+/// The images that the servers pull from Docker Hub, by their paths in the mirror, or why they
+/// can't be listed, such as an image of another registry, which no server could pull from it.
 pub fn images(repo: &Repo) -> Result<Vec<String>, String> {
     let mut findings = Vec::new();
     let mut named = Vec::new();
@@ -212,14 +357,14 @@ pub fn images(repo: &Repo) -> Result<Vec<String>, String> {
         .collect();
     if !others.is_empty() {
         return Err(format!(
-            "the mirror caches Docker Hub's images pinned by digest, and {} isn't one",
+            "the mirror holds Docker Hub's images pinned by digest, and {} isn't one",
             others.join(", ")
         ));
     }
     Ok(named.iter().filter_map(|image| cached(image)).collect())
 }
 
-/// The path in the cache of `image`, a reference to Docker Hub pinned by digest, such as
+/// The path in the mirror of `image`, a reference to Docker Hub pinned by digest, such as
 /// `library/caddy@sha256:…` for `caddy:2.11.7@sha256:…`; none for any other image.
 fn cached(image: &str) -> Option<String> {
     let (name, digest) = image.split_once('@')?;
@@ -287,7 +432,7 @@ mod tests {
     }
 
     #[test]
-    fn test_06_an_image_of_docker_hub_has_its_path_in_the_cache() {
+    fn test_06_an_image_of_docker_hub_has_its_path_in_the_mirror() {
         assert_eq!(
             cached(&format!("caddy:2.11.7@{DIGEST}")),
             Some(format!("library/caddy@{DIGEST}"))
@@ -334,6 +479,25 @@ mod tests {
                 format!("mikefarah/yq@{DIGEST}"),
             ])
         );
+    }
+
+    #[test]
+    fn ops_21_the_store_s_record_names_the_platform_and_each_image_that_filled_it() {
+        let images = [
+            format!("library/caddy@{DIGEST}"),
+            format!("grafana/loki@{DIGEST}"),
+        ];
+
+        let record = filled("linux/amd64", &images);
+
+        assert_eq!(
+            record,
+            format!("linux/amd64\nlibrary/caddy@{DIGEST}\ngrafana/loki@{DIGEST}\n")
+        );
+        // Another platform's fill, or another list's, writes another record, so a run for
+        // either empties the store.
+        assert_ne!(record, filled("linux/arm64", &images));
+        assert_ne!(record, filled("linux/amd64", &images[..1]));
     }
 
     #[test]

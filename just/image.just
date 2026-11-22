@@ -73,7 +73,7 @@ image-scan:
 # the one that the working tree's files build (OPS-20). The tests push the images to the
 # registry that Compose runs, which they empty first, and run them from there, against the tests'
 # Postgres, or a deployment's own server (crates/app/tests/e2e/machine.rs). Every other image
-# the tests pull is fetched first: this machine's, and, through the mirror, their servers', which
+# the tests pull is fetched first: this machine's, and, into the mirror's store, their servers', which
 # run on this machine's platform, so no test reaches a registry outside (TEST-06). The arguments go
 # to the test harness: names run only the tests whose names hold one of them, such as
 # `just e2e obs_13`, and `--skip` leaves out those whose names hold the name after it, as CI's
@@ -88,6 +88,12 @@ e2e *tests: bound-build services
     {{ xtask }} mirror {{ native_platform }}
     {{ xtask }} image-inputs
     cargo test --locked --package app --features e2e --test e2e -- {{ tests }}
+
+# Prints the platform and the images that `just e2e` fills the mirror with on this machine, as
+# the mirror's store names what filled it. CI keeps the store between runs under this list.
+[private]
+mirror-images:
+    @{{ xtask }} mirror-images {{ native_platform }}
 
 # Measures one replica's capacity, for the release notes (OPS-16): runs the API's image in
 # target/image, which must be the one that the working tree's files build (OPS-20), on this

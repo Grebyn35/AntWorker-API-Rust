@@ -96,7 +96,7 @@ services:
   # each test that runs the API creates a bucket of its own, which the tests delete once it ends.
   storage:
     logging: *logging
-    image: chrislusf/seaweedfs:4.53@sha256:ccad23e18639c8b98cee17e7100b95830a06077b56d8e5b006d6dcf8ec5e94a0
+    image: chrislusf/seaweedfs:4.54@sha256:4b42c212543a0acd4c0e675215ecdcaf62a186ef98def76c7e12701871222d15
     command: ["server", "-dir=/data", "-volume.max=1000", "-s3", "-s3.port=8333"]
     environment:
       WEED_MASTER_VOLUME_GROWTH_COPY_1: "1"
@@ -198,8 +198,8 @@ services:
   # The images the image tasks run, under the `tools` profile, so the dependency updates that
   # reach every other image reach them too (docs/operations/ci.md). The tasks run them with
   # `docker compose run`, or read their names with `docker compose config --images`. Only the
-  # registry, to which the end-to-end tests and `just load-test` push the images under test, and the
-  # mirror run as services.
+  # registry, to which the end-to-end tests and `just load-test` push the images under test, the
+  # mirror, and `mirror-fill` while the mirror's store fills, run as services.
   registry:
     logging: *logging
     profiles: [tools]
@@ -212,21 +212,33 @@ services:
       timeout: 5s
       retries: 30
 
-  # A cache of Docker Hub, from which the end-to-end tests' servers pull every image that Docker
-  # Hub serves. `just e2e` fills it for the servers' platform before the tests run, so no test
-  # reaches a registry outside (TEST-06). It keeps what it holds until its volume is removed,
-  # with no time to live: with one, the registry deletes a layer that two repositories share
-  # once the entry of the first that fetched it ends, and goes on answering the other's requests
-  # for it with a 200 and no bytes.
+  # The registry from which the end-to-end tests' servers pull every image that Docker Hub
+  # serves, as their Docker's mirror of it. It has no upstream and serves what its store holds,
+  # so no test reaches a registry outside (TEST-06). `just e2e` fills the store for the servers'
+  # platform before the tests run, through `mirror-fill`, unless the same list of images filled
+  # it before, and empties it first when another list did (OPS-21). The store is the volume
+  # `mirror`, or the directory that MIRROR_STORE names, as CI's jobs do, which keep it between
+  # runs (docs/operations/ci.md).
   mirror:
     logging: *logging
+    profiles: [tools]
+    image: registry:3.1.2@sha256:d4032d4cc323c1731c707931ecada07a53076eac38e3b61ae57533f170f2c6c3
+    volumes:
+      - ${MIRROR_STORE:-mirror}:/var/lib/registry
+    healthcheck: *registry-health
+
+  # A cache of Docker Hub on the mirror's store, which `just e2e` runs only while it fills the
+  # store: what is fetched through it stays there. It has no time to live: with one, the
+  # registry deletes a layer that two repositories share once the entry of the first that
+  # fetched it ends, and goes on answering the other's requests for it with a 200 and no bytes.
+  mirror-fill:
     profiles: [tools]
     image: registry:3.1.2@sha256:d4032d4cc323c1731c707931ecada07a53076eac38e3b61ae57533f170f2c6c3
     environment:
       REGISTRY_PROXY_REMOTEURL: https://registry-1.docker.io
       REGISTRY_PROXY_TTL: 0
     volumes:
-      - mirror:/var/lib/registry
+      - ${MIRROR_STORE:-mirror}:/var/lib/registry
     healthcheck: *registry-health
 
   crane:
@@ -265,7 +277,7 @@ services:
   # their server: SeaweedFS, which serves the S3 protocol (OPS-15).
   bucket:
     profiles: [tools]
-    image: chrislusf/seaweedfs:4.53@sha256:ccad23e18639c8b98cee17e7100b95830a06077b56d8e5b006d6dcf8ec5e94a0
+    image: chrislusf/seaweedfs:4.54@sha256:4b42c212543a0acd4c0e675215ecdcaf62a186ef98def76c7e12701871222d15
 
   # k6, which `just load-test` runs to measure one replica's capacity (OPS-16). It reaches the
   # collector, on the same network, to count the spans the collector accepted.

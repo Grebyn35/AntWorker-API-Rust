@@ -246,9 +246,21 @@ jobs:
         with:
           name: image
           path: target
+      # The mirror's store, kept between runs under the platform and the list of the images
+      # that fill it, so `just e2e` asks Docker Hub for them only in a job whose list no
+      # earlier job's store holds (docs/operations/ci.md).
+      - id: mirror
+        run: |
+          images=$(just mirror-images)
+          echo "images=$(echo "$images" | sha256sum | cut --delimiter=' ' --fields=1)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/mirror
+          key: mirror-${{ steps.mirror.outputs.images }}
       - run: just e2e ${{ matrix.tests }}
         env:
           E2E_PLATFORM: ${{ matrix.platform }}
+          MIRROR_STORE: ${{ runner.temp }}/mirror
 
   # The tested digests, published on main as sha-<commit>, and as edge while it is main's head.
   publish:
