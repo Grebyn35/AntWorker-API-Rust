@@ -2,8 +2,6 @@
 
 How the API is built: its parts, how they depend on each other, how a request flows through them, and where each rule is enforced. Read this before changing or adding a module.
 
-While the API is being built, parts of this document describe the design to build rather than code that exists, as "Docs for unbuilt parts are the plan" in [CLAUDE.md](../CLAUDE.md) explains. The module table in [MIGRATION.md](MIGRATION.md#modules) shows what is built.
-
 Decision IDs `D1` to `D36` refer to the decision records in [inventory/SYNTHESIS.md](inventory/SYNTHESIS.md), and later ones to the [tracker's decisions](MIGRATION.md#decisions), whose commits hold their reasons.
 
 ## 1. System context
@@ -44,21 +42,25 @@ flowchart LR
 ## 3. Repository layout
 
 ```
-Cargo.toml          workspace manifest
+Cargo.toml          workspace manifest, beside Cargo.lock
+rust-toolchain.toml the pinned toolchain; clippy.toml, rustfmt.toml and deny.toml configure its lints, its formatting and cargo-deny
 justfile            every task, run identically locally and in CI (D21), with its settings and variables
 just/               the tasks the justfile imports, a file for each group that `just` lists (CODE-08)
 Dockerfile          the image (OPS-13)
 compose.yaml        the services a developer runs locally, and the images of the tools the tasks run
+.env.example        the API's settings, each with its type, default and meaning (OPS-02)
 crates/
   platform/         shared mechanisms, no product knowledge
   app/              feature modules, routes, composition root, the binary
   xtask/            the custom CI checks, and the other tasks that `just` runs
 migrations/         one ordered directory; each file name names its owning module
+.sqlx/              the committed query cache, which builds check the queries against (DATA-14)
+openapi.json        the committed contract, which the binary writes (API-17)
 deploy/             the configuration of the observability stack and of the reference deployment
 docs/
 .github/            thin workflows that call `just`, and the configuration of Dependabot
 .claude/            Claude Code definitions, including the conformance reviewer
-CLAUDE.md
+README.md, CLAUDE.md, SECURITY.md, CHANGELOG.md
 ```
 
 The configuration of the services the API runs beside lives under `deploy/`, so the root holds only what a developer edits day to day.
@@ -74,14 +76,14 @@ The API has two crates. Cargo forbids `platform` from depending on `app`, so the
 | `config` | Typed configuration loaded once at startup. Values are trimmed, empty means unset, `*_FILE` secret files are supported, and every failure is reported in one format. | D9, D26 |
 | `db` | One connection pool, the listener beside it, the unit of work, and the `bootstrap` and `migrate` tasks. A unit of work is one transaction, opened by the service, or with the proof that authorizes its route, as `Authorized<P>` on a workspace route, with a writer for jobs and events, and the claim of an idempotency key, whose record commits with it. Every query in it filters by tenant itself (DATA-16). | D1, D4, D12, D20, D24 |
 | `jobs` | A durable job queue with retry, backoff and dead letters, which every instance's dispatcher polls, plus a scheduler that runs each periodic job once per interval across the fleet. A job records the user or workspace it was enqueued for, and its handler filters by them. | D1, D13 |
-| `events` | The event log and the real-time hub. A unit of work publishes events, which take their positions in the log in the order their units of work commit. The hub listens on the listener, and loads each new event once and delivers it to the streams allowed to receive it (SEC-19). It also replays what a reconnecting stream missed, closes streams when an access-change signal arrives, and re-checks every open stream at a configured interval (SEC-06). | D1, D5, D20 |
+| `events` | The event log and the real-time hub. A unit of work publishes events, which take their positions in the log in the order their units of work commit. The hub listens on the listener, and loads each new event once and delivers it to the streams allowed to receive it (SEC-19). It also replays what a reconnecting stream missed, closes streams when an access-change signal arrives, and re-checks every open stream at a configured interval (SEC-06). The event catalog of the OpenAPI document is built here, from the events that each module registers with its routes. | D1, D5, D20 |
 | `rate_limit` | The buckets that count requests in windows, in the database every replica shares: the IP and user limits that the request pipeline applies, and the per-action limits a module checks, such as sign-in's. A budget is a bucket that counts a request's bytes in place of the request. | D11 |
-| `http` | The route builders and the OpenAPI document they produce, the middleware stack with trace context, timeouts, load shedding, cross-origin resource sharing (CORS) and the protection against cross-site request forgery (CSRF), extractors (JSON, a keyed route's JSON with its `Idempotency-Key`, a JSON Merge Patch, an update's `If-Match`, path, query), a path's row IDs, the response that answers a resource, with its `Location` and `ETag`, and rate limiting. | D8, D10, D11, D12, D20, D61 |
+| `http` | The route builders and the OpenAPI document they produce, the middleware stack with trace context, timeouts, load shedding, cross-origin resource sharing (CORS) and the protection against cross-site request forgery (CSRF), extractors (JSON, a keyed route's JSON with its `Idempotency-Key`, a JSON Merge Patch, an update's `If-Match`, path, query), a path's row IDs, the response that answers a resource, with its `Location` and `ETag`, a browser's session cookies, rate limiting, and the API reference that development serves. | D8, D10, D11, D12, D20, D61 |
 | `http::download` | The response that serves bytes that never change, such as an export's archive, or a range of them, and the extractor of what a download's request asks of them. | D126 |
 | `http::upload` and `http::files` | The extractor of an upload's bytes, which a replica reads 4 at a time and counts in its user's budget of a day, and the name an upload gives. | D107, D196 <!-- part: files --> |
 | `authn` | Reads a request's access token from the Bearer header, for clients that set their own headers, such as the desktop client, or otherwise from an `HttpOnly` cookie, for browsers. It verifies the token through the `SessionVerifier` that `auth` implements, producing a `Principal`, which it refuses while email is on and the caller's account hasn't proved its address, but on the routes that proving it needs (D67). | D18, D61, D67 |
 | `idempotency` | The `Idempotency-Key` of a keyed route, read as draft-08 of the IETF's draft defines it, with the fingerprint of its request, which a unit of work claims. | D12 |
-| `lists` | A page's `limit` and cursor, a list's `search`, and the body of a page, which a route reads from its query and hands its service. | D8 |
+| `lists` | A page's `limit` and cursor, a list's `search`, its filters that take several values, and the body of a page, which a route reads from its query and hands its service. | D8 |
 | `authz` | The `Authorized<P>` proof and the `Memberships` type, generic over the `Permission` trait. Producing `Authorized<P>` opens the request's unit of work and asks the `AccessPolicy` that `access` implements inside it. Refusals are reported to the `SecurityEventSink` that `audit` implements. | D2, D3, D6 |
 | `authz`, for a superadmin's routes | The `Superadmin` proof, which opening a superadmin's route produces: it opens the request's unit of work and asks, inside it, the `SuperadminPolicy` that `superadmins` implements. A refusal is reported to the same sink. | D62, D63 <!-- part: superadmins --> |
 | `errors` | Error categories, the `ErrorCode` trait, and the single conversion to an HTTP response. | D17 |
@@ -91,7 +93,7 @@ The API has two crates. Cargo forbids `platform` from depending on `app`, so the
 | `signed_urls` | The signed URLs of downloads: a path, the session it acts for and when it stops working, signed with a hash-based message authentication code (HMAC) under `HMAC_KEY`, which a client that can't send a credential with a request, such as an `<img>`, sends in its place. | D61, D113 <!-- part: files --> |
 | `scanner` | The client of ClamAV's daemon, which scans an upload's bytes for malware. | D26, D63, D107 <!-- part: files --> |
 | `mail` | Sending email: `Mail` enqueues a module's rendered email in a unit of work, and the job `platform.send_email` sends it through the SMTP transport, which the email settings configure, with a client span for each send. An email that holds a secret, such as a verification code, is sent at once by the module's own job that makes the secret, so no row keeps it. Each module's emails, and their templates, live in the module (§5). | D1, D9, D128 |
-| `outbound` | The only HTTP clients: one for URLs from configuration or from the code, such as an OAuth provider's endpoints, and one for URLs supplied by third parties, with protection against server-side request forgery (SSRF) (SEC-10). | D26 |
+| `outbound` | The two HTTP clients of application code: one for URLs from configuration or from the code, such as an OAuth provider's endpoints, and one for URLs supplied by third parties, with protection against server-side request forgery (SSRF). An adapter that reaches one endpoint that configuration names, such as the telemetry's exporters, sends through a client of its own (SEC-10). | D26 |
 | `types` | Shared domain types: `Secret`, `EmailAddress`, `Timestamp`, a resource's `Version`, the ID types, and `one_line`, the normalization of one line of text a user writes, which a module's domain types of such text, such as a name, build on. | D7, D25 |
 | `clock`, `random` | The injectable clock and the operating system's secure random source (CODE-06). | D23, D26 |
 | `encryption` | The key ring of `ENCRYPTION_KEYS`, which encrypts with AES-256-GCM each secret that the database holds and the API reads back, such as an authenticator app's, bound to its row (SEC-02). | D14, D26 |
@@ -99,6 +101,8 @@ The API has two crates. Cargo forbids `platform` from depending on `app`, so the
 | `blocking` | Runs CPU-heavy work, such as hashing a password, on a blocking thread, inside a span of its own, at most one at once per processor (CODE-05, OBS-06, OPS-07). | D10, D81 |
 | `personal_data` | The export and erasure contract that modules implement, and the archive of an export, which deflates each document a contract writes. | D31 |
 | `archive` | The layout of a ZIP file from its entries' stored sizes and checksums, which serves any range of it without its entries' bytes. | D31, D126 |
+| `ranges` | What a download asks of bytes that never change, and what it serves of them: every byte, one range, or none, as the conditions of RFC 9110 decide. A service decides it once it knows the bytes' size, and names no HTTP type. | D126 |
+| `tls` | TLS for the clients that the API builds itself: `rustls` on its ring provider, verifying a server against the operating system's certificates. | D38 |
 | `lifecycle` | Liveness, readiness and bounded graceful shutdown. | D9, D20 |
 
 `platform` knows two tenancy keys, a user ID and a workspace ID, because authorization, job scoping and event delivery need them. It knows nothing about memberships, roles or any other product rule.
@@ -110,10 +114,10 @@ crates/app/
   src/
     main.rs            the subcommands (§9)
     lib.rs             the crate root: makes public only the composition root's entry points (CODE-15)
-    composition/       the composition root: builds every service once at startup and mounts every module's routes, in mod.rs, reads the modules' settings, in config.rs, builds the request pipeline that serves the routes, in pipeline.rs, and holds the other subcommands that run the modules' logic: in seed.rs, the entry points of `seed`, and in tasks.rs, each subcommand that an operator runs, with what it takes, which main.rs takes into its own
+    composition/       the composition root: builds every service once at startup and mounts every module's routes, in mod.rs, reads the modules' settings, in config.rs, builds the request pipeline that serves the routes, in pipeline.rs, lists the OAuth providers for the capabilities, in providers.rs, and holds the other subcommands that run the modules' logic: in seed.rs, the entry points of `seed`, and in tasks.rs, each subcommand that an operator runs against the database, with what it takes, which main.rs takes into its own
     modules/           one directory per module (§5)
   templates/           each module's email templates, in a directory named after the module
-  tests/               integration tests over HTTP, against the real services, and end-to-end tests in tests/e2e/
+  tests/               integration tests over HTTP, against the real services, in tests/integration/, end-to-end tests in tests/e2e/, the load tests' scripts in tests/load/, and the test of the panic hook, in a binary of its own
 ```
 
 ## 5. Modules
@@ -124,7 +128,7 @@ crates/app/
 |---|---|---|
 | `access` | `workspace_memberships` | Roles, the permission matrix, the permission types used with `Authorized<P>`, and the `AccessPolicy` implementation (D2). It has no routes of its own. |
 | `audit` | `audit_entries`, `audit_entry_clients`, and the view `deletable_audit_entries` | Recording entries inside a unit of work, with each one's client beside it, which deleting the client's user deletes, the read endpoints, the action catalog, retention, and the `SecurityEventSink` implementation that records refused requests (D6, D124). |
-| `realtime` | none | The endpoint of server-sent events (SSE), the frames it sends, and the event catalog. Delivery, replay and stream closing are handled by `platform::events` (D5). |
+| `realtime` | none | The endpoint of server-sent events (SSE), the frames it sends, and what the event catalog documents of every frame (REALTIME-008). Delivery, replay and stream closing are handled by `platform::events`, which also builds the catalog (D5). |
 | `files` | `workspace_files`, `user_files`, `avatars`, `workspace_pictures`, `exported_files`, `object_deletions` | Upload, list, download and delete of user and workspace files, the types each upload accepts and its scan for malware, public files, signed download URLs, and the deletion of the bytes that no row names, with the images of the avatars that `accounts` sets, and of the workspace pictures that `workspaces` sets (D117, D120, D149). <!-- part: files --> |
 | `accounts` | `users`, `exports`, `export_entries`, `export_chunks` | The profile, and account deletion and export, which it orchestrates across modules through the personal data contract (D16, D31). |
 | `auth` | `sessions`, `device_tokens`, `verification_codes`, `identities`, `totp_factors`, `totp_setups`, `recovery_codes`, `sign_in_challenges`, `provider_identities` | Registration, sign-in with a password or OAuth, second factors and the challenges they complete, refresh, sign-out, sessions, password reset and change, email verification and change, identity linking, and re-authentication for sensitive actions. Account deletion is confirmed here, then carried out by `accounts`, and so is the request of an export of the user's data, which `accounts` then builds. One file per OAuth provider in `auth/providers/`. Implements `SessionVerifier`. |
@@ -211,7 +215,7 @@ flowchart TD
 
 The edges above are the only ones allowed, and the graph stays acyclic (ARCH-05). A module is used only through what its `mod.rs` exports (ARCH-04), and its SQL reads and writes only the tables it owns (ARCH-06). When a module needs another module's data, it calls a batch read in that module's API, such as `accounts::profiles(ids)`. An operation that spans modules passes one `&mut UnitOfWork` through every call, so all of it commits or none of it does (ARCH-11).
 
-`platform` calls into `app` only through the traits below. Those that a module implements for the whole API, the composition root registers (ARCH-12, ARCH-13):
+`platform` calls into `app` only through traits that a module implements. Some define a behavior that many types share, such as `ErrorCode`, `Permission` and a job's handler (ARCH-13). The others, below, invert a dependency that the crates forbid, and those that a module implements for the whole API, the composition root registers (ARCH-12, ARCH-13):
 - `SessionVerifier`, implemented by `auth`, verifies credentials for `platform::authn`.
 - `AccessPolicy`, implemented by `access`, makes authorization decisions for `platform::authz`.
 - `SecurityEventSink`, implemented by `audit`, records refused requests that `platform::authz` reports.
@@ -240,7 +244,7 @@ modules/workspaces/
   personal_data.rs   its export and erasure contract (D31)
 ```
 
-Three modules have one extra entry each: `access/permissions.rs` holds the permission matrix, `auth/providers/` holds one file per OAuth provider together with their registry, in `mod.rs`, `clients.rs` and `exchange.rs`, and `system/seed/` holds `seed`, a client of the API's routes, which names HTTP types as a service may not ([system spec](spec/system.md#seed)).
+Three modules have one extra entry each: `access/permissions.rs` holds the permission matrix, `auth/providers/` holds one file per OAuth provider together with their registry, in `mod.rs`, `clients.rs`, `exchange.rs` and `pictures.rs`, and the tests' stand-in provider, and `system/seed/` holds `seed`, a client of the API's routes, which names HTTP types as a service may not ([system spec](spec/system.md#seed)).
 
 The layers have strict jobs (ARCH-08 to ARCH-10):
 - **Handlers** contain no SQL and no business rules.
@@ -263,7 +267,7 @@ sequenceDiagram
   participant S as Module service
   participant DB as PostgreSQL
   C->>P: request
-  P->>P: security headers, trace context, request log,<br/>panics, client, CORS, load shedding, IP rate limit, cross-site check
+  P->>P: security headers, trace context, request log,<br/>panics, client, CORS, load shedding, IP rate limit, cross-site check,<br/>the check of a caller who is gone
   P->>H: routed request
   H->>H: timeout, body limit, query check, Principal (authn),<br/>user rate limit, idempotency key, parse to domain types
   H->>DB: on a workspace route, BEGIN and authorize (authz)
@@ -293,7 +297,7 @@ sequenceDiagram
    - Query parameters that the route's documentation doesn't list are refused (API-09).
    - `Principal` authenticates the caller, by the Bearer header or a browser's cookie (D18, D61).
      On a download route, the signed URL its query holds authenticates it in place of either (D113). <!-- part: files -->
-   - The per-user rate limit, in its own short transaction, then, while email is on, the refusal of a caller whose account hasn't proved its email address, but on a route that proving it needs (D67), then, while the deployment requires a second factor, the refusal of a caller whose account has none, but on a route that proving the address or setting the factor up needs (D133), then the `Idempotency-Key` of a keyed `POST`, which the unit of work claims as its first statement, after the authorization that opens a workspace route's, so the key's record commits or rolls back with the operation (D12).
+   - The per-user rate limit, in its own short transaction, then, while email is on, the refusal of a caller whose account hasn't proved its email address, but on a route that proving it needs (D67), then, while the deployment requires a second factor, the refusal of a caller whose account has none, but on a route that proving the address or setting the factor up needs (D133). Then the `Idempotency-Key` of a keyed `POST`, which the unit of work claims as its first statement, after the authorization that opens a workspace route's, so the key's record commits or rolls back with the operation (D12).
    - The body is parsed into request types, then domain types (D25).
    - On an upload route, whose group has a timeout and no body limit of its own, the order differs: the handler refuses a declared length over its module's limit, then, on a workspace's, checks that the caller may upload, through `Authorize::check`, in a short transaction that writes nothing, and only then reads the body, through `Upload`, in one of the replica's turns, before the unit of work opens and authorizes the caller again (PLATFORM-073, PLATFORM-074). <!-- part: files -->
    - On a route that takes a batch of telemetry, whose group has a timeout and no body limit of its own, the handler reads the body through `Batch`, in one of the replica's turns, up to its module's limit, and parses none of it into request types: the service takes its bytes (PLATFORM-090). <!-- part: client_telemetry -->
@@ -330,7 +334,7 @@ Nothing runs after the response except background work driven by committed rows.
   - SQL checked at compile time with `sqlx::query!` and a committed offline cache.
   - `ETag` and `If-Match` on editable resources.
   - Hard deletes, with cascades declared in the schema.
-- **Side-effect tables.** A unit of work writes to the module's own tables, `audit_entries` (owned by `audit`), and `events` and `jobs` (owned by `platform`). After the commit:
+- **Side-effect tables.** A unit of work writes to the module's own tables, `audit_entries` and `audit_entry_clients` (owned by `audit`), and `events`, `jobs` and, for a keyed request, `idempotency_records` (owned by `platform`). After the commit:
   - Events reach every authorized stream, in the order their units of work committed, and a stream that reconnects replays what it missed.
   - Jobs run at least once, with retry and backoff, and land in a dead-letter state after the last attempt. Every job handler is idempotent, but for an effect outside the API that a run can't take back, such as an email, whose spec states what a repeat causes (OPS-09).
 - **Migrations** are forward-only and follow expand and contract, so the previous release keeps working during a rolling deploy (D15). They live in one ordered directory, and each file's description names its owning module.
@@ -390,8 +394,6 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
 
 ## 10. Technology
 
-### In use
-
 | Concern | Choice | Why |
 |---|---|---|
 | Language | Rust, edition 2024, toolchain pinned in `rust-toolchain.toml` | Every machine and CI job builds with the same compiler |
@@ -421,20 +423,13 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
 | Deployment | Docker Compose on one server, set up by `deploy/server-setup.sh` and driven by `deploy/deploy.sh`, scripts for any shell of the Portable Operating System Interface (POSIX), which the tasks of `just`'s `server` group, such as `just deploy`, run over Secure Shell (SSH) from a developer's machine (OPS-19) | The server needs only Docker, which the setup installs; the release's files and its signed images are all a deploy takes, with no agent and no checkout on the server (D45, D51) |
 | Load testing | k6 | Constant-arrival-rate scenarios measure the rate a replica serves within the latency objective (OPS-16) |
 | Malware scanning | ClamAV's daemon, `clamd`, from ClamAV's own Debian image, which serves amd64 and arm64, beside `freshclam` for its signatures in the reference deployment; with one signature of the repository's own, for the test file of the European Institute for Computer Antivirus Research (EICAR), in development and the tests; reached through a client of `platform`'s own over TCP | The open-source scanner that the antivirus signatures ASVS 5.4.3 asks for come with, updated several times a day; its protocol is a few lines, which a client written here bounds by the clock and counts ([platform spec](spec/platform.md#scanner)) <!-- part: files --> |
-| Object storage | A client of `platform`'s own: `rusty-s3`, which signs each request of S3's protocol as a URL with RustCrypto's `hmac` and `sha2`, and reads a listing, `instant-xml`, which reads a listing of the versions that a bucket keeps, and a `reqwest` client on `rustls` with its ring provider, which sends each request; SeaweedFS in development and the tests (D28) | The four calls that the replicas make of a bucket, a write, a read, a deletion and a listing, and the two more of the operator's `restore-files`, a listing of versions and a read of one, with every wait on the API's clock; SeaweedFS serves S3 without credentials in one container, as the end-to-end tests' backup bucket already does ([platform spec](spec/platform.md#storage), D197) <!-- part: files --> |
+| Object storage | A client of `platform`'s own: `rusty-s3`, which signs each request of S3's protocol as a URL with RustCrypto's `hmac` and `sha2`, and reads a listing, `instant-xml`, which reads a listing of the versions that a bucket keeps, and a `reqwest` client on `rustls` with its ring provider, which sends each request; SeaweedFS in development and the tests (D28) | The five calls that the replicas make of a bucket, a write, a read, a read of an object's size, a deletion and a listing, and the two more of the operator's `restore-files`, a listing of versions and a read of one, with every wait on the API's clock; SeaweedFS serves S3 without credentials in one container, as the end-to-end tests' backup bucket already does ([platform spec](spec/platform.md#storage), D197) <!-- part: files --> |
 | Archives | `flate2`, on `miniz_oxide`, and `crc32fast`; a ZIP layout of `platform`'s own | The deflate of Rust's ecosystem, in Rust alone, and the checksum with the processor's instructions; no crate lays out an archive without its entries' bytes, or serves a range of one ([platform spec](spec/platform.md#archives)) |
 | Backups | pgBackRest, in the reference deployment's image of the official Postgres | Continuous archiving of the write-ahead log, and point-in-time recovery from an S3-compatible bucket, encrypted, with retention (D44) |
 | Image scan | Grype | It reads both the base's packages and the crates the binary records (SEC-15) |
 | Shell linting | shellcheck | The standard linter for shell, run on the recipes of the justfile and the files it imports, and the deployment's scripts (CODE-07) |
 | Registry and signing | crane, and cosign with keyless signing | crane copies and tags an image without changing its digest, so promoting it never rewrites it (OPS-12) |
 | Dependency updates | Dependabot | It reads the crates, the actions, the images of both Dockerfiles and of every Compose file, and the toolchain, and needs no app installed (OPS-11) |
-
-### Starting points
-
-A part's tools and libraries are chosen when it is built, as "Docs for unbuilt parts are the plan" in [CLAUDE.md](../CLAUDE.md) says. These are the candidates the design started from, with the step of the [build order](MIGRATION.md#build-order) that chooses each. Where another section of this document names one, it describes the plan, not a choice.
-
-| Concern | Starting point | Chosen in |
-|---|---|---|
 
 The decided parts of the stack are decisions with recorded reasons: OpenTelemetry and the Grafana stack (D10, D19), GitHub Actions and `just` (D21), and Postgres as the only shared state (D20).
 
@@ -475,7 +470,7 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 | Stream | One client's open SSE connection. |
 | Frame type | What one frame of a stream is, which its `event` names: an event's name, or one of the frames the stream sends of its own, such as `stream.closed`; the event catalog documents each one (API-19, REALTIME-008). |
 | Listener | The instance's own connection to the database, outside its pool, on which the hub listens for what commits and readiness checks the database (OPS-05, OPS-18). |
-| Turn | A caller's place among those that take one thing one after another, named with what they take turns at: a user's turn is the lock on the user's row, which the changes of their account take (DATA-20); a turn at hashing is one of the Workers'; and the heavy turn of the end-to-end tests is one that a single deployment holds at a time (TEST-06). |
+| Turn | A caller's place among those that take one thing one after another, named with what they take turns at: a user's turn is the lock on the user's row, which the changes of their account take (DATA-20); a turn at hashing is one of the Workers'; a turn at reading a body that no route group's limit bounds is one of its replica's, which reads only so many at once; and the heavy turn of the end-to-end tests is one that a single deployment holds at a time (TEST-06). |
 | Workers | The turns of an instance's CPU-heavy work, such as a password's hash: one per processor it may use, each held by one caller at once, whose works run in it one after another, which `platform::blocking::Workers` hands out (PLATFORM-060). |
 | Audit entry | A record of who did what, in the user's log or the workspace's log. It is never edited, except that erasing an account anonymizes its personal data (D6, D31). |
 | File | Stored bytes plus metadata. A user file or a workspace file, each private or public. <!-- part: files --> |
