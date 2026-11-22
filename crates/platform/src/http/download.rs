@@ -73,7 +73,7 @@ pub struct Download<S> {
     pub public_for: Option<std::time::Duration>,
     // end part: files
     /// The bytes it serves, as they arrive from where they are stored, or `None` when it serves
-    /// none.
+    /// none: a 304, or the answer to a `HEAD`, which carries the headers of the bytes alone.
     pub bytes: Option<S>,
 }
 
@@ -115,10 +115,6 @@ where
             return Problem(Internal::new("a stored media type isn't a header's value"))
                 .into_response();
         };
-        let Some(bytes) = self.bytes else {
-            return Problem(Internal::new("a download that serves bytes holds none"))
-                .into_response();
-        };
         headers.insert(header::CONTENT_TYPE, media_type);
         headers.insert(header::CONTENT_LENGTH, HeaderValue::from(length));
         let kind = "attachment";
@@ -131,6 +127,9 @@ where
             HeaderValue::from_static(SANDBOX),
         );
         headers.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
+        let Some(bytes) = self.bytes else {
+            return (status, headers).into_response();
+        };
         // A failure of the bytes once the status is sent can become no answer: it ends the body
         // short of its length. It is written and counted as an ignored error, in a span of its
         // own in the request's trace, since the request's span ends with the handler (ERR-11).

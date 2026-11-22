@@ -1,5 +1,7 @@
 //! Finding ID-shaped tokens, phrases, dates and comments in lines of text.
 
+use crate::rust;
+
 /// An ID-shaped token: capitals, a hyphen and digits, such as `AUTH-001`. Whether a token is an
 /// ID depends on its prefix, because `SHA-256` has the same shape.
 #[derive(Debug, PartialEq, Eq)]
@@ -50,29 +52,17 @@ pub fn id_tokens(line: &str) -> Vec<Token<'_>> {
     tokens
 }
 
-/// How many lines of `text`, a Rust file, come before its test module: all of them when it has
-/// none.
-pub fn lines_before_tests(text: &str) -> usize {
-    let lines: Vec<&str> = text.lines().collect();
-    lines
-        .windows(2)
-        .position(|pair| {
-            pair[0].trim() == "#[cfg(test)]"
-                && ["mod ", "pub mod ", "pub(crate) mod "]
-                    .iter()
-                    .any(|start| pair[1].trim_start().starts_with(start))
-        })
-        .unwrap_or(lines.len())
-}
-
 /// The lines of the file at `path` that cite what they name, by number: every line, except in a
-/// check's own tests, the test module of a file under `crates/xtask/`, whose documents and code are
-/// made up for the check to read, with IDs of modules that no repository need have (DOC-12).
+/// check's own tests, the test module of a file under `crates/xtask/`, as [`rust::test_module`]
+/// finds it, whose documents and code are made up for the check to read, with IDs of modules that
+/// no repository need have (DOC-12). Every line of a file that `syn` can't parse cites, as
+/// `check-layout` refuses one under a crate's `src/`.
 pub fn citing_lines(path: &str, text: &str) -> usize {
+    let lines = text.lines().count();
     if path.starts_with("crates/xtask/") && path.ends_with(".rs") {
-        lines_before_tests(text)
+        rust::test_module(text).map_or(lines, |tests| tests.before)
     } else {
-        text.lines().count()
+        lines
     }
 }
 
@@ -110,12 +100,27 @@ pub fn has_date(text: &str) -> bool {
 }
 
 /// The comment in `line`, a line of the file at `path`, for the file types whose comments the
-/// checks read. The first comment marker starts the comment, even inside a string literal.
+/// checks read.
+///
+/// In a Rust or a JavaScript file, the comment starts at the first `//` of the line that no
+/// string literal of the line holds. A literal is one in double quotes, in which a backslash
+/// escapes the character after it; in Rust also a character literal, a `'` that one character,
+/// or a backslash and what it escapes, and then a `'` follow, such as `'"'`, while a `'` that
+/// isn't one starts a lifetime or a label, and a raw string, `r"…"`, `r#"…"#` and so on, whose
+/// `r` starts a word, or follows a `b` or a `c` that does; and in JavaScript also one in single
+/// quotes or in backticks. Each line is read on its own, from outside any literal, so the rest
+/// of a literal that an earlier line opens is read as code: a `"` on it opens a literal, and a
+/// `//` before that starts the comment. A block comment, `/* … */`, and a regular expression of
+/// JavaScript are read as code too.
+///
+/// In a file of another type, the first comment marker of the line starts the comment, even
+/// inside a string literal.
 pub fn comment<'a>(path: &str, line: &'a str) -> Option<&'a str> {
     let name = path.rsplit('/').next().unwrap_or(path);
-    let marker = if name.ends_with(".rs") || name.ends_with(".js") {
-        "//"
-    } else if name.ends_with(".sql") {
+    if name.ends_with(".rs") || name.ends_with(".js") {
+        return code_comment(line, name.ends_with(".rs")).map(|start| &line[start..]);
+    }
+    let marker = if name.ends_with(".sql") {
         "--"
     } else if [
         ".toml",
@@ -140,6 +145,84 @@ pub fn comment<'a>(path: &str, line: &'a str) -> Option<&'a str> {
         return None;
     };
     line.find(marker).map(|start| &line[start..])
+}
+
+/// Where the comment of `line`, a line of Rust when `rust` holds and of JavaScript otherwise,
+/// starts, as [`comment`] reads it.
+fn code_comment(line: &str, rust: bool) -> Option<usize> {
+    let bytes = line.as_bytes();
+    let mut at = 0;
+    while let Some(&byte) = bytes.get(at) {
+        at = match byte {
+            b'/' if bytes.get(at + 1) == Some(&b'/') => return Some(at),
+            b'"' => quoted_end(bytes, at + 1, b'"'),
+            b'\'' | b'`' if !rust => quoted_end(bytes, at + 1, byte),
+            b'\'' => character_end(line, at),
+            b'r' if rust => raw_end(bytes, at).unwrap_or(at + 1),
+            _ => at + 1,
+        };
+    }
+    None
+}
+
+/// The index after the `quote` that ends a literal whose text starts at `from`, or the length of
+/// `bytes` when none does.
+fn quoted_end(bytes: &[u8], from: usize, quote: u8) -> usize {
+    let mut at = from;
+    while let Some(&byte) = bytes.get(at) {
+        match byte {
+            b'\\' => at += 2,
+            _ if byte == quote => return at + 1,
+            _ => at += 1,
+        }
+    }
+    bytes.len()
+}
+
+/// The index after the Rust character literal that starts with the `'` at `at` in `line`, or
+/// after that `'` alone when it starts a lifetime or a label.
+fn character_end(line: &str, at: usize) -> usize {
+    let bytes = line.as_bytes();
+    if bytes.get(at + 1) == Some(&b'\\') {
+        // An escape, such as `'\''` or `'\u{1F600}'`, which the next `'` after the escaped
+        // character ends.
+        return bytes
+            .iter()
+            .skip(at + 3)
+            .position(|&byte| byte == b'\'')
+            .map_or(bytes.len(), |offset| at + 3 + offset + 1);
+    }
+    let width = line[at + 1..].chars().next().map_or(0, char::len_utf8);
+    if width > 0 && bytes.get(at + 1 + width) == Some(&b'\'') {
+        at + 2 + width
+    } else {
+        at + 1
+    }
+}
+
+/// The index after the Rust raw string that starts with the `r` at `at`, `r`, any number of
+/// `#`, then `"`, with a `b` or a `c` before it or neither, or `None` when no raw string starts
+/// there. A raw string that the line doesn't end ends at the line's end.
+fn raw_end(bytes: &[u8], at: usize) -> Option<usize> {
+    let starts_word = |at: usize| at == 0 || !is_word(bytes[at - 1]);
+    let prefixed = at > 0 && matches!(bytes[at - 1], b'b' | b'c') && starts_word(at - 1);
+    if !(starts_word(at) || prefixed) {
+        return None;
+    }
+    let quote = scan(bytes, at + 1, |byte| byte == b'#');
+    if bytes.get(quote) != Some(&b'"') {
+        return None;
+    }
+    let hashes = quote - at - 1;
+    let closing: Vec<u8> = std::iter::once(b'"')
+        .chain(std::iter::repeat_n(b'#', hashes))
+        .collect();
+    Some(
+        bytes[quote + 1..]
+            .windows(closing.len())
+            .position(|window| window == closing.as_slice())
+            .map_or(bytes.len(), |offset| quote + 1 + offset + closing.len()),
+    )
 }
 
 /// Whether `needle` occurs in `text` with no letter, digit or underscore on either side.
@@ -221,5 +304,39 @@ mod tests {
         );
         assert_eq!(comment("docs/a.md", "# Heading"), None);
         assert_eq!(comment("src/a.rs", "let a = 1;"), None);
+    }
+
+    #[test]
+    fn doc_01_a_comment_of_rust_or_javascript_starts_outside_string_literals() {
+        let rust = |line| comment("src/a.rs", line);
+        for line in [
+            r#"let url = "http://example.com/2006-03-01/"; // why"#,
+            r#"let s = "a \" // b"; // why"#,
+            r#"let c = '"'; let d = "//"; // why"#,
+            r#"let c = '\''; let d = '\\'; let e = '\u{2F}'; let f = "//"; // why"#,
+            r#"let c = 'é'; let d = "//"; // why"#,
+            r#"fn f<'a>(x: &'a str) -> &'static str { "//" } // why"#,
+            r##"let r = r"//"; let s = r#"a "//" b"#; // why"##,
+            r##"let b = br"//"; let c = cr#"//"#; let r#type = 1; // why"##,
+        ] {
+            assert_eq!(rust(line), Some("// why"), "{line}");
+        }
+        assert_eq!(rust(r#"let url = "http://example.com";"#), None);
+        assert_eq!(rust(r###"let r = r##"a "# // b"##;"###), None);
+        // An `r` inside a word starts no raw string.
+        assert_eq!(rust(r###"let s = xr#"a "// b"#;"###), Some(r##"// b"#;"##));
+        assert_eq!(rust("/// A doc comment."), Some("/// A doc comment."));
+        // A line on its own: the rest of a literal that an earlier line opens is read as code.
+        assert_eq!(rust(r#"    2006-03-01/"; // why"#), None);
+        assert_eq!(
+            rust(r#"    http://example.com/\"#),
+            Some(r#"//example.com/\"#)
+        );
+        let javascript = |line| comment("crates/app/tests/load/streams.js", line);
+        assert_eq!(
+            javascript("const a = 'http://x', b = `//`, c = \"//\"; // why"),
+            Some("// why")
+        );
+        assert_eq!(javascript("const a = 'it\\'s //';"), None);
     }
 }

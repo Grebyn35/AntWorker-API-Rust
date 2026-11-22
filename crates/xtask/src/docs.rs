@@ -106,18 +106,8 @@ fn comment_links(repo: &Repo, documents: &BTreeMap<&str, markdown::Document>) ->
     for file in repo.files().filter(|file| file.path.ends_with(".rs")) {
         let citing = text::citing_lines(&file.path, &file.text);
         for (index, line) in file.text.lines().take(citing).enumerate() {
-            let comment = line.trim_start();
-            if !(comment.starts_with("///") || comment.starts_with("//!")) {
-                continue;
-            }
-            let prose = comment.split('`').step_by(2).collect::<Vec<_>>().join(" ");
-            for destination in prose
-                .split("](")
-                .skip(1)
-                .filter_map(|rest| rest.split_once(')').map(|(destination, _)| destination))
-                .filter(|destination| !destination.contains("::"))
-            {
-                if let Some(problem) = unresolved(repo, documents, &file.path, destination) {
+            for destination in comment_link_destinations(line) {
+                if let Some(problem) = unresolved(repo, documents, &file.path, &destination) {
                     findings.push(Finding::new(
                         &file.path,
                         index + 1,
@@ -128,6 +118,39 @@ fn comment_links(repo: &Repo, documents: &BTreeMap<&str, markdown::Document>) ->
         }
     }
     findings
+}
+
+/// The destinations of the links of `line`, a line of a Rust file, that `check-docs` resolves:
+/// those of a doc comment's prose, outside its code spans, but a link to an item, such as
+/// `[cfg](super::cfg)`, which is rustdoc's.
+pub fn comment_link_destinations(line: &str) -> Vec<String> {
+    let comment = line.trim_start();
+    if !(comment.starts_with("///") || comment.starts_with("//!")) {
+        return Vec::new();
+    }
+    let prose = comment.split('`').step_by(2).collect::<Vec<_>>().join(" ");
+    prose
+        .split("](")
+        .skip(1)
+        .filter_map(|rest| rest.split_once(')').map(|(destination, _)| destination))
+        .filter(|destination| !destination.contains("::"))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// What a link to `destination`, in the file at `from`, points at in the repository: a path,
+/// `from` where it names only an anchor, and the anchor, empty where it names none. `None` for a
+/// link to another site, and for a path that climbs out of the repository.
+pub fn link_target<'a>(from: &str, destination: &'a str) -> Option<(String, &'a str)> {
+    if destination.contains("://") || destination.starts_with("mailto:") {
+        return None;
+    }
+    let (target, anchor) = destination.split_once('#').unwrap_or((destination, ""));
+    if target.is_empty() {
+        return Some((from.to_owned(), anchor));
+    }
+    let parent = from.rsplit_once('/').map_or("", |(directory, _)| directory);
+    Some((join(parent, target)?, anchor))
 }
 
 /// Why the link to `destination`, in the document at `from`, doesn't resolve. Links to other
@@ -141,15 +164,8 @@ fn unresolved(
     if destination.contains("://") || destination.starts_with("mailto:") {
         return None;
     }
-    let (target, anchor) = destination.split_once('#').unwrap_or((destination, ""));
-    let target = if target.is_empty() {
-        from.to_owned()
-    } else {
-        let parent = from.rsplit_once('/').map_or("", |(directory, _)| directory);
-        let Some(joined) = join(parent, target) else {
-            return Some("it points outside the repository".to_owned());
-        };
-        joined
+    let Some((target, anchor)) = link_target(from, destination) else {
+        return Some("it points outside the repository".to_owned());
     };
     if !repo.has(&target) {
         return Some(format!("there is no `{target}`"));

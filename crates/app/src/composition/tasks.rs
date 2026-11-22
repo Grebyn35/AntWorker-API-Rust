@@ -333,7 +333,7 @@ async fn setup_workspace(
     owner_name: Option<&str>,
 ) -> Result<String, SetupRefused> {
     let setup = workspaces::Setup::new(name, email, owner_name)?;
-    let done = workspaces::set_up(database, mail, setup).await??;
+    let done: workspaces::SetupDone = workspaces::set_up(database, mail, setup).await??;
     let workspace = done.workspace;
     Ok(match (done.owner, mail.is_on()) {
         (workspaces::SetupOwner::Created, _) => format!(

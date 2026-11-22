@@ -6,6 +6,9 @@
 
 use super::names::Names;
 
+/// The `mod.rs` of `access`, which re-exports a new module's permission types.
+pub const ACCESS_ROOT: &str = "crates/app/src/modules/access/mod.rs";
+
 /// A file that a new module changes, with the text it holds after the change.
 pub struct Edit {
     /// The file's path.
@@ -107,7 +110,7 @@ fn code(plan: &mut Plan<'_>, module: &str, inserts: &Inserts) {
         &|text| permissions(text, &inserts.permissions, &inserts.matrix),
     );
     plan.place(
-        "crates/app/src/modules/access/mod.rs",
+        ACCESS_ROOT,
         "the re-export of the permission types",
         &|text| {
             after_statement(

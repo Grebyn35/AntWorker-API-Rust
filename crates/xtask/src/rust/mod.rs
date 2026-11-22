@@ -1,7 +1,9 @@
-//! Rust source read as token streams, for the checks of the API's layers and of its modules'
-//! dependencies (`check-layers`, `check-deps`): the module a file is, the paths it names, what
-//! its `use` declarations import, and its functions' signatures. Token streams hold the paths
-//! inside macros and attributes too, such as a `#[utoipa::path]`'s `body`.
+//! Rust source read as token streams, for the checks that read the API's code, such as those of
+//! its layers and of its modules' dependencies (`check-layers`, `check-deps`): the module a file
+//! is, the paths it names, what its `use` declarations import and its `pub use` declarations
+//! re-export, the items it declares at its top level, and its functions' signatures. Token
+//! streams hold the paths inside macros and attributes too, such as a `#[utoipa::path]`'s
+//! `body`. Where a file's test module stands is read as `syn` parses the file, in `test_module`.
 
 use std::collections::BTreeMap;
 
@@ -10,9 +12,13 @@ use proc_macro2::{Delimiter, Spacing, TokenStream, TokenTree};
 use crate::{Finding, repo::File};
 
 mod items;
+mod test_module;
 
 use items::is_public;
-pub use items::{holds, public_fields, signatures, types_with_attributes};
+pub use items::{
+    Item, TYPES, holds, items, public_fields, signatures, types, types_with_attributes,
+};
+pub use test_module::test_module;
 
 /// The `app` crate's code.
 pub const APP: &str = "crates/app/src/";
@@ -211,6 +217,29 @@ pub fn uses(tokens: &[TokenTree]) -> Vec<(Import, usize)> {
         at += 1;
     }
     found
+}
+
+/// The names that the `pub` `use` declarations at the top level of `tokens` import, with or
+/// without a restriction of their visibility, as [`Source::imports`] names them: what a module's
+/// `mod.rs` re-exports.
+pub fn reexported(tokens: &[TokenTree]) -> Vec<String> {
+    let mut names = Vec::new();
+    for (at, token) in tokens.iter().enumerate() {
+        if matches!(token, TokenTree::Ident(ident) if ident == "use") && is_public(&tokens[..at]) {
+            let end = tokens[at..]
+                .iter()
+                .position(|token| matches!(token, TokenTree::Punct(p) if p.as_char() == ';'))
+                .map_or(tokens.len(), |end| at + end);
+            let mut imports = Vec::new();
+            use_tree(&tokens[at + 1..end], &[], &mut imports);
+            names.extend(
+                imports
+                    .into_iter()
+                    .map(|import| import.alias.unwrap_or_else(|| "*".to_owned())),
+            );
+        }
+    }
+    names
 }
 
 /// The imports of one use tree, `tokens`, under `prefix`.
@@ -462,6 +491,42 @@ mod tests {
         assert_eq!(
             feature_module("crates/app/src/modules/accounts/mod.rs"),
             Some(("accounts", Vec::new()))
+        );
+    }
+
+    #[test]
+    fn arch_04_a_file_s_items_and_re_exports_are_read_at_its_top_level() {
+        let code = "use a::Private; #[cfg(test)] pub(crate) use b::{C, d as e}; pub use f::*;
+            pub(crate) const fn g() {} static mut H: u8 = 0; pub type I = u8; trait J {}
+            struct K; impl K { pub fn method(&self) {} } mod inline { pub struct L; }
+            const M: fn() -> u8 = n; pub(crate) async fn o<T>(t: T) -> P where T: Q {}";
+        let tokens = tokens(code);
+        assert_eq!(reexported(&tokens), ["C", "e", "*"]);
+        let found: Vec<(String, String, bool)> = items(&tokens)
+            .into_iter()
+            .map(|item| (item.keyword, item.name, item.public))
+            .collect();
+        let item =
+            |keyword: &str, name: &str, public| (keyword.to_owned(), name.to_owned(), public);
+        assert_eq!(
+            found,
+            [
+                item("fn", "g", true),
+                item("static", "H", false),
+                item("type", "I", true),
+                item("trait", "J", false),
+                item("struct", "K", false),
+                item("const", "M", false),
+                item("fn", "o", true),
+            ]
+        );
+        let signature = items(&tokens)
+            .pop()
+            .and_then(|item| item.signature)
+            .unwrap();
+        assert_eq!(
+            strings(&names(&signature.tokens)),
+            ["o", "T", "t", "T", "P", "where", "T", "Q"]
         );
     }
 

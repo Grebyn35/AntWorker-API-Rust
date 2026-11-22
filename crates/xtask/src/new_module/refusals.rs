@@ -108,9 +108,11 @@ pub(super) fn refuse_schema_names(repo: &Repo, files: &[(String, String)]) -> Re
             path: path.clone(),
             text: text.clone(),
         };
-        if let Some((_, schema, _)) = openapi::names::schemas_of(&file)
+        if let Some(schema) = openapi::names::read([&file])
+            .schemas
             .into_iter()
-            .find(|(_, schema, _)| taken.contains(schema))
+            .map(|schema| schema.name)
+            .find(|schema| taken.contains(schema))
         {
             return Err(format!(
                 "{path} would declare a type whose schema name is `{schema}`, which a type of the \

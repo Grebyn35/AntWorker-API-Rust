@@ -1,34 +1,33 @@
 //! `check-test-map`: every test's name starts with a behavior or rule ID that exists
-//! (TEST-01), each workspace event a module declares is named in a `sec_19_` test (SEC-19), and
-//! the report shows which behaviors tests prove (DOC-09).
+//! (TEST-01), a rule whose `Check` names `test` has one, as `rules.rs` says, the tests name
+//! what `named.rs` says of the modules' declarations (SEC-18, SEC-19), and the report shows
+//! which behaviors tests prove (DOC-09).
 //!
 //! While `docs/MIGRATION.md` exists, specs are written ahead of their code, so a behavior that
 //! no test proves is reported. Once the migration closes, it fails the check.
 
+mod named;
+mod rules;
+
 use std::collections::BTreeSet;
 
-use proc_macro2::{Delimiter, TokenStream, TokenTree};
 use syn::{Attribute, ItemFn, visit::Visit};
 
 use crate::{
     Finding, Outcome,
     catalog::{Behavior, Catalog},
-    openapi::events,
     repo::Repo,
-    text::line_of,
 };
 
 /// The migration tracker. While it exists, unproven behaviors are reported, not failed.
 const TRACKER: &str = "docs/MIGRATION.md";
 
-/// The start of the names of the tests that prove SEC-19.
-const SEC_19: &str = "sec_19_";
-
 /// Runs the check.
 pub fn check(repo: &Repo, catalog: &Catalog) -> Outcome {
     let mut outcome = Outcome::default();
     let proven = proven(repo, catalog, &mut outcome.findings);
-    outcome.findings.extend(untested_events(repo));
+    outcome.findings.extend(named::check(repo));
+    outcome.findings.extend(rules::check(repo, &proven));
     let strict = repo.file(TRACKER).is_none();
     let (mut proven_count, mut total) = (0, 0);
     for (prefix, behaviors) in catalog.behaviors() {
@@ -82,98 +81,6 @@ fn proven(repo: &Repo, catalog: &Catalog, findings: &mut Vec<Finding>) -> BTreeS
         ));
     }
     proven
-}
-
-/// SEC-19: a finding for each workspace event that a module's `events.rs` declares and no
-/// `sec_19_` test names as a string, so that each is tested against a member who joined after
-/// it. Review checks what the test does with it.
-fn untested_events(repo: &Repo) -> Vec<Finding> {
-    let mut named = BTreeSet::new();
-    for file in repo.files().filter(|file| file.path.ends_with(".rs")) {
-        if let Ok(tokens) = file.text.parse::<TokenStream>() {
-            sec_19_strings(&tokens.into_iter().collect::<Vec<_>>(), &mut named);
-        }
-    }
-    let mut findings = Vec::new();
-    for file in repo
-        .files()
-        .filter(|file| events::is_events_file(&file.path))
-    {
-        for name in events::workspace_events(&file.text) {
-            if !named.contains(name) {
-                findings.push(Finding::new(
-                    &file.path,
-                    line_of(&file.text, &format!("\"{name}\"")),
-                    format!(
-                        "no `sec_19_` test names the workspace event `{name}`: test it against a \
-                         member with its permission, one without it while some role lacks it, \
-                         and one who joined after it (SEC-19)"
-                    ),
-                ));
-            }
-        }
-    }
-    findings
-}
-
-/// Adds to `strings` each string that the body of a test named `sec_19_*` among `tokens` holds,
-/// at any depth, inside macros too.
-fn sec_19_strings(tokens: &[TokenTree], strings: &mut BTreeSet<String>) {
-    // Whether the item being read carries a test's attribute, such as `#[tokio::test]`.
-    let mut tested = false;
-    for (at, token) in tokens.iter().enumerate() {
-        match token {
-            TokenTree::Punct(punct) if punct.as_char() == '#' => {
-                if let Some(TokenTree::Group(attribute)) = tokens.get(at + 1)
-                    && attribute.delimiter() == Delimiter::Bracket
-                    && attribute.stream().into_iter().last().is_some_and(
-                        |last| matches!(last, TokenTree::Ident(ident) if ident == "test"),
-                    )
-                {
-                    tested = true;
-                }
-            }
-            TokenTree::Punct(punct) if punct.as_char() == ';' => tested = false,
-            TokenTree::Ident(ident) if ident == "fn" => {
-                let proves = std::mem::take(&mut tested)
-                    && matches!(
-                        tokens.get(at + 1),
-                        Some(TokenTree::Ident(name)) if name.to_string().starts_with(SEC_19)
-                    );
-                let body = tokens.iter().skip(at + 2).find_map(|token| match token {
-                    TokenTree::Group(group) if group.delimiter() == Delimiter::Brace => Some(group),
-                    _ => None,
-                });
-                if let (true, Some(body)) = (proves, body) {
-                    all_strings(body.stream(), strings);
-                }
-            }
-            TokenTree::Group(group) => {
-                sec_19_strings(&group.stream().into_iter().collect::<Vec<_>>(), strings);
-            }
-            _ => {}
-        }
-    }
-}
-
-/// Adds to `strings` the value of each string literal among `tokens`, at any depth, without
-/// unescaping it, since an event's name holds no escape.
-fn all_strings(tokens: TokenStream, strings: &mut BTreeSet<String>) {
-    for token in tokens {
-        match token {
-            TokenTree::Literal(literal) => {
-                let text = literal.to_string();
-                if let Some(value) = text
-                    .strip_prefix('"')
-                    .and_then(|text| text.strip_suffix('"'))
-                {
-                    strings.insert(value.to_owned());
-                }
-            }
-            TokenTree::Group(group) => all_strings(group.stream(), strings),
-            TokenTree::Ident(_) | TokenTree::Punct(_) => {}
-        }
-    }
 }
 
 /// One module's line of the report: how many of its behaviors tests prove, and, once some are,
@@ -263,7 +170,15 @@ fn id_of(name: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::catalog::tests::fixture;
+    use crate::catalog::tests::fixture_with;
+
+    /// What the check finds in the catalog's fixture with the files `extra`, during the
+    /// migration.
+    pub(super) fn run_with(extra: &[(&'static str, &'static str)]) -> Outcome {
+        let mut files = extra.to_vec();
+        files.push((TRACKER, ""));
+        run(&files)
+    }
 
     const TESTS: &str = "#[cfg(test)]
 mod tests {
@@ -284,9 +199,7 @@ mod tests {
 ";
 
     fn run(extra: &[(&'static str, &'static str)]) -> Outcome {
-        let mut files = fixture();
-        files.extend_from_slice(extra);
-        let repo = Repo::of(&files);
+        let repo = Repo::of(&fixture_with(extra));
         check(&repo, &Catalog::read(&repo))
     }
 
@@ -331,46 +244,6 @@ mod tests {
                 "docs/spec/widgets.md:11: no test proves WIDGETS-001 (DOC-09)",
                 "docs/spec/widgets.md:12: no test proves WIDGETS-002 (DOC-09)"
             ]
-        );
-    }
-
-    #[test]
-    fn sec_19_a_workspace_event_that_no_sec_19_test_names_fails() {
-        let declared = "const A: WorkspaceEvent<P, A> = WorkspaceEvent::new(\"thing.made\");\n\
-                        const B: WorkspaceEvent<P, B> =\n    WorkspaceEvent::new(\"thing.gone\");\n\
-                        const C: UserEvent<C> = UserEvent::new(\"thing.sent\");\n";
-        let tests = "mod things {\n\
-                     #[tokio::test]\n\
-                     async fn sec_19_thing_events_reach_the_members() {\n\
-                     \x20   assert_eq!(event.name(), Some(\"thing.made\"));\n\
-                     }\n\
-                     #[tokio::test]\n\
-                     async fn widgets_001_names_the_other() {\n\
-                     \x20   let _ = \"thing.gone\";\n\
-                     }\n\
-                     fn sec_19_helper() -> &'static str {\n\
-                     \x20   \"thing.gone\"\n\
-                     }\n\
-                     }\n";
-        let outcome = run(&[
-            ("crates/app/src/modules/things/events.rs", declared),
-            ("crates/app/tests/integration/things.rs", tests),
-            (TRACKER, ""),
-        ]);
-
-        let findings: Vec<String> = outcome
-            .findings
-            .iter()
-            .map(ToString::to_string)
-            .filter(|finding| finding.ends_with("(SEC-19)"))
-            .collect();
-        assert_eq!(findings.len(), 1, "{findings:?}");
-        assert!(
-            findings[0].starts_with(
-                "crates/app/src/modules/things/events.rs:3: no `sec_19_` test names the \
-                 workspace event `thing.gone`"
-            ),
-            "{findings:?}"
         );
     }
 

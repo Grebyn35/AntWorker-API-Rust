@@ -1,7 +1,9 @@
 //! `check-layout`: the code's files keep their places and their sizes.
-//! - A Rust file of a crate's `src/`, before its test module, a shell script under `deploy/`, and
-//!   the justfile and each file it imports hold at most 500 lines (CODE-08). Test files, under a
-//!   crate's `tests/`, aren't counted.
+//! - A Rust file of a crate's `src/`, before its test module, as [`rust::test_module`] finds it,
+//!   a shell script under `deploy/`, and the justfile and each file it imports hold at most 500
+//!   lines (CODE-08). Test files, under a crate's `tests/`, aren't counted. No item of a Rust file
+//!   of a crate's `src/` follows its test module, and each such file parses, so that the count
+//!   holds.
 //! - A module's files come from ARCH-03's set, each a file or a directory of the same name, with
 //!   the three entries that architecture.md §5 gives `access`, `auth` and `system`, and its email
 //!   templates are in the directory of `crates/app/templates/` named after it (ARCH-03).
@@ -11,7 +13,7 @@
 //! - A job is declared in its module's `jobs.rs`, or in an area of `platform`, and its kind starts
 //!   with its module's name, or `platform.` for one of `platform`'s (OPS-09).
 
-use crate::{Finding, Outcome, repo::Repo, shell, text, unused};
+use crate::{Finding, Outcome, repo::Repo, rust, shell, unused};
 
 /// The most lines a file holds (CODE-08).
 const MOST_LINES: usize = 500;
@@ -65,17 +67,7 @@ pub fn check(repo: &Repo) -> Outcome {
             && path.split('/').nth(2) == Some("src")
             && path.ends_with(".rs");
         if in_src {
-            let lines = text::lines_before_tests(&file.text);
-            if lines > MOST_LINES {
-                findings.push(Finding::new(
-                    path,
-                    MOST_LINES + 1,
-                    format!(
-                        "{lines} lines before its tests: split it into a directory of modules \
-                         with the same name (CODE-08, ARCH-03)"
-                    ),
-                ));
-            }
+            let lines = counted(path, &file.text, &mut findings);
             if path.starts_with(PLATFORM) || path.starts_with(APP) {
                 let code: Vec<&str> = file.text.lines().take(lines).collect();
                 findings.extend(jobs(path, &code.join("\n")));
@@ -121,6 +113,47 @@ pub fn check(repo: &Repo) -> Outcome {
     Outcome {
         report: Vec::new(),
         findings,
+    }
+}
+
+/// CODE-08: how many lines of `text`, the Rust file at `path` of a crate's `src/`, come before
+/// its test module, with a finding when they are too many, when an item follows the test module,
+/// and when the file doesn't parse, whose lines it counts all.
+fn counted(path: &str, text: &str, findings: &mut Vec<Finding>) -> usize {
+    match rust::test_module(text) {
+        Ok(tests) => {
+            findings.extend(tests.followed.map(|line| {
+                Finding::new(
+                    path,
+                    line,
+                    "an item after the test module, whose lines CODE-08 doesn't count: move it \
+                     above the test module (CODE-08)",
+                )
+            }));
+            if tests.before > MOST_LINES {
+                findings.push(Finding::new(
+                    path,
+                    MOST_LINES + 1,
+                    format!(
+                        "{} lines before its tests: split it into a directory of modules with the \
+                         same name (CODE-08, ARCH-03)",
+                        tests.before
+                    ),
+                ));
+            }
+            tests.before
+        }
+        Err(error) => {
+            findings.push(Finding::new(
+                path,
+                error.span().start().line,
+                format!(
+                    "{error}: the file doesn't parse, so the check can't find its test module, \
+                     before which it counts the file's lines (CODE-08)"
+                ),
+            ));
+            text.lines().count()
+        }
     }
 }
 
@@ -413,12 +446,17 @@ mod tests {
             "fn a() {}\n".repeat(500),
             "fn t() {}\n".repeat(600)
         );
+        let between = tested.replace(
+            "#[cfg(test)]\n",
+            "#[cfg(test)]\n#[expect(\n    clippy::x,\n    reason = \"r\"\n)]\n",
+        );
         let script = format!("#!/bin/sh\n{}", "true\n".repeat(500));
         let justfile = format!("import 'just/check.just'\n{}", "# a\n".repeat(499));
         let tasks = format!("[group('check')]\ncheck:\n{}", "    true\n".repeat(499));
         let found = messages(&[
             ("crates/platform/src/long.rs", &long),
             ("crates/platform/src/tested.rs", &tested),
+            ("crates/platform/src/between.rs", &between),
             ("crates/app/tests/integration/long.rs", &long),
             ("deploy/deploy.sh", &script),
             ("justfile", &justfile),
@@ -435,6 +473,34 @@ mod tests {
                 "just/check.just:501: 501 lines: split its tasks into more files of `just/`, \
                  which the justfile imports, by kind (CODE-08)",
             ]
+        );
+    }
+
+    #[test]
+    fn code_08_an_item_after_the_test_module_and_a_file_that_doesn_t_parse_fail() {
+        let after = "fn a() {}\n#[cfg(test)]\nmod tests {\n    fn t() {}\n}\n\n\
+                     #[derive(Debug)]\nstruct After;\n";
+        let nested =
+            "mod inner {\n    #[cfg(test)]\n    mod tests {}\n    fn b() {}\n}\nfn c() {}\n";
+        let found = messages(&[
+            ("crates/xtask/src/after.rs", after),
+            ("crates/platform/src/nested.rs", nested),
+            ("crates/platform/src/broken.rs", "fn a() {}\nfn b( {}\n"),
+            ("crates/app/tests/integration/broken.rs", "fn b( {}\n"),
+        ]);
+        assert_eq!(found.len(), 2, "{found:#?}");
+        assert_eq!(
+            found[0],
+            "crates/xtask/src/after.rs:7: an item after the test module, whose lines CODE-08 \
+             doesn't count: move it above the test module (CODE-08)"
+        );
+        assert!(
+            found[1].starts_with("crates/platform/src/broken.rs:2: ")
+                && found[1].ends_with(
+                    ": the file doesn't parse, so the check can't find its test module, before \
+                     which it counts the file's lines (CODE-08)"
+                ),
+            "{found:#?}"
         );
     }
 
@@ -468,7 +534,8 @@ mod tests {
             ("crates/app/templates/gone/email.html", ""),
             (
                 "crates/app/src/modules/things/emails.rs",
-                "#[template(path = \"things/email.html\")]\n#[template(path = \"others/email.html\")]\n",
+                "#[template(path = \"things/email.html\")]\n#[template(path = \"others/email.html\")]\n\
+                 struct Email;\n",
             ),
         ]);
         assert_eq!(found.len(), 5, "{found:#?}");
@@ -535,7 +602,8 @@ mod tests {
             ("crates/app/src/modules/things/error.rs", ""),
             (
                 "crates/app/src/modules/things/jobs.rs",
-                "jobs.periodic(\"things.expire\", I, T, f);\njobs.periodic(\"other.expire\", I, T, f);\n",
+                "fn f() { jobs.periodic(\"things.expire\", I, T, f);\n\
+                 jobs.periodic(\"other.expire\", I, T, f); }\n",
             ),
             (
                 "crates/app/src/modules/things/service.rs",
@@ -547,8 +615,8 @@ mod tests {
             ),
             (
                 "crates/platform/src/jobs/sweeps.rs",
-                "for (name, sweep) in [\n    (\"platform.expire\", A),\n    (\"expire_b\", B),\n    \
-                 (\"sweeps.c\", C),\n] {\n    jobs.periodic.insert(name, sweep);\n}\n",
+                "fn f() { for (name, sweep) in [\n    (\"platform.expire\", A),\n    (\"expire_b\", B),\n    \
+                 (\"sweeps.c\", C),\n] {\n    jobs.periodic.insert(name, sweep);\n} }\n",
             ),
         ]);
         assert_eq!(

@@ -3,20 +3,21 @@
 //! formatting moved or a line that names a part without its marker fails `just checks` within
 //! a minute, rather than `check-removable`'s copy on `main`, or a fork's own removal (ARCH-07).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use super::{
-    LIST, Part, REMOVAL, Run, is_migration, leftovers, list, markers, matrix, owned, validate,
+    LIST, Part, REMOVAL, Run, citations, exports, is_migration, leftovers, list, markers, matrix,
+    owned, validate,
 };
-use crate::{Finding, Outcome, metrics, repo::Repo};
+use crate::{
+    Finding, Outcome, metrics,
+    repo::{File, Repo},
+};
 
 /// The files that a removal writes again, or prunes, from the code it kept, rather than deleting
 /// their marked lines: `Cargo.lock`, `openapi.json`, the metric catalog and the query cache. The
 /// dry run reads no word in them.
 const REWRITTEN: [&str; 4] = ["Cargo.lock", "openapi.json", metrics::CATALOG, ".sqlx/"];
-
-/// The tracker, whose table of decisions gives each decision a row that starts `| D<number> |`.
-const TRACKER: &str = "docs/MIGRATION.md";
 
 /// Checks the parts' markers and files, each Rust marker standing alone on its line, and each
 /// run's removal, and each part's alone, done in memory (ARCH-07).
@@ -108,6 +109,7 @@ pub fn check(repo: &Repo) -> Outcome {
 /// that every run removes with another, so a line that names it inside the other's block would
 /// stay (ARCH-07).
 fn removals(repo: &Repo, parts: &[Part], runs: &[Run]) -> (Vec<String>, Vec<Finding>) {
+    let read = Read::of(repo, parts);
     let mut report = Vec::new();
     let mut findings = Vec::new();
     let removed: Vec<Run> = runs.iter().map(|run| removed(run, parts)).collect();
@@ -119,7 +121,7 @@ fn removals(repo: &Repo, parts: &[Part], runs: &[Run]) -> (Vec<String>, Vec<Find
             ));
             continue;
         }
-        let (summary, found) = remove(repo, parts, run);
+        let (summary, found) = remove(repo, parts, run, &read);
         report.push(summary);
         findings.extend(found);
     }
@@ -132,7 +134,7 @@ fn removals(repo: &Repo, parts: &[Part], runs: &[Run]) -> (Vec<String>, Vec<Find
             parts: vec![part.name.clone()],
             keeps_removal: true,
         };
-        let (summary, found) = remove(repo, parts, &alone);
+        let (summary, found) = remove(repo, parts, &alone, &read);
         report.push(summary);
         findings.extend(found);
     }
@@ -157,13 +159,92 @@ fn removed(run: &Run, parts: &[Part]) -> Run {
     }
 }
 
+/// What the dry run reads once of the repository, for every removal it does: the parts that own
+/// each line of each file whose markers read, what each line cites or links to, and what the
+/// modules export and the lines that name it.
+struct Read<'a> {
+    owners: HashMap<&'a str, Vec<Vec<&'a str>>>,
+    citations: citations::Index<'a>,
+    exports: exports::Exports<'a>,
+}
+
+impl<'a> Read<'a> {
+    fn of(repo: &'a Repo, parts: &[Part]) -> Self {
+        let known: Vec<&str> = parts.iter().map(|part| part.name.as_str()).collect();
+        Self {
+            owners: repo
+                .files()
+                .filter_map(|file| {
+                    let owners = markers::owners(&file.text, &known).ok()?;
+                    Some((file.path.as_str(), owners))
+                })
+                .collect(),
+            citations: citations::Index::read(repo),
+            exports: exports::Exports::read(repo),
+        }
+    }
+}
+
+/// What one removal deletes, as the checks of what its kept lines point at read it.
+pub(super) struct Removal<'a> {
+    /// The files that it deletes whole.
+    owned: &'a HashSet<String>,
+    /// The parts that it removes.
+    removing: &'a [&'a str],
+    /// The parts that own each line of each file whose markers read.
+    owners: &'a HashMap<&'a str, Vec<Vec<&'a str>>>,
+}
+
+impl Removal<'_> {
+    /// Whether it deletes the file at `path` whole.
+    pub(super) fn deletes_file(&self, path: &str) -> bool {
+        self.owned.contains(path)
+    }
+
+    /// Whether it deletes the line `number`, counted from 1, of the file at `path`: the file
+    /// goes whole, or a part that it removes owns the line.
+    pub(super) fn deletes(&self, path: &str, number: usize) -> bool {
+        self.deletes_file(path) || self.owned_by_removed(path, number) == Some(true)
+    }
+
+    /// Whether it keeps the line `number`, counted from 1, of the file at `path`, outside the
+    /// files that it writes again. It keeps no line of a file whose markers don't read, which
+    /// `just remove` refuses.
+    pub(super) fn keeps(&self, path: &str, number: usize) -> bool {
+        !self.deletes_file(path)
+            && !is_rewritten(path)
+            && self.owned_by_removed(path, number) == Some(false)
+    }
+
+    /// The text that it keeps of `file`, if it deletes some of its lines and not the file whole.
+    pub(super) fn kept_text(&self, file: &File) -> Option<String> {
+        if self.deletes_file(&file.path) {
+            return None;
+        }
+        let owners = self.owners.get(file.path.as_str())?;
+        let lines = markers::kept(&file.text, owners, self.removing);
+        (lines.len() < owners.len()).then(|| {
+            let lines: Vec<&str> = lines.iter().map(|(_, line)| *line).collect();
+            lines.join("\n")
+        })
+    }
+
+    /// Whether a part that it removes owns the line `number` of the file at `path`, if the file's
+    /// markers read and it has that line.
+    fn owned_by_removed(&self, path: &str, number: usize) -> Option<bool> {
+        let parts = self.owners.get(path)?.get(number.checked_sub(1)?)?;
+        Some(parts.iter().any(|part| self.removing.contains(part)))
+    }
+}
+
 /// Removes `run`'s parts from `repo` in memory, and returns what it removed, and a finding for
 /// each Rust file whose kept lines don't parse, for each kept path or line, other than those of
 /// the files the removal writes again, that holds a word of a part it removes, for each kept
-/// line that cites a decision whose row it deletes, and, where it keeps `removal`, for each run
-/// that the lines it kept of the list and of CI's `removable` job don't both hold.
-fn remove(repo: &Repo, parts: &[Part], run: &Run) -> (String, Vec<Finding>) {
-    let known: Vec<&str> = parts.iter().map(|part| part.name.as_str()).collect();
+/// line that cites a decision, a behavior or a rule, or links to a file or a heading, that it
+/// deletes, for each kept line that names a module's export that only lines it deletes give, and,
+/// where it keeps `removal`, for each run that the lines it kept of the list and of CI's
+/// `removable` job don't both hold.
+fn remove(repo: &Repo, parts: &[Part], run: &Run, read: &Read<'_>) -> (String, Vec<Finding>) {
     let removed: Vec<&Part> = parts
         .iter()
         .filter(|part| run.parts.contains(&part.name))
@@ -174,10 +255,11 @@ fn remove(repo: &Repo, parts: &[Part], run: &Run) -> (String, Vec<Finding>) {
     let mut kept = Vec::new();
     let mut edited = 0;
     for file in repo.files().filter(|file| !owned.contains(&file.path)) {
-        let Ok(lines) = markers::kept(&file.text, &removing, &known) else {
+        let Some(owners) = read.owners.get(file.path.as_str()) else {
             continue;
         };
-        if lines.len() < file.text.lines().count() {
+        let lines = markers::kept(&file.text, owners, &removing);
+        if lines.len() < owners.len() {
             edited += 1;
             if file.path.ends_with(".rs") {
                 findings.extend(unparsed(&file.path, &lines));
@@ -187,7 +269,13 @@ fn remove(repo: &Repo, parts: &[Part], run: &Run) -> (String, Vec<Finding>) {
             kept.push((file.path.as_str(), lines));
         }
     }
-    findings.extend(dangling_decisions(repo, &kept));
+    let removal = Removal {
+        owned: &owned,
+        removing: &removing,
+        owners: &read.owners,
+    };
+    findings.extend(read.citations.dangling(repo, &removal));
+    findings.extend(read.exports.dangling(&removal));
     if !removing.contains(&REMOVAL) && repo.has(matrix::WORKFLOW) {
         // What the removal leaves of the runs and of the job that makes them still agrees.
         let text = |path: &str| {
@@ -215,66 +303,9 @@ fn remove(repo: &Repo, parts: &[Part], run: &Run) -> (String, Vec<Finding>) {
     (summary, findings)
 }
 
-/// A finding for each of the `kept` lines that cites a decision, `D` and its number, whose row in
-/// the tracker the removal deletes, since the citation would point at nothing: the removal deletes
-/// every ID that points into what it removes (ARCH-07), and check-docs resolves no decision.
-fn dangling_decisions(repo: &Repo, kept: &[(&str, Vec<(usize, &str)>)]) -> Vec<Finding> {
-    let Some(tracker) = repo.file(TRACKER) else {
-        return Vec::new();
-    };
-    let left: HashSet<usize> = kept
-        .iter()
-        .filter(|(path, _)| *path == TRACKER)
-        .flat_map(|(_, lines)| lines.iter().map(|(number, _)| *number))
-        .collect();
-    let removed: Vec<&str> = tracker
-        .text
-        .lines()
-        .enumerate()
-        .filter(|(index, _)| !left.contains(&(index + 1)))
-        .filter_map(|(_, line)| decision(line.strip_prefix("| ")?))
-        .collect();
-    let mut findings = Vec::new();
-    for (path, lines) in kept {
-        for (number, line) in lines {
-            for id in removed.iter().filter(|id| cites(line, id)) {
-                findings.push(Finding::new(
-                    path,
-                    *number,
-                    format!(
-                        "cites {id}, whose decision the removal deletes from the tracker (ARCH-07)"
-                    ),
-                ));
-            }
-        }
-    }
-    findings
-}
-
-/// The decision ID that `text` starts with, such as `D7` in `D7 | ...`.
-fn decision(text: &str) -> Option<&str> {
-    let digits = text
-        .strip_prefix('D')?
-        .find(|c: char| !c.is_ascii_digit())
-        .filter(|length| *length > 0)?;
-    text[1 + digits..]
-        .starts_with(" |")
-        .then(|| &text[..=digits])
-}
-
-/// Whether `line` cites the decision `id` as a word of its own, so `D12` doesn't cite `D1`.
-fn cites(line: &str, id: &str) -> bool {
-    line.match_indices(id).any(|(at, _)| {
-        let before = line[..at].chars().next_back();
-        let after = line[at + id.len()..].chars().next();
-        !before.is_some_and(|c| c.is_ascii_alphanumeric())
-            && !after.is_some_and(|c| c.is_ascii_alphanumeric())
-    })
-}
-
 /// Whether the removal writes the file at `path` again, or prunes it, rather than deleting its
 /// marked lines.
-fn is_rewritten(path: &str) -> bool {
+pub(super) fn is_rewritten(path: &str) -> bool {
     REWRITTEN.iter().any(|rewritten| {
         path == *rewritten || (rewritten.ends_with('/') && path.starts_with(rewritten))
     })
@@ -302,6 +333,7 @@ fn unparsed(path: &str, lines: &[(usize, &str)]) -> Option<Finding> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::citations::TRACKER;
     use super::*;
 
     /// A marker of `part` in Rust, which the source of these tests builds rather than holds, so
@@ -408,6 +440,176 @@ mod tests {
             .map(|finding| (finding.path.as_str(), finding.line))
             .collect();
         assert_eq!(places, [("docs/a.md", 1)], "{:?}", outcome.findings);
+    }
+
+    /// The list of one part, `offers`, which owns the directory `src/shop/` and the spec of
+    /// `shop`, whose paths hold no word of the part, and of the run that removes it.
+    fn shop_list() -> String {
+        list()
+            .replace("src/offers.rs", "src/shop/")
+            .replace("src/offers_more.rs", "docs/spec/shop.md")
+    }
+
+    /// Where `check` finds something in `repo`, each with its message.
+    fn found(repo: &Repo) -> Vec<(String, usize, String)> {
+        check(repo)
+            .findings
+            .into_iter()
+            .map(|finding| (finding.path, finding.line, finding.message))
+            .collect()
+    }
+
+    /// The places of `found`.
+    fn places(found: &[(String, usize, String)]) -> Vec<(&str, usize)> {
+        found
+            .iter()
+            .map(|(path, line, _)| (path.as_str(), *line))
+            .collect()
+    }
+
+    #[test]
+    fn arch_07_a_kept_line_that_cites_a_behavior_or_a_rule_the_removal_deletes_fails() {
+        let marker = format!("<!-- {} offers -->", "part:");
+        let end = format!("<!-- end {} offers -->", "part:");
+        let spec = format!(
+            "| ID | Behavior |\n|---|---|\n| THINGS-001 | Kept. |\n| THINGS-002 | Gone. {marker} |\n"
+        );
+        let rules = format!("### STYLE-01 Kept\n\n{marker}\n### STYLE-02 Gone\nText.\n{end}\n");
+        let doc = format!(
+            "As THINGS-002 says.\nAs THINGS-001 and STYLE-01 say.\nAs STYLE-02 says.\n\
+             THINGS-002 again. {marker}\nxTHINGS-002, THINGS-0022 and STYLE-020 are others.\n\
+             As SHOP-001 says.\nProven by `things_002_` and style_02.\nNot by `things_0022`.\n"
+        );
+        let code = "// THINGS-002 here.\nfn things_002_is_code() {} // and things_002 a comment\n\
+                    #[cfg(test)]\nmod tests {\n    // THINGS-002 there.\n}\n";
+        let list = shop_list();
+        let repo = Repo::of(&[
+            (LIST, &list),
+            ("docs/spec/things.md", &spec),
+            (
+                "docs/spec/shop.md",
+                "| ID | Behavior |\n|---|---|\n| SHOP-001 | One. |\n",
+            ),
+            ("docs/standards/style.md", &rules),
+            ("docs/a.md", &doc),
+            ("docs/inventory/old.md", "THINGS-002 of the old codebase.\n"),
+            ("crates/xtask/src/a.rs", code),
+            ("src/shop/a.rs", ""),
+        ]);
+
+        let found = found(&repo);
+
+        assert_eq!(
+            places(&found),
+            [
+                ("docs/a.md", 1),
+                ("docs/a.md", 3),
+                ("docs/a.md", 6),
+                ("docs/a.md", 7),
+                ("docs/a.md", 7),
+                ("crates/xtask/src/a.rs", 1),
+                ("crates/xtask/src/a.rs", 2),
+            ],
+            "{found:?}"
+        );
+        assert_eq!(
+            found[0].2,
+            "removing offers: cites THINGS-002, whose row the removal deletes from \
+             docs/spec/things.md (ARCH-07)"
+        );
+        assert_eq!(
+            found[1].2,
+            "removing offers: cites STYLE-02, whose heading the removal deletes from \
+             docs/standards/style.md (ARCH-07)"
+        );
+    }
+
+    #[test]
+    fn arch_07_a_kept_link_to_a_file_or_a_heading_the_removal_deletes_fails() {
+        let marker = format!("<!-- {} offers -->", "part:");
+        let end = format!("<!-- end {} offers -->", "part:");
+        let guide = format!("# Guide\n\n## Kept\n\n{marker}\n## Gone\n\nText.\n{end}\n");
+        let doc = format!(
+            "# A\n\n[kept](guide.md#kept)\n[gone](guide.md#gone)\n[file](../src/shop/a.rs)\n\
+             [directory](../src/shop/)\n[the rest](../src/), [the root](../)\n[missing](guide.md#none)\n\
+             [site](https://example.com/#gone)\n[here](#local)\n[gone](guide.md#gone) {marker}\n\n\
+             {marker}\n## Local\n{end}\n"
+        );
+        let code = "/// See [the guide](../docs/guide.md#gone), not [`a`](crate::a) or \
+                    `[b](../docs/guide.md#gone)`.\nfn a() {}\n";
+        let list = shop_list();
+        let repo = Repo::of(&[
+            (LIST, &list),
+            ("docs/guide.md", &guide),
+            ("docs/a.md", &doc),
+            ("src/a.rs", code),
+            ("src/shop/a.rs", ""),
+            ("docs/spec/shop.md", ""),
+        ]);
+
+        let found = found(&repo);
+
+        assert_eq!(
+            places(&found),
+            [
+                ("docs/a.md", 4),
+                ("docs/a.md", 5),
+                ("docs/a.md", 6),
+                ("docs/a.md", 10),
+                ("src/a.rs", 1),
+            ],
+            "{found:?}"
+        );
+        assert_eq!(
+            [found[0].2.as_str(), found[1].2.as_str()],
+            [
+                "removing offers: links to `guide.md#gone`, whose heading the removal deletes \
+                 (ARCH-07)",
+                "removing offers: links to `../src/shop/a.rs`, which the removal deletes \
+                 (ARCH-07)",
+            ]
+        );
+    }
+
+    #[test]
+    fn arch_07_a_kept_line_that_names_an_export_that_only_deleted_lines_give_fails() {
+        let open = mark("offers");
+        let close = end("offers");
+        let shop = format!(
+            "mod a;\npub(crate) use a::Kept;\n{open}\npub(crate) use a::{{Gone, Both}};\n{close}\n\
+             pub(crate) use b::Both;\npub(crate) use a::{{\n    Split,\n{open}\n    Tail,\n{close}\n}};\n"
+        );
+        let doc = "`shop::Kept` stays.\n`shop::Gone` goes.\n`shop::Both` stays.\n\
+                   `other::Gone` stays.\n`shop::Gone_all` and `my_shop::Gone` are others.\n\
+                   `shop::Tail` goes.\n`shop::Split` stays.\n";
+        let tests = "fn a() {}\n#[cfg(test)]\nmod tests {\n    // shop::Gone\n}\n";
+        let list = list();
+        let repo = Repo::of(&[
+            (LIST, &list),
+            ("crates/app/src/modules/shop/mod.rs", &shop),
+            (
+                "crates/app/src/modules/other/mod.rs",
+                "pub(crate) use x::Gone;\n",
+            ),
+            ("docs/a.md", doc),
+            ("src/b.rs", "use crate::modules::shop::Gone;\n"),
+            ("docs/MIGRATION.md", "`shop::Gone` goes.\n"),
+            ("crates/xtask/src/c.rs", tests),
+            ("src/offers.rs", ""),
+        ]);
+
+        let found = found(&repo);
+
+        assert_eq!(
+            places(&found),
+            [("docs/a.md", 2), ("docs/a.md", 6), ("src/b.rs", 1)],
+            "{found:?}"
+        );
+        assert_eq!(
+            found[0].2,
+            "removing offers: names `shop::Gone`, which only lines of \
+             crates/app/src/modules/shop/mod.rs that the removal deletes export (ARCH-07)"
+        );
     }
 
     #[test]

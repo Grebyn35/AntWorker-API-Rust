@@ -15,7 +15,7 @@ use super::{
 };
 use crate::modules::{
     access::{self, InvitationsCreate, InvitationsRead, Role},
-    accounts::{self, DisplayName, PublicProfile},
+    accounts::{self, DisplayName, Profile, PublicProfile},
     audit::{self as log, Entry},
     workspaces::{self, WorkspaceName},
 };
@@ -227,7 +227,7 @@ pub(crate) async fn received(
     page: &Page,
 ) -> Result<List<ReceivedInvitation>, InvitationsError> {
     let mut uow = database.begin(client, Some(principal)).await?;
-    let email = accounts::profile(&mut uow, principal).await?.email;
+    let Profile { email, .. } = accounts::profile(&mut uow, principal).await?;
     let only = match search {
         None => None,
         Some(search) => {
@@ -290,7 +290,7 @@ pub(crate) async fn accept(
 ) -> Result<Accepted, InvitationsError> {
     let id = id.ok_or(InvitationsError::NotFound)?;
     let mut uow = database.begin(client, Some(principal)).await?;
-    let email = accounts::profile(&mut uow, principal).await?.email;
+    let Profile { email, .. } = accounts::profile(&mut uow, principal).await?;
     let workspace = repo::workspace_of(&mut uow, id, &email)
         .await?
         .ok_or(InvitationsError::NotFound)?;
@@ -350,7 +350,7 @@ pub(crate) async fn decline(
 ) -> Result<(), InvitationsError> {
     let id = id.ok_or(InvitationsError::NotFound)?;
     let mut uow = database.begin(client, Some(principal)).await?;
-    let email = accounts::profile(&mut uow, principal).await?.email;
+    let Profile { email, .. } = accounts::profile(&mut uow, principal).await?;
     let workspace = repo::workspace_of(&mut uow, id, &email)
         .await?
         .ok_or(InvitationsError::NotFound)?;

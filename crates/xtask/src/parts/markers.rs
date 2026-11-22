@@ -1,6 +1,8 @@
 //! The markers that give a line, or a block of lines, to an optional part (ARCH-07). A marker is
 //! a comment that reads `part: <part>`, or `end part: <part>`, in one of the syntaxes below.
 
+use std::borrow::Cow;
+
 use syn::{
     Expr, ExprMatch,
     visit::{self, Visit},
@@ -169,20 +171,14 @@ pub fn owners<'a>(text: &'a str, known: &[&str]) -> Result<Vec<Vec<&'a str>>, (u
 }
 
 /// The lines of `text` that removing the parts `removed` keeps, each with its number, counted from
-/// 1. Fails as [`owners`] does.
-pub fn kept<'a>(
-    text: &'a str,
-    removed: &[&str],
-    known: &[&str],
-) -> Result<Vec<(usize, &'a str)>, (usize, String)> {
-    let owners = owners(text, known)?;
-    Ok(text
-        .lines()
+/// 1, where `owners` holds the parts that own each line, as [`owners`] gives them.
+pub fn kept<'a>(text: &'a str, owners: &[Vec<&str>], removed: &[&str]) -> Vec<(usize, &'a str)> {
+    text.lines()
         .zip(owners)
         .enumerate()
         .filter(|(_, (_, parts))| !parts.iter().any(|part| removed.contains(part)))
         .map(|(index, (line, _))| (index + 1, line))
-        .collect())
+        .collect()
 }
 
 /// The lines of Rust `text`, counted from 1, whose marker isn't Rust's `//` comment alone on its
@@ -319,8 +315,10 @@ pub fn block_arm_that_can_be_last(text: &str) -> Vec<usize> {
     arms.found
 }
 
-/// `text` without the lines that the parts in `removed` own, or `None` if it has none of them.
+/// `text`, the file at `path`, without the lines that the parts in `removed` own, or `None` if it
+/// has none of them. Outside Rust, they take a blank line with them, as [`joined`] says.
 pub fn strip(
+    path: &str,
     text: &str,
     removed: &[&str],
     known: &[&str],
@@ -332,43 +330,79 @@ pub fn strip(
     {
         return Ok(None);
     }
-    let mut kept = String::with_capacity(text.len());
-    for (line, parts) in text.split_inclusive('\n').zip(owners) {
-        if !parts.iter().any(|part| removed.contains(part)) {
-            kept.push_str(line);
-        }
-    }
-    Ok(Some(kept))
+    let lines = text
+        .split_inclusive('\n')
+        .zip(owners)
+        .map(|(line, parts)| (!parts.iter().any(|part| removed.contains(part))).then_some(line));
+    Ok(Some(joined(path, lines)))
 }
 
-/// `text` without its markers, or `None` if it holds none: a line that holds only a marker goes,
-/// and a marker after other text goes from its line, which keeps what stood before and after it,
-/// as a table row keeps its last pipe. `just keep` takes them out once it has removed every part
-/// that it doesn't keep.
-pub fn unmark(text: &str) -> Option<String> {
+/// `text`, the file at `path`, without its markers, or `None` if it holds none: a line that holds
+/// only a marker goes, and a marker after other text goes from its line, which keeps what stood
+/// before and after it, as a table row keeps its last pipe. Outside Rust, the lines that go take a
+/// blank line with them, as [`joined`] says. `just keep` takes the markers out once it has removed
+/// every part that it doesn't keep.
+pub fn unmark(path: &str, text: &str) -> Option<String> {
     let mut changed = false;
-    let mut kept = String::with_capacity(text.len());
-    for line in text.split_inclusive('\n') {
-        let (body, ending) = line
-            .strip_suffix('\n')
-            .map_or((line, ""), |body| (body, "\n"));
-        let Some(marker) = marker(body) else {
-            kept.push_str(line);
+    let lines: Vec<Option<Cow<'_, str>>> = text
+        .split_inclusive('\n')
+        .map(|line| {
+            let (body, ending) = line
+                .strip_suffix('\n')
+                .map_or((line, ""), |body| (body, "\n"));
+            let Some(marker) = marker(body) else {
+                return Some(Cow::Borrowed(line));
+            };
+            changed = true;
+            if marker.alone {
+                return None;
+            }
+            let mut kept = body[..marker.at].trim_end().to_owned();
+            let after = marker.after.trim();
+            if !after.is_empty() {
+                kept.push(' ');
+                kept.push_str(after);
+            }
+            kept.push_str(ending);
+            Some(Cow::Owned(kept))
+        })
+        .collect();
+    changed.then(|| joined(path, lines))
+}
+
+/// The lines that `lines` keeps, each `None` that a removal, or `just keep`, deletes, joined, of
+/// the file at `path`. Outside Rust, whose blank lines rustfmt sets once the removal has formatted
+/// the code, each run of deleted lines that stood between two blank lines, or between a blank
+/// line and the file's end, takes one blank line with it: the one after it, or, at the file's
+/// end, the last one kept before it. A blank line holds nothing but white space. No other blank
+/// line goes here, since a blank line can be part of what a file says, as in a block of text in a
+/// Compose file (ARCH-07).
+fn joined<S: AsRef<str>>(path: &str, lines: impl IntoIterator<Item = Option<S>>) -> String {
+    let rust = path.ends_with(".rs");
+    let blank = |line: &str| line.trim().is_empty();
+    let mut kept = String::new();
+    // Where the last line kept starts in `kept`, if it is blank.
+    let mut last_blank: Option<usize> = None;
+    // Whether lines were deleted since the last line kept.
+    let mut deleted = false;
+    for line in lines {
+        let Some(line) = line else {
+            deleted = true;
             continue;
         };
-        changed = true;
-        if marker.alone {
+        let line = line.as_ref();
+        if !rust && deleted && last_blank.is_some() && blank(line) {
+            deleted = false;
             continue;
         }
-        kept.push_str(body[..marker.at].trim_end());
-        let after = marker.after.trim();
-        if !after.is_empty() {
-            kept.push(' ');
-            kept.push_str(after);
-        }
-        kept.push_str(ending);
+        last_blank = blank(line).then_some(kept.len());
+        kept.push_str(line);
+        deleted = false;
     }
-    changed.then_some(kept)
+    if let Some(start) = last_blank.filter(|_| !rust && deleted) {
+        kept.truncate(start);
+    }
+    kept
 }
 
 #[cfg(test)]
@@ -447,7 +481,7 @@ mod tests {
     fn arch_07_removing_a_part_deletes_its_lines_and_its_blocks_with_all_they_hold() {
         let text = two_parts();
 
-        let kept = strip(&text, &["one"], &["one", "two"]).unwrap();
+        let kept = strip("src/a.rs", &text, &["one"], &["one", "two"]).unwrap();
 
         assert_eq!(kept, Some(format!("a\ne {}\n", mark("//", "two", ""))));
     }
@@ -456,17 +490,108 @@ mod tests {
     fn arch_07_removing_a_part_keeps_the_lines_and_blocks_of_another() {
         let text = two_parts();
 
-        let kept = strip(&text, &["two"], &["one", "two"]).unwrap().unwrap();
+        let kept = strip("src/a.rs", &text, &["two"], &["one", "two"])
+            .unwrap()
+            .unwrap();
 
         let starts: Vec<&str> = kept.lines().map(|line| &line[..1]).collect();
         assert_eq!(starts, ["a", "b", "/", "c", "/"], "{kept}");
+    }
+
+    /// A block of `one` in Markdown that holds `lines`.
+    fn block(lines: &str) -> String {
+        format!(
+            "{}\n{lines}{}\n",
+            mark("<!--", "one", " -->"),
+            end("<!--", "one", " -->")
+        )
+    }
+
+    #[test]
+    fn arch_07_outside_rust_a_removal_drops_one_of_the_blank_lines_its_lines_stood_between() {
+        let text = format!("a\n\n{}\nc\n", block("b\n"));
+        let spaces = format!("a\n  \nb {}\n\t\nc\n", mark("<!--", "one", " -->"));
+        let strip = |text: &str| strip("docs/a.md", text, &["one"], &["one"]).unwrap();
+
+        assert_eq!(strip(&text).as_deref(), Some("a\n\nc\n"));
+        assert_eq!(strip(&spaces).as_deref(), Some("a\n  \nc\n"));
+    }
+
+    #[test]
+    fn arch_07_outside_rust_a_removal_drops_the_blank_line_its_lines_leave_at_the_file_s_end() {
+        let line = format!("a: 1\n\nb: 2 {}\n", mark("#", "one", ""));
+        let unended = format!(
+            "a: 1\n\n{}\nb: 2\n{}",
+            mark("#", "one", ""),
+            end("#", "one", "")
+        );
+        let strip = |text: &str| strip("a.yml", text, &["one"], &["one"]).unwrap();
+
+        assert_eq!(strip(&line).as_deref(), Some("a: 1\n"));
+        assert_eq!(strip(&unended).as_deref(), Some("a: 1\n"));
+    }
+
+    #[test]
+    fn arch_07_a_removal_keeps_every_other_blank_line() {
+        let marked = |text: &str| format!("{text} {}", mark("<!--", "one", " -->"));
+        let strip = |path: &str, text: &str| strip(path, text, &["one"], &["one"]).unwrap();
+
+        // Two blank lines that stood together before the removal, with no line of the part
+        // between them, stay; so does the one a deletion leaves beside a line of text.
+        let together = format!("a\n\n\nb\n{}\nc\n", marked("x"));
+        assert_eq!(
+            strip("docs/a.md", &together).as_deref(),
+            Some("a\n\n\nb\nc\n")
+        );
+        let then_deleted = format!("a\n\n\n{}\nc\n", block("b\n"));
+        assert_eq!(
+            strip("docs/a.md", &then_deleted).as_deref(),
+            Some("a\n\n\nc\n")
+        );
+        let beside_text = format!("a\n\n{}\nc\n", marked("b"));
+        assert_eq!(
+            strip("docs/a.md", &beside_text).as_deref(),
+            Some("a\n\nc\n")
+        );
+        // Each run of deleted lines takes one blank line, and only one.
+        let runs = format!(
+            "a\n\n{}\n\n{}\n\n{}\nc\n",
+            marked("x"),
+            marked("y"),
+            marked("z")
+        );
+        assert_eq!(strip("docs/a.md", &runs).as_deref(), Some("a\n\nc\n"));
+        let at_end = format!("a\n\n{}\n\n{}\n", marked("x"), marked("y"));
+        assert_eq!(strip("docs/a.md", &at_end).as_deref(), Some("a\n"));
+        // The file's start is no end of it.
+        let at_start = format!("{}\n\nc\n", marked("b"));
+        assert_eq!(strip("docs/a.md", &at_start).as_deref(), Some("\nc\n"));
+        // rustfmt sets Rust's blank lines once the removal has formatted the code.
+        let rust = format!(
+            "fn a() {{}}\n\n{}\nfn b() {{}}\n{}\n\nfn c() {{}}\n",
+            mark("//", "one", ""),
+            end("//", "one", "")
+        );
+        assert_eq!(
+            strip("src/a.rs", &rust).as_deref(),
+            Some("fn a() {}\n\n\nfn c() {}\n")
+        );
+    }
+
+    #[test]
+    fn arch_07_keeping_the_parts_drops_a_blank_line_that_only_a_marker_stood_between() {
+        let text = format!("a\n\n{}\nc\n", block("b\n\n"));
+
+        assert_eq!(unmark("docs/a.md", &text).unwrap(), "a\n\nb\n\nc\n");
+        let rust = text.replace("<!--", "//").replace(" -->", "");
+        assert_eq!(unmark("src/a.rs", &rust).unwrap(), "a\n\nb\n\n\nc\n");
     }
 
     #[test]
     fn arch_07_a_file_that_holds_none_of_a_part_s_lines_is_left_as_it_is() {
         let text = "a\nb\n";
 
-        let kept = strip(text, &["one"], &["one"]).unwrap();
+        let kept = strip("src/a.rs", text, &["one"], &["one"]).unwrap();
 
         assert_eq!(kept, None);
     }
@@ -479,7 +604,7 @@ mod tests {
             end("//", "one", "")
         );
 
-        let lines = kept(&text, &["one"], &["one"]).unwrap();
+        let lines = kept(&text, &owners(&text, &["one"]).unwrap(), &["one"]);
 
         assert_eq!(lines, [(1, "a"), (5, "c")]);
     }
@@ -664,9 +789,9 @@ mod tests {
         ]
         .concat();
         assert_eq!(
-            unmark(&text).unwrap(),
+            unmark("docs/a.md", &text).unwrap(),
             "mod a;\nmod b;\n| a | b |\n- item\nplain\n"
         );
-        assert_eq!(unmark("plain\nlines"), None);
+        assert_eq!(unmark("docs/a.md", "plain\nlines"), None);
     }
 }

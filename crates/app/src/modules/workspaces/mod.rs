@@ -26,7 +26,7 @@ pub(crate) use routes::picture_routes;
 pub(crate) use service::picture::Pictures;
 // end part: files
 // part: workspace_setup
-pub(crate) use service::setup::{Setup, SetupOwner, SetupRefusal, set_up};
+pub(crate) use service::setup::{Setup, SetupDone, SetupOwner, SetupRefusal, set_up};
 // end part: workspace_setup
 // part: invitations
 pub(crate) use service::{matching, names};

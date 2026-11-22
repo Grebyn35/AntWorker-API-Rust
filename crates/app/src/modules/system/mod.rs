@@ -7,7 +7,7 @@ mod seed;
 
 pub(crate) use error::SystemError;
 pub(crate) use routes::{Capabilities, Features, SignInClient, SignInProvider, routes};
-pub(crate) use seed::{Mailbox, PASSWORD, Seed, allowed as seed_allowed, seed};
+pub(crate) use seed::{Mailbox, PASSWORD, Seed, Seeded, allowed as seed_allowed, seed};
 // part: workspace_setup
 pub(crate) use seed::SettingUp;
 // end part: workspace_setup

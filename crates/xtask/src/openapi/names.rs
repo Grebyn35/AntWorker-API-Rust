@@ -6,28 +6,52 @@
 //! - none of those names is that of the event catalog or of the action catalog, `Frame` or
 //!   `AuditEntry`, of a component that one of them refers to, or of one that the document marks
 //!   as a frame type's or an action's. The document builds each of those under a name of its
-//!   own making, and would keep one schema of the two.
+//!   own making, and would keep one schema of the two;
+//! - each of those names whose `ToSchema` a file of `crates/app/src/` writes, through a derive or
+//!   an impl, is a component's, or, for a generic type, starts one's, followed by `_` (CODE-15);
+//! - each component is one of those names, `Frame`, `AuditEntry`, one that they refer to or that
+//!   the document marks as a frame type's or an action's, or an instance of a generic type, its
+//!   name followed by `_`, so that the checks above read every schema's name.
 //!
-//! It reads the committed document for the first and for the catalogs' components. The schema
-//! names it reads in the code are those of the Rust files under `crates/platform/src/` and
-//! `crates/app/src/`, on the lines that [`text::lines_before_tests`] counts: the identifier
-//! after each `struct` or `enum` that a `#[derive(…)]` holding `ToSchema` stands before, or the
-//! last segment of what its `#[schema(as = …)]` gives, and the identifier after each
-//! `ToSchema for`. A schema that takes its name another way, as one whose hand-written `name()`
-//! returns a name that isn't its type's, is review's to read (API-17).
+//! It reads the committed document for the operations and the components. The schema names it
+//! reads in the code are those of the Rust files under `crates/platform/src/` and
+//! `crates/app/src/`, as tokens, on the lines before each file's test module, as
+//! [`rust::test_module`](crate::rust::test_module) finds it:
+//! - of each `struct` or `enum` that a `#[derive(…)]` holding `ToSchema` stands before, the
+//!   identifier after its keyword, or the segments of the path that its `#[schema(as = …)]`
+//!   gives, before any `<`, joined by `.`, as utoipa joins them; the type is generic when `<`
+//!   follows its identifier;
+//! - of each `ToSchema for <type>`, at any depth, in a `macro_rules!` too, the type's identifier
+//!   when the impl's body has no `fn name`, as utoipa's own `name()` gives it, and otherwise what
+//!   the first `Borrowed(…)` among the tokens of that function's body holds: a string literal,
+//!   its string; `stringify!($name)`, or no `fn name` for the type `$name`, in a `macro_rules!`
+//!   each of whose rules' matchers takes `$name:ident` as its first fragment but those of kinds
+//!   `meta` and `vis`, the first identifier of the arguments of each invocation of that macro,
+//!   `<macro>!(…)`, after their attributes and a `pub` with its restriction, as `id_type!` and
+//!   `filter_values!` take their types' names; and `P::NAME`, where `P:` and the path of a trait
+//!   stand between `impl` and the impl's body, the string literal of `const NAME: … = "…";` in
+//!   the body of each `<trait> for`, as `LongCode` names its schemas by its kinds' `SCHEMA`.
+//!
+//! A name's `ToSchema` is written in the file of its derive or its impl: for an invocation's
+//! name, in the file of the `macro_rules!`, and for a constant's, in the file of the impl of
+//! `ToSchema`. The check refuses, naming it, a file that doesn't parse, a derive of `ToSchema`
+//! for a type that a fragment names, and an impl of `ToSchema` whose name it can't read: its type
+//! is no identifier or fragment, its `fn name` holds no `Borrowed(…)` of those forms, no
+//! `macro_rules!` around it takes `$name` so, an invocation's arguments start with no
+//! identifier, `P` has no trait's bound there, or an impl of the trait doesn't give `NAME` as a
+//! string literal.
 
 use std::collections::BTreeMap;
 
-use proc_macro2::TokenTree;
 use serde_json::{Map, Value};
 
-use super::{METHODS, Problem, actions, events};
-use crate::{
-    Finding,
-    repo::{File, Repo},
-    rust::{self, Source},
-    text,
+use super::{
+    METHODS, Problem, actions, events, quoted,
+    schema_names::{self, Reading, Schema},
 };
+use crate::{Finding, repo::Repo};
+
+pub use schema_names::read;
 
 /// The code whose types the document's schemas come from.
 const CODE: [&str; 2] = ["crates/platform/src/", "crates/app/src/"];
@@ -64,45 +88,60 @@ pub fn operation_ids(document: &Value) -> Vec<Problem> {
     problems
 }
 
-/// Each schema name that the check reads in the code and that it read earlier for another type.
-pub fn schema_names(repo: &Repo) -> Vec<Finding> {
-    let mut first: BTreeMap<String, (String, usize)> = BTreeMap::new();
+/// The schema names that the check reads in the code of `platform` and `app` in `repo`.
+pub fn code(repo: &Repo) -> Reading {
+    read(repo.files().filter(|file| {
+        CODE.iter().any(|code| file.path.starts_with(code)) && file.path.ends_with(".rs")
+    }))
+}
+
+/// The schema names that the check reads in the code of `platform` and `app` in `repo`.
+pub fn taken(repo: &Repo) -> Vec<String> {
+    code(repo)
+        .schemas
+        .into_iter()
+        .map(|schema| schema.name)
+        .collect()
+}
+
+/// Every finding of `reading`, the code's: each `ToSchema` it refused, and each name that breaks
+/// a rule of the module's comment against the others or against `document`.
+pub fn findings(reading: Reading, document: &Value) -> Vec<Finding> {
+    let mut findings = reading.refused;
+    findings.extend(duplicates(&reading.schemas));
+    findings.extend(catalog_names(&reading.schemas, document));
+    findings.extend(unlisted(&reading.schemas, document));
+    findings
+}
+
+/// Each of `schemas` whose name an earlier one takes.
+pub fn duplicates(schemas: &[Schema]) -> Vec<Finding> {
+    let mut first: BTreeMap<&str, &Schema> = BTreeMap::new();
     let mut findings = Vec::new();
-    for file in repo.files() {
-        let in_code = CODE.iter().any(|code| file.path.starts_with(code));
-        if !in_code || !file.path.ends_with(".rs") {
-            continue;
-        }
-        for (name, schema, line) in schemas_of(file) {
-            match first.get(&schema) {
-                Some((path, at)) => findings.push(Finding::new(
-                    &file.path,
-                    line,
-                    format!(
-                        "`{name}` takes the schema name `{schema}`, which a type at {path}:{at} \
-                         takes too: the document keeps one schema of each name, so the operations \
-                         of one would document the other's; name the type after its resource \
-                         (API-17)"
-                    ),
-                )),
-                None => {
-                    first.insert(schema, (file.path.clone(), line));
-                }
+    for schema in schemas {
+        match first.get(schema.name.as_str()) {
+            Some(earlier) => findings.push(Finding::new(
+                &schema.path,
+                schema.line,
+                format!(
+                    "`{}` takes the schema name `{}`, which a type at {}:{} takes too: the \
+                     document keeps one schema of each name, so the operations of one would \
+                     document the other's; name the type after its resource (API-17)",
+                    schema.type_name, schema.name, earlier.path, earlier.line
+                ),
+            )),
+            None => {
+                first.insert(&schema.name, schema);
             }
         }
     }
     findings
 }
 
-/// Each schema name that the check reads in the code and that is the name of one of
-/// `document`'s two catalogs, of a component that one of them refers to, or of one that the
-/// document marks as a frame type's or an action's.
-pub fn catalog_names(repo: &Repo, document: &Value) -> Vec<Finding> {
-    let empty = Map::new();
-    let schemas = document["components"]["schemas"]
-        .as_object()
-        .unwrap_or(&empty);
-    let mut components: BTreeMap<&str, &str> = BTreeMap::new();
+/// The components of `document`'s two catalogs, `Frame` and `AuditEntry`, those that they refer
+/// to and those that the document marks as a frame type's or an action's, each with whose.
+fn catalogs(document: &Value) -> BTreeMap<&str, &'static str> {
+    let mut components = BTreeMap::new();
     for (catalog, mark, of) in [
         (events::CATALOG, events::MARK, "event"),
         (actions::CATALOG, actions::MARK, "action"),
@@ -111,127 +150,102 @@ pub fn catalog_names(repo: &Repo, document: &Value) -> Vec<Finding> {
         for component in events::referred(document, catalog) {
             components.insert(component, of);
         }
-        for (component, schema) in schemas {
+        for (component, schema) in document["components"]["schemas"]
+            .as_object()
+            .into_iter()
+            .flatten()
+        {
             if schema[mark].is_string() {
-                components.insert(component, of);
+                components.insert(component.as_str(), of);
             }
         }
     }
-    let mut findings = Vec::new();
-    for file in repo.files() {
-        let in_code = CODE.iter().any(|code| file.path.starts_with(code));
-        if !in_code || !file.path.ends_with(".rs") {
-            continue;
-        }
-        for (name, schema, line) in schemas_of(file) {
-            if let Some(of) = components.get(schema.as_str()) {
-                findings.push(Finding::new(
-                    &file.path,
-                    line,
-                    format!(
-                        "`{name}` takes the schema name `{schema}`, which a component of the \
-                         {of} catalog takes too: the document keeps one schema of each name, so \
-                         it would document one of the two under it; give the type another name \
-                         (API-17)"
-                    ),
-                ));
-            }
-        }
-    }
-    findings
+    components
 }
 
-/// The schema names that the check reads in the code of `platform` and `app` in `repo`.
-pub fn taken(repo: &Repo) -> Vec<String> {
-    repo.files()
-        .filter(|file| {
-            CODE.iter().any(|code| file.path.starts_with(code)) && file.path.ends_with(".rs")
+/// Each of `schemas` whose name is that of one of `document`'s two catalogs, of a component that
+/// one of them refers to, or of one that the document marks as a frame type's or an action's.
+pub fn catalog_names(schemas: &[Schema], document: &Value) -> Vec<Finding> {
+    let components = catalogs(document);
+    schemas
+        .iter()
+        .filter_map(|schema| {
+            let of = components.get(schema.name.as_str())?;
+            Some(Finding::new(
+                &schema.path,
+                schema.line,
+                format!(
+                    "`{}` takes the schema name `{}`, which a component of the {of} catalog \
+                     takes too: the document keeps one schema of each name, so it would document \
+                     one of the two under it; give the type another name (API-17)",
+                    schema.type_name, schema.name
+                ),
+            ))
         })
-        .flat_map(|file| schemas_of(file).into_iter().map(|(_, schema, _)| schema))
         .collect()
 }
 
-/// The schema names that the check reads in `file`'s code, on the lines that
-/// [`text::lines_before_tests`] counts, each with the type it read it for and the line: the
-/// identifier after each `struct` or `enum` that a `#[derive(…)]` holding `ToSchema` stands
-/// before, or the last segment of what its `#[schema(as = …)]` gives, and the identifier after
-/// each `ToSchema for`, whatever the impl's `name()` returns.
-pub fn schemas_of(file: &File) -> Vec<(String, String, usize)> {
-    // A file that isn't Rust is check-layers' and the compiler's to report.
-    let Ok(source) = Source::read(file) else {
-        return Vec::new();
-    };
-    let tests = text::lines_before_tests(&file.text);
-    let mut found = Vec::new();
-    for (name, line, attributes) in rust::types_with_attributes(&source.tokens) {
-        if line > tests || !attributes.iter().any(|attribute| derives_schema(attribute)) {
-            continue;
-        }
-        let schema = attributes.iter().find_map(|attribute| renamed(attribute));
-        found.push((name.clone(), schema.unwrap_or(name), line));
-    }
-    found.extend(
-        implemented(&source.tokens)
-            .into_iter()
-            .filter(|(_, line)| *line <= tests)
-            .map(|(name, line)| (name.clone(), name, line)),
-    );
-    found
+/// Whether `component`, a component's name, is `schema`'s, or an instance's of a generic one.
+fn names(schema: &Schema, component: &str) -> bool {
+    component == schema.name
+        || schema.generic
+            && component
+                .strip_prefix(schema.name.as_str())
+                .is_some_and(|rest| rest.starts_with('_'))
 }
 
-/// Each identifier that follows `ToSchema for` among `tokens`, at any depth, with its line.
-fn implemented(tokens: &[TokenTree]) -> Vec<(String, usize)> {
-    let mut found = Vec::new();
-    for (at, token) in tokens.iter().enumerate() {
-        match token {
-            TokenTree::Ident(ident) if ident == "ToSchema" => {
-                if let (Some(TokenTree::Ident(word)), Some(TokenTree::Ident(name))) =
-                    (tokens.get(at + 1), tokens.get(at + 2))
-                    && word == "for"
-                {
-                    found.push((name.to_string(), name.span().start().line));
-                }
-            }
-            TokenTree::Group(group) => {
-                let inner: Vec<TokenTree> = group.stream().into_iter().collect();
-                found.extend(implemented(&inner));
-            }
-            _ => {}
-        }
-    }
-    found
-}
-
-/// Whether `attribute` is a `derive` that holds `ToSchema`.
-fn derives_schema(attribute: &[TokenTree]) -> bool {
-    matches!(attribute.first(), Some(TokenTree::Ident(ident)) if ident == "derive")
-        && rust::holds(attribute, "ToSchema")
-}
-
-/// The name that `attribute`, a `#[schema(as = …)]`, gives a type's schema, the last segment of
-/// its path.
-fn renamed(attribute: &[TokenTree]) -> Option<String> {
-    let (Some(TokenTree::Ident(ident)), Some(TokenTree::Group(arguments))) =
-        (attribute.first(), attribute.get(1))
-    else {
-        return None;
-    };
-    if ident != "schema" {
-        return None;
-    }
-    let tokens: Vec<TokenTree> = arguments.stream().into_iter().collect();
-    let start = tokens
+/// Each of `schemas` whose `ToSchema` a file of `app` writes, and whose name no component of
+/// `document` holds.
+fn unlisted(schemas: &[Schema], document: &Value) -> Vec<Finding> {
+    let empty = Map::new();
+    let components = document["components"]["schemas"]
+        .as_object()
+        .unwrap_or(&empty);
+    schemas
         .iter()
-        .position(|token| matches!(token, TokenTree::Ident(ident) if ident == "as"))?;
-    tokens[start + 1..]
-        .iter()
-        .skip_while(|token| matches!(token, TokenTree::Punct(punct) if punct.as_char() == '='))
-        .take_while(|token| !matches!(token, TokenTree::Punct(punct) if punct.as_char() == ','))
-        .filter_map(|token| match token {
-            TokenTree::Ident(ident) => Some(ident.to_string()),
-            _ => None,
+        .filter(|schema| {
+            schema.in_app && !components.keys().any(|component| names(schema, component))
         })
-        .last()
+        .map(|schema| {
+            Finding::new(
+                &schema.path,
+                schema.line,
+                format!(
+                    "`{}` takes the schema name `{}`, which no component of openapi.json holds: \
+                     delete the `ToSchema` that no route documents, or implement `PartialSchema` \
+                     alone for a type that a route only inlines (CODE-15, API-17)",
+                    schema.type_name, schema.name
+                ),
+            )
+        })
+        .collect()
+}
+
+/// Each component of `document` that is none of `schemas`' names, none of the catalogs', and no
+/// instance of a generic one of `schemas`.
+pub fn unread(schemas: &[Schema], document: &Value) -> Vec<Problem> {
+    let empty = Map::new();
+    let catalogs = catalogs(document);
+    document["components"]["schemas"]
+        .as_object()
+        .unwrap_or(&empty)
+        .keys()
+        .filter(|component| {
+            !catalogs.contains_key(component.as_str())
+                && !schemas.iter().any(|schema| names(schema, component))
+        })
+        .map(|component| {
+            (
+                quoted(component),
+                format!(
+                    "the component {component} is no schema name that the check reads in the \
+                     code, no catalog's, and no instance of a generic type: write its type's \
+                     `ToSchema` in a form that the comment of crates/xtask/src/openapi/names.rs \
+                     lists (API-17)"
+                ),
+            )
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -279,7 +293,7 @@ mod tests {
             ("crates/platform/src/errors/mod.rs", platform),
         ]);
 
-        let mut found: Vec<String> = schema_names(&repo)
+        let mut found: Vec<String> = duplicates(&code(&repo).schemas)
             .into_iter()
             .map(|finding| format!("{}:{}", finding.path, finding.line))
             .collect();
@@ -327,7 +341,7 @@ mod tests {
             "AuditEntry": { "oneOf": [{ "$ref": "#/components/schemas/ThingMadeEntry" }] },
         } } });
 
-        let found: Vec<String> = catalog_names(&repo, &document)
+        let found: Vec<String> = catalog_names(&code(&repo).schemas, &document)
             .into_iter()
             .map(|finding| {
                 let of = if finding.message.contains("the event catalog") {
@@ -348,6 +362,92 @@ mod tests {
                 "crates/app/src/modules/ledgers/model.rs:3: action",
                 "crates/app/src/modules/ledgers/model.rs:4: action",
                 "crates/app/src/modules/ledgers/model.rs:5: action",
+            ]
+        );
+    }
+
+    #[test]
+    fn code_15_an_app_to_schema_whose_name_no_component_holds_is_reported() {
+        let app = "#[derive(Serialize, ToSchema)]\nstruct Listed {}\n\
+                   #[derive(Serialize, ToSchema)]\nstruct Gone {}\n\
+                   #[derive(Serialize, ToSchema)]\nstruct Page<T> {}\n\
+                   #[derive(Serialize, ToSchema)]\nstruct Unused<T> {}\n\
+                   platform::values!(\n    /// Inlined in a query.\n    Inlined(Listed)\n);\n";
+        let platform = "#[derive(Serialize, ToSchema)]\npub struct Inline;\n\
+                        macro_rules! values {\n    ($(#[$doc:meta])* $name:ident($item:ty)) => {\n        \
+                        impl ToSchema for $name {}\n    };\n}\n";
+        let repo = Repo::of(&[
+            ("crates/app/src/modules/things/model.rs", app),
+            ("crates/platform/src/lists.rs", platform),
+        ]);
+        let document = json!({ "components": { "schemas": { "Listed": {}, "Page_Listed": {} } } });
+
+        let found: Vec<String> = findings(code(&repo), &document)
+            .into_iter()
+            .map(|finding| format!("{}:{}", finding.path, finding.line))
+            .collect();
+
+        assert_eq!(
+            found,
+            [
+                "crates/app/src/modules/things/model.rs:4",
+                "crates/app/src/modules/things/model.rs:8",
+            ]
+        );
+    }
+
+    #[test]
+    fn api_17_each_component_is_a_name_that_the_check_reads_a_catalog_s_or_an_instance() {
+        let model = "#[derive(Serialize, ToSchema)]\nstruct Listed {}\n\
+                     #[derive(Serialize, ToSchema)]\nstruct Page<T> {}\n\
+                     #[derive(Serialize, ToSchema)]\nstruct Other {}\n";
+        let repo = Repo::of(&[("crates/platform/src/lists.rs", model)]);
+        let document = json!({ "components": { "schemas": {
+            "Listed": {},
+            "Other": {},
+            "Page_Listed": {},
+            "Other_Listed": {},
+            "Pages": {},
+            "Unknown": {},
+            "Frame": { "oneOf": [{ "$ref": "#/components/schemas/ThingMadeFrame" }] },
+            "ThingMadeFrame": {},
+            "ThingKeptFrame": { "x-event": "thing.kept" },
+            "AuditEntry": {},
+            "ThingMadeEntry": { "x-audit-action": "thing.made" },
+        } } });
+
+        let mut unread: Vec<String> = unread(&code(&repo).schemas, &document)
+            .into_iter()
+            .map(|(needle, _)| needle)
+            .collect();
+        unread.sort();
+
+        assert_eq!(unread, ["\"Other_Listed\"", "\"Pages\"", "\"Unknown\""]);
+    }
+
+    #[test]
+    fn api_17_two_names_that_hand_written_impls_give_alike_are_reported() {
+        let platform = "macro_rules! id_type {\n    ($name:ident) => {\n        \
+                        impl ToSchema for $name {}\n    };\n}\nid_type!(Same);\n";
+        let app = "#[derive(Serialize, ToSchema)]\nstruct Same {}\n\
+                   impl<P: Kind> ToSchema for Coded<P> {\n    fn name() -> Cow<'static, str> {\n        \
+                   Cow::Borrowed(P::NAME)\n    }\n}\n\
+                   impl Kind for A {\n    const NAME: &'static str = \"Same\";\n}\n";
+        let repo = Repo::of(&[
+            ("crates/platform/src/types.rs", platform),
+            ("crates/app/src/modules/things/model.rs", app),
+        ]);
+
+        let found: Vec<String> = duplicates(&code(&repo).schemas)
+            .into_iter()
+            .map(|finding| format!("{}:{}", finding.path, finding.line))
+            .collect();
+
+        assert_eq!(
+            found,
+            [
+                "crates/app/src/modules/things/model.rs:2",
+                "crates/app/src/modules/things/model.rs:9",
             ]
         );
     }

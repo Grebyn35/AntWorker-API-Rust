@@ -83,7 +83,7 @@ pub async fn seed(
         make_superadmin: &make_superadmin,
         // end part: superadmins
     };
-    let seeded = system::seed(seed).await.map_err(SeedError)?;
+    let seeded: system::Seeded = system::seed(seed).await.map_err(SeedError)?;
     Ok(SeedReport {
         accounts: seeded
             .accounts

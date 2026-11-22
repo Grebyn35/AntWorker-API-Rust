@@ -18,10 +18,8 @@ use super::{
 };
 use crate::types::Timestamp;
 
-/// S3's namespace, whose last segment, a date, is on a line of its own: `check-docs` reads what
-/// follows a line's first two slashes as a comment, and refuses a date in one (DOC-01).
-const NAMESPACE: &str = "http://s3.amazonaws.com/doc/\
-                         2006-03-01/";
+/// S3's namespace.
+const NAMESPACE: &str = "http://s3.amazonaws.com/doc/2006-03-01/";
 
 /// The media type of a version that the bucket stores none for.
 const NO_MEDIA_TYPE: &str = "application/octet-stream";

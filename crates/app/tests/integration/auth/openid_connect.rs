@@ -293,7 +293,7 @@ async fn handed_on(api: &Api) -> Vec<String> {
 }
 
 #[tokio::test]
-async fn auth_084_a_registration_hands_its_picture_on_once_a_setting_lists_the_pictures_hosts() {
+async fn auth_092_a_registration_hands_its_picture_on_once_a_setting_lists_the_pictures_hosts() {
     let pictured = json!({ "sub": "7", "email": "ada@example.com", "picture": PICTURE });
     let (upstream, api) = named().await;
     gives(&upstream, pictured.clone());
@@ -313,7 +313,7 @@ async fn auth_084_a_registration_hands_its_picture_on_once_a_setting_lists_the_p
 }
 
 #[tokio::test]
-async fn auth_084_its_list_of_pictures_hosts_is_set_with_its_client_or_not_at_all() {
+async fn auth_097_its_list_of_pictures_hosts_is_set_with_its_client_or_not_at_all() {
     let alone = Options::default().set("OPENID_CONNECT_PICTURE_HOSTS", "pictures.example.com");
     assert_eq!(api::refusal(&alone), "OPENID_CONNECT_CLIENT_ID is required");
 

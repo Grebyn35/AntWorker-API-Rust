@@ -20,6 +20,7 @@ pub(crate) use routes::avatar_routes;
 pub(crate) use service::avatar::{Avatars, copy_picture};
 // end part: files
 // part: invitations
+pub(crate) use model::Profile;
 pub(crate) use service::profile;
 // end part: invitations
 pub(crate) use personal_data::Contract;

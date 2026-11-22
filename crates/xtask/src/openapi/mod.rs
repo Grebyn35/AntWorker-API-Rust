@@ -3,15 +3,16 @@
 //! `search` in `lists`, the formats and request strings' lengths in `schemas`, the event catalog
 //! in `events`, the action catalog in `actions`, the codes that no route lists in `codes`, and
 //! the names the document keys its operations and schemas by in `names`, each with the rules it
-//! reads.
+//! reads, and the schema names it reads in the code in `schema_names`.
 
-mod actions;
+pub mod actions;
 mod codes;
 pub mod events;
 mod lists;
 pub mod names;
 mod operations;
 mod presence;
+mod schema_names;
 mod schemas;
 
 use serde_json::{Map, Value};
@@ -71,6 +72,8 @@ pub fn check(repo: &Repo) -> Outcome {
     problems.extend(presence::check(&document));
     problems.extend(schemas::problems(&document));
     problems.extend(names::operation_ids(&document));
+    let code = names::code(repo);
+    problems.extend(names::unread(&code.schemas, &document));
     let responses = document["components"]["responses"]
         .as_object()
         .unwrap_or(&empty);
@@ -104,8 +107,7 @@ pub fn check(repo: &Repo) -> Outcome {
     findings.extend(events::check(repo, &document));
     findings.extend(actions::check(repo, &document));
     findings.extend(codes::check(repo, &document));
-    findings.extend(names::schema_names(repo));
-    findings.extend(names::catalog_names(repo, &document));
+    findings.extend(names::findings(code, &document));
     Outcome {
         report: Vec::new(),
         findings,
@@ -345,7 +347,17 @@ mod tests {
     use super::*;
 
     fn findings(document: &Value) -> Vec<String> {
-        let repo = Repo::of(&[(DOCUMENT, &document.to_string())]);
+        // A type of `app` for each component, whose schema name the check reads.
+        let types: String = document["components"]["schemas"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .map(|(name, _)| format!("#[derive(ToSchema)]\nstruct {name};\n"))
+            .collect();
+        let repo = Repo::of(&[
+            (DOCUMENT, &document.to_string()),
+            ("crates/app/src/types.rs", &types),
+        ]);
         check(&repo)
             .findings
             .into_iter()
@@ -397,6 +409,28 @@ mod tests {
             } } } }),
         );
         assert_eq!(findings(&ok), Vec::<String>::new());
+    }
+
+    #[test]
+    fn api_17_the_code_s_schema_names_and_the_components_are_checked_both_ways() {
+        let document = document("/v1/things", operation(), json!({}));
+        let repo = Repo::of(&[
+            (DOCUMENT, &document.to_string()),
+            (
+                "crates/app/src/types.rs",
+                "#[derive(ToSchema)]\nstruct Gone;\n",
+            ),
+        ]);
+
+        let found: Vec<String> = check(&repo)
+            .findings
+            .into_iter()
+            .map(|finding| format!("{}:{}", finding.path, finding.line))
+            .collect();
+
+        // `Problem`, a component whose name no code gives, and `Gone`, a name of `app`'s that no
+        // component holds.
+        assert_eq!(found, ["openapi.json:1", "crates/app/src/types.rs:2"]);
     }
 
     #[test]

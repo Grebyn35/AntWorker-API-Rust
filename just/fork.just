@@ -29,9 +29,10 @@ keep +parts: bound-build
     {{ xtask }} keep {{ parts }}
 
 # Removes the optional parts named, and keeps what makes the others removable: it deletes the files
-# and the marked lines of each, writing "None." in each section of a spec that it empties, then the
-# cached queries that no kept code holds, updates Cargo.lock, writes openapi.json and the metric
-# catalog again, and formats the code, then fails while a kept line or path still names one.
+# and the marked lines of each, outside Rust with a blank line where ARCH-07 says, writing "None."
+# in each section of a spec that it empties, then the cached queries that no kept code holds,
+# updates Cargo.lock, writes openapi.json and the metric catalog again, and formats the code, then
+# fails while a kept line or path still names one.
 [doc("Removes optional parts, and keeps what makes the others removable")]
 [group('fork')]
 remove +parts: bound-build

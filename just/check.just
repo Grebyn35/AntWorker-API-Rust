@@ -246,9 +246,11 @@ check-schema: services
 # Fails on a marker of an optional part that is wrong, or shares its line with another, or in a
 # Rust file isn't Rust's `//` comment alone on its line, on an attribute above a Rust block that holds its item, on a marker before
 # more of its line outside a table row, and, for each run that crates/xtask/parts.yaml lists and
-# for each part alone, on a Rust file that removing the parts leaves unparseable, or a kept line
-# or path that names one of them or cites a decision it deletes, removing them in memory.
-[doc("Fails on a wrong marker of an optional part, or a removal that leaves broken Rust or a line or path naming the part")]
+# for each part alone, on a Rust file that removing the parts leaves unparseable, a kept line or
+# path that names one of them, or a kept line that cites a decision, a behavior or a rule, or links
+# to a file or a heading, that it deletes, or names a module's export that only lines it deletes
+# give, removing them in memory.
+[doc("Fails on a wrong marker of an optional part, or a removal that leaves broken Rust, a line or path naming the part, or a line pointing at what it deleted")]
 [group('check')]
 check-parts:
     {{ xtask }} check-parts

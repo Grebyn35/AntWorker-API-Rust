@@ -115,7 +115,7 @@ pub fn check(repo: &Repo, catalog: &Catalog) -> Vec<Finding> {
 /// The test prefixes in `text`: a word of lowercase letters and underscores, then `_` and two or
 /// three digits, as `workspaces_005` or `data_19`, followed by `_` or no letter or digit; each
 /// as its module or rule prefix and its number.
-fn test_prefixes(text: &str) -> Vec<(String, String)> {
+pub fn test_prefixes(text: &str) -> Vec<(String, String)> {
     let bytes = text.as_bytes();
     let mut found = Vec::new();
     let mut start = 0;

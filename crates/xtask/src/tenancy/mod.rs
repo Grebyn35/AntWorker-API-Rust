@@ -1,11 +1,16 @@
 //! `check-tenancy`: every query of workspace data filters by its tenant itself, and every table is
 //! placed (DATA-16, D39).
 //! - A table that the migrations create with a `workspace_id` column holds workspace data, unless
-//!   it is listed as platform data. The check reads a table from `CREATE TABLE <name>`, and a view
-//!   from `CREATE VIEW <name>` or `CREATE OR REPLACE VIEW <name>`; a migration that creates one
-//!   with any of the words that `tables::MODIFIERS` lists between `CREATE` and `TABLE` or `VIEW`,
-//!   such as `UNLOGGED` or `MATERIALIZED`, but for a view's `OR REPLACE`, or with `IF` after
-//!   `TABLE` or `VIEW`, is a finding. Each query of one in the code of `platform` and `app`, in a
+//!   it is listed as platform data. The check reads a table from `CREATE TABLE <name> (`, with the
+//!   columns of the list in those parentheses, and a view from `CREATE VIEW <name>` or `CREATE OR
+//!   REPLACE VIEW <name>`, in the tokens that `views` reads, of each line cut at its first `--`. A
+//!   `CREATE` of a table or a view is a finding when it holds any of the words that
+//!   `tables::MODIFIERS` lists between `CREATE` and `TABLE` or `VIEW`, such as `UNLOGGED` or
+//!   `MATERIALIZED`, but for a view's `OR REPLACE`, when `IF` follows its `TABLE` or `VIEW`, when
+//!   its name is no word that starts with a letter or `_`, such as a name in double quotes, or is
+//!   followed by a `.`, as a schema's name is, and for a table, when no `(` follows its name, or
+//!   an `AS` outside parentheses follows that `(`'s list before the statement's `;`, as one does
+//!   where a query fills the table. Each query of one in the code of `platform` and `app`, in a
 //!   `sqlx` macro, names its tenant: a `workspace_id`, or for a table that also has a `user_id`, a
 //!   `user_id`, compared in its `WHERE` or among the columns it inserts. A table of [`ADDRESSED`]
 //!   is also reached by the address of the user its rows are addressed to, which their own queries
@@ -247,13 +252,17 @@ fn unread(repo: &Repo) -> Vec<Finding> {
         .filter(|file| file.path.starts_with(MIGRATIONS) && file.path.ends_with(".sql"));
     migrations
         .flat_map(|file| {
-            tables::unread(&file.text).into_iter().map(|line| {
+            tables::unread(&file.text).into_iter().map(|(line, statement)| {
                 Finding::new(
                     &file.path,
                     line,
-                    "check-tenancy reads a table from `CREATE TABLE <name>` and a view from \
-                     `CREATE VIEW <name>` or `CREATE OR REPLACE VIEW <name>`, so it places and \
-                     checks nothing of what this statement creates (DATA-16)",
+                    format!(
+                        "`{statement}`: check-tenancy reads a table from `CREATE TABLE <name> (`, \
+                         which no `AS` follows, and a view from `CREATE VIEW <name>` or `CREATE OR \
+                         REPLACE VIEW <name>`, each name a word without quotes or a schema's name, \
+                         as the doc of crates/xtask/src/tenancy/mod.rs says, so it places and \
+                         checks nothing of what this statement creates (DATA-16)"
+                    ),
                 )
             })
         })
@@ -869,6 +878,9 @@ CREATE OR REPLACE VIEW c AS SELECT id FROM a;
 CREATE INDEX a_id_idx ON a (id);
 CREATE OR REPLACE FUNCTION rows_of() RETURNS TABLE (id uuid) LANGUAGE sql AS 'SELECT 1';
 CREATE TYPE view AS ENUM ('table');
+CREATE TABLE made (id uuid, n int GENERATED ALWAYS AS (1) STORED) PARTITION BY RANGE (id);
+CREATE TABLE
+    spread (id uuid);
 ";
         let unread = "\
 CREATE TABLE IF NOT EXISTS d (id uuid);
@@ -880,13 +892,41 @@ CREATE OR REPLACE TEMP VIEW i AS SELECT id FROM a;
 CREATE RECURSIVE VIEW j (id) AS SELECT id FROM a;
 create materialized view if not exists k AS SELECT id FROM a;
 CREATE FOREIGN TABLE l (id uuid) SERVER elsewhere;
+CREATE TABLE public.m (id uuid, workspace_id uuid);
+CREATE TABLE \"a\".\"b\" (id uuid);
+CREATE VIEW public.n AS SELECT id FROM a;
+CREATE OR REPLACE VIEW \"o\" AS SELECT id FROM a;
+CREATE TABLE q AS SELECT id, workspace_id FROM a;
+CREATE TABLE r (id) WITH (fillfactor = 70) AS SELECT id, workspace_id FROM a;
+CREATE TEMP TABLE s AS SELECT id FROM a;
+CREATE TABLE t OF typed;
+CREATE TABLE u PARTITION OF a FOR VALUES IN (1);
+CREATE TABLE v
+    (id)
+    AS SELECT id FROM a;
 ";
-
-        assert_eq!(tables::unread(read), Vec::<usize>::new());
-        assert_eq!(tables::unread(unread), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        let lines = |text| -> Vec<usize> {
+            tables::unread(text)
+                .into_iter()
+                .map(|(line, _)| line)
+                .collect()
+        };
+        assert_eq!(lines(read), Vec::<usize>::new());
+        assert_eq!(lines(unread), (1..=19).collect::<Vec<_>>());
+        let repo = Repo::of(&[
+            ("migrations/1_read.sql", read),
+            ("migrations/2_unread.sql", unread),
+        ]);
+        let tables = tables(&repo);
+        assert_eq!(
+            tables.keys().collect::<Vec<_>>(),
+            ["a", "b", "c", "made", "spread"],
+            "a statement that the check doesn't read creates nothing it reads"
+        );
+        assert_eq!(tables["spread"].columns, ["id"]);
         let repo = Repo::of(&[(
             "migrations/1_things.sql",
-            "CREATE UNLOGGED TABLE e (id uuid);",
+            "\nCREATE TABLE public.e (id uuid);",
         )]);
         let found: Vec<String> = super::unread(&repo)
             .iter()
@@ -895,9 +935,11 @@ CREATE FOREIGN TABLE l (id uuid) SERVER elsewhere;
         assert_eq!(
             found,
             [
-                "migrations/1_things.sql:1: check-tenancy reads a table from `CREATE TABLE <name>` \
-              and a view from `CREATE VIEW <name>` or `CREATE OR REPLACE VIEW <name>`, so it \
-              places and checks nothing of what this statement creates (DATA-16)"
+                "migrations/1_things.sql:2: `CREATE TABLE public.e (id uuid);`: check-tenancy \
+                 reads a table from `CREATE TABLE <name> (`, which no `AS` follows, and a view \
+                 from `CREATE VIEW <name>` or `CREATE OR REPLACE VIEW <name>`, each name a word \
+                 without quotes or a schema's name, as the doc of crates/xtask/src/tenancy/mod.rs \
+                 says, so it places and checks nothing of what this statement creates (DATA-16)"
             ]
         );
     }

@@ -123,7 +123,7 @@ fn item_shown(item: &[&String]) -> Result<Shown, String> {
 
 /// The tokens of `code`: each run of ASCII letters, digits, `_` and `$`, lowercased, each string
 /// in single quotes whole, and each other character but white space alone.
-fn tokens(code: &str) -> Vec<String> {
+pub(super) fn tokens(code: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut chars = code.chars().peekable();
     while let Some(c) = chars.next() {

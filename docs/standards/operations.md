@@ -28,9 +28,9 @@ What such a subcommand shows the operator who ran it, because they asked to see 
 - Check: `test`.
 
 ### OPS-04 Disabled features say so
-A route whose feature is turned off answers the 503 problem with code `request.feature_disabled`. The capabilities endpoint lists which features are on. That 503 is no failure of the deployment: the request's completion line and its metric carry the code, the HTTP boundary writes no `ERROR` line for it (ERR-10), and the availability objective doesn't count it ([observability](../operations/observability.md#service-level-objectives)).
+A route whose feature is turned off answers the 503 problem with code `request.feature_disabled`. The capabilities endpoint lists which features are on. That 503 is no failure of the deployment: the request's metric carries the code, the HTTP boundary writes no `ERROR` line for it (ERR-10), and the availability objective doesn't count it ([observability](../operations/observability.md#service-level-objectives)).
 - Why: clients can tell "off" apart from "broken" (D9).
-- Check: `test`.
+- Check: `test` (SYSTEM-001; PLATFORM-044, the 503's one `INFO` line; PLATFORM-067, the 503's code on its metric; and the 503 of a route whose feature is off, such as AUTH-028's and AUTH-077's), plus `ci: alert-rules` (a test in which a tenth of the requests answer that 503 expects no alert of the availability budget's fast burn).
 
 ## Runtime
 
@@ -63,7 +63,7 @@ The end-to-end deploy scenario also holds an upload whose body is still coming w
 ### OPS-07 Overload sheds load
 Every request that a route serves, except the health probes, has a timeout. Each route group has a default, and a module spec may override it. A request that no route serves has no route group's timeout: it gets its 404 or 405 problem once the IP limit has counted it (PLATFORM-054, D64), a wait that the pool's and the database's own timeouts bound. A concurrency limit rejects excess requests with the 503 problem and `Retry-After`. The health probes are exempt from it. CPU-heavy work, such as a password's hash, waits for one of the instance's turns, one per processor it may use (PLATFORM-060), so a burst of it takes no more memory than that many works do.
 - Why: an overloaded instance degrades predictably, instead of queuing until it falls over (D20).
-- Check: `test`.
+- Check: `test` (PLATFORM-042, a route's timeout; PLATFORM-039 and PLATFORM-038, the concurrency limit and the probes' exemption from it; PLATFORM-054, the IP limit's count of a request that no route serves; PLATFORM-060, the turns of CPU-heavy work).
 
 ### OPS-08 Postgres is the only shared state
 Replicas share nothing except Postgres.

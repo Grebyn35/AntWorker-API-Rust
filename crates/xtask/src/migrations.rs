@@ -12,8 +12,8 @@
 //!   one, as its words outside comments and strings in single quotes: an index's build is
 //!   `CREATE`, then `UNIQUE` or not, then `INDEX`, and its table is the word after the next
 //!   `ON`, or the one after that where the first is `ONLY`. A table that no migration creates
-//!   with `CREATE TABLE <name>` counts as another migration's, and a build with no `ON` after
-//!   it is a finding.
+//!   in a form that the doc of `tenancy` names as one `check-tenancy` reads counts as another
+//!   migration's, and a build with no `ON` after it is a finding.
 //!
 //! It reads the newest release from git's tags, so a checkout needs them: CI's fetches them.
 

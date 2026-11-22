@@ -55,7 +55,8 @@ const CHUNKS_AT_ONCE: i64 = 4;
 pub(crate) type ArchiveBytes = BoxStream<'static, Result<Bytes, Internal>>;
 
 /// What a download of an export serves: its archive's size, name and entity tag, what of its
-/// bytes `Wanted` asked for, and those bytes, or none when the client holds them (ACCOUNTS-026).
+/// bytes `Wanted` asked for, and those bytes, or none when the request asks for none: the client
+/// holds them, or the request is a `HEAD` (ACCOUNTS-026).
 pub(crate) struct Download {
     pub(crate) size: u64,
     pub(crate) name: String,
@@ -188,7 +189,8 @@ impl Exports {
         let tag = id.to_string();
         let served = wanted.serve(layout.size(), &tag);
         // A `HEAD` serves no bytes, so it records no download (PLATFORM-081).
-        if wanted.serves_bytes() && served != Served::NotModified {
+        let serves_bytes = wanted.serves_bytes() && served != Served::NotModified;
+        if serves_bytes {
             let entry = Entry::new(audit::EXPORT_DOWNLOADED, audit::EXPORT, id);
             log::record(&mut uow, principal.audit_scope(), entry).await?;
         }
@@ -205,7 +207,7 @@ impl Exports {
             held: held.into(),
             // end part: files
         };
-        let bytes = (served != Served::NotModified).then(|| sources.stream(&layout, range));
+        let bytes = serves_bytes.then(|| sources.stream(&layout, range));
         Ok(Download {
             size: layout.size(),
             name: format!("{PRODUCT}-export-{}.zip", day(ready_at)),

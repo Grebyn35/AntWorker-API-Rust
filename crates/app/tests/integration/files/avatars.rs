@@ -397,6 +397,12 @@ async fn files_024_an_avatar_s_download_needs_no_credential_and_names_it_by_its_
     );
     assert_eq!(response.header("cache-control"), "public, max-age=300");
     assert_eq!(response.header("etag"), format!("\"{id}\""));
+    // An image that a browser shows in place still can't run (SEC-11).
+    assert_eq!(response.header("x-content-type-options"), "nosniff");
+    assert_eq!(
+        response.header("content-security-policy"),
+        "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; sandbox"
+    );
     let unknown = fetch(
         &api,
         "/v1/public/avatars/0198f1a2-0000-7000-8000-000000000000",

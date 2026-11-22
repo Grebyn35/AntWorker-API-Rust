@@ -115,6 +115,29 @@ async fn platform_067_a_5xx_records_its_error_code_as_its_error_type() {
 }
 
 #[tokio::test]
+async fn platform_067_a_503_of_a_feature_turned_off_records_its_code_as_its_error_type() {
+    let api = Api::without_email().await;
+    let labels = [
+        ("http.request.method", "POST"),
+        ("http.route", "/v1/password-resets"),
+        ("http.response.status_code", "503"),
+        ("error.type", "request.feature_disabled"),
+    ];
+    let before = requests(&durations(), &labels);
+
+    let response = api
+        .post(
+            "/v1/password-resets",
+            &serde_json::json!({ "email": "ada@example.com" }),
+        )
+        .send()
+        .await;
+
+    assert_eq!(response.status, StatusCode::SERVICE_UNAVAILABLE);
+    assert!(requests(&durations(), &labels) > before);
+}
+
+#[tokio::test]
 async fn platform_067_a_method_http_doesn_t_define_is_other() {
     let api = Api::new().await;
     let other = |points: &[Point]| -> u64 {

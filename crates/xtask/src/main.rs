@@ -126,9 +126,11 @@ enum Command {
     #[command(name = "check-layers")]
     Layers,
     /// Fails on a module's public submodule, code that reaches into another module's submodule, a
-    /// use of a module the graph in architecture.md doesn't allow, a cycle in that graph, or
-    /// another module's error in a module's public signatures, and on a dependency that its crate's
-    /// code never names.
+    /// type of a module that a function its `mod.rs` re-exports names and `mod.rs` doesn't, a path
+    /// of a template of `new-module` to what another module doesn't re-export, a use of a module
+    /// the graph in architecture.md doesn't allow, a cycle in that graph, or another module's
+    /// error in a module's public signatures, and on a dependency that its crate's code never
+    /// names.
     #[command(name = "check-deps")]
     Deps,
     /// Fails on a table, column, constraint, function or index of the migrations' schema that
@@ -143,7 +145,8 @@ enum Command {
     /// view that reads such a table that names no tenant column the view shows, outside a listed
     /// function of a job that spans tenants or of the reads that DATA-16 exempts, and on a table
     /// without a `workspace_id` that isn't listed as account or platform data or as the
-    /// workspaces themselves.
+    /// workspaces themselves, and on a migration's `CREATE` of a table or a view in a form that the
+    /// check doesn't read.
     #[command(name = "check-tenancy")]
     Tenancy,
     /// Fails on a query, in a `sqlx` macro of `platform` or `app`, that names a table another
@@ -170,14 +173,17 @@ enum Command {
     /// block that no end marker closes, a marker in a Rust file that isn't Rust's `//` comment
     /// alone on its line, an attribute or a doc comment above a Rust block that holds its item, a
     /// marker before more of its line outside a table row, a test of another module's behavior in
-    /// a file that a part owns, and, for each run that `crates/xtask/parts.yaml` lists and for
-    /// each part alone, on a Rust file that removing the parts leaves unparseable, or a line or
-    /// path it keeps that names one of them or cites a decision it deletes, removing them in
-    /// memory.
+    /// a file that a part owns, outside a block of a part that marks the behavior's row, and, for
+    /// each run that `crates/xtask/parts.yaml` lists and for each part alone, on a Rust file that
+    /// removing the parts leaves unparseable, a line or path it keeps that names one of them, and a
+    /// line it keeps that cites a decision, a behavior or a rule, or links to a file or a heading,
+    /// that it deletes, or names a module's export that only lines it deletes give, removing them
+    /// in memory.
     #[command(name = "check-parts")]
     Parts,
     /// Removes the optional parts named `parts` (ARCH-07): it deletes the files each owns whole
-    /// and the lines its markers mark, writing "None." in each section of a spec that it empties,
+    /// and the lines its markers mark, outside Rust with a blank line where ARCH-07 says, writing
+    /// "None." in each section of a spec that it empties,
     /// then the cached queries that no kept code holds, updates `Cargo.lock`, writes
     /// `openapi.json` and the metric catalog again, and formats the code, then fails while a file
     /// it kept, or the path of one, still names one of them.

@@ -1,5 +1,6 @@
-//! The items of Rust source read as token streams: functions' signatures, the fields public
-//! types expose, and the attributes of structs and enums.
+//! The items of Rust source read as token streams: functions' signatures, the items a file
+//! declares at its top level, the fields public types expose, and the attributes of structs and
+//! enums.
 
 use proc_macro2::{Delimiter, TokenTree};
 
@@ -21,27 +22,90 @@ pub fn signatures(tokens: &[TokenTree]) -> Vec<Signature> {
     let mut found = Vec::new();
     for (at, token) in tokens.iter().enumerate() {
         match token {
-            TokenTree::Ident(keyword) if keyword == "fn" => {
-                let end = tokens[at..]
-                    .iter()
-                    .position(|token| match token {
-                        TokenTree::Group(group) => group.delimiter() == Delimiter::Brace,
-                        TokenTree::Punct(semicolon) => semicolon.as_char() == ';',
-                        _ => false,
-                    })
-                    .map_or(tokens.len(), |end| at + end);
-                found.push(Signature {
-                    public: is_public(&tokens[..at]),
-                    line: keyword.span().start().line,
-                    tokens: tokens[at + 1..end].to_vec(),
-                });
-            }
+            TokenTree::Ident(keyword) if keyword == "fn" => found.push(signature(tokens, at)),
             TokenTree::Group(group) => {
                 let inner: Vec<TokenTree> = group.stream().into_iter().collect();
                 found.extend(signatures(&inner));
             }
             _ => {}
         }
+    }
+    found
+}
+
+/// The signature of the function whose `fn` is the token at `at` of `tokens`.
+fn signature(tokens: &[TokenTree], at: usize) -> Signature {
+    let end = tokens[at..]
+        .iter()
+        .position(|token| match token {
+            TokenTree::Group(group) => group.delimiter() == Delimiter::Brace,
+            TokenTree::Punct(semicolon) => semicolon.as_char() == ';',
+            _ => false,
+        })
+        .map_or(tokens.len(), |end| at + end);
+    let line = match &tokens[at] {
+        TokenTree::Ident(keyword) => keyword.span().start().line,
+        _ => 0,
+    };
+    Signature {
+        public: is_public(&tokens[..at]),
+        line,
+        tokens: tokens[at + 1..end].to_vec(),
+    }
+}
+
+/// The keywords of the types an item declares: a struct, an enum, a union, a type alias or a
+/// trait.
+pub const TYPES: [&str; 5] = ["struct", "enum", "union", "type", "trait"];
+
+/// An item that a file declares at its top level.
+pub struct Item {
+    /// Its keyword: `fn`, `const`, `static` or one of [`TYPES`].
+    pub keyword: String,
+    /// Its name.
+    pub name: String,
+    /// Whether it is `pub`, with or without a restriction.
+    pub public: bool,
+    /// A function's signature.
+    pub signature: Option<Signature>,
+}
+
+/// Each function, constant, static and type that `tokens` declare at their top level: a keyword
+/// of an item, followed by its name, outside every group, so neither a method nor an item of an
+/// inline `mod` is one.
+pub fn items(tokens: &[TokenTree]) -> Vec<Item> {
+    let mut found = Vec::new();
+    for (at, token) in tokens.iter().enumerate() {
+        let TokenTree::Ident(keyword) = token else {
+            continue;
+        };
+        let keyword = keyword.to_string();
+        if keyword != "fn"
+            && keyword != "const"
+            && keyword != "static"
+            && !TYPES.contains(&keyword.as_str())
+        {
+            continue;
+        }
+        // `static mut NAME`; and `const fn`, whose `fn` declares the function.
+        let named = match tokens.get(at + 1) {
+            Some(TokenTree::Ident(word)) if word == "mut" => tokens.get(at + 2),
+            next => next,
+        };
+        let Some(TokenTree::Ident(name)) = named else {
+            continue;
+        };
+        if keyword == "const"
+            && ["fn", "unsafe", "async", "extern"].contains(&name.to_string().as_str())
+        {
+            continue;
+        }
+        found.push(Item {
+            name: name.to_string(),
+            public: is_public(&tokens[..at]),
+            signature: (keyword == "fn").then(|| signature(tokens, at)),
+            keyword,
+        });
     }
     found
 }
@@ -110,9 +174,31 @@ pub fn public_fields(tokens: &[TokenTree]) -> Vec<(usize, Vec<TokenTree>)> {
     found
 }
 
+/// A struct or an enum, read from tokens.
+pub struct Type {
+    /// Its name, or `$` and the name of the fragment that a `macro_rules!` names it by.
+    pub name: String,
+    /// The line of its keyword.
+    pub line: usize,
+    /// The attributes written before it, each the tokens between its brackets.
+    pub attributes: Vec<Vec<TokenTree>>,
+    /// Whether `<` follows its name, which opens its generic parameters.
+    pub generic: bool,
+}
+
 /// Each struct and enum among `tokens`, at any depth, with its name, its line, and the
-/// attributes written before it.
+/// attributes written before it, but one that a macro's fragment names.
 pub fn types_with_attributes(tokens: &[TokenTree]) -> Vec<(String, usize, Vec<Vec<TokenTree>>)> {
+    types(tokens)
+        .into_iter()
+        .filter(|found| !found.name.starts_with('$'))
+        .map(|found| (found.name, found.line, found.attributes))
+        .collect()
+}
+
+/// Each struct and enum among `tokens`, at any depth, those that a macro's fragment names among
+/// them.
+pub fn types(tokens: &[TokenTree]) -> Vec<Type> {
     let mut found = Vec::new();
     let mut attributes: Vec<Vec<TokenTree>> = Vec::new();
     let mut at = 0;
@@ -132,18 +218,31 @@ pub fn types_with_attributes(tokens: &[TokenTree]) -> Vec<(String, usize, Vec<Ve
                     && at > 0
                     && matches!(&tokens[at - 1], TokenTree::Ident(i) if i == "pub") => {}
             TokenTree::Ident(keyword) if keyword == "struct" || keyword == "enum" => {
-                if let Some(TokenTree::Ident(name)) = tokens.get(at + 1) {
-                    found.push((
-                        name.to_string(),
-                        keyword.span().start().line,
-                        std::mem::take(&mut attributes),
-                    ));
+                let named = match (tokens.get(at + 1), tokens.get(at + 2)) {
+                    (Some(TokenTree::Ident(name)), _) => Some((name.to_string(), at + 2)),
+                    (Some(TokenTree::Punct(dollar)), Some(TokenTree::Ident(name)))
+                        if dollar.as_char() == '$' =>
+                    {
+                        Some((format!("${name}"), at + 3))
+                    }
+                    _ => None,
+                };
+                if let Some((name, after)) = named {
+                    found.push(Type {
+                        name,
+                        line: keyword.span().start().line,
+                        attributes: std::mem::take(&mut attributes),
+                        generic: matches!(
+                            tokens.get(after),
+                            Some(TokenTree::Punct(open)) if open.as_char() == '<'
+                        ),
+                    });
                 }
             }
             TokenTree::Group(group) => {
                 attributes.clear();
                 let inner: Vec<TokenTree> = group.stream().into_iter().collect();
-                found.extend(types_with_attributes(&inner));
+                found.extend(types(&inner));
             }
             _ => attributes.clear(),
         }

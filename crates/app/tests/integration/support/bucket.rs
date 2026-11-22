@@ -67,10 +67,8 @@ pub async fn create(bucket: &str) {
 /// Has the bucket `bucket` keep a version of each object that is deleted or replaced in it, as
 /// S3's versioning does (OPS-22).
 pub async fn keep_versions(bucket: &str) {
-    // S3's namespace, whose last segment, a date, is on a line of its own, as in the storage's
-    // tests.
-    let on = "<VersioningConfiguration xmlns=\"http://s3.amazonaws.com/doc/\
-              2006-03-01/\"><Status>Enabled</Status></VersioningConfiguration>";
+    let on = "<VersioningConfiguration xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">\
+              <Status>Enabled</Status></VersioningConfiguration>";
     let status = request("PUT", &format!("{bucket}?versioning"), on).await;
     assert!(status == 200, "keep the versions of {bucket}: {status}");
 }
@@ -413,12 +411,10 @@ fn kept_answer(
                 ),
                 _ => "<IsTruncated>false</IsTruncated>".to_owned(),
             };
-            // The namespace's last segment, a date, is on a line of its own, as in the
-            // storage's tests.
             let listing = format!(
                 "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\
-                 <ListVersionsResult xmlns=\"http://s3.amazonaws.com/doc/\
-                 2006-03-01/\">{more}{entries}</ListVersionsResult>"
+                 <ListVersionsResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">\
+                 {more}{entries}</ListVersionsResult>"
             );
             (200, "application/xml", listing.into_bytes())
         }
@@ -453,17 +449,21 @@ fn kept_answer(
 pub struct Scripted {
     /// Its endpoint, for `S3_ENDPOINT`.
     pub endpoint: String,
-    paths: Arc<Mutex<Vec<String>>>,
+    requests: Arc<Mutex<Vec<(String, String)>>>,
     server: JoinHandle<()>,
 }
 
 impl Scripted {
     /// The path of each request that the bucket has read, in their order.
     pub fn paths(&self) -> Vec<String> {
-        self.paths
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
+        let requests = self.requests.lock().unwrap_or_else(PoisonError::into_inner);
+        requests.iter().map(|(_, path)| path.clone()).collect()
+    }
+
+    /// The method of each request that the bucket has read, in their order.
+    pub fn methods(&self) -> Vec<String> {
+        let requests = self.requests.lock().unwrap_or_else(PoisonError::into_inner);
+        requests.iter().map(|(method, _)| method.clone()).collect()
     }
 }
 
@@ -498,6 +498,12 @@ pub async fn scripted(status: Option<u16>) -> Scripted {
     serve(status.map(|status| Answer::of(status, String::new()))).await
 }
 
+/// A bucket that answers every request with `object` as an object's bytes, and a `HEAD` with
+/// their length and none of them.
+pub async fn giving(object: &str) -> Scripted {
+    serve(Some(Answer::of(200, object.to_owned()))).await
+}
+
 /// A bucket that answers every request with a redirect to `location`, a path of its own.
 pub async fn redirecting(location: &'static str) -> Scripted {
     serve(Some(Answer {
@@ -521,11 +527,10 @@ pub async fn listing(objects: &[(&str, &str)]) -> Scripted {
             )
         })
         .collect();
-    // The namespace's last segment, a date, is on a line of its own, as in the storage's tests.
     let body = format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\
-         <ListBucketResult xmlns=\"http://s3.amazonaws.com/doc/\
-         2006-03-01/\"><IsTruncated>false</IsTruncated>{contents}</ListBucketResult>"
+         <ListBucketResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">\
+         <IsTruncated>false</IsTruncated>{contents}</ListBucketResult>"
     );
     serve(Some(Answer::of(200, body))).await
 }
@@ -536,8 +541,8 @@ async fn serve(answer: Option<Answer>) -> Scripted {
         .await
         .unwrap();
     let endpoint = format!("http://{}", listener.local_addr().unwrap());
-    let paths = Arc::new(Mutex::new(Vec::new()));
-    let read = paths.clone();
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let read = requests.clone();
     let server = tokio::spawn(async move {
         loop {
             let Ok((stream, _)) = listener.accept().await else {
@@ -548,18 +553,24 @@ async fn serve(answer: Option<Answer>) -> Scripted {
     });
     Scripted {
         endpoint,
-        paths,
+        requests,
         server,
     }
 }
 
-/// Reads each request on `stream`, its body included, records its path in `paths`, and answers
-/// it with `answer`, or never.
-async fn answering(stream: TcpStream, answer: Option<Answer>, paths: Arc<Mutex<Vec<String>>>) {
+/// Reads each request on `stream`, its body included, records its method and its path in
+/// `requests`, and answers it with `answer`, without the body when the request is a `HEAD`, or
+/// never.
+async fn answering(
+    stream: TcpStream,
+    answer: Option<Answer>,
+    requests: Arc<Mutex<Vec<(String, String)>>>,
+) {
     let mut stream = BufReader::new(stream);
     loop {
         let mut length = 0;
         let mut first = true;
+        let mut head = false;
         loop {
             let mut line = String::new();
             if stream.read_line(&mut line).await.unwrap_or(0) == 0 {
@@ -567,12 +578,15 @@ async fn answering(stream: TcpStream, answer: Option<Answer>, paths: Arc<Mutex<V
             }
             if std::mem::take(&mut first) {
                 // The request's line: its method, its target and the protocol's version.
-                let target = line.split(' ').nth(1).unwrap_or_default();
+                let mut parts = line.split(' ');
+                let method = parts.next().unwrap_or_default().to_owned();
+                let target = parts.next().unwrap_or_default();
                 let path = target.split('?').next().unwrap_or_default().to_owned();
-                paths
+                head = method == "HEAD";
+                requests
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner)
-                    .push(path);
+                    .push((method, path));
             }
             let line = line.trim_end().to_ascii_lowercase();
             if line.is_empty() {
@@ -597,8 +611,9 @@ async fn answering(stream: TcpStream, answer: Option<Answer>, paths: Arc<Mutex<V
             return;
         };
         let location = location.map_or_else(String::new, |to| format!("Location: {to}\r\n"));
+        let sent = if head { "" } else { body };
         let answer = format!(
-            "HTTP/1.1 {status} Scripted\r\n{location}Content-Length: {}\r\n\r\n{body}",
+            "HTTP/1.1 {status} Scripted\r\n{location}Content-Length: {}\r\n\r\n{sent}",
             body.len()
         );
         if stream.get_mut().write_all(answer.as_bytes()).await.is_err() {

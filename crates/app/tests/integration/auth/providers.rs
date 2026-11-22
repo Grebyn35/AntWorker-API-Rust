@@ -21,6 +21,49 @@ async fn standing() -> (Upstream, Api) {
     (upstream, api)
 }
 
+/// The redirect URI of the stand-in's second client, whose tokens don't lapse.
+const SECOND_REDIRECT_URI: &str = "https://second.example.com/callback";
+
+/// A stand-in provider with both of its clients, and an API that signs in through it.
+async fn standing_with_both_clients() -> (Upstream, Api) {
+    let upstream = Upstream::start().await;
+    let options = providers::stand_in(&upstream)
+        .set("STAND_IN_SECOND_CLIENT_ID", "second-client")
+        .set("STAND_IN_SECOND_CLIENT_SECRET", "second-secret")
+        .set("STAND_IN_SECOND_REDIRECT_URIS", SECOND_REDIRECT_URI);
+    let api = Api::with(options).await;
+    (upstream, api)
+}
+
+/// The body of a sign-in through the stand-in's second client.
+fn second_grant() -> Value {
+    let mut body = grant();
+    body["redirect_uri"] = json!(SECOND_REDIRECT_URI);
+    body
+}
+
+/// The deletions of a token that the stand-in received, each as its `Authorization`.
+fn deletions(upstream: &Upstream) -> Vec<Option<String>> {
+    let received = upstream.received();
+    let deletions = received
+        .iter()
+        .filter(|request| request.method == "DELETE" && request.path == "/token");
+    deletions
+        .map(|request| request.authorization.clone())
+        .collect()
+}
+
+/// Whether the request whose answer `response` is logged that it ignored a token's deletion
+/// that failed, with `cause` in what it wrote of it (ERR-11).
+fn kept_token_logged(response: &Response, cause: &str) -> bool {
+    testing::logged(response.trace_id()).iter().any(|line| {
+        line["error.type"] == "provider_token_not_deleted"
+            && line["exception.message"]
+                .as_str()
+                .is_some_and(|message| message.contains(cause))
+    })
+}
+
 /// The actions of the entries whose details name the stand-in.
 async fn provider_entries(api: &Api) -> Vec<String> {
     api.database()
@@ -877,6 +920,83 @@ async fn auth_079_the_provider_s_token_reaches_no_log() {
     assert_eq!(sign_in(&api, &grant()).await.status, 201);
 
     assert!(!logged("a-token-that-no-log-holds"));
+}
+
+#[tokio::test]
+async fn auth_079_a_token_that_doesn_t_lapse_is_deleted_whether_or_not_the_identity_was_read() {
+    let (upstream, api) = standing_with_both_clients().await;
+    gives(&upstream, identity("subject-1", "ada@example.com", true));
+    upstream.set("DELETE", "/token", 204, json!({}));
+
+    // The first client's tokens lapse, and the second's don't.
+    let lapsing = sign_in(&api, &grant()).await;
+    let after_lapsing = deletions(&upstream);
+    let read = sign_in(&api, &second_grant()).await;
+    let after_read = deletions(&upstream);
+    upstream.set("GET", "/identity", 500, json!({}));
+    let unread = sign_in(&api, &second_grant()).await;
+
+    assert_eq!(lapsing.status, 201, "{}", lapsing.json());
+    assert!(after_lapsing.is_empty(), "{after_lapsing:?}");
+    assert_eq!(read.status, 201, "{}", read.json());
+    let bearer = Some("Bearer a-provider-token".to_owned());
+    assert_eq!(after_read, std::slice::from_ref(&bearer));
+    assert_eq!(unread.status, 503);
+    assert_eq!(deletions(&upstream), [bearer.clone(), bearer]);
+}
+
+#[tokio::test]
+async fn auth_079_a_deletion_that_fails_is_logged_and_counted_and_refuses_nothing() {
+    let (upstream, api) = standing_with_both_clients().await;
+    gives(&upstream, identity("subject-1", "ada@example.com", true));
+    upstream.set("DELETE", "/token", 500, json!({}));
+    let ignored = || -> f64 {
+        testing::recorded("platform.errors_ignored")
+            .into_iter()
+            .filter(|point| {
+                point.labels.get("error.type").map(String::as_str)
+                    == Some("provider_token_not_deleted")
+            })
+            .map(|point| point.value)
+            .sum()
+    };
+    let before = ignored();
+
+    let response = sign_in(&api, &second_grant()).await;
+
+    assert_eq!(response.status, 201, "{}", response.json());
+    assert!(
+        kept_token_logged(&response, "answered 500"),
+        "ERR-11's line"
+    );
+    // Tests running alongside ignore errors too, so the count grows by at least this one.
+    assert!(ignored() >= before + 1.0, "ERR-11's count");
+}
+
+#[tokio::test]
+async fn auth_079_a_deletion_that_doesn_t_end_within_2_seconds_refuses_nothing() {
+    let (upstream, api) = standing_with_both_clients().await;
+    gives(&upstream, identity("subject-1", "ada@example.com", true));
+    upstream.hang("DELETE", "/token");
+    let clock = api.clock();
+    let call = {
+        let api = api.clone();
+        tokio::spawn(async move { sign_in(&api, &second_grant()).await })
+    };
+
+    // The deletion's deadline waits once its request is sent, so the clock moves only then.
+    while deletions(&upstream).is_empty() {
+        tokio::task::yield_now().await;
+    }
+    clock.sleeping(std::time::Duration::from_secs(2)).await;
+    clock.advance(std::time::Duration::from_secs(2));
+
+    let response = call.await.unwrap();
+    assert_eq!(response.status, 201, "{}", response.json());
+    assert!(
+        kept_token_logged(&response, "no answer within 2 seconds"),
+        "ERR-11's line"
+    );
 }
 
 #[tokio::test]

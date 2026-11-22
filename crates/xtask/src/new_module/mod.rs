@@ -46,6 +46,10 @@ const TIMESTAMP: &str = "TIMESTAMP";
 /// The migrations' directory.
 const MIGRATIONS: &str = "migrations/";
 
+/// The template of `insert/` that `edits` inserts into [`edits::ACCESS_ROOT`]: the re-export of
+/// the module's permission types.
+const ACCESS_EXPORTS: &str = "access-exports.rs";
+
 /// The OpenAPI document, which the task writes again (API-17).
 const DOCUMENT: &str = "openapi.json";
 
@@ -157,6 +161,21 @@ fn write(names: &Names) -> Result<Written, String> {
     }
 }
 
+/// Where the task writes the template at `path`, one of `files/`, for the template's own module,
+/// whose names the templates hold: `None` for a path that is no such template.
+pub fn written(path: &str) -> Option<&str> {
+    path.strip_prefix(TEMPLATES)?
+        .strip_prefix("/files/")?
+        .strip_suffix(SUFFIX)
+}
+
+/// The template of `insert/` that the task inserts into a module's `mod.rs`, by its path, with
+/// its text and that `mod.rs`'s path, if the repository holds it.
+pub fn inserted_exports(repo: &Repo) -> Option<(&str, &str, &'static str)> {
+    repo.file(&format!("{TEMPLATES}/insert/{ACCESS_EXPORTS}{SUFFIX}"))
+        .map(|file| (file.path.as_str(), file.text.as_str(), edits::ACCESS_ROOT))
+}
+
 /// Each file the module owns, at its path, with its text: the templates of `files/` with
 /// `names` in place of the template's, the migration's timestamp after every other migration's.
 fn files(repo: &Repo, names: &Names) -> Result<Vec<(String, String)>, String> {
@@ -165,7 +184,7 @@ fn files(repo: &Repo, names: &Names) -> Result<Vec<(String, String)>, String> {
     let files: Vec<(String, String)> = repo
         .files()
         .filter_map(|file| {
-            let path = file.path.strip_prefix(&prefix)?.strip_suffix(SUFFIX)?;
+            let path = written(&file.path)?;
             let path = names.apply(path).replace(TIMESTAMP, &timestamp);
             Some((path, names.apply(&file.text)))
         })
@@ -193,7 +212,7 @@ fn inserts(repo: &Repo, names: &Names) -> Result<Inserts, String> {
     let inserts = Inserts {
         permissions: read("permissions.rs")?,
         matrix: read("matrix.rs")?,
-        access_exports: read("access-exports.rs")?,
+        access_exports: read(ACCESS_EXPORTS)?,
         test_08_fixtures: read("test-08-fixtures.rs")?,
         architecture_owns: read("architecture-owns.md")?,
         architecture_graph: read("architecture-graph.md")?,
@@ -205,7 +224,7 @@ fn inserts(repo: &Repo, names: &Names) -> Result<Inserts, String> {
         [
             ("permissions.rs", inserts.permissions.as_str()),
             ("matrix.rs", &inserts.matrix),
-            ("access-exports.rs", &inserts.access_exports),
+            (ACCESS_EXPORTS, &inserts.access_exports),
             ("test-08-fixtures.rs", &inserts.test_08_fixtures),
             ("architecture-owns.md", &inserts.architecture_owns),
             ("architecture-graph.md", &inserts.architecture_graph),

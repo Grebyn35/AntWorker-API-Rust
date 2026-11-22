@@ -141,7 +141,7 @@ groups:
         labels:
           severity: page
         annotations:
-          summary: The bucket of files' bytes answered none of the API's calls for 5 minutes, while some went unanswered.
+          summary: The bucket of files' bytes answered none of the API's calls for 7 minutes, while some went unanswered.
           runbook: docs/operations/runbooks.md#storageunreachable
 
       - alert: ScannerUnreachable
@@ -152,7 +152,7 @@ groups:
         labels:
           severity: page
         annotations:
-          summary: The malware scanner answered none of the API's scans for 5 minutes, while some went unanswered, so no upload is stored.
+          summary: The malware scanner answered none of the API's scans for 7 minutes, while some went unanswered, so no upload is stored.
           runbook: docs/operations/runbooks.md#scannerunreachable
       # end part: files
 
@@ -164,7 +164,7 @@ groups:
         labels:
           severity: page
         annotations:
-          summary: An OAuth provider gave no identity for 15 minutes, while some sign-ins through it went unanswered.
+          summary: An OAuth provider gave no identity for 20 minutes, while some sign-ins through it went unanswered.
           runbook: docs/operations/runbooks.md#signinproviderunavailable
 
       - alert: ApiTelemetryMissing

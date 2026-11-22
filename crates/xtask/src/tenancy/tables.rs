@@ -5,11 +5,7 @@
 
 use std::collections::BTreeMap;
 
-use super::{
-    MIGRATIONS,
-    views::{View, view},
-    words,
-};
+use super::{MIGRATIONS, views::View, words};
 use crate::repo::Repo;
 
 /// A table the migrations create, or a view, with its columns, and where it is created.
@@ -34,39 +30,32 @@ pub fn tables(repo: &Repo) -> BTreeMap<String, Table> {
         .collect();
     migrations.sort_by(|a, b| a.path.cmp(&b.path));
     for file in migrations {
-        let words = words(&file.text);
-        for (index, (word, line)) in words.iter().enumerate() {
-            let next = |offset: usize| words.get(index + offset).map(|(word, _)| word.as_str());
-            if word == "create" && next(1) == Some("table") {
-                if let (Some(name), Some(body)) = (next(2), body_after(&file.text, *line, next(2)))
-                {
-                    tables.insert(
-                        name.to_owned(),
-                        Table {
-                            columns: columns(&body),
-                            view: None,
-                            path: file.path.clone(),
-                            line: *line,
-                        },
-                    );
-                }
-            } else if word == "create"
-                && let Some(at) = [1, 3].into_iter().find(|at| next(*at) == Some("view"))
-                && (at == 1 || (next(1) == Some("or") && next(2) == Some("replace")))
-                && let Some(name) = next(at + 1)
-            {
-                let view = view(&file.text, *line, name);
+        for Created { view, name, line } in created(&file.text) {
+            let Ok(name) = name else { continue };
+            let table = if view {
+                let view = super::views::view(&file.text, line, &name);
                 let columns = view.shown.iter().flatten();
-                tables.insert(
-                    name.to_owned(),
-                    Table {
-                        columns: columns.map(|shown| shown.name.clone()).collect(),
-                        view: Some(view),
-                        path: file.path.clone(),
-                        line: *line,
-                    },
-                );
-            } else if word == "alter" && next(1) == Some("table") && next(3) == Some("add") {
+                Table {
+                    columns: columns.map(|shown| shown.name.clone()).collect(),
+                    view: Some(view),
+                    path: file.path.clone(),
+                    line,
+                }
+            } else {
+                let body = body_after(&file.text, line, Some(&name)).unwrap_or_default();
+                Table {
+                    columns: columns(&body),
+                    view: None,
+                    path: file.path.clone(),
+                    line,
+                }
+            };
+            tables.insert(name, table);
+        }
+        let words = words(&file.text);
+        for (index, (word, _)) in words.iter().enumerate() {
+            let next = |offset: usize| words.get(index + offset).map(|(word, _)| word.as_str());
+            if word == "alter" && next(1) == Some("table") && next(3) == Some("add") {
                 let column = if next(4) == Some("column") {
                     next(5)
                 } else {
@@ -97,34 +86,101 @@ const MODIFIERS: [&str; 10] = [
     "recursive",
 ];
 
-/// The line of each `CREATE` of `text` that creates a table or a view in a form that [`tables`]
-/// doesn't read: with any of [`MODIFIERS`] before its `TABLE`, with any before its `VIEW` but
-/// `OR REPLACE` alone, or with `IF` after its `TABLE` or `VIEW`.
-pub(super) fn unread(text: &str) -> Vec<usize> {
-    let words = words(text);
-    let mut lines = Vec::new();
-    for (index, (word, line)) in words.iter().enumerate() {
-        if word != "create" {
+/// A `CREATE` of a table or a view.
+pub(super) struct Created {
+    /// Whether it creates a view.
+    pub view: bool,
+    /// The name it creates, where [`tables`] reads the statement, or the text of the statement's
+    /// line where it doesn't.
+    pub name: Result<String, String>,
+    /// The line of its `CREATE`.
+    pub line: usize,
+}
+
+/// Each `CREATE` of `text` that creates a table or a view, with its name where [`tables`] reads
+/// the statement, in the forms that the doc of `tenancy` names.
+pub(super) fn created(text: &str) -> Vec<Created> {
+    let tokens: Vec<(String, usize)> = text
+        .lines()
+        .enumerate()
+        .flat_map(|(number, line)| {
+            let code = line.split("--").next().unwrap_or_default();
+            super::views::tokens(code)
+                .into_iter()
+                .map(move |token| (token, number + 1))
+        })
+        .collect();
+    let mut found = Vec::new();
+    for (index, (token, line)) in tokens.iter().enumerate() {
+        if token != "create" {
             continue;
         }
-        let rest: Vec<&str> = words[index + 1..]
+        let rest: Vec<&str> = tokens[index + 1..]
             .iter()
-            .map(|(word, _)| word.as_str())
+            .map(|(token, _)| token.as_str())
             .collect();
         let modifiers = rest
             .iter()
             .take_while(|word| MODIFIERS.contains(word))
             .count();
-        let read = match rest.get(modifiers) {
-            Some(&"table") => modifiers == 0,
-            Some(&"view") => modifiers == 0 || rest[..modifiers] == ["or", "replace"],
+        let (view, mut read) = match rest.get(modifiers) {
+            Some(&"table") => (false, modifiers == 0),
+            Some(&"view") => (
+                true,
+                modifiers == 0 || rest[..modifiers] == ["or", "replace"],
+            ),
             _ => continue,
         };
-        if !read || rest.get(modifiers + 1) == Some(&"if") {
-            lines.push(*line);
+        let at = |offset: usize| rest.get(modifiers + offset).copied().unwrap_or_default();
+        let name = at(1);
+        read &= name != "if"
+            && name.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+            && at(2) != ".";
+        if !view && read {
+            read = at(2) == "(" && !queried(&rest[modifiers + 2..]);
+        }
+        let statement = || {
+            text.lines()
+                .nth(line - 1)
+                .unwrap_or_default()
+                .trim()
+                .to_owned()
+        };
+        found.push(Created {
+            view,
+            name: if read {
+                Ok(name.to_owned())
+            } else {
+                Err(statement())
+            },
+            line: *line,
+        });
+    }
+    found
+}
+
+/// Whether `statement`, the tokens of a `CREATE TABLE` from its name's `(` on, holds an `AS`
+/// outside parentheses after that `(`'s list, before its `;`, as a table that a query fills does.
+fn queried(statement: &[&str]) -> bool {
+    let mut depth = 0;
+    for (index, token) in statement.iter().enumerate() {
+        depth += i32::from(*token == "(") - i32::from(*token == ")");
+        match *token {
+            ";" if depth == 0 => return false,
+            "as" if depth == 0 && index > 0 => return true,
+            _ => {}
         }
     }
-    lines
+    false
+}
+
+/// The line of each `CREATE` of `text` that [`created`] says [`tables`] doesn't read, with the
+/// text of that line.
+pub(super) fn unread(text: &str) -> Vec<(usize, String)> {
+    created(text)
+        .into_iter()
+        .filter_map(|created| Some((created.line, created.name.err()?)))
+        .collect()
 }
 
 /// The text inside the parentheses that follow `name` on or after `line` of `text`.

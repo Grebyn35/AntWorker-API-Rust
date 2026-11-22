@@ -17,11 +17,12 @@ use crate::{
 };
 
 /// Removes the parts named `names` from the repository (ARCH-07): it deletes the files they own
-/// whole and the lines their markers mark, writing "None." in each section of a spec that it
-/// empties, and retiring the number of each behavior it deletes from a spec, then the cached
-/// queries that no kept code holds, updates `Cargo.lock`, writes `openapi.json` and the metric
-/// catalog again, formats the code, and fails while a file it kept, or the path of one, still
-/// names one of them. It refuses `removal`, which only `just keep` removes.
+/// whole and the lines their markers mark, outside Rust with a blank line where ARCH-07 says,
+/// writing "None." in each section of a spec that it empties, and retiring the number of each
+/// behavior it deletes from a spec, then the cached queries that no kept code holds, updates
+/// `Cargo.lock`, writes `openapi.json` and the metric catalog again, formats the code, and fails
+/// while a file it kept, or the path of one, still names one of them. It refuses `removal`, which
+/// only `just keep` removes.
 pub fn remove(names: &[String]) -> ExitCode {
     let (repo, parts) = match loaded(names) {
         Ok(loaded) => loaded,
@@ -168,7 +169,7 @@ fn unmark_kept() -> Result<usize, String> {
     let repo = Repo::load().map_err(|error| format!("can't read the repository: {error}"))?;
     let mut changed = 0;
     for file in repo.files() {
-        if let Some(text) = markers::unmark(&file.text) {
+        if let Some(text) = markers::unmark(&file.path, &file.text) {
             repo::write(&file.path, &text)
                 .map_err(|error| format!("can't write {}: {error}", file.path))?;
             changed += 1;

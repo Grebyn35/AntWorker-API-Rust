@@ -1,6 +1,10 @@
 //! `check-deps`: the feature modules depend on each other as architecture.md §5 allows.
 //! - A module's `mod.rs` declares its submodules private, and no code outside a module names
 //!   one of its submodules, so others use only what `mod.rs` re-exports (ARCH-04).
+//! - A module's `mod.rs` re-exports each type of the module that the signature of a function it
+//!   re-exports names (ARCH-04, `exports`).
+//! - A template of the code that `just new-module` writes names of another module only what that
+//!   module's `mod.rs` re-exports (ARCH-03, `templates`).
 //! - A module names another only along an edge of the graph in architecture.md §5, which has no
 //!   cycle (ARCH-05).
 //! - No public signature of a module, and no field its public types expose, names another
@@ -19,6 +23,9 @@ use crate::{
     rust::{self, Named, Source},
 };
 
+mod exports;
+mod templates;
+
 /// The document that holds the graph.
 const ARCHITECTURE: &str = "docs/architecture.md";
 
@@ -34,6 +41,9 @@ struct Module {
     errors: BTreeSet<String>,
     /// Every name its `mod.rs` imports, which includes what it re-exports.
     exports: BTreeSet<String>,
+    /// The names its `mod.rs` re-exports, those that its `pub use` declarations import, `*` for a
+    /// glob, and those that it declares `pub` itself: what other modules may name.
+    public: BTreeSet<String>,
 }
 
 /// Checks `app`'s library against the graph.
@@ -70,6 +80,8 @@ pub fn check(repo: &Repo) -> Outcome {
             findings.extend(foreign_errors(source, own, &modules));
         }
     }
+    findings.extend(exports::unexported_types(&sources));
+    findings.extend(templates::imports(repo, &modules));
     let mut seen = BTreeSet::new();
     findings.retain(|f| seen.insert((f.path.clone(), f.line, f.message.clone())));
     Outcome {
@@ -177,6 +189,11 @@ fn modules(sources: &[Source], findings: &mut Vec<Finding>) -> BTreeMap<String, 
             }
             module.submodules.insert(submodule);
         }
+        module.public.extend(rust::reexported(&source.tokens));
+        let declared = rust::items(&source.tokens).into_iter();
+        module
+            .public
+            .extend(declared.filter(|item| item.public).map(|item| item.name));
         let error = ["crate", "modules", name, "error"];
         for (alias, path) in &source.imports {
             module.exports.insert(alias.clone());

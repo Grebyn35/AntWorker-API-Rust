@@ -1,10 +1,17 @@
 //! What a download serves of a file's bytes: a range of them, every byte, or nothing, as RFC 9110
 //! defines it (PLATFORM-081), so that a download cut short resumes (OPS-06).
 
+use bytes::Bytes;
+use platform::{storage::ObjectKey, telemetry::testing};
 use serde_json::Value;
 
 use super::{acme, download, upload_queried};
-use crate::support::{Api, api::Response, users::SignedIn};
+use crate::support::{
+    Api,
+    api::{Options, Response},
+    bucket, files,
+    users::SignedIn,
+};
 
 /// The bytes of the file the tests download.
 const TEXT: &[u8] = b"hello world";
@@ -154,6 +161,72 @@ async fn files_009_head_answers_as_get_does_without_the_bytes() {
     assert!(head.body.is_empty());
     assert_eq!(head.header("content-length"), "11");
     assert_eq!(head.header("accept-ranges"), "bytes");
+}
+
+#[tokio::test]
+async fn files_009_head_asks_the_bucket_for_the_object_s_size_alone() {
+    let bucket = bucket::giving("hello").await;
+    let api = Api::with(Options::default().set("S3_ENDPOINT", &bucket.endpoint)).await;
+    let (workspace, ada, _) = acme(&api, "member").await;
+    let id = files::arrange_row(api.database(), &workspace, "Blue").await;
+    let path = format!("/v1/workspaces/{workspace}/files/{id}/content");
+
+    let head = api
+        .request(http::Method::HEAD, &path)
+        .bearer(&ada.access)
+        .send()
+        .await;
+    let asked = bucket.methods();
+    let got = api.get(&path).bearer(&ada.access).send().await;
+
+    assert_eq!(head.status, 200);
+    assert!(head.body.is_empty());
+    assert_eq!(head.header("content-length"), "5");
+    assert_eq!(asked, ["HEAD"]);
+    assert_eq!(got.body, b"hello");
+    assert_eq!(bucket.methods(), ["HEAD", "GET"]);
+}
+
+#[tokio::test]
+async fn files_009_head_of_a_file_whose_object_is_missing_or_of_another_size_answers_500() {
+    let api = Api::new().await;
+    let (workspace, ada, _) = acme(&api, "member").await;
+    let missing = files::arrange_row(api.database(), &workspace, "Blue").await;
+    let short = files::arrange_row(api.database(), &workspace, "Green").await;
+    let key = api
+        .database()
+        .owner_reads(&format!(
+            "SELECT object_key FROM workspace_files WHERE id = '{short}'"
+        ))
+        .await
+        .remove(0);
+    bucket::storage(&api.database().bucket().await)
+        .put(
+            &ObjectKey::from_stored(&key),
+            Bytes::from(vec![0; files::BYTES.len() - 1]),
+            "application/octet-stream",
+        )
+        .await
+        .unwrap();
+
+    for id in [missing, short] {
+        let head = api
+            .request(
+                http::Method::HEAD,
+                &format!("/v1/workspaces/{workspace}/files/{id}/content"),
+            )
+            .bearer(&ada.access)
+            .send()
+            .await;
+
+        assert_eq!(head.status, 500, "{id}");
+        let errors: Vec<_> = testing::logged(head.trace_id())
+            .into_iter()
+            .filter(|line| line["level"] == "ERROR")
+            .collect();
+        assert_eq!(errors.len(), 1, "{errors:#?}");
+        assert!(errors[0].to_string().contains(&id), "{errors:#?}");
+    }
 }
 
 #[tokio::test]

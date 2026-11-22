@@ -132,7 +132,7 @@ Tenancy is enforced by the application, and every query on user or workspace dat
 - Rows addressed to a user by an email address are filtered by the caller's email.
 
 A row ID alone never addresses tenant data. These reads are exempt:
-- batch reads by IDs that came from a query filtered by tenant in the calling module: of display data, such as names, for example a workspace's member list, or of which of those IDs match a search, as `accounts::matching` and `workspaces::matching` find them (API-20)
+- batch reads by IDs that came from a query filtered by tenant in the calling module: of display data, such as names, for example a workspace's member list, or of which of those IDs match a search, as `accounts::matching` finds them (API-20)
 - the deletion of an account, which reads whether the workspaces the user owns have other members, by the IDs of the user's own memberships, and deletes those workspaces by them (ACCESS-008, ACCOUNTS-013)
 - the export of a user's data, which reads the workspaces whose only member is the user by the IDs of the user's own memberships, and those workspaces' content by them (ACCOUNTS-024)
 - a user's read of their own log, which reads the entries of every workspace's log whose target is them by their own ID alone, since what was done to a user is theirs to see (AUDIT-008, D6)
@@ -145,17 +145,17 @@ A row ID alone never addresses tenant data. These reads are exempt:
 - the startup check of the versions of the key ring under which secrets are stored, which reads the versions alone, of every user's rows (AUTH-066)
 - a public file's download, which reads its row by its ID and its visibility alone, and an avatar's and a workspace's picture's, which each read their row by its ID alone, since whoever holds a public file's ID, an avatar's or a picture's, may read it ([files spec](../spec/files.md#visibility)) <!-- part: files -->
 - Why: there is no row-level security, so the application's filters are the only guard between tenants, and they are checked by machine and by test (D4).
-- Check: `ci: check-tenancy` (every query on a table with a `workspace_id` column, platform data aside, filters on it, on its `user_id` where it has one, or on the address its rows are addressed to, and every query of a view that reads such a table filters on a tenant column that the view shows, unless a listed function holds the query: a function of a cross-tenant job, or of the reads that this rule exempts; and every other table is listed), `test` (TEST-08 sends, for every workspace route, an ID from another workspace the caller belongs to), plus `review` (the exemptions).
+- Check: `ci: check-tenancy` (every query on a table with a `workspace_id` column, platform data aside, filters on it, on its `user_id` where it has one, or on the address its rows are addressed to, and every query of a view that reads such a table filters on a tenant column that the view shows, unless a listed function holds the query: a function of a cross-tenant job, or of the reads that this rule exempts; every other table is listed; and the migrations create each table and view in a form that the check reads, which the doc of `crates/xtask/src/tenancy/mod.rs` names), `test` (TEST-08 sends, for every workspace route, an ID from another workspace the caller belongs to), plus `review` (the exemptions).
 
 ### DATA-17 Lists use keyset pagination on an index
 A list query filters by the cursor's sort key, with the ID as tiebreaker, and never uses `OFFSET`. An index matches its tenant filter and its order. A `search` (API-20) narrows the rows that index reaches, without an index of its own until a load test asks for one.
 - Why: fast at any depth, and stable under inserts (API-06).
-- Check: `review`, plus `test` (API-06).
+- Check: `review`, plus `test` (the tests that API-06 names, which page each list across rows sharing a timestamp, such as PLATFORM-046's and WORKSPACES-004's).
 
 ### DATA-18 Optimistic updates check the version
 An update made with `If-Match` keeps its `WHERE` to the versions the header names, such as `version = ANY($2)`. Zero rows updated becomes `PreconditionFailed`.
 - Why: lost updates are detected in the same statement that would cause them (API-13).
-- Check: `test`.
+- Check: `test` (PLATFORM-071, and each update that takes `If-Match` has a test of a stale version's 412, such as ACCOUNTS-007's and WORKSPACES-013's), plus `review` (that the update's own `WHERE` names the versions, where a read before it would pass the same tests).
 
 ## Transactions
 
@@ -180,7 +180,7 @@ What is audited:
 
 Platform bookkeeping (rate-limit buckets, idempotency records, job state) and scheduled maintenance (retention, sweeps) aren't audited. Metrics count them instead. Deleting an account records only the entries that the logs of the workspaces the user shared keep, since their own log goes with the account (ACCOUNTS-014, D31). Deleting a workspace records its one entry in the own log of whoever deletes it, since the workspace's log goes with the workspace (WORKSPACES-017).
 - Why: a change and its side effects commit together or not at all (D1, D6).
-- Check: `review`, plus `test` (each mutating behavior asserts its audit entry and events).
+- Check: `review`, plus `test` (each mutating behavior asserts its audit entry and events, such as WORKSPACES-014's and ACCOUNTS-007's).
 
 ## Personal data
 

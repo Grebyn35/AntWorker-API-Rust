@@ -5,11 +5,13 @@
 use platform::telemetry::testing;
 use serde_json::{Value, json};
 
+use super::{objects, uploads};
 use crate::support::{
     Api,
     api::{self, Options},
-    files,
+    execute_on, files,
     providers::{self, gives, grant, sign_in, signed_in},
+    query_waits_on_a_lock,
     scanner::{self, Script},
     upstream::Upstream,
     users::{self, SignedIn},
@@ -80,6 +82,50 @@ async fn copies(api: &Api) -> Vec<String> {
     )
     .await
 }
+
+/// How many times the stand-in was asked for Ada's picture.
+fn fetches(upstream: &Upstream) -> usize {
+    let received = upstream.received();
+    received.iter().filter(|got| got.path == PICTURE).count()
+}
+
+/// Registers Ada through the stand-in, then runs the job that copies her picture while another
+/// change of her avatar holds her row: the job has fetched and stored the picture when its unit
+/// of work waits for the row, and the other change gives her an avatar before it commits. Gives
+/// Ada, and the link of the avatar that the other change gave her.
+async fn overtaken(upstream: &Upstream, api: &Api) -> (SignedIn, String) {
+    let ada = registered(upstream, api, files::PNG).await;
+    let db = api.database();
+    let mut change = db
+        .holding(&format!(
+            "SELECT 1 FROM users WHERE id = '{}' FOR UPDATE",
+            ada.user_id
+        ))
+        .await;
+
+    let ((), runs) = tokio::join!(
+        async {
+            query_waits_on_a_lock(db, "SELECT id FROM users WHERE id = $1 FOR UPDATE").await;
+            execute_on(
+                &mut change,
+                &format!(
+                    "INSERT INTO avatars (id, user_id, media_type, size_bytes, crc32, object_key) \
+                     VALUES ('{OTHER_AVATAR}', '{}', 'image/png', 5, 0, 'avatars/{}')",
+                    ada.user_id,
+                    "0".repeat(32)
+                ),
+            )
+            .await;
+            execute_on(&mut change, "COMMIT").await;
+        },
+        api.run_jobs()
+    );
+    assert_eq!(runs, 1);
+    (ada, format!("/v1/public/avatars/{OTHER_AVATAR}"))
+}
+
+/// The ID of the avatar that another change gives Ada while the job fetches her picture.
+const OTHER_AVATAR: &str = "018f0000-0000-7000-8000-000000000001";
 
 /// How many errors the API has ignored as a picture that wasn't copied, in every test that runs
 /// alongside (ERR-11).
@@ -167,10 +213,50 @@ async fn accounts_028_a_second_run_of_the_job_changes_nothing() {
         ["1"]
     );
     assert!(copies(&api).await.is_empty());
+    // The second run asked the picture's host for nothing, and stored no object.
+    assert_eq!(fetches(&upstream), 1);
+    assert_eq!(objects(&api).await.len(), 1);
 }
 
 #[tokio::test]
-async fn accounts_028_an_account_that_set_an_avatar_meanwhile_keeps_it() {
+async fn accounts_028_an_account_that_gets_an_avatar_while_its_picture_is_fetched_keeps_it() {
+    let (upstream, api) = standing(Options::default()).await;
+
+    let (ada, other) = overtaken(&upstream, &api).await;
+
+    assert_eq!(avatar_url(&api, &ada).await, other);
+    assert!(
+        reads(
+            &api,
+            "SELECT id::text FROM audit_entries WHERE action = 'avatar.copied'"
+        )
+        .await
+        .is_empty()
+    );
+    assert!(copies(&api).await.is_empty(), "no retry and no dead letter");
+    // The job had fetched the picture, and stored the object that no row names (FILES-011).
+    assert_eq!(fetches(&upstream), 1);
+    assert_eq!(objects(&api).await.len(), 1);
+}
+
+#[tokio::test]
+async fn files_013_a_copy_of_a_provider_s_picture_counts_as_an_avatar_s_upload() {
+    let (upstream, api) = standing(Options::default()).await;
+    let (stored, failed) = (uploads("stored"), uploads("failed"));
+
+    registered(&upstream, &api, files::PNG).await;
+    api.run_jobs().await;
+    let copied = uploads("stored");
+    let (overtaken_upstream, overtaken_api) = standing(Options::default()).await;
+    overtaken(&overtaken_upstream, &overtaken_api).await;
+
+    // Tests running alongside upload too, so the counts grow by at least these.
+    assert!(copied >= stored + 1.0);
+    assert!(uploads("failed") >= failed + 1.0);
+}
+
+#[tokio::test]
+async fn accounts_028_an_account_that_set_an_avatar_before_the_job_ran_keeps_it() {
     let (upstream, api) = standing(Options::default()).await;
     let ada = registered(&upstream, &api, files::PNG).await;
     let set = api
@@ -195,6 +281,7 @@ async fn accounts_028_an_account_that_set_an_avatar_meanwhile_keeps_it() {
         .is_empty()
     );
     assert!(copies(&api).await.is_empty());
+    assert_eq!(fetches(&upstream), 0, "the job read the avatar first");
 }
 
 #[tokio::test]

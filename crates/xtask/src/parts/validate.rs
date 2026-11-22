@@ -1,6 +1,7 @@
 //! What `just remove`, `just keep` and `check-parts` refuse before they remove anything: a marker
 //! that names no part, a line that holds two markers, a block that no end marker closes, and a
-//! test that removing a part would take though its behavior stays (ARCH-07, TEST-04).
+//! test that removing a part would take though its behavior stays, unless the test proves a
+//! clause that exists only with another part too (ARCH-07, TEST-04).
 
 use super::{Part, SPECS, markers, owned};
 use crate::{Finding, repo::Repo};
@@ -8,8 +9,10 @@ use crate::{Finding, repo::Repo};
 /// Fails on each marker of the repository's files that names no part, each line that holds two
 /// markers, each block that no end marker closes, and each test, in a file that a part owns
 /// whole, that another module's behavior names, since the removal would take it, unless that
-/// behavior's row in its spec is the part's too, and goes with it (ARCH-07). For a part without a
-/// module of its own, such as an OAuth provider, every module is another.
+/// behavior's row in its spec is the part's too, and goes with it, or the row is another part's
+/// whose marker marks the line that declares the test, which then proves a clause that exists
+/// only with both parts, and goes with either (ARCH-07). For a part without a module of its own,
+/// such as an OAuth provider, every module is another.
 pub(super) fn validate(repo: &Repo, parts: &[Part]) -> Vec<Finding> {
     let known: Vec<&str> = parts.iter().map(|part| part.name.as_str()).collect();
     let mut findings: Vec<Finding> = repo
@@ -27,6 +30,9 @@ pub(super) fn validate(repo: &Repo, parts: &[Part]) -> Vec<Finding> {
             .files()
             .filter(|file| file.path.ends_with(".rs") && owned.contains(&file.path))
         {
+            // The parts that mark each line of the file; a file whose markers don't read is
+            // refused above.
+            let marking = markers::owners(&file.text, &known).unwrap_or_default();
             for (index, line) in file.text.lines().enumerate() {
                 let Some(name) = line
                     .trim_start()
@@ -40,15 +46,19 @@ pub(super) fn validate(repo: &Repo, parts: &[Part]) -> Vec<Finding> {
                 else {
                     continue;
                 };
-                if !removes_behavior(repo, part, &known, &other, &number) {
+                let row = row_owners(repo, &known, &other, &number);
+                let test = marking.get(index).map_or(&[][..], Vec::as_slice);
+                if !(row.contains(&part.name.as_str()) || row.iter().any(|by| test.contains(by))) {
                     findings.push(Finding::new(
                         &file.path,
                         index + 1,
                         format!(
                             "a test of `{other}`'s behavior is in a file that `{}` owns, so \
                              removing the part would remove it while the behavior stays: move \
-                             it, prove the behavior without the part, or give the behavior's row \
-                             the part's marker if it exists only for the part (TEST-04)",
+                             it, prove the behavior without the part, give the behavior's row \
+                             the part's marker if it exists only for the part, or, for a clause \
+                             that exists only with the part whose marker the row carries, put \
+                             the test in that part's block (TEST-04)",
                             part.name
                         ),
                     ));
@@ -75,19 +85,21 @@ pub(super) fn behavior(name: &str) -> Option<(String, String)> {
         .then(|| (words[..number].join("_"), words[number].to_owned()))
 }
 
-/// Whether removing `part` removes the row of `module`'s behavior `number` from that module's
-/// spec, because the row is the part's: it carries the part's marker, or the part's block holds
-/// it.
-fn removes_behavior(repo: &Repo, part: &Part, known: &[&str], module: &str, number: &str) -> bool {
+/// The parts whose markers own the row of `module`'s behavior `number` in that module's spec: the
+/// row carries the part's marker, or the part's block holds it. None where the spec, or the row,
+/// isn't there, or the spec's markers don't read.
+fn row_owners<'a>(repo: &'a Repo, known: &[&str], module: &str, number: &str) -> Vec<&'a str> {
     let Some(spec) = repo.file(&format!("{SPECS}{module}.md")) else {
-        return false;
+        return Vec::new();
     };
     let row = format!("| {}-{number} |", module.to_ascii_uppercase());
     let Ok(owners) = markers::owners(&spec.text, known) else {
-        return false;
+        return Vec::new();
     };
     spec.text
         .lines()
         .zip(owners)
-        .any(|(line, owners)| line.starts_with(&row) && owners.contains(&part.name.as_str()))
+        .filter(|(line, _)| line.starts_with(&row))
+        .flat_map(|(_, owners)| owners)
+        .collect()
 }

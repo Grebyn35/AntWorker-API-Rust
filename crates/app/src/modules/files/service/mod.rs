@@ -327,7 +327,8 @@ pub(super) struct Serving {
 }
 
 /// What a download serves of a file: the file, what of its bytes `Wanted` asked for, and those
-/// bytes, as the bucket streams them, or none when the client holds them (PLATFORM-081).
+/// bytes, as the bucket streams them, or none when the request asks for none: the client holds
+/// them, or the request is a `HEAD` (PLATFORM-081).
 pub(crate) struct Downloaded {
     pub(super) file: Serving,
     pub(super) served: Served,
@@ -336,13 +337,18 @@ pub(crate) struct Downloaded {
 
 /// What a download of `file` serves, as `wanted` asks for it: nothing when the client holds its
 /// bytes, as `If-None-Match` says, and otherwise its bytes, or the range of them that the request
-/// names, from the bucket (FILES-009, FILES-023, PLATFORM-081).
+/// names, from the bucket, of which a `HEAD` asks the object's size alone (FILES-009, FILES-023,
+/// PLATFORM-081).
 async fn serve(files: &Files, file: Serving, wanted: &Wanted) -> Result<Downloaded, FilesError> {
     let served = wanted.serve(file.size_bytes, &file.id.to_string());
     let bytes = if served == Served::NotModified {
         None
-    } else {
+    } else if wanted.serves_bytes() {
         Some(bytes(files, &file, served.offsets()).await?)
+    } else {
+        let key = ObjectKey::from_stored(&file.object_key);
+        held(&file, files.storage.head(&key).await.map(|size| (size, ())))?;
+        None
     };
     Ok(Downloaded {
         file,
@@ -352,25 +358,28 @@ async fn serve(files: &Files, file: Serving, wanted: &Wanted) -> Result<Download
 }
 
 /// The bytes of `file`, or those of `range` alone, offsets of its bytes, as the bucket streams
-/// them, once the bucket's answer shows its object at the row's size (FILES-009). A row whose
-/// object the bucket doesn't hold, or holds at another size, is an internal error, whose cause
-/// names the file, since only a fault of the bucket's leaves one (ERR-10).
+/// them, once the bucket's answer shows its object at the row's size (FILES-009).
 async fn bytes(
     files: &Files,
     file: &Serving,
     range: Option<Range<u64>>,
 ) -> Result<ObjectBytes, FilesError> {
+    let key = ObjectKey::from_stored(&file.object_key);
+    let read = files.storage.get(&key, range).await;
+    held(file, read.map(|object| (object.size, object.bytes)))
+}
+
+/// What `read`, a read of `file`'s object, gave beside the object's size, once that size is the
+/// row's (FILES-009). A row whose object the bucket doesn't hold, or holds at another size, is an
+/// internal error, whose cause names the file, since only a fault of the bucket's leaves one
+/// (ERR-10).
+fn held<T>(file: &Serving, read: Result<(u64, T), StorageError>) -> Result<T, FilesError> {
     let (id, size_bytes) = (file.id, file.size_bytes);
-    match files
-        .storage
-        .get(&ObjectKey::from_stored(&file.object_key), range)
-        .await
-    {
-        Ok(object) if object.size == size_bytes => Ok(object.bytes),
+    match read {
+        Ok((size, read)) if size == size_bytes => Ok(read),
         // An object of another size isn't the file's bytes, as one cut short isn't.
-        Ok(object) => Err(FilesError::Internal(Internal::new(format!(
-            "the row of the file {id} names an object of {size_bytes} bytes, which the bucket holds with {}",
-            object.size
+        Ok((size, _)) => Err(FilesError::Internal(Internal::new(format!(
+            "the row of the file {id} names an object of {size_bytes} bytes, which the bucket holds with {size}"
         )))),
         Err(StorageError::NotFound) => Err(FilesError::Internal(Internal::new(format!(
             "the row of the file {id} names an object that the bucket doesn't hold"

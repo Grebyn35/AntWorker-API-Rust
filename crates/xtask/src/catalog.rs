@@ -88,11 +88,7 @@ impl Catalog {
 
     fn read_rules(&mut self, file: &File) {
         for (index, line) in file.text.lines().enumerate() {
-            if let Some(heading) = line.strip_prefix("### ")
-                && let Some(token) = text::id_tokens(heading).into_iter().next()
-                && token.column == 0
-                && token.number.len() == 2
-            {
+            if let Some(token) = rule_heading(line) {
                 self.define(token.prefix, &token.id(), &file.path, index + 1);
             }
             for (start, _) in line.match_indices("ci: ") {
@@ -121,17 +117,10 @@ impl Catalog {
                 retired.extend(listed.into_iter().map(|number| (number, index + 1)));
                 continue;
             }
-            let Some(cell) = line.strip_prefix('|').and_then(|row| row.split('|').next()) else {
-                continue;
-            };
-            let cell = cell.trim();
-            let Some(token) = text::id_tokens(cell).into_iter().next() else {
+            let Some(token) = behavior_row(line) else {
                 continue;
             };
             let id = token.id();
-            if token.column != 0 || id.len() != cell.len() || token.number.len() != 3 {
-                continue;
-            }
             if token.prefix != expected {
                 self.findings.push(Finding::new(
                     &file.path,
@@ -204,6 +193,26 @@ impl Catalog {
         }
         new
     }
+}
+
+/// The ID of the rule whose heading `line`, a line of a file of `docs/standards/`, is: `### `,
+/// then the ID, with a number of two digits.
+pub fn rule_heading(line: &str) -> Option<text::Token<'_>> {
+    let token = text::id_tokens(line.strip_prefix("### ")?)
+        .into_iter()
+        .next()?;
+    (token.column == 0 && token.number.len() == 2).then_some(token)
+}
+
+/// The ID of the behavior whose row `line`, a line of a spec, is: a table's row whose first cell
+/// holds the ID alone, with a number of three digits.
+pub fn behavior_row(line: &str) -> Option<text::Token<'_>> {
+    let cell = line.strip_prefix('|')?.split('|').next()?.trim();
+    let token = text::id_tokens(cell).into_iter().next()?;
+    (token.column == 0
+        && token.prefix.len() + 1 + token.number.len() == cell.len()
+        && token.number.len() == 3)
+        .then_some(token)
 }
 
 /// The numbers that a spec's line of retired IDs names, such as `IDs 014 and 015 are retired.`,

@@ -16,7 +16,7 @@ The reference deployment gives no credential a value of its own choosing: its op
 ### SEC-02 Secrets at rest are encrypted with associated data
 Secrets stored in the database that the API must read back, such as an authenticator app's secret, are encrypted with AES-256-GCM. The key is versioned: `ENCRYPTION_KEYS` holds each version, `ENCRYPTION_KEY_VERSION` names the one that encrypts, and each ciphertext records its own (PLATFORM-086). The associated data binds each ciphertext to its table, its column, and the ID of the row that owns the secret, which exists before the secret is written. No other column is encrypted at the application level.
 - Why: a ciphertext can't be moved to another row, and the encryption scope stays small (D14).
-- Check: `test`.
+- Check: `test` (PLATFORM-086, PLATFORM-087, AUTH-066), plus `review` (the cipher, and that no other column is encrypted).
 
 ## Credentials and tokens
 
@@ -28,12 +28,12 @@ Access tokens, refresh tokens and verification codes come from the operating sys
 ### SEC-04 Passwords use Argon2id
 Passwords are hashed with Argon2id at the current OWASP parameters, in the string format of the Password Hashing Competition (PHC), on a blocking thread (CODE-05). A successful sign-in rehashes a password stored with older parameters. The auth spec defines the password policy. A password lasts until its user changes or resets it: nothing expires one, or asks its user for a new one after a time. The API takes no hint of a password, and no answer to a secret question.
 - Why: the recommended algorithm, with parameters that can be raised later (D26).
-- Check: `test`, plus `review` (that nothing expires a password, and that no route takes a hint or a secret question).
+- Check: `test` (AUTH-014; and AUTH-093 and OBS-06, a password's hash in a turn of the helper that runs it on a blocking thread), plus `review` (that nothing expires a password, and that no route takes a hint or a secret question).
 
 ### SEC-05 Authentication failures reveal nothing
 A failed sign-in gives the same response and the same timing whether the email exists or not, and so does a password reset, as it is asked for and as its code is checked. Enumeration is accepted only on registration and the email-change pre-flight, both rate limited (D7).
 - Why: attackers can't use sign-in to learn which accounts exist.
-- Check: `test` (identical responses for known and unknown emails), plus `review` (an unknown email runs the same password hash as a known one, and a reset's request does the same work).
+- Check: `test` (identical responses for known and unknown emails: AUTH-005, AUTH-034, AUTH-038), plus `review` (an unknown email runs the same password hash as a known one, and a reset's request does the same work).
 
 ### SEC-06 Sessions are bounded, and lost access ends open streams
 A session starts only in a request that carries its user's password, a provider's code for the user, or the challenge of such a sign-in with its second factor. Access tokens are short-lived. Refresh tokens rotate on every use, and reuse is detected. A proof of who a session's user is gives the session new tokens, as a refresh does (AUTH-095), and a request that starts a session ends the one that its device, or its browser, held (AUTH-008, AUTH-096). Every session has an absolute maximum lifetime. The auth spec sets the durations.
@@ -64,7 +64,7 @@ Three actions are exceptions to the rank of members, and each has its own rule:
 - **Deletion.** Of a workspace's members, the owner alone deletes it, which ends every membership with it, the owner's own among them. A deletion of an account ends its user's memberships as ACCOUNTS-013 and ACCOUNTS-014 say (D16).
   A superadmin deletes any workspace, as no member of it, which ends every membership the same way (WORKSPACES-030, D62). <!-- part: superadmins -->
 - Why: no escalation by delegation, and a workspace always has exactly one owner (D2, D16).
-- Check: `test`. Each route that changes or removes a member, or acts on an offer of a role, or assigns a role, has tests that act on a target of equal rank, and of higher rank wherever one can exist, and that assign an equal and a higher role. Transfer, leave and deletion each have tests, including an owner trying to leave, and an admin trying to delete.
+- Check: `test` (ACCESS-004, WORKSPACES-006, WORKSPACES-013, WORKSPACES-014, WORKSPACES-015, WORKSPACES-017). Each route that changes or removes a member, or acts on an offer of a role, or assigns a role, has tests that act on a target of equal rank, and of higher rank wherever one can exist, and that assign an equal and a higher role. Transfer, leave and deletion each have tests, including an owner trying to leave, and an admin trying to delete.
 
 ## Requests and responses
 
@@ -96,7 +96,7 @@ Stored files, avatars and workspaces' pictures are served with:
 
 A public file's original name reaches only those who may read the file, its workspace's members with `files.read` or the user whose file it is: its public download, which anyone may make, names it by its ID and its kind's extension alone (D7, D115, D116).
 - Why: an uploaded file can't execute as a page from the API's origin.
-- Check: `test`.
+- Check: `test` (PLATFORM-081, FILES-009, FILES-023, FILES-024, FILES-027).
 <!-- end part: files -->
 
 ### SEC-12 Security headers on every response
@@ -110,7 +110,7 @@ The reverse proxy in front of the API terminates TLS and sets HTTP Strict Transp
 An IP limit applies to every route except the health probes, before authentication. A per-user limit applies after it. Per-action limits apply to every action that checks a password or a verification code, or sends an email (D11); the tokens of SEC-03 are too long to guess, so a check of one needs no limit of its own. Every check of a user's current password goes through one `auth` function and shares one bucket per user. The client IP is taken from `X-Forwarded-For` only when the request comes from a configured trusted proxy.
 A user's uploads count their bytes in a budget of a day, whatever their number (PLATFORM-093, D196). <!-- part: files -->
 - Why: brute force and abuse are bounded, and the IP can't be spoofed.
-- Check: `test`.
+- Check: `test` (PLATFORM-054 and PLATFORM-038, the IP and user limits and the probes' exemption; PLATFORM-053, the trusted proxy; AUTH-022, the one bucket of a user's password checks; and each per-action limit has its test, such as AUTH-006's and AUTH-033's).
 
 ### SEC-14 A server exposes only the API and a Grafana that signs viewers in
 The reference deployment publishes only Caddy's ports, 80 and 443. Caddy serves the API's address and, with the self-hosted observability stack, Grafana's, where every viewer signs in: Grafana admits no anonymous viewer and no one who signs themselves up, and serves its own metrics to no one, which nothing of the stack scrapes; its administrator signs in under a name and with a password that the operator chose at the setup, in place of the `admin` that every Grafana starts with, and a deploy generates neither; its health check answers without a sign-in, as the API's probes do (OPS-05). A viewer's session lasts 7 days without a request, and 30 days at most, and a viewer holds any number at once. Its cookie is `__Host-grafana_session`, which is `Secure`, `HttpOnly` and `SameSite=Lax`, so that a link on another site, such as an alert's, opens a dashboard, while what another site's page sends of its own, such as a form's `POST` or a frame's request, carries no cookie; Grafana names its one other cookie, `grafana_session_expiry`, itself, which holds the time at which the session's token changes next. Grafana hashes its sessions' tokens, and encrypts what it stores, under a key that a deploy generates, in place of the one that its image holds. Its one WebSocket, which its pages open, takes a browser's connection only from a page on Grafana's own host name, as Grafana does while its `allowed_origins` is empty. Caddy serves no file: it passes a request on, or answers what its sites state, and a request that names neither address, such as one for the server's own, gets no answer, since a site that takes every other host aborts it. What Caddy's server refuses before a site handles it gets that server's own answer (SEC-12). Postgres, the collector and the rest of the stack answer only on the deployment's private networks. Prometheus, Loki, Tempo and Alertmanager, which ask no credential, answer on one that only the collector and Grafana join beside them: the replicas, the proxy and the API's one-shot subcommands, which send the collector their telemetry on another, reach none of the four.
@@ -128,7 +128,7 @@ An input is decoded once, by the reader of the format it arrives in, such as a J
 The API starts no process, and its image holds no shell (OPS-13). A task that sends a command to a server's shell sends each value that its operator gave as one quoted word, or as a release's version, which names one of the repository's tags. No code evaluates as code, or as an expression, text that an input holds, and a format string is a literal, whose values are its arguments.
 The Extensible Markup Language (XML) that the API reads is the pages of the files bucket's two listings, of its objects and of what it keeps of them: `rusty-s3` reads the first and `Storage` the second, each with `instant-xml`'s parser, which refuses a document type, and with it every entity of a document's own (PLATFORM-094, PLATFORM-096). <!-- part: files -->
 - Why: a value that is decoded twice, or encoded anywhere but where it is written, is how injection and double encoding come about (D25, D26).
-- Check: `compiler` (a format string of Rust is a literal), plus `test` (the encodings that the behaviors above state, and the word that a task sends a server's shell), plus `review`.
+- Check: `compiler` (a format string of Rust is a literal), plus `test` (the encodings that the behaviors above state, such as AUTH-055's and PLATFORM-081's, and an HTML part's escaping, which AUTH-091's test shows, and the word that a task sends a server's shell, OPS-15's and OPS-14's), plus `review`.
 
 ## Supply chain
 
@@ -155,7 +155,7 @@ Cryptography comes from the RustCrypto crates (`aes-gcm`, `hmac`, `sha2`, `argon
 ### SEC-18 Audit entries hold no plain personal data, except IP address and user agent
 The values a module records in an audit entry are IDs and non-personal fields. An email appears only as a keyed hash. IP address and user agent are stored, but a workspace's log shows them only to a reader who holds the permission `access` defines for them, and a user reads them only of the entries that were theirs, in their own read and in their export (D2, D6, D166, AUDIT-010). Erasing an account anonymizes its entries (D31).
 - Why: the audit log is kept longer than most data and read by more people (D6, D7).
-- Check: `compiler` (an entry holds only the type of details that its action declares, in its module's `audit.rs`, AUDIT-014), `test` (each audit action's test asserts its stored values), plus `review` (what each type of details holds).
+- Check: `compiler` (an entry holds only the type of details that its action declares, in its module's `audit.rs`, AUDIT-014), `ci: check-test-map` (each action that a module's `audit.rs` declares is named in a string of the tests' files, as [the check's row](../operations/ci.md#checks-that-exist) says), plus `review` (the test of the behavior that records an action asserts the values that its entry stores, and what each type of details holds).
 
 ### SEC-19 Events reach only authorized streams
 A user event reaches only that user's streams. A workspace event reaches a stream only if its principal holds, in that workspace, the permission that the event requires. Replay delivers an event only to members whose membership already existed when the event was created. An event's frame carries the trace ID of the request that published it only on a stream of that request's user.

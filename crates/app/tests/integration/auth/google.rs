@@ -157,7 +157,7 @@ async fn auth_082_google_is_listed_by_its_key_name_scopes_and_two_clients() {
 
 // part: files
 #[tokio::test]
-async fn auth_082_google_names_a_host_of_its_users_pictures_so_a_registration_hands_one_on() {
+async fn auth_092_google_names_a_host_of_its_users_pictures_so_a_registration_hands_one_on() {
     let (upstream, api) = google().await;
     let picture = "https://lh3.googleusercontent.com/a/ada=s96-c";
     gives(

@@ -547,6 +547,52 @@ impl Api {
         );
     }
 
+    /// Checks the permission of each entry that the request that `response` answers recorded in
+    /// a workspace's log with one, as its trace ID names them: it is the permission of each
+    /// workspace event that the request published in that workspace, or `workspace.read` when it
+    /// published none there, so that an action that declares another permission than its
+    /// change's event fails a test that runs it (the audit spec's "Reading a workspace's log").
+    async fn check_log_permissions(&self, method: &Method, path: &str, response: &Response) {
+        let trace_id = response.trace_id();
+        let entries = self
+            .database
+            .owner_reads(&format!(
+                "SELECT workspace_id || ' ' || permission || ' ' || action FROM audit_entries \
+                 WHERE trace_id = '{trace_id}' AND scope = 'workspace' AND permission IS NOT NULL"
+            ))
+            .await;
+        if entries.is_empty() {
+            return;
+        }
+        let events = self
+            .database
+            .owner_reads(&format!(
+                "SELECT DISTINCT workspace_id || ' ' || permission FROM events \
+                 WHERE split_part(traceparent, '-', 2) = '{trace_id}' AND scope = 'workspace'"
+            ))
+            .await;
+        for entry in entries {
+            let (workspace, rest) = entry.split_once(' ').unwrap();
+            let (permission, action) = rest.split_once(' ').unwrap();
+            let published: Vec<&str> = events
+                .iter()
+                .filter_map(|event| event.strip_prefix(workspace))
+                .map(str::trim_start)
+                .collect();
+            let expected = if published.is_empty() {
+                vec!["workspace.read"]
+            } else {
+                published
+            };
+            assert!(
+                expected.iter().all(|of_event| *of_event == permission),
+                "{method} {path} recorded `{action}` in a workspace's log with the permission \
+                 {permission}, where the workspace events that it published there carry \
+                 {expected:?}, or `workspace.read` when it published none"
+            );
+        }
+    }
+
     /// A request with `method` to `path`, which may hold a query.
     pub fn request(&self, method: Method, path: &str) -> Call<'_> {
         Call {
@@ -656,6 +702,9 @@ impl Call<'_> {
         if status.is_success() && !self.method.is_safe() {
             self.api
                 .check_publishers(&self.method, &self.path, &response, bearer, credential)
+                .await;
+            self.api
+                .check_log_permissions(&self.method, &self.path, &response)
                 .await;
         }
         response

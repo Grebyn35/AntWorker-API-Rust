@@ -149,8 +149,17 @@ fn components(repo: &Repo, document: &Value, catalog: &BTreeSet<&str>) -> Vec<Fi
 }
 
 /// Whether `path` is a module's `audit.rs`, or a Rust file of its directory `audit/`.
-fn is_audit_file(path: &str) -> bool {
+pub fn is_audit_file(path: &str) -> bool {
     of_module(path, "audit")
+}
+
+/// The name in double quotes that follows each `Action::new(` in `text`, a module's `audit.rs`,
+/// with its line.
+pub fn declared_in(text: &str) -> Vec<(&str, usize)> {
+    declared(text, &[ACTION])
+        .into_iter()
+        .filter_map(|(name, line)| Some((name?, line)))
+        .collect()
 }
 
 #[cfg(test)]

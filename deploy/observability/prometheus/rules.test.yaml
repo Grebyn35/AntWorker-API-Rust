@@ -127,16 +127,16 @@ tests:
       - series: 'platform_storage_requests_total{job="api", instance="a", storage_outcome="unavailable"}'
         values: "0 0 1 2 3 4 5 6 7 8 9 10"
     alert_rule_test:
-      - eval_time: 3m
+      - eval_time: 6m
         alertname: StorageUnreachable
         exp_alerts: []
-      - eval_time: 10m
+      - eval_time: 7m
         alertname: StorageUnreachable
         exp_alerts:
           - exp_labels:
               severity: page
             exp_annotations:
-              summary: The bucket of files' bytes answered none of the API's calls for 5 minutes, while some went unanswered.
+              summary: The bucket of files' bytes answered none of the API's calls for 7 minutes, while some went unanswered.
               runbook: docs/operations/runbooks.md#storageunreachable
 
   # A bucket that refuses some calls still answers.
@@ -159,16 +159,16 @@ tests:
       - series: 'platform_scans_total{job="api", instance="a", scanner_outcome="unavailable"}'
         values: "0 0 1 2 3 4 5 6 7 8 9 10"
     alert_rule_test:
-      - eval_time: 3m
+      - eval_time: 6m
         alertname: ScannerUnreachable
         exp_alerts: []
-      - eval_time: 10m
+      - eval_time: 7m
         alertname: ScannerUnreachable
         exp_alerts:
           - exp_labels:
               severity: page
             exp_annotations:
-              summary: The malware scanner answered none of the API's scans for 5 minutes, while some went unanswered, so no upload is stored.
+              summary: The malware scanner answered none of the API's scans for 7 minutes, while some went unanswered, so no upload is stored.
               runbook: docs/operations/runbooks.md#scannerunreachable
 
   # A scanner that fails some scans still answers.
@@ -192,17 +192,17 @@ tests:
       - series: 'auth_provider_exchanges_total{job="api", instance="a", auth_provider="first", auth_outcome="unavailable"}'
         values: "0 0 0 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26"
     alert_rule_test:
-      - eval_time: 10m
+      - eval_time: 21m
         alertname: SignInProviderUnavailable
         exp_alerts: []
-      - eval_time: 25m
+      - eval_time: 22m
         alertname: SignInProviderUnavailable
         exp_alerts:
           - exp_labels:
               severity: page
               auth_provider: first
             exp_annotations:
-              summary: An OAuth provider gave no identity for 15 minutes, while some sign-ins through it went unanswered.
+              summary: An OAuth provider gave no identity for 20 minutes, while some sign-ins through it went unanswered.
               runbook: docs/operations/runbooks.md#signinproviderunavailable
 
   # A provider that refuses some codes still answers.
@@ -223,10 +223,10 @@ tests:
       - series: 'platform_database_reachable{job="api", instance="a", db_namespace="api"}'
         values: "1 1 1 1"
     alert_rule_test:
-      - eval_time: 3m
+      - eval_time: 7m
         alertname: ApiTelemetryMissing
         exp_alerts: []
-      - eval_time: 10m
+      - eval_time: 8m
         alertname: ApiTelemetryMissing
         exp_alerts:
           - exp_labels:
@@ -424,10 +424,10 @@ tests:
       - series: 'file_mtime_seconds{file_name="archive-failed"}'
         values: "120x20"
     alert_rule_test:
-      - eval_time: 3m
+      - eval_time: 4m
         alertname: BackupArchivingFailing
         exp_alerts: []
-      - eval_time: 8m
+      - eval_time: 5m
         alertname: BackupArchivingFailing
         exp_alerts:
           - exp_labels:
@@ -445,7 +445,10 @@ tests:
       - series: 'file_mtime_seconds{file_name="archive-failed"}'
         values: "30x10"
     alert_rule_test:
-      - eval_time: 7m
+      - eval_time: 4m
+        alertname: BackupArchivingFailing
+        exp_alerts: []
+      - eval_time: 5m
         alertname: BackupArchivingFailing
         exp_alerts:
           - exp_labels:
@@ -553,10 +556,10 @@ tests:
       - series: 'platform_event_delivery_lag_seconds_bucket{job="api", instance="a", le="+Inf"}'
         values: "0+60x40"
     alert_rule_test:
-      - eval_time: 15m
+      - eval_time: 20m
         alertname: EventsDelayed
         exp_alerts: []
-      - eval_time: 32m
+      - eval_time: 21m
         alertname: EventsDelayed
         exp_alerts:
           - exp_labels:
@@ -574,10 +577,10 @@ tests:
       - series: 'platform_events_unloaded{job="api", instance="b"}'
         values: "0 2 0 0 3 0 0 1 0 0 0 4 0 0 0"
     alert_rule_test:
-      - eval_time: 8m
+      - eval_time: 9m
         alertname: EventsStalled
         exp_alerts: []
-      - eval_time: 11m
+      - eval_time: 10m
         alertname: EventsStalled
         exp_alerts:
           - exp_labels:
@@ -593,10 +596,10 @@ tests:
       - series: 'platform_job_delay_seconds{job="api", instance="a"}'
         values: "0 0 0 0 0 60 120 180 240 300 360 420 480 540 600 660 720 780 840 900 960 1020"
     alert_rule_test:
-      - eval_time: 15m
+      - eval_time: 19m
         alertname: JobsDelayed
         exp_alerts: []
-      - eval_time: 21m
+      - eval_time: 20m
         alertname: JobsDelayed
         exp_alerts:
           - exp_labels:
@@ -705,10 +708,10 @@ tests:
       - series: 'system_memory_limit_bytes'
         values: "8000000000x30"
     alert_rule_test:
-      - eval_time: 10m
+      - eval_time: 14m
         alertname: MemoryRunningLow
         exp_alerts: []
-      - eval_time: 20m
+      - eval_time: 15m
         alertname: MemoryRunningLow
         exp_alerts:
           - exp_labels:

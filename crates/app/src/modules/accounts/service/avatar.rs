@@ -66,18 +66,22 @@ impl Avatars {
     }
 
     /// Copies the picture at `url` as the avatar of the user that `context`'s job runs for,
-    /// unless they have one by then, or their account is gone: fetched through the untrusted
-    /// client, then checked, scanned and stored as an avatar's upload is, and recorded in a unit
-    /// of work of the job's. A picture that the client refuses, that isn't an image an avatar may
-    /// be, or that holds malware is ignored, and so is one that the `last` attempt fails to
-    /// fetch, scan or store; an earlier attempt's failure is one that the job retries
-    /// (ACCOUNTS-028).
+    /// unless they have one, or their account is gone: the job reads first whether they have an
+    /// avatar, and fetches nothing when they do, so a second run asks the picture's host for
+    /// nothing; the picture is then fetched through the untrusted client, checked, scanned and
+    /// stored as an avatar's upload is, and recorded in a unit of work of the job's. A picture
+    /// that the client refuses, that isn't an image an avatar may be, or that holds malware is
+    /// ignored, and so is one that the `last` attempt fails to fetch, scan or store; an earlier
+    /// attempt's failure is one that the job retries (ACCOUNTS-028).
     pub(in crate::modules::accounts) async fn copy(
         &self,
         context: &JobContext,
         url: &str,
         last: bool,
     ) -> Result<(), JobFailure> {
+        if self.has_avatar(context).await.map_err(Internal::new)? {
+            return Ok(());
+        }
         let picture = match self.untrusted.get(url, files::AVATAR_MAX_BYTES).await {
             Ok(picture) => picture,
             Err(FetchError::Failed(cause)) if !last => {
@@ -93,27 +97,39 @@ impl Avatars {
         })
         .await;
         match stored {
-            Ok(()) => Ok(()),
-            Err(AccountsError::AvatarUnavailable(cause)) if !last => Err(JobFailure::Transient(
-                Internal::new(AccountsError::AvatarUnavailable(cause)),
-            )),
-            Err(
+            Ok(()) | Err(NotAdopted::Unwanted) => Ok(()),
+            Err(NotAdopted::Failed(AccountsError::AvatarUnavailable(cause))) if !last => {
+                let unavailable = AccountsError::AvatarUnavailable(cause);
+                Err(JobFailure::Transient(Internal::new(unavailable)))
+            }
+            Err(NotAdopted::Failed(
                 error @ (AccountsError::AvatarNotImage
                 | AccountsError::AvatarMalwareDetected
                 | AccountsError::AvatarUnavailable(_)),
-            ) => {
+            )) => {
                 errors::ignore(&error, NOT_COPIED);
                 Ok(())
             }
-            Err(error) => Err(JobFailure::Transient(Internal::new(error))),
+            Err(NotAdopted::Failed(error)) => Err(JobFailure::Transient(Internal::new(error))),
         }
     }
 
+    /// Whether the user that `context`'s job runs for has an avatar, read in a unit of work of
+    /// its own, which ends before the picture's fetch (DATA-21).
+    async fn has_avatar(&self, context: &JobContext) -> Result<bool, AccountsError> {
+        let Some(user) = context.scope().user() else {
+            return Err(Internal::new("a picture's job runs for no one").into());
+        };
+        let mut uow = self.database.for_job(context).await?;
+        Ok(!files::avatar_urls(&mut uow, &[user]).await?.is_empty())
+    }
+
     /// Makes `avatar`, a picture that a provider gave, the avatar of the user that `context`'s
-    /// job runs for, in a unit of work of the job's, as [`set`] makes an upload a caller's:
-    /// unless they have one, or their account is gone, which leaves the picture's object to the
-    /// deletion of unreferenced objects (FILES-011).
-    async fn adopt(&self, context: &JobContext, avatar: NewAvatar) -> Result<(), AccountsError> {
+    /// job runs for, in a unit of work of the job's, as [`set`] makes an upload a caller's. A
+    /// user who has an avatar by then, or whose account is gone, isn't given it: the copy fails
+    /// as unwanted, so the upload counts as failed (FILES-013), and the picture's object is left
+    /// to the deletion of unreferenced objects (FILES-011).
+    async fn adopt(&self, context: &JobContext, avatar: NewAvatar) -> Result<(), NotAdopted> {
         let (Some(user), Some(scope)) = (context.scope().user(), context.audit_scope()) else {
             return Err(Internal::new("a picture's job runs for no one").into());
         };
@@ -122,7 +138,7 @@ impl Avatars {
         if !repo::lock(&mut uow, user).await?
             || !files::avatar_urls(&mut uow, &[user]).await?.is_empty()
         {
-            return Ok(());
+            return Err(NotAdopted::Unwanted);
         }
         repo::avatar::touch(&mut uow, user, None).await?;
         let id = files::record_avatar(&mut uow, user, avatar).await?;
@@ -130,7 +146,21 @@ impl Avatars {
         log::record(&mut uow, scope, entry).await?;
         let workspaces = access::workspace_ids_of(&mut uow, user).await?;
         publish_changed(&mut uow, user, workspaces).await?;
-        Ok(uow.commit().await?)
+        Ok(uow.commit().await.map_err(AccountsError::from)?)
+    }
+}
+
+/// Why a copy of a provider's picture made it no one's avatar.
+enum NotAdopted {
+    /// The user has an avatar by then, or their account is gone.
+    Unwanted,
+    /// The copy failed.
+    Failed(AccountsError),
+}
+
+impl<E: Into<AccountsError>> From<E> for NotAdopted {
+    fn from(error: E) -> Self {
+        Self::Failed(error.into())
     }
 }
 

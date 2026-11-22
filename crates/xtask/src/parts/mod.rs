@@ -3,7 +3,9 @@
 //! removal, as the run's task makes it, and each part's alone.
 
 mod cache;
+mod citations;
 mod dry_run;
+mod exports;
 mod markers;
 mod matrix;
 mod remove;
@@ -289,8 +291,9 @@ fn numbered(text: &str) -> Vec<(usize, &str)> {
 }
 
 /// Deletes the files that the parts `removed` own whole, and the lines their markers mark in every
-/// other file, writing "None." in each section of a spec that it empties, and retiring the numbers
-/// of the behaviors it deletes from one; returns how many files it deleted and edited.
+/// other file, with a blank line where [`markers::strip`] says, writing "None." in each section of
+/// a spec that it empties, and retiring the numbers of the behaviors it deletes from one; returns
+/// how many files it deleted and edited.
 fn delete(repo: &Repo, removed: &[&Part], known: &[&str]) -> Result<(usize, usize), String> {
     let removing: Vec<&str> = removed.iter().map(|part| part.name.as_str()).collect();
     let deleted: Vec<String> = removed.iter().flat_map(|part| owned(repo, part)).collect();
@@ -299,7 +302,7 @@ fn delete(repo: &Repo, removed: &[&Part], known: &[&str]) -> Result<(usize, usiz
     }
     let mut edited = 0;
     for file in repo.files().filter(|file| !deleted.contains(&file.path)) {
-        let stripped = markers::strip(&file.text, &removing, known)
+        let stripped = markers::strip(&file.path, &file.text, &removing, known)
             .map_err(|(line, message)| format!("{}:{line}: {message}", file.path))?;
         if let Some(text) = stripped {
             let text = if is_spec(&file.path) {
@@ -607,6 +610,49 @@ mod tests {
     }
 
     #[test]
+    fn arch_07_a_part_s_file_may_hold_in_another_part_s_block_the_test_of_that_part_s_behavior() {
+        // The markers are built, so the source of these tests holds none.
+        let open = |part: &str| format!("// {} {part}", "part:");
+        let close = |part: &str| format!("// end {} {part}", "part:");
+        let tests = [
+            open("coupons"),
+            "#[tokio::test]".to_owned(),
+            "async fn platform_013_an_offer_takes_a_coupon() {}".to_owned(),
+            "#[tokio::test]".to_owned(),
+            "async fn platform_014_an_offer_takes_a_gift() {}".to_owned(),
+            "#[tokio::test]".to_owned(),
+            "async fn platform_015_an_offer_runs() {}".to_owned(),
+            close("coupons"),
+            "#[tokio::test]".to_owned(),
+            "async fn platform_013_an_offer_takes_a_coupon_outside_its_block() {}".to_owned(),
+            String::new(),
+        ]
+        .join("\n");
+        let spec = format!(
+            "| PLATFORM-013 | A coupon applies. | | `platform_013_` <!-- {0} coupons --> |\n\
+             | PLATFORM-014 | A gift applies. | | `platform_014_` <!-- {0} gifts --> |\n\
+             | PLATFORM-015 | A job runs. | | `platform_015_` |\n",
+            "part:"
+        );
+        let repo = Repo::of(&[
+            (LIST, "parts:\n"),
+            ("crates/app/tests/integration/offers.rs", tests.as_str()),
+            ("docs/spec/platform.md", spec.as_str()),
+        ]);
+        let unowned = |name: &str| Part {
+            name: name.to_owned(),
+            ..offer_words()
+        };
+
+        let findings = validate(&repo, &[offers(), unowned("coupons"), unowned("gifts")]);
+
+        // The test in the block of `coupons`, whose marker the row carries, goes with either
+        // part; the others go with `offers` while their behaviors stay.
+        let places: Vec<usize> = findings.iter().map(|finding| finding.line).collect();
+        assert_eq!(places, [5, 7, 10], "{findings:?}");
+    }
+
+    #[test]
     fn arch_07_a_test_in_a_file_of_a_part_without_a_module_is_checked_as_well() {
         let tests = "#[tokio::test]\nasync fn auth_001_a_user_registers() {}\n\
                      #[tokio::test]\nasync fn auth_002_a_coupon_signs_in() {}\n";
@@ -699,7 +745,8 @@ mod tests {
         let repo = Repo::of(&[(LIST, "parts:\n"), ("docs/MIGRATION.md", tracker.as_str())]);
 
         let findings = validate(&repo, &[offers()]);
-        let kept = markers::kept(&tracker, &["offers"], &["offers", "gone"]).unwrap();
+        let owners = markers::owners(&tracker, &["offers", "gone"]).unwrap();
+        let kept = markers::kept(&tracker, &owners, &["offers"]);
 
         let places: Vec<usize> = findings.iter().map(|finding| finding.line).collect();
         assert_eq!(places, [2]);
