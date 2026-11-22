@@ -52,7 +52,7 @@ Each request has one server span in the API, but for the health probes (OBS-15) 
 ### OBS-07 Trace context carries across work that happens later
 Inbound W3C `traceparent` from clients is accepted. Every job and event row stores the trace context that created it. The span for running that job or delivering that event links to the stored context. Outbound requests send trace context only to our own infrastructure, never to third parties.
 - Why: background work leads back to the request that caused it (D10).
-- Check: `test`.
+- Check: `test` (the inbound `traceparent` by PLATFORM-041's tests, the link of a job's run by PLATFORM-020's, and the rest by the rule's own).
 
 ### OBS-08 Errors and slow requests are always kept
 The SDK samples every trace except the health probes (OBS-15). The collector's tail sampling keeps every trace with `http.response.status_code >= 400` or an error status, every trace slower than the latency objective, and a configured share of the rest. Logs are never sampled. The dashboard of request latency lists kept traces slower than the objective in the time range it shows, as many as its limit holds, each leading to its trace.

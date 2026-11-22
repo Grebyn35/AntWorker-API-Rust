@@ -4,16 +4,12 @@ use std::{
     io::Write,
     net::{SocketAddr, TcpListener},
     process::Output,
-    time::Duration,
 };
 
 use http::StatusCode;
 use serde_json::{Value, json};
 
-use crate::support::{Api, TestDatabase, http_request, run_binary};
-
-/// How often the instance checks the listener.
-const CHECK_INTERVAL: Duration = Duration::from_secs(5);
+use crate::support::{Api, CHECK_INTERVAL, TestDatabase, http_request, run_binary};
 
 #[tokio::test]
 async fn platform_038_the_live_probe_answers_alive() {

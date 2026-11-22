@@ -6,6 +6,7 @@ use serde_json::json;
 use crate::support::{
     Api,
     api::Response,
+    api::reads,
     execute_on,
     providers::{self, gives, grant, identity, stand_in},
     queries_wait_on_locks,
@@ -51,11 +52,6 @@ async fn refresh(api: &Api, refresh: &str) -> Response {
     api.post("/v1/sessions/refresh", &json!({ "refresh_token": refresh }))
         .send()
         .await
-}
-
-/// The first column of each row of `sql`, as the `owner` reads it.
-async fn reads(api: &Api, sql: &str) -> Vec<String> {
-    api.database().owner_reads(sql).await
 }
 
 /// Asserts that `response` answers `user`'s session with a new pair of tokens, that the pair it

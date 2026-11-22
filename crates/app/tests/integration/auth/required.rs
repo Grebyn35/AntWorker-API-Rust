@@ -8,7 +8,8 @@ use serde_json::json;
 use crate::support::{
     Api, Options, api,
     api::Response,
-    execute_on, mailbox,
+    api::reads,
+    audit, execute_on, mailbox,
     operator::{self, EMAIL_OFF, SENDS_EMAIL, printed},
     providers::{self, gives, grant, identity},
     query_waits_on_a_lock,
@@ -29,11 +30,6 @@ async fn current(api: &Api, user: &SignedIn) -> Response {
         .bearer(&user.access)
         .send()
         .await
-}
-
-/// The first column of each row of `sql`, as the `owner` reads it.
-async fn reads(api: &Api, sql: &str) -> Vec<String> {
-    api.database().owner_reads(sql).await
 }
 
 /// Runs the binary's `remove-second-factor` for `email` on `api`'s database, with email on, sent
@@ -260,13 +256,7 @@ async fn auth_070_the_confirmations_of_a_code_and_of_a_change_of_the_address_say
     let code = mailbox::to(&address)
         .await
         .first()
-        .and_then(|email| {
-            email
-                .text
-                .split_whitespace()
-                .find(|word| word.len() == 6 && word.bytes().all(|byte| byte.is_ascii_digit()))
-                .map(str::to_owned)
-        })
+        .and_then(|email| mailbox::digits_code_in(&email.text))
         .expect("a verification code");
 
     let verified = api
@@ -535,14 +525,8 @@ async fn auth_072_the_subcommand_removes_the_app_and_the_codes_and_ends_every_se
     closed.sort();
     assert_eq!(closed, sessions);
     assert_eq!(
-        reads(
-            &api,
-            "SELECT count(*)::text FROM audit_entry_clients c JOIN audit_entries e \
-             ON e.id = c.audit_entry_id WHERE e.action = 'second_factor.removed' \
-             AND (c.client_ip IS NOT NULL OR c.user_agent IS NOT NULL)"
-        )
-        .await,
-        ["0"],
+        audit::with_a_client(api.database(), "second_factor.removed").await,
+        0,
         "an operator's subcommand records no client"
     );
 }

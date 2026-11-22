@@ -211,14 +211,8 @@ async fn auth_005_an_unknown_email_and_an_account_without_a_password_verify_a_ha
     for answer in &answers {
         assert!(answer.starts_with("HTTP/1.1 401"), "{answer}");
     }
-    let in_trace = |span: &Span, trace: &str| -> bool {
-        let id: String = span
-            .trace_id
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect();
-        id == trace
-    };
+    let in_trace =
+        |span: &Span, trace: &str| -> bool { crate::support::hex(&span.trace_id) == trace };
     // A request's span ends after the spans inside it, so its export follows theirs.
     let received = collector
         .wait_for(|received| {

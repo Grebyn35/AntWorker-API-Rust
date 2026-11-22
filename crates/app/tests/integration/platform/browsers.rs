@@ -186,6 +186,37 @@ async fn platform_059_a_change_from_an_unlisted_origin_answers_403() {
 }
 
 #[tokio::test]
+async fn platform_059_a_refusal_of_an_origin_counts_in_the_ip_limit_and_carries_its_headers() {
+    let api = Api::with(
+        Options::default()
+            .set("CORS_ALLOWED_ORIGINS", WEB)
+            .set("RATE_LIMIT_IP_REQUESTS", 2),
+    )
+    .await;
+    let mut answers = Vec::new();
+
+    for _ in 0..3 {
+        let response = api
+            .post("/v1/users", &users::registration("ada@example.com"))
+            .header("origin", "https://evil.example.com")
+            .send()
+            .await;
+        answers.push(response);
+    }
+
+    for (answer, remaining) in answers[..2].iter().zip([1, 0]) {
+        assert_eq!(answer.status, StatusCode::FORBIDDEN);
+        assert_eq!(answer.json()["code"], "request.origin_not_allowed");
+        assert_eq!(answer.header("ratelimit-policy"), "\"ip\";q=2;w=60");
+        let state = format!("\"ip\";r={remaining};t=");
+        assert!(answer.header("ratelimit").starts_with(&state), "{state}");
+    }
+    // The two refusals counted, so the third request is over the limit.
+    assert_eq!(answers[2].status, StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(answers[2].json()["code"], "request.rate_limited");
+}
+
+#[tokio::test]
 async fn platform_059_a_change_a_cookie_authenticates_needs_a_listed_origin() {
     let api = browsers_api().await;
     let cookie = cookies(&browser_sign_in(&api).await);

@@ -24,10 +24,9 @@ use platform::telemetry::testing::{
 
 use serde_json::json;
 
-use crate::support::{Api, Options, TestDatabase, fixtures, jobs, mailbox, service_name};
-
-/// How often the instance checks the listener.
-const CHECK_INTERVAL: Duration = Duration::from_secs(5);
+use crate::support::{
+    Api, CHECK_INTERVAL, Options, TestDatabase, fixtures, hex, jobs, mailbox, service_name,
+};
 
 /// The requests that `points` recorded with exactly `labels`.
 fn requests(points: &[Point], labels: &[(&str, &str)]) -> u64 {
@@ -80,10 +79,6 @@ fn assert_names_the_process(resource: &Resource, environment: &str) -> String {
     assert_eq!(&instance[14..15], "4", "{instance}");
     assert_eq!(attributes.len(), 4, "{attributes:?}");
     instance
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 /// Whether `span` is the server span of the request in the trace `trace`, which also holds a

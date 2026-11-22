@@ -6,6 +6,7 @@ use serde_json::{Value, json};
 use crate::support::{
     Api,
     api::Response,
+    api::reads,
     execute_on,
     providers::{gives, grant, identity, stand_in},
     query_waits_on_a_lock,
@@ -13,11 +14,6 @@ use crate::support::{
     upstream::Upstream,
     users::{self, PASSWORD, SignedIn, WEB},
 };
-
-/// The first column of each row of `sql`, as the `owner` reads it.
-async fn reads(api: &Api, sql: &str) -> Vec<String> {
-    api.database().owner_reads(sql).await
-}
 
 /// Sends `body` to `path` from a browser at [`WEB`] that holds the cookies `cookies`.
 async fn from_browser(api: &Api, path: &str, body: &Value, cookies: &str) -> Response {

@@ -34,7 +34,7 @@ pub struct Email {
 /// An address that no other test sends to: `name`, a random tag, and `@example.com`.
 pub fn address(name: &str) -> String {
     let tag: [u8; 6] = platform::random::bytes().unwrap();
-    let tag: String = tag.iter().map(|byte| format!("{byte:02x}")).collect();
+    let tag = super::hex(&tag);
     format!("{name}-{tag}@example.com")
 }
 
@@ -48,6 +48,13 @@ pub fn grouped_code_in(text: &str) -> Option<String> {
                     group.len() == 4 && group.bytes().all(|b| b.is_ascii_alphanumeric())
                 })
         })
+        .map(str::to_owned)
+}
+
+/// The code of 6 digits in `text`, an email's, such as a verification code (AUTH-030).
+pub fn digits_code_in(text: &str) -> Option<String> {
+    text.split_whitespace()
+        .find(|word| word.len() == 6 && word.bytes().all(|byte| byte.is_ascii_digit()))
         .map(str::to_owned)
 }
 

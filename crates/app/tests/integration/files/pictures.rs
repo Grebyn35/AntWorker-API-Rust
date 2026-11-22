@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 use super::{objects, uploads};
 use crate::support::{
     Api,
+    api::reads,
     api::{self, Options},
     execute_on, files,
     providers::{self, gives, grant, sign_in, signed_in},
@@ -66,11 +67,6 @@ async fn avatar_url(api: &Api, user: &SignedIn) -> Value {
     let record = api.get("/v1/users/me").bearer(&user.access).send().await;
     assert_eq!(record.status, 200, "{}", record.json());
     record.json()["avatar_url"].clone()
-}
-
-/// The first column of each row of `sql`, as the `owner` reads it.
-async fn reads(api: &Api, sql: &str) -> Vec<String> {
-    api.database().owner_reads(sql).await
 }
 
 /// The jobs that copy a picture, each as its state, its attempts and its payload's address.
@@ -315,11 +311,12 @@ async fn accounts_029_a_picture_in_which_the_scanner_finds_malware_leaves_no_ava
 
     assert_eq!(avatar_url(&api, &ada).await, Value::Null);
     assert!(copies(&api).await.is_empty());
-    let logged = testing::all_logged()
+    // The lines of this test's jobs, which run on its thread: other tests log the same kind.
+    let logged = testing::logged_on_this_thread()
         .into_iter()
         .filter(|line| line["error.type"] == "picture_not_copied")
         .count();
-    assert!(logged >= 1, "ERR-11's line");
+    assert_eq!(logged, 1, "ERR-11's line");
 }
 
 #[tokio::test]
@@ -531,8 +528,9 @@ async fn auth_097_the_copy_fetches_from_the_hosts_that_the_configured_providers_
     signed_in(&apart).await;
     apart.run_jobs().await;
 
-    // The client took the listed host as far as its addresses, and never resolved the other.
-    let causes: Vec<String> = testing::all_logged()
+    // The client took the listed host as far as its addresses, and never resolved the other, as
+    // the lines of this test's jobs, which run on its thread, say: other tests log the same kind.
+    let causes: Vec<String> = testing::logged_on_this_thread()
         .into_iter()
         .filter(|line| line["error.type"] == "picture_not_copied")
         .filter_map(|line| line["exception.message"].as_str().map(str::to_owned))

@@ -7,6 +7,7 @@ use serde_json::{Value, json};
 use crate::support::{
     Api,
     api::Response,
+    api::reads,
     mailbox,
     providers::{self, gives, identity},
     second_factors::{self, App, add_app, code, confirm, forget_steps, other_code, start_setup},
@@ -23,11 +24,6 @@ async fn entries(api: &Api, action: &str) -> Vec<String> {
              WHERE action = '{action}' ORDER BY created_at"
         ))
         .await
-}
-
-/// The first column of each row of `sql`, as the `owner` reads it.
-async fn reads(api: &Api, sql: &str) -> Vec<String> {
-    api.database().owner_reads(sql).await
 }
 
 /// Reads `user`'s second factors.

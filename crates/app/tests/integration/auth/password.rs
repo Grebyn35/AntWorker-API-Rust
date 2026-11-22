@@ -469,12 +469,7 @@ async fn auth_036_a_reset_code_leaves_the_account_s_verification_code_in_place()
         .into_iter()
         .find(|email| email.subject.contains("verification code"))
         .unwrap();
-    let digits = verification
-        .text
-        .split_whitespace()
-        .find(|word| word.len() == 6 && word.bytes().all(|byte| byte.is_ascii_digit()))
-        .unwrap()
-        .to_owned();
+    let digits = mailbox::digits_code_in(&verification.text).unwrap();
     let confirmed = api
         .post(
             "/v1/users/me/email/verification/confirm",

@@ -244,11 +244,7 @@ pub async fn buckets(api: &Api) -> Vec<String> {
 /// ID under the tests' `HMAC_KEY`, as a module keys a bucket of a user's (PLATFORM-057).
 pub async fn counted_in(api: &Api, name: &str, user: &SignedIn) -> Option<u32> {
     let id = platform::types::read_id(&user.user_id).unwrap();
-    let key: String = super::api::hmac_key()
-        .hash(name, id.as_bytes())
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect();
+    let key = super::hex(&super::api::hmac_key().hash(name, id.as_bytes()));
     api.database()
         .owner_reads(&format!(
             "SELECT count::text FROM rate_limit_buckets WHERE key_hash = decode('{key}', 'hex')"

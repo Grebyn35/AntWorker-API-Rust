@@ -7,7 +7,7 @@ use http::StatusCode;
 use serde_json::json;
 
 use crate::support::{
-    Api, Options,
+    Api, CHECK_INTERVAL, Options,
     announcements::{self, Note, published::NOTED},
     streams::{self, Stream},
     users::{self, SignedIn},
@@ -16,9 +16,6 @@ use crate::support::{
 
 /// How often a stream sends its heartbeat, by default (REALTIME-003).
 const HEARTBEAT: Duration = Duration::from_secs(15);
-
-/// How often the hub checks the listener (PLATFORM-061).
-const CHECK_INTERVAL: Duration = Duration::from_secs(5);
 
 /// The API, with the announcing routes added.
 async fn api() -> Api {

@@ -124,11 +124,7 @@ pub async fn apps_sealed_by(db: &TestDatabase, users: &[String], keys: &str) {
             let mut secret = [0_u8; 20];
             secret[..16].copy_from_slice(&n.to_be_bytes());
             let sealed = ring.seal(&binding, &secret).unwrap();
-            let bytes: String = sealed
-                .bytes
-                .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect();
+            let bytes = super::hex(&sealed.bytes);
             format!(
                 "('{id}', '{user}', {}, decode('{bytes}', 'hex'), 0)",
                 sealed.version

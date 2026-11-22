@@ -6,25 +6,13 @@ use http::{Method, StatusCode};
 use serde_json::json;
 
 use crate::support::{
-    Api, TestDatabase,
+    Api, Options, TestDatabase,
     api::Response,
-    execute_on, queries_wait_on_locks, query_waits_on_a_lock,
+    api::call,
+    execute_on, fixtures, queries_wait_on_locks, query_waits_on_a_lock,
     users::{self, SignedIn},
     workspaces,
 };
-
-/// Sends `method` to `path` as `caller`.
-async fn call(
-    api: &Api,
-    method: Method,
-    path: &str,
-    caller: &SignedIn,
-) -> crate::support::api::Response {
-    api.request(method, path)
-        .bearer(&caller.access)
-        .send()
-        .await
-}
 
 #[tokio::test]
 async fn access_001_a_workspace_has_exactly_one_owner() {
@@ -46,6 +34,70 @@ async fn access_001_a_workspace_has_exactly_one_owner() {
         .await;
 
     assert!(second.is_err_and(|error| error.contains("workspace_memberships_workspace_id_key")));
+}
+
+#[tokio::test]
+async fn access_001_no_change_of_a_membership_leaves_a_workspace_without_its_owner() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let db = api.database();
+    let workspace = workspaces::arrange(
+        db,
+        "Acme",
+        &[(&ada.user_id, "owner"), (&grace.user_id, "admin")],
+    )
+    .await;
+    let path = format!("/v1/workspaces/{workspace}");
+    let ada_member = format!("{path}/members/{}", ada.user_id);
+    let owners = format!(
+        "SELECT user_id::text FROM workspace_memberships \
+         WHERE workspace_id = '{workspace}' AND role = 'owner'"
+    );
+    let demoted = json!({ "role": "member" });
+
+    // Each way that a membership changes, short of a transfer, keeps Ada the owner.
+    let left = call(&api, Method::POST, &format!("{path}/leave"), &ada).await;
+    let removed = call(&api, Method::DELETE, &ada_member, &grace).await;
+    let demoted_by_admin = api
+        .patch(&ada_member, &demoted)
+        .bearer(&grace.access)
+        .send()
+        .await;
+    let demoted_by_herself = api
+        .patch(&ada_member, &demoted)
+        .bearer(&ada.access)
+        .send()
+        .await;
+    let deleted = call(&api, Method::DELETE, "/v1/users/me", &ada).await;
+    let kept = db.owner_reads(&owners).await;
+    let transferred = api
+        .post(
+            &format!("{path}/transfer"),
+            &json!({ "user_id": grace.user_id }),
+        )
+        .bearer(&ada.access)
+        .send()
+        .await;
+
+    let refusals = [
+        &left,
+        &removed,
+        &demoted_by_admin,
+        &demoted_by_herself,
+        &deleted,
+    ];
+    let statuses: Vec<u16> = refusals
+        .iter()
+        .map(|answer| answer.status.as_u16())
+        .collect();
+    assert_eq!(statuses, [403, 403, 403, 403, 409]);
+    assert_eq!(kept, std::slice::from_ref(&ada.user_id));
+    assert_eq!(transferred.status, StatusCode::NO_CONTENT);
+    assert_eq!(
+        db.owner_reads(&owners).await,
+        std::slice::from_ref(&grace.user_id)
+    );
 }
 
 #[tokio::test]
@@ -347,6 +399,34 @@ async fn platform_010_a_rank_refusal_records_itself_and_rolls_the_operation_back
         .owner_reads("SELECT count(*)::text FROM workspace_memberships")
         .await;
     assert_eq!(members, ["2"]);
+    let actions = db
+        .owner_reads("SELECT action FROM audit_entries WHERE workspace_id IS NOT NULL")
+        .await;
+    assert_eq!(actions, ["access.denied"]);
+}
+
+#[tokio::test]
+async fn platform_010_a_rank_refusal_rolls_back_what_its_operation_wrote_before_it() {
+    // A route of the fixtures publishes an event, then refuses its caller by rank.
+    let api = Api::with(Options::routes(fixtures::routes(Default::default()))).await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    let workspace = workspaces::arrange(db, "Acme", &[(&ada.user_id, "owner")]).await;
+
+    let refused = call(
+        &api,
+        Method::POST,
+        &format!("/v1/workspaces/{workspace}/outranked"),
+        &ada,
+    )
+    .await;
+
+    assert_eq!(refused.status, StatusCode::FORBIDDEN);
+    assert_eq!(refused.json()["code"], "request.permission_denied");
+    let published = db
+        .owner_reads("SELECT count(*)::text FROM events WHERE name = 'keyed.ran'")
+        .await;
+    assert_eq!(published, ["0"], "the event rolled back with its operation");
     let actions = db
         .owner_reads("SELECT action FROM audit_entries WHERE workspace_id IS NOT NULL")
         .await;

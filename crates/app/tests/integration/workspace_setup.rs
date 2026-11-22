@@ -8,7 +8,9 @@ use serde_json::json;
 use crate::{
     accounts::exports::{built, document},
     support::{
-        Api, execute_on, mailbox,
+        Api,
+        api::reads,
+        audit, execute_on, mailbox,
         operator::{EMAIL_OFF, SENDS_EMAIL, finished, refused},
         query_waits_on_a_lock, streams,
         users::{self, PASSWORD},
@@ -29,11 +31,6 @@ async fn set_up(api: &Api, env: &[(&str, &str)], arguments: &[&str]) -> Output {
         .chain(arguments.iter().copied())
         .collect();
     api.database().run_api(&arguments, env).await
-}
-
-/// The first column of each row of `sql`, as the `owner` reads it.
-async fn reads(api: &Api, sql: &str) -> Vec<String> {
-    api.database().owner_reads(sql).await
 }
 
 /// Each workspace's ID and name, the oldest first.
@@ -62,8 +59,9 @@ async fn memberships(api: &Api) -> Vec<String> {
 }
 
 /// The log, actor, target, resource and details of each entry of `action`, the oldest first,
-/// with `-` for no actor or no target, and whether any of them records a client.
-async fn entries(api: &Api, action: &str) -> (Vec<String>, bool) {
+/// with `-` for no actor or no target, and how many of them record a client, an address or a
+/// user agent.
+async fn entries(api: &Api, action: &str) -> (Vec<String>, usize) {
     let entries = reads(
         api,
         &format!(
@@ -74,16 +72,7 @@ async fn entries(api: &Api, action: &str) -> (Vec<String>, bool) {
         ),
     )
     .await;
-    let clients = reads(
-        api,
-        &format!(
-            "SELECT count(*)::text FROM audit_entry_clients c JOIN audit_entries e \
-             ON e.id = c.audit_entry_id WHERE e.action = '{action}' \
-             AND (c.client_ip IS NOT NULL OR c.user_agent IS NOT NULL)"
-        ),
-    )
-    .await;
-    (entries, clients != ["0"])
+    (entries, audit::with_a_client(api.database(), action).await)
 }
 
 /// The user of each email job that tells an address a workspace was set up, `-` for no one.
@@ -159,7 +148,7 @@ async fn workspaces_023_a_run_creates_the_workspace_for_the_account_that_holds_t
         .await,
         ["workspace.read"]
     );
-    assert!(!with_client, "an operator's subcommand records no client");
+    assert_eq!(with_client, 0, "an operator's subcommand records no client");
     // No session of the owner's created the workspace, so no event tells them: the signal
     // closes their streams.
     assert_eq!(count(&api, "events").await, "0");
@@ -242,7 +231,7 @@ async fn workspaces_024_with_email_on_a_run_creates_the_account_when_none_holds_
     assert_eq!(memberships(&api).await, [format!("{id} {user} owner")]);
     let (recorded, with_client) = entries(&api, "user.created").await;
     assert_eq!(recorded, [format!("user {user} - - user {user} {{}}")]);
-    assert!(!with_client, "an operator's subcommand records no client");
+    assert_eq!(with_client, 0, "an operator's subcommand records no client");
 }
 
 #[tokio::test]

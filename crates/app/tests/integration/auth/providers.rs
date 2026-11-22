@@ -1088,8 +1088,10 @@ async fn auth_100_the_log_of_a_refusal_names_its_status_and_rfc_6749_s_code_alon
         );
     }
 
-    let failures: Vec<String> = testing::all_logged()
+    // The lines of these two requests, by their traces: other tests' refusals log the same.
+    let failures: Vec<String> = [&client_refused, &other_code]
         .into_iter()
+        .flat_map(|response| testing::logged(response.trace_id()))
         .filter(|line| line["error.type"] == "auth.provider_unavailable")
         .map(|line| {
             line["exception.message"]

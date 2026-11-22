@@ -35,13 +35,7 @@ async fn code_sent(api: &Api, address: &str) -> String {
     api.run_jobs().await;
     let emails = mailbox::to(address).await;
     let email = emails.first().expect("an email with a code");
-    code_in(&email.text).expect("a code in the email")
-}
-
-fn code_in(text: &str) -> Option<String> {
-    text.split_whitespace()
-        .find(|word| word.len() == 6 && word.bytes().all(|byte| byte.is_ascii_digit()))
-        .map(str::to_owned)
+    mailbox::digits_code_in(&email.text).expect("a code in the email")
 }
 
 /// A code of 6 digits that isn't `code`.

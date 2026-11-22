@@ -67,7 +67,7 @@ Errors become HTTP responses in exactly one function in `platform::errors`, whic
 ### ERR-08 Internal errors expose nothing
 A 500 response has a fixed title and no detail. Its only identifying field is `trace_id`.
 - Why: internals in a response help attackers and confuse clients (D8).
-- Check: `test` (every `Internal` path asserts the fixed body).
+- Check: `test` (`platform`'s unit tests assert the fixed body of an error of the `Internal` category, and the integration tests' support asserts it of each 500 that it reads from the API in process).
 
 ### ERR-09 `detail` is for humans and never carries internals
 `detail` holds a human-readable sentence, which holds on every route that answers its code: it names no field or step that only some of them have. It never includes SQL, file paths, internal identifiers, stack traces or secrets. Clients act on `code`, never on the text.

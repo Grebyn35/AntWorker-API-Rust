@@ -12,6 +12,7 @@ use platform::{
 use crate::support::{
     Api, Options, TestDatabase,
     api::Response,
+    api::one,
     events::{self, Event},
     execute_on, fixtures, mailbox, queries_wait_on_locks, query_waits_on_a_lock, streams,
     users::{self, SignedIn},
@@ -61,11 +62,6 @@ async fn naming(api: &Api, user: &str) -> Vec<String> {
         }
     }
     naming
-}
-
-/// The one value that `sql` reads.
-async fn one(api: &Api, sql: &str) -> String {
-    api.database().owner_reads(sql).await.remove(0)
 }
 
 #[tokio::test]

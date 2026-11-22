@@ -5,6 +5,7 @@ use serde_json::{Value, json};
 
 use crate::support::{
     Api,
+    api::call,
     events::{self, Event},
     lists::{field, pages},
     streams,
@@ -1058,19 +1059,6 @@ async fn sec_19_workspace_updated_reaches_every_member_s_every_device_and_no_rep
     assert_eq!(after_joining.id, second[1]);
 }
 
-/// Sends `method` to `path` as `caller`, with no body.
-async fn send(
-    api: &Api,
-    method: http::Method,
-    path: &str,
-    caller: &SignedIn,
-) -> crate::support::api::Response {
-    api.request(method, path)
-        .bearer(&caller.access)
-        .send()
-        .await
-}
-
 /// Changes the role of `user` in `workspace` to `role`, as `caller`, with `if_match` as its
 /// `If-Match` if given.
 async fn change_role(
@@ -1157,16 +1145,16 @@ async fn workspaces_011_reading_a_member_gives_them_as_the_list_does_with_their_
     workspaces::arrange(db, "Other", &[(&stranger.user_id, "owner")]).await;
     let member = |user: &str| format!("/v1/workspaces/{workspace}/members/{user}");
 
-    let read = send(&api, http::Method::GET, &member(&ada.user_id), &grace).await;
-    let listed = send(
+    let read = call(&api, http::Method::GET, &member(&ada.user_id), &grace).await;
+    let listed = call(
         &api,
         http::Method::GET,
         &format!("/v1/workspaces/{workspace}/members"),
         &grace,
     )
     .await;
-    let elsewhere = send(&api, http::Method::GET, &member(&stranger.user_id), &grace).await;
-    let not_an_id = send(&api, http::Method::GET, &member("nobody"), &grace).await;
+    let elsewhere = call(&api, http::Method::GET, &member(&stranger.user_id), &grace).await;
+    let not_an_id = call(&api, http::Method::GET, &member("nobody"), &grace).await;
 
     assert_eq!(read.status, 200);
     assert_eq!(read.header("etag"), "\"1\"");
@@ -1212,7 +1200,7 @@ async fn workspaces_012_changing_a_role_stores_it_records_it_publishes_it_and_si
     assert_eq!(body["user_id"], grace.user_id);
     assert_eq!(body["email"], "grace@example.com");
     assert_eq!(body["role"], "admin");
-    let read = send(
+    let read = call(
         &api,
         http::Method::GET,
         &format!("/v1/workspaces/{workspace}/members/{}", grace.user_id),
@@ -1537,7 +1525,7 @@ async fn workspaces_014_leaving_ends_the_membership_records_it_publishes_it_and_
     db.owner_executes("DELETE FROM events").await;
     let mut signals = db.signals().await;
 
-    let left = send(
+    let left = call(
         &api,
         http::Method::POST,
         &format!("/v1/workspaces/{workspace}/leave"),
@@ -1587,7 +1575,7 @@ async fn workspaces_014_leaving_closes_the_leaver_s_streams() {
     .await;
     let mut stream = streams::opened(&api, &grace).await;
 
-    let left = send(
+    let left = call(
         &api,
         http::Method::POST,
         &format!("/v1/workspaces/{workspace}/leave"),
@@ -1613,8 +1601,8 @@ async fn workspaces_014_the_owner_may_not_leave_and_an_admin_may() {
     .await;
     let path = format!("/v1/workspaces/{workspace}/leave");
 
-    let refused = send(&api, http::Method::POST, &path, &owner).await;
-    let left = send(&api, http::Method::POST, &path, &admin).await;
+    let refused = call(&api, http::Method::POST, &path, &owner).await;
+    let left = call(&api, http::Method::POST, &path, &admin).await;
 
     assert_eq!(refused.status, 403);
     assert_eq!(refused.json()["code"], "request.permission_denied");
@@ -1683,7 +1671,7 @@ async fn workspaces_015_transferring_swaps_the_roles_records_it_publishes_it_and
         ]
     );
     // The workspace's own row didn't change: its version is the one it was created with.
-    let read = send(
+    let read = call(
         &api,
         http::Method::GET,
         &format!("/v1/workspaces/{workspace}"),
@@ -1873,7 +1861,7 @@ async fn workspaces_017_deleting_a_workspace_deletes_everything_in_it_and_record
     let mut signals = db.signals().await;
     let path = format!("/v1/workspaces/{workspace}");
 
-    let deleted = send(&api, http::Method::DELETE, &path, &ada).await;
+    let deleted = call(&api, http::Method::DELETE, &path, &ada).await;
 
     assert_eq!(deleted.status, 204);
     assert_eq!(workspaces::held_by(db, &workspace).await, "0 0 0 0 0");
@@ -1891,7 +1879,7 @@ async fn workspaces_017_deleting_a_workspace_deletes_everything_in_it_and_record
     let transaction = received[0]["transaction"].as_u64().unwrap();
     let expected = members.map(|(user, _)| workspaces::signal(user, &workspace, transaction));
     assert_eq!(received, expected);
-    assert_eq!(send(&api, http::Method::GET, &path, &ada).await.status, 404);
+    assert_eq!(call(&api, http::Method::GET, &path, &ada).await.status, 404);
 }
 
 #[tokio::test]
@@ -1930,7 +1918,7 @@ async fn workspaces_017_deleting_a_workspace_closes_each_member_s_streams() {
     let mut admin = streams::opened(&api, &grace).await;
     let mut member = streams::opened(&api, &bob).await;
 
-    let deleted = send(
+    let deleted = call(
         &api,
         http::Method::DELETE,
         &format!("/v1/workspaces/{workspace}"),
@@ -1963,8 +1951,8 @@ async fn workspaces_017_an_admin_or_a_member_may_not_delete() {
     .await;
     let path = format!("/v1/workspaces/{workspace}");
 
-    let by_admin = send(&api, http::Method::DELETE, &path, &admin).await;
-    let by_member = send(&api, http::Method::DELETE, &path, &member).await;
+    let by_admin = call(&api, http::Method::DELETE, &path, &admin).await;
+    let by_member = call(&api, http::Method::DELETE, &path, &member).await;
 
     for refused in [&by_admin, &by_member] {
         assert_eq!(refused.status, 403);
@@ -1990,9 +1978,9 @@ async fn workspaces_018_a_transfer_and_a_deletion_need_a_proof_from_the_last_5_m
     users::authenticated_ago(&api, &admin, 6).await;
 
     let transfer_refused = transfer(&api, &owner, &workspace, &admin.user_id).await;
-    let deletion_refused = send(&api, http::Method::DELETE, &path, &owner).await;
+    let deletion_refused = call(&api, http::Method::DELETE, &path, &owner).await;
     // A caller who may not delete learns that, whatever their session proved.
-    let not_allowed = send(&api, http::Method::DELETE, &path, &admin).await;
+    let not_allowed = call(&api, http::Method::DELETE, &path, &admin).await;
 
     for refused in [&transfer_refused, &deletion_refused] {
         assert_eq!(refused.status, 403);
@@ -2021,7 +2009,7 @@ async fn workspaces_018_a_proof_from_within_the_5_minutes_lets_each_through() {
     let transferred = transfer(&api, &owner, &workspace, &admin.user_id).await;
     // The admin owns the workspace, and deletes it.
     let path = format!("/v1/workspaces/{workspace}");
-    let deleted = send(&api, http::Method::DELETE, &path, &admin).await;
+    let deleted = call(&api, http::Method::DELETE, &path, &admin).await;
 
     assert_eq!(transferred.status, 204);
     assert_eq!(deleted.status, 204);

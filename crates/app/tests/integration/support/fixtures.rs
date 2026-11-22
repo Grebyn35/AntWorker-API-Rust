@@ -2,7 +2,8 @@
 //! behaviors of the pipeline that no route of the API shows, or that only the routes of a part of
 //! the template show, which a fork may not keep: a request that waits, one that never ends, a
 //! panic, an internal error, an insert that a foreign key refuses, a keyed operation that
-//! publishes an event, bytes counted in a budget, and an email sent (TEST-04).
+//! publishes an event, a rank refusal after a write, bytes counted in a budget, and an email sent
+//! (TEST-04).
 
 use std::{
     sync::{
@@ -15,7 +16,7 @@ use std::{
 use axum::{Extension, Json, extract::State, http::StatusCode};
 use platform::{
     authn::Principal,
-    authz::{Authorize, Authorizer, Permission},
+    authz::{self, Authorize, Authorizer, Permission},
     errors::{Internal, PlatformError, Problem},
     events::UserEvent,
     http::{Idempotent, Json as Body, Routes},
@@ -269,6 +270,23 @@ fn fixture_email(mailed: Mailed) -> Result<Email, PlatformError> {
     })
 }
 
+/// Publishes an event to its caller, then refuses them as an operation refuses a member who
+/// outranks the caller, so that the refusal finds a write to roll back, which no route of the
+/// API makes before such a refusal (PLATFORM-010).
+#[utoipa::path(
+    post,
+    path = "/v1/workspaces/{workspace_id}/outranked",
+    params(("workspace_id" = WorkspaceId, Path, description = "The workspace.")),
+    responses((status = 204, description = "Never.")),
+)]
+async fn outranked(authorize: Authorize<Reading>) -> Result<StatusCode, Problem<PlatformError>> {
+    let (mut uow, authorized) = authorize.open().await?;
+    uow.publish_to_user(&KEYED_RAN, authorized.principal().user_id(), &Ran {})
+        .await
+        .map_err(PlatformError::from)?;
+    Err(authz::refuse(uow, &authorized).await.into())
+}
+
 /// The routes `POST /v1/mail` and `POST /v1/workspaces/{workspace_id}/mail`, which send their
 /// emails through `mail`, built from the settings of the API they are added to.
 pub fn mailing(mail: Mail) -> Routes {
@@ -286,6 +304,7 @@ pub fn routes(held: Arc<Gate>) -> Routes {
         .merge(Routes::new().public(routes!(gate), &[]).with_state(held));
     let routes = routes.merge(Routes::new().user(routes!(spend), &[]));
     let routes = routes.merge(Routes::new().user(routes!(orphan), &[]));
+    let routes = routes.merge(Routes::new().workspace::<Reading>(routes!(outranked), &[]));
     routes.merge(
         Routes::new()
             .events(&[&KEYED_RAN])

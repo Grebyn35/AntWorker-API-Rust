@@ -8,17 +8,15 @@ use platform::{telemetry::testing, types::UserId};
 use serde_json::json;
 
 use crate::support::{
-    Api, Options, Proxy,
+    Api, CHECK_INTERVAL, Options, Proxy,
     announcements::{self, Note, published::NOTED},
     client,
     events::{self, Event},
+    hex,
     streams::{self, Stream},
     users::{self, SignedIn},
     workspaces,
 };
-
-/// How often the hub checks the listener (PLATFORM-061).
-const CHECK_INTERVAL: Duration = Duration::from_secs(5);
 
 /// How often the hub re-checks its streams, by default (PLATFORM-031).
 const RECHECK: Duration = Duration::from_secs(60);
@@ -1134,7 +1132,6 @@ async fn obs_07_an_event_s_delivery_links_to_the_trace_that_published_it() {
         .find(|(_, span)| span.name == "deliver event")
         .unwrap();
     assert_eq!(span.links.len(), 1);
-    let hex = |bytes: &[u8]| -> String { bytes.iter().map(|byte| format!("{byte:02x}")).collect() };
     assert_eq!(hex(&span.links[0].trace_id), trace);
     assert_eq!(hex(&span.links[0].span_id), "00f067aa0ba902b7");
     assert_ne!(hex(&span.trace_id), trace);

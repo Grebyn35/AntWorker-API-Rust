@@ -23,7 +23,7 @@ use platform::{
 use serde_json::Value;
 use tower::ServiceExt;
 
-use super::{Proxy, TestDatabase, contract::Contract, sent};
+use super::{Proxy, TestDatabase, contract::Contract, sent, users::SignedIn};
 
 /// The service the tests' OpenAPI documents name. The name and version don't affect a check.
 pub(crate) const SERVICE: Service = Service {
@@ -433,7 +433,8 @@ impl Api {
         self.router.clone()
     }
 
-    /// Checks a response against the document, as every response of [`Call::send`] is.
+    /// Checks a response against the document, and the body of a 500 to any method but `HEAD`,
+    /// which answers none, against ERR-08's, as every response of [`Call::send`] is.
     pub fn check(
         &self,
         method: &Method,
@@ -443,6 +444,22 @@ impl Api {
         body: &[u8],
     ) {
         self.contract.check(method, path, status, headers, body);
+        if status == StatusCode::INTERNAL_SERVER_ERROR && method != Method::HEAD {
+            let problem: Value = serde_json::from_slice(body).unwrap_or_default();
+            let mut members: Vec<&str> = problem
+                .as_object()
+                .into_iter()
+                .flat_map(|members| members.keys().map(String::as_str))
+                .collect();
+            members.sort_unstable();
+            assert!(
+                problem["code"] == "request.internal_error"
+                    && problem["title"] == "Internal error"
+                    && members == ["code", "status", "title", "trace_id", "type"],
+                "{method} {path} answered 500 with another body than an internal error's fixed \
+                 one (ERR-08): {problem}"
+            );
+        }
     }
 
     /// The database the API runs on.
@@ -711,7 +728,6 @@ impl Call<'_> {
             .to_bytes()
             .to_vec();
         self.api
-            .contract
             .check(&self.method, &self.path, status, &headers, &body);
         let response = Response {
             status,
@@ -764,4 +780,22 @@ impl Response {
             .map(|value| value.to_str().unwrap())
             .collect()
     }
+}
+
+/// The first column of each row of `sql`, as the `owner` reads it on `api`'s database (TEST-05).
+pub async fn reads(api: &Api, sql: &str) -> Vec<String> {
+    api.database().owner_reads(sql).await
+}
+
+/// The one value that `sql` reads, as [`reads`] reads it.
+pub async fn one(api: &Api, sql: &str) -> String {
+    reads(api, sql).await.remove(0)
+}
+
+/// Sends `method` to `path` as `caller`, with no body.
+pub async fn call(api: &Api, method: Method, path: &str, caller: &SignedIn) -> Response {
+    api.request(method, path)
+        .bearer(&caller.access)
+        .send()
+        .await
 }

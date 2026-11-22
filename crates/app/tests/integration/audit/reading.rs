@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 
 use crate::support::{
     Api, Options, TestDatabase,
-    audit::{Logged, in_own_log},
+    audit::Logged,
     lists,
     users::{self, SignedIn},
     workspaces,
@@ -199,10 +199,11 @@ async fn audit_007_a_page_boundary_between_entries_recorded_at_once_loses_none()
     let db = api.database();
     let acme = workspaces::arrange(db, "Acme", &[(&ada.user_id, "owner")]).await;
     for action in ["thing.one", "thing.two", "thing.three"] {
-        Logged::new(&acme, &ada.user_id, action).record(db).await;
+        Logged::new(&acme, &ada.user_id, action)
+            .at("2026-11-01T12:00:00Z")
+            .record(db)
+            .await;
     }
-    db.owner_executes("UPDATE audit_entries SET created_at = '2026-11-01T12:00:00Z'")
-        .await;
 
     let pages = lists::pages(&api, &ada, &format!("{}?limit=1", log_of(&acme)), "action").await;
 
@@ -275,22 +276,20 @@ async fn audit_008_a_page_boundary_between_entries_of_both_reads_recorded_at_onc
     let db = api.database();
     let acme = workspaces::arrange(db, "Acme", &[(&ada.user_id, "owner")]).await;
     let grace_id = &grace.user_id;
+    // Two entries of each read at one moment, before those of her registration.
+    let at = "2026-11-01T12:00:00Z";
     for action in ["own.one", "own.two"] {
-        in_own_log(db, grace_id, grace_id, action, None).await;
+        Logged::own(grace_id, action).at(at).record(db).await;
     }
     for action in ["done.one", "done.two"] {
         Logged {
             target: Some(grace_id),
             ..Logged::new(&acme, &ada.user_id, action)
         }
+        .at(at)
         .record(db)
         .await;
     }
-    db.owner_executes(&format!(
-        "UPDATE audit_entries SET created_at = '2026-11-01T12:00:00Z' \
-         WHERE user_id = '{grace_id}' OR target_user_id = '{grace_id}'"
-    ))
-    .await;
     let mut expected = own_log(db, grace_id).await;
     expected.extend(["done.one".to_owned(), "done.two".to_owned()]);
     expected.sort();
@@ -325,11 +324,10 @@ async fn four_entries(db: &TestDatabase, acme: &str, ada: &str, grace: &str) {
         Logged::new(acme, grace, "workspace.renamed"),
     ];
     for (hour, entry) in (10..).zip(entries) {
-        let id = entry.record(db).await;
-        db.owner_executes(&format!(
-            "UPDATE audit_entries SET created_at = '2026-11-01T{hour}:00:00Z' WHERE id = '{id}'"
-        ))
-        .await;
+        entry
+            .at(&format!("2026-11-01T{hour}:00:00Z"))
+            .record(db)
+            .await;
     }
 }
 
@@ -390,14 +388,6 @@ async fn audit_009_each_filter_keeps_the_entries_that_match_one_of_its_values() 
     }
 }
 
-/// Gives the entry `id` the time `at`, an SQL timestamp.
-async fn recorded_at(db: &TestDatabase, id: &str, at: &str) {
-    db.owner_executes(&format!(
-        "UPDATE audit_entries SET created_at = '{at}' WHERE id = '{id}'"
-    ))
-    .await;
-}
-
 #[tokio::test]
 async fn audit_009_each_filter_of_one_s_own_list_keeps_the_entries_of_both_its_reads() {
     let api = Api::new().await;
@@ -430,8 +420,10 @@ async fn audit_009_each_filter_of_one_s_own_list_keeps_the_entries_of_both_its_r
         },
     ];
     for (hour, entry) in (10..).zip(entries) {
-        let id = entry.record(db).await;
-        recorded_at(db, &id, &format!("2026-11-01T{hour}:00:00Z")).await;
+        entry
+            .at(&format!("2026-11-01T{hour}:00:00Z"))
+            .record(db)
+            .await;
     }
     // Neither is hers: one done to Ada, and one of Ada's own log.
     for entry in [

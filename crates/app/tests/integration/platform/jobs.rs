@@ -32,7 +32,7 @@ use tokio::{
     task::JoinHandle,
 };
 
-use crate::support::{self, Api, Options, TestDatabase, mailbox, users};
+use crate::support::{self, Api, Options, TestDatabase, hex, mailbox, users};
 
 /// How long a shutdown lets runs go on, in these tests.
 const GRACE: Duration = Duration::from_secs(5);
@@ -951,8 +951,4 @@ async fn obs_07_a_job_stores_the_trace_context_that_enqueued_it() {
         .await;
     assert_eq!(traceparents.len(), 1);
     assert_eq!(traceparents[0].split('-').nth(1), Some(trace_id));
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }

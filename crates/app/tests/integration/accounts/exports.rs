@@ -7,6 +7,7 @@ use serde_json::{Value, json};
 use crate::support::{
     Api,
     api::Response,
+    api::one,
     audit::{self, Client},
     lists, mailbox, providers, streams,
     users::{self, SignedIn},
@@ -82,11 +83,6 @@ async fn event_users(api: &Api, name: &str) -> Vec<String> {
             "SELECT user_id::text FROM events WHERE name = '{name}' ORDER BY created_at"
         ))
         .await
-}
-
-/// The one value the owner's query `sql` reads.
-async fn one(api: &Api, sql: &str) -> String {
-    api.database().owner_reads(sql).await.remove(0)
 }
 
 #[tokio::test]

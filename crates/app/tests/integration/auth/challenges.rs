@@ -2,18 +2,17 @@
 //! code gives; their limits; the jobs of second factors; and the encryption of apps' secrets (the
 //! auth spec's "Second factors").
 
-use serde_json::json;
+use opentelemetry_proto::tonic::trace::v1::{Span, span::SpanKind};
+use platform::telemetry::testing::collector::Collector;
+use serde_json::{Value, json};
 
 use crate::support::{
-    Api, Options, TestDatabase, answer_before_a_lock_wait, execute_on, mailbox,
-    second_factors::{add_app, challenge, code, complete, forget_steps, other_code},
+    Api, Options, Server, TestDatabase, answer_before_a_lock_wait,
+    api::reads,
+    execute_on, hex, http_exchange, mailbox,
+    second_factors::{add_app, challenge, code, code_at, complete, forget_steps, other_code},
     users::{self, PASSWORD, WEB},
 };
-
-/// The first column of each row of `sql`, as the `owner` reads it.
-async fn reads(api: &Api, sql: &str) -> Vec<String> {
-    api.database().owner_reads(sql).await
-}
 
 /// The base64 of 32 bytes of `byte`, a key of the key ring.
 fn key(byte: u8) -> String {
@@ -81,10 +80,7 @@ async fn auth_058_signing_in_to_an_account_with_an_app_answers_a_challenge_and_n
 
 /// The SHA-256 of `token`, in hexadecimal.
 fn hex_sha256(token: &str) -> String {
-    platform::hashing::sha256(token.as_bytes())
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
+    crate::support::hex(&platform::hashing::sha256(token.as_bytes()))
 }
 
 #[tokio::test]
@@ -574,7 +570,7 @@ async fn auth_066_an_app_s_secret_is_stored_encrypted_and_moves_to_the_current_k
     let bytes = data_encoding::BASE32_NOPAD
         .decode(app.secret.as_bytes())
         .unwrap();
-    let plain: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+    let plain = crate::support::hex(&bytes);
     assert!(stored[0].starts_with("1 "), "{}", stored[0]);
     assert!(!stored[0].contains(&plain));
 
@@ -1015,6 +1011,125 @@ async fn auth_066_serve_refuses_a_ring_without_a_lasting_setup_s_version_and_not
         "{printed}"
     );
     drop(started);
+}
+
+/// POSTs `body`, as JSON, to `path` on `server`, with `headers`, and returns the answer's head and
+/// its body as JSON.
+async fn send(
+    server: &Server,
+    path: &str,
+    headers: &[(&str, &str)],
+    body: &str,
+) -> (String, Value) {
+    let length = body.len().to_string();
+    let mut headers = headers.to_vec();
+    headers.extend([
+        ("content-type", "application/json"),
+        ("content-length", &length),
+    ]);
+    let answer = http_exchange(server.address(), "POST", path, &headers, body)
+        .await
+        .unwrap();
+    let (head, body) = answer.split_once("\r\n\r\n").unwrap();
+    (
+        head.to_owned(),
+        serde_json::from_str(body).unwrap_or_default(),
+    )
+}
+
+/// A `serve` on `database` that exports to `collector`, without email, so that an account is
+/// served without proving its address (PLATFORM-022), and the bearer of Ada, who registered
+/// there, with the code of the app whose setup she has started.
+async fn set_up_through_serve(
+    collector: &Collector,
+    database: &TestDatabase,
+) -> (Server, String, String) {
+    let server = database
+        .serve(&[
+            ("ENVIRONMENT", "production"),
+            ("EMAIL", "off"),
+            ("OTEL_EXPORTER_OTLP_ENDPOINT", &collector.endpoint()),
+        ])
+        .await;
+    let registration = users::registration("ada@example.com").to_string();
+    let (_, session) = send(&server, "/v1/users", &[], &registration).await;
+    let bearer = format!("Bearer {}", session["access_token"].as_str().unwrap());
+    let setup_path = "/v1/users/me/second-factors/totp/setup";
+    let (_, setup) = send(&server, setup_path, &[("authorization", &bearer)], "").await;
+    let now: u64 = database
+        .owner_reads("SELECT floor(extract(epoch FROM now()))::int8::text")
+        .await[0]
+        .parse()
+        .unwrap();
+    let code = code_at(setup["secret"].as_str().unwrap(), now);
+    (server, bearer, code)
+}
+
+#[tokio::test]
+async fn auth_061_a_confirmation_counts_its_code_before_its_unit_of_work_opens() {
+    let collector = Collector::start().await.unwrap();
+    let database = TestDatabase::migrated().await;
+    let (server, bearer, code) = set_up_through_serve(&collector, &database).await;
+    let trace = "5bf1a8b1a1e04e7a8c0f1d2e3a4b5c6d";
+
+    let (confirmed, _) = send(
+        &server,
+        "/v1/users/me/second-factors/totp/setup/confirm",
+        &[
+            ("authorization", &bearer),
+            ("traceparent", &format!("00-{trace}-b7ad6b7169203331-01")),
+        ],
+        &json!({ "code": code }).to_string(),
+    )
+    .await;
+    let is_the_request_s =
+        |span: &Span| hex(&span.trace_id) == trace && span.kind == i32::from(SpanKind::Server);
+    // The request's span ends after the spans inside it, so its export follows theirs.
+    let received = collector
+        .wait_for(|received| {
+            received
+                .spans()
+                .iter()
+                .any(|(_, span)| is_the_request_s(span))
+        })
+        .await;
+
+    assert!(confirmed.starts_with("HTTP/1.1 200"), "{confirmed}");
+    let (_, request) = received
+        .spans()
+        .into_iter()
+        .find(|(_, span)| is_the_request_s(span))
+        .unwrap();
+    let within: Vec<&Span> = received
+        .spans()
+        .into_iter()
+        .map(|(_, span)| span)
+        .filter(|span| span.parent_span_id == request.span_id)
+        .collect();
+    let named = |name: &str| -> Vec<&Span> {
+        within
+            .iter()
+            .copied()
+            .filter(|span| span.name == name)
+            .collect()
+    };
+    // The unit of work is the last transaction to open; each count, the code's among them, has
+    // ended before it.
+    let unit_of_work = named("transaction")
+        .into_iter()
+        .max_by_key(|span| span.start_time_unix_nano)
+        .unwrap();
+    let counts = named("INSERT rate_limit_buckets");
+    assert!(
+        counts.len() >= 3,
+        "the IP's, the user's and the code's: {within:?}"
+    );
+    for count in counts {
+        assert!(
+            count.end_time_unix_nano <= unit_of_work.start_time_unix_nano,
+            "{count:?} before {unit_of_work:?}"
+        );
+    }
 }
 
 #[tokio::test]

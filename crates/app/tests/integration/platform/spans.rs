@@ -16,12 +16,8 @@ use tracing::{Instrument, instrument::WithSubscriber};
 use crate::support::{
     Server, TestDatabase,
     events::{self, Event},
-    execute_on, query_waits_on_a_lock, users,
+    execute_on, hex, query_waits_on_a_lock, users,
 };
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
-}
 
 /// A `serve` on `database` that exports to `collector`.
 async fn serve(database: &TestDatabase, collector: &Collector) -> Server {

@@ -7,6 +7,7 @@ use serde_json::{Value, json};
 use crate::support::{
     Api,
     api::Response,
+    api::reads,
     execute_on, mailbox,
     providers::{self, gives, grant, identity, sign_in, signed_in},
     queries_wait_on_locks, second_factors, streams,
@@ -22,11 +23,6 @@ async fn standing() -> (Upstream, Api) {
     let upstream = Upstream::start().await;
     let api = Api::with(providers::stand_in(&upstream)).await;
     (upstream, api)
-}
-
-/// The first column of each row of `sql`, as the `owner` reads it.
-async fn reads(api: &Api, sql: &str) -> Vec<String> {
-    api.database().owner_reads(sql).await
 }
 
 /// Reads `user`'s identities.

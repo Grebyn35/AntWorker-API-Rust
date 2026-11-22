@@ -4,17 +4,14 @@
 use std::process::Output;
 
 use crate::support::{
-    Api, execute_on, mailbox,
+    Api,
+    api::reads,
+    audit, execute_on, mailbox,
     operator::{self, SENDS_EMAIL, printed},
     query_waits_on_a_lock,
     second_factors::{self, add_app},
     users::{self, SignedIn},
 };
-
-/// The first column of each row of `sql`, as the `owner` reads it.
-async fn reads(api: &Api, sql: &str) -> Vec<String> {
-    api.database().owner_reads(sql).await
-}
 
 /// Runs the binary's `end-sessions` with `arguments` on `api`'s database.
 async fn end(api: &Api, arguments: &[&str]) -> Output {
@@ -55,17 +52,6 @@ async fn sessions(api: &Api) -> Vec<String> {
     reads(api, "SELECT id::text FROM sessions ORDER BY 1").await
 }
 
-/// How many audit entries name a client, which no entry of an operator's subcommand does.
-async fn entries_with_a_client(api: &Api) -> Vec<String> {
-    reads(
-        api,
-        "SELECT count(*)::text FROM audit_entry_clients c JOIN audit_entries e \
-         ON e.id = c.audit_entry_id WHERE e.action = 'session.ended' \
-         AND (c.client_ip IS NOT NULL OR c.user_agent IS NOT NULL)",
-    )
-    .await
-}
-
 #[tokio::test]
 async fn auth_094_the_subcommand_ends_every_session_of_the_account_that_holds_the_address() {
     let api = Api::new().await;
@@ -93,7 +79,11 @@ async fn auth_094_the_subcommand_ends_every_session_of_the_account_that_holds_th
     let mut expected = vec![entry(&ada, &ada), entry(&ada, &second)];
     expected.sort();
     assert_eq!(ended_entries(&api).await, expected);
-    assert_eq!(entries_with_a_client(&api).await, ["0"]);
+    assert_eq!(
+        audit::with_a_client(api.database(), "session.ended").await,
+        0,
+        "an operator's subcommand records no client"
+    );
     // Each ended session's event goes to the user's streams (AUTH-046).
     let mut events = vec![
         format!("{} {}", ada.user_id, ada.session_id),

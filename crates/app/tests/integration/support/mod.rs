@@ -63,6 +63,7 @@ use std::{
         Mutex, PoisonError,
         atomic::{AtomicU32, Ordering},
     },
+    time::Duration,
 };
 
 use platform::{
@@ -99,6 +100,16 @@ pub fn client() -> platform::types::Client {
         user_agent: Some("tests".to_owned()),
     }
 }
+
+/// `bytes` in lowercase hexadecimal, as a trace's or a span's ID is written, and as Postgres's
+/// `decode(..., 'hex')` reads them.
+pub fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// How often the hub checks its listener, for readiness (PLATFORM-061), and tries again what it
+/// owes (PLATFORM-033), as `platform::events` checks it.
+pub const CHECK_INTERVAL: Duration = Duration::from_secs(5);
 
 /// The port of the tests' Postgres, whose data is in memory, as `compose.yaml` publishes it on
 /// the loopback address: the tests' databases are on that server, with the roles and the
