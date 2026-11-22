@@ -457,14 +457,26 @@ mod tests {
         );
         assert!(kept.is_empty(), "{kept:?}");
 
-        let without_errors: String = POLICIES.lines().skip(1).collect::<Vec<_>>().join("\n");
-        let missing = findings(
-            &collector(&without_errors),
-            RULES,
-            &dashboard("{ duration > 0.5s }"),
-        );
-        assert_eq!(missing.len(), 1, "{missing:?}");
-        assert!(missing[0].contains("error status"));
+        // Each policy but the latency one, without which a finding names what it kept.
+        for (line, kept) in [
+            (0, "error status"),
+            (1, "http.response.status_code >= 400"),
+            (3, "a share of the other traces"),
+        ] {
+            let without: Vec<&str> = POLICIES
+                .lines()
+                .enumerate()
+                .filter(|(index, _)| *index != line)
+                .map(|(_, policy)| policy)
+                .collect();
+            let missing = findings(
+                &collector(&without.join("\n")),
+                RULES,
+                &dashboard("{ duration > 0.5s }"),
+            );
+            assert_eq!(missing.len(), 1, "{missing:?}");
+            assert!(missing[0].contains(kept), "{kept} in {missing:?}");
+        }
     }
 
     #[test]

@@ -474,7 +474,7 @@ mod tests {
     }
 
     #[test]
-    fn doc_14_the_tracker_has_the_sections_doc_16_lists_in_order() {
+    fn doc_14_the_tracker_has_the_sections_the_rule_lists_in_order() {
         let reordered = "# Tracker\n\n## Decisions\n\n## Current work\n\nNext.\n\n## Notes\n";
         let short = "# Tracker\n\n## Current work\n\nNext.\n";
 

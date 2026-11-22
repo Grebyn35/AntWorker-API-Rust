@@ -2,7 +2,9 @@
 //! placed (DATA-16, D39).
 //! - A table that the migrations create with a `workspace_id` column holds workspace data, unless
 //!   it is listed as platform data. The check reads a table from `CREATE TABLE <name> (`, with the
-//!   columns of the list in those parentheses, and a view from `CREATE VIEW <name>` or `CREATE OR
+//!   columns of the list in those parentheses, and the column of each `ALTER TABLE <name> ADD
+//!   COLUMN <column>`, those words one after another, so a statement adds a column as its first
+//!   action. It reads a view from `CREATE VIEW <name>` or `CREATE OR
 //!   REPLACE VIEW <name>`, in the tokens that `views` reads, of each line cut at its first `--`. A
 //!   `CREATE` of a table or a view is a finding when it holds any of the words that
 //!   `tables::MODIFIERS` lists between `CREATE` and `TABLE` or `VIEW`, such as `UNLOGGED` or
@@ -942,6 +944,21 @@ CREATE TABLE v
                  says, so it places and checks nothing of what this statement creates (DATA-16)"
             ]
         );
+    }
+
+    #[test]
+    fn data_16_a_column_that_alter_table_adds_is_its_table_s() {
+        let repo = Repo::of(&[
+            ("migrations/1_notes.sql", "CREATE TABLE notes (id uuid);\n"),
+            (
+                "migrations/2_tenant.sql",
+                "ALTER TABLE notes ADD COLUMN workspace_id uuid,\n    \
+                 ADD CONSTRAINT notes_body_check CHECK (true);\n\
+                 ALTER TABLE notes ADD CONSTRAINT notes_id_check CHECK (true);\n",
+            ),
+        ]);
+
+        assert_eq!(tables(&repo)["notes"].columns, ["id", "workspace_id"]);
     }
 
     #[test]

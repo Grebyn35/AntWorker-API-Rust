@@ -1,9 +1,14 @@
-//! The shell scripts under `deploy/`, and what check-shell reads in them itself. A script sources
-//! a file of its own directory with a line `. "$here/<path>"`, where `here` names that directory.
+//! The shell scripts under `deploy/`, and what check-shell reads in them itself: each `echo` that
+//! writes a value ([`echo_problems`]), each function that assigns a variable of the top level
+//! ([`scope_problems`]), and each `psql`'s statement ([`psql_problems`]). A script sources a file
+//! of its own directory with a line `. "$here/<path>"`, where `here` names that directory.
 
-use crate::{repo::Repo, sql::referenced, tenancy::unquoted};
+use std::collections::BTreeSet;
 
-/// Each line of `script` whose `echo` writes a value, an argument with an expansion. A server's
+use crate::{repo::Repo, tenancy::words};
+
+/// Each line of `script` whose `echo`, the word `echo ` where a command starts, writes a value: an
+/// argument with an expansion, as [`writes_expansion`] reads it on the `echo`'s line. A server's
 /// sh, such as Ubuntu's dash, reads a backslash in echo's arguments as an escape, and `\c` ends
 /// the output, while printf's `%s` writes the value as it is. Alpine's sh, the tests' server's,
 /// writes it as it is, so no test would find one.
@@ -16,11 +21,7 @@ pub fn echo_problems(script: &str) -> Vec<(usize, &'static str)> {
         let writes_value = line.match_indices("echo ").any(|(start, _)| {
             let command = start == 0
                 || line[..start].ends_with(|c: char| c.is_whitespace() || "(;|&{".contains(c));
-            let arguments = &line[start..];
-            let end = arguments
-                .find(['|', ';', '>', '&'])
-                .unwrap_or(arguments.len());
-            command && arguments[..end].contains('$')
+            command && writes_expansion(&line[start + 5..])
         });
         if writes_value {
             problems.push((
@@ -32,8 +33,50 @@ pub fn echo_problems(script: &str) -> Vec<(usize, &'static str)> {
     problems
 }
 
+/// Whether `arguments`, the text after an `echo `, holds a `$` or a backtick outside single
+/// quotes, which no backslash escapes, before the command ends at a `;`, `|`, `&`, `)` or a `#`
+/// that starts a word, outside quotes. The `&` of a redirection, as in `>&2`, ends nothing, and
+/// the word after a `>` or a `<` is the redirection's, no argument.
+fn writes_expansion(arguments: &str) -> bool {
+    let mut quote = None;
+    // Whether the next word, or the one being read, is a redirection's.
+    let mut redirected = false;
+    let mut previous = ' ';
+    let mut chars = arguments.chars();
+    while let Some(c) = chars.next() {
+        match quote {
+            Some('\'') if c == '\'' => quote = None,
+            Some('\'') => {}
+            _ if c == '\\' => {
+                chars.next();
+            }
+            Some(_) if c == '"' => quote = None,
+            None if c == '\'' || c == '"' => quote = Some(c),
+            _ if c == '$' || c == '`' => {
+                if !redirected {
+                    return true;
+                }
+            }
+            Some(_) => {}
+            None if c == '>' || c == '<' => redirected = true,
+            None if c == '&' && (previous == '>' || previous == '<') => {}
+            None if ";|&)".contains(c) || (c == '#' && previous.is_whitespace()) => return false,
+            None if c.is_whitespace()
+                && !(previous.is_whitespace() || "<>&".contains(previous)) =>
+            {
+                redirected = false;
+            }
+            None => {}
+        }
+        previous = c;
+    }
+    false
+}
+
 /// Each line of `script` whose `psql` takes no statement with `-c`, so a statement it reads from
-/// its input would go unchecked, or whose statement names one of `tables` (ARCH-14).
+/// its input would go unchecked, whose statement, the text between the quotes after its ` -c `,
+/// holds a `$` or a backtick inside double quotes, whose value the check can't read, or whose
+/// statement holds a word, outside its strings and in any case, that is one of `tables` (ARCH-14).
 pub fn psql_problems(script: &str, tables: &[String]) -> Vec<(usize, String)> {
     let mut problems = Vec::new();
     for (index, line) in script.lines().enumerate() {
@@ -53,9 +96,9 @@ pub fn psql_problems(script: &str, tables: &[String]) -> Vec<(usize, String)> {
                     .chars()
                     .next()
                     .filter(|c| *c == '\'' || *c == '"')?;
-                argument[1..].split(quote).next()
+                Some((quote, argument[1..].split(quote).next()?))
             });
-            let Some(statement) = statement else {
+            let Some((quote, statement)) = statement else {
                 problems.push((
                     index + 1,
                     "psql takes its statement with -c, where check-shell reads it (ARCH-14)"
@@ -63,7 +106,18 @@ pub fn psql_problems(script: &str, tables: &[String]) -> Vec<(usize, String)> {
                 ));
                 continue;
             };
-            for table in referenced(&unquoted(&statement.to_ascii_lowercase())) {
+            if quote == '"' && statement.contains(['$', '`']) {
+                problems.push((
+                    index + 1,
+                    "psql's statement holds an expansion, whose value check-shell can't read: \
+                     write the statement itself after -c (ARCH-14)"
+                        .to_owned(),
+                ));
+                continue;
+            }
+            let named: BTreeSet<String> =
+                words(statement).into_iter().map(|(word, _)| word).collect();
+            for table in named {
                 if tables.contains(&table) {
                     problems.push((
                         index + 1,
@@ -159,37 +213,54 @@ pub fn inline(repo: &Repo, path: &str) -> Inlined {
 
 /// Each line, counted from 0, where a function of `script` assigns a variable that the script's
 /// top level sets: every variable of sh is global, so the assignment changes what the rest of
-/// the script reads (CODE-07). A function is `name() {` at the margin, to the next `}` there.
+/// the script reads (CODE-07). A function starts on a line that [`defined`] reads, and runs to
+/// the next line that starts with `}` at that line's indentation, or ends on its first line when
+/// that line ends with `}`. A function whose body is in parentheses runs in a subshell, whose
+/// assignments the script never sees, so the check reads its lines as the top level's.
 pub fn scope_problems(script: &str) -> Vec<(usize, String)> {
     let mut top = Vec::new();
     let mut functions = Vec::new();
-    let mut function: Option<String> = None;
+    // The function being read, and the indentation of its first line.
+    let mut function: Option<(String, usize)> = None;
+    // A function whose `{` the next line holds.
+    let mut braceless: Option<(String, usize)> = None;
     for (index, line) in script.lines().enumerate() {
         let code = line.trim_start();
+        let indentation = line.len() - code.len();
         if code.starts_with('#') {
             continue;
         }
-        if function.is_none()
-            && let Some((name, rest)) = line.split_once("() {")
-            && !name.is_empty()
-            && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        let mut body = None;
+        if let Some((name, at)) = braceless.take()
+            && let Some(rest) = code.strip_prefix('{')
         {
-            let body = rest.trim_end();
-            if body.ends_with('}') {
-                functions.extend(
-                    assigned(body)
+            function = Some((name, at));
+            body = Some(rest);
+        } else if function.is_none()
+            && let Some((name, rest)) = defined(code)
+        {
+            match rest {
+                None => braceless = Some((name.to_owned(), indentation)),
+                Some(rest) if rest.trim_end().ends_with('}') => functions.extend(
+                    assigned(rest)
                         .into_iter()
                         .map(|variable| (name.to_owned(), variable, index)),
-                );
-            } else {
-                function = Some(name.to_owned());
+                ),
+                Some(rest) => {
+                    function = Some((name.to_owned(), indentation));
+                    body = Some(rest);
+                }
             }
-            continue;
+            if body.is_none() {
+                continue;
+            }
         }
         match &function {
-            Some(_) if line.starts_with('}') => function = None,
-            Some(name) => functions.extend(
-                assigned(line)
+            Some((_, at)) if body.is_none() && indentation == *at && code.starts_with('}') => {
+                function = None;
+            }
+            Some((name, _)) => functions.extend(
+                assigned(body.unwrap_or(line))
                     .into_iter()
                     .map(|variable| (name.clone(), variable, index)),
             ),
@@ -209,6 +280,33 @@ pub fn scope_problems(script: &str) -> Vec<(usize, String)> {
             )
         })
         .collect()
+}
+
+/// The name of the function whose definition starts `code`, a line without its indentation:
+/// `name() {`, `name () {`, `function name {` or `function name() {`, with the text after its
+/// `{`; or with `None`, the same without the `{`, whose body the next line starts.
+fn defined(code: &str) -> Option<(&str, Option<&str>)> {
+    let (code, keyword) = match code.strip_prefix("function ") {
+        Some(rest) => (rest.trim_start(), true),
+        None => (code, false),
+    };
+    let end = code
+        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .unwrap_or(code.len());
+    let (name, rest) = code.split_at(end);
+    let rest = rest.trim_start();
+    let rest = match rest.strip_prefix("()") {
+        Some(rest) => rest.trim_start(),
+        None if keyword => rest,
+        None => return None,
+    };
+    if name.is_empty() {
+        return None;
+    }
+    match rest.strip_prefix('{') {
+        Some(body) => Some((name, Some(body))),
+        None => rest.is_empty().then_some((name, None)),
+    }
 }
 
 /// The variables that `line` assigns: each word `name=...` where a command starts, before its
@@ -437,6 +535,74 @@ mod tests {
             .collect();
 
         assert_eq!(problems, [3, 4]);
+    }
+
+    #[test]
+    fn code_07_an_echo_s_quoted_separators_and_redirections_hide_no_expansion() {
+        let script = "#!/bin/sh\n\
+            echo \"done; $name\"\n\
+            echo \"a > $b\" | cat\n\
+            echo \"x & $y\"\n\
+            echo `date`\n\
+            echo >&2 \"$x\"\n\
+            echo 'cost: $5; not a value'\n\
+            echo done > \"$log\" 2>&1\n\
+            echo \\$HOME is written as it is\n\
+            echo done; printf '%s\\n' \"$x\"\n";
+
+        let problems: Vec<usize> = echo_problems(script)
+            .into_iter()
+            .map(|(line, _)| line)
+            .collect();
+
+        assert_eq!(problems, [2, 3, 4, 5, 6]);
+    }
+
+    #[test]
+    fn code_07_a_function_of_any_form_names_its_variables_apart_from_the_top_level() {
+        let script = "#!/bin/sh\n\
+                      state=/var/lib\n\
+                      spaced () {\n\
+                      \x20   state=1\n\
+                      }\n\
+                      braced()\n\
+                      {\n\
+                      \x20   state=2\n\
+                      }\n\
+                      if true; then\n\
+                      \x20   nested() {\n\
+                      \x20       state=3\n\
+                      \x20   }\n\
+                      fi\n\
+                      apart() (\n\
+                      \x20   state=4\n\
+                      )\n";
+
+        let lines: Vec<usize> = scope_problems(script)
+            .into_iter()
+            .map(|(line, _)| line)
+            .collect();
+
+        assert_eq!(lines, [3, 7, 11]);
+    }
+
+    #[test]
+    fn arch_14_a_script_s_psql_statement_names_no_table_in_any_clause_and_holds_no_expansion() {
+        let script = "#!/bin/sh\n\
+                      psql -qAt -c 'TRUNCATE sessions'\n\
+                      psql -qAt -c \"DROP TABLE public.users\"\n\
+                      psql -qAt -c 'COPY users TO STDOUT'\n\
+                      psql -qAt -c \"$statement\"\n\
+                      psql -qAt -c 'SELECT pg_is_in_recovery()'\n\
+                      psql -qAt -c \"SELECT 'sessions', count(*) FROM pg_stat_activity\"\n";
+        let tables = ["sessions".to_owned(), "users".to_owned()];
+
+        let problems: Vec<usize> = psql_problems(script, &tables)
+            .into_iter()
+            .map(|(line, _)| line)
+            .collect();
+
+        assert_eq!(problems, [2, 3, 4, 5]);
     }
 
     #[test]

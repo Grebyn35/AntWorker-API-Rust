@@ -1,12 +1,13 @@
-//! `check-docs`: links, IDs and the CI checks the rules name all resolve (DOC-12); prose and
-//! comments hold no history markers (DOC-01) and no unfinished-work markers (DOC-04); every
-//! document belongs to the documentation set (DOC-05); documents spell out acronyms where they
-//! first use them (DOC-06, in `acronyms`), and hold no sentence, paragraph or cell of more
-//! words than its bound (DOC-15, in `words`); specs, rules, tables and the tracker keep their
-//! formats (DOC-07, DOC-08 and DOC-14, in `formats`); each spec's Routes table matches `openapi.json`
-//! (DOC-08, in `routes`); and test prefixes, paths to Rust files, the name of a codebase this one
-//! replaces, and paths into the inventory are named only where they resolve or DOC-13 allows
-//! (`references`).
+//! `check-docs`: links to the repository's files, IDs and the CI checks the rules name all
+//! resolve (DOC-12); prose and comments hold no history markers (DOC-01) and no unfinished-work
+//! markers (DOC-04); every document belongs to the documentation set (DOC-05); documents spell
+//! out acronyms where they first use them (DOC-06, in `acronyms`), and hold no sentence,
+//! paragraph or cell of more words than its bound (DOC-15, in `words`); specs, rules, tables and
+//! the tracker keep their formats (DOC-08 and DOC-14, in `formats`); each spec's Routes table
+//! matches `openapi.json` (DOC-08, in `routes`); the accounts spec's tables of the personal data
+//! contracts match the contracts that the composition root registers (DOC-07, in `contracts`);
+//! and test prefixes, paths to Rust files, the name of a codebase this one replaces, and paths
+//! into the inventory are named only where they resolve or DOC-13 allows (`references`).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -66,12 +67,13 @@ pub fn check(repo: &Repo, catalog: &Catalog) -> Outcome {
     }
 }
 
-/// No two headings of a document outside the inventory share their text, so each anchor names
-/// one heading (DOC-12).
+/// No two headings of a document share their text, so each anchor names one heading (DOC-12),
+/// but in the inventory and in the changelog, whose sections each repeat the headings of Keep a
+/// Changelog (DOC-11): a link to one of those that [`unresolved`] reads fails instead.
 fn headings(documents: &BTreeMap<&str, markdown::Document>) -> Vec<Finding> {
     documents
         .iter()
-        .filter(|(path, _)| !path.starts_with(INVENTORY))
+        .filter(|(path, _)| !path.starts_with(INVENTORY) && **path != CHANGELOG)
         .flat_map(|(path, document)| {
             document.repeated_headings.iter().map(|(line, heading)| {
                 Finding::new(
@@ -463,6 +465,22 @@ mod tests {
             [
                 "docs/guides/guide.md:9: an earlier heading also reads `Notes`, so their anchors \
                  follow their order: give each heading a text of its own (DOC-12)"
+            ]
+        );
+    }
+
+    #[test]
+    fn doc_12_the_changelog_repeats_its_sections_headings_and_no_link_names_one() {
+        let changelog = "# Changelog\n\n## [Unreleased]\n\n## [1.1.0]\n\n### Added\n\n- A.\n\n\
+                         ## [1.0.0]\n\n### Added\n\n- B.\n";
+        let readme = "# Readme\n\n[added](CHANGELOG.md#added) [release](CHANGELOG.md#100)\n";
+
+        assert_eq!(
+            findings(&[(CHANGELOG, changelog), ("README.md", readme)]),
+            [
+                "README.md:3: the link to `CHANGELOG.md#added` doesn't resolve: another heading \
+                 of `CHANGELOG.md` has the text of the one `#added` names, so the anchor follows \
+                 their order: give each heading a text of its own (DOC-12)"
             ]
         );
     }

@@ -5,8 +5,9 @@
 //! It reads the sources of the sqlx that the workspace depends on, where `cargo metadata` locates
 //! them ([`cargo`]). What sqlx exposes is in [`surface`], and what counts as taking SQL text in
 //! [`signal`]. Each candidate must be reached by a ban of `disallowed-methods`, or of
-//! `disallowed-macros` for a macro, resolved as clippy resolves it ([`bans`]). A ban that names a
-//! crate of sqlx's but reaches nothing in it fails too: clippy only warns about it.
+//! `disallowed-macros` for a macro, resolved as clippy resolves it ([`bans`]). A ban of those two
+//! lists or of `disallowed-types`, whose bans of sqlx's types carry DATA-15, that names a crate of
+//! sqlx's but reaches nothing in it fails too: clippy only warns about it.
 
 mod bans;
 mod cargo;
@@ -60,9 +61,11 @@ fn audit(model: &Model, config: &str) -> Outcome {
     let impls = surface::inherent_impls(model);
     let methods = bans::list(config, "disallowed-methods");
     let macro_bans = bans::list(config, "disallowed-macros");
+    let type_bans = bans::list(config, "disallowed-types");
     let mut findings = Vec::new();
     let banned_methods = banned(model, &impls, &methods, Ns::Value, &mut findings);
     let banned_macros = banned(model, &impls, &macro_bans, Ns::Macro, &mut findings);
+    banned(model, &impls, &type_bans, Ns::Type, &mut findings);
     for (callable, parameters) in &functions {
         if !banned_methods.contains(&callable.def) {
             let taking = format!("in `{}`", parameters.join("`, `"));
@@ -93,7 +96,7 @@ fn audit(model: &Model, config: &str) -> Outcome {
 }
 
 /// What the bans of `list` reach in `ns`, with a finding for each ban of a sqlx crate that
-/// reaches nothing.
+/// reaches nothing: a type's ban carries DATA-15, and the others DATA-14.
 fn banned(
     model: &Model,
     impls: &BTreeMap<ItemId, Vec<ItemId>>,
@@ -101,6 +104,7 @@ fn banned(
     ns: Ns,
     findings: &mut Vec<Finding>,
 ) -> BTreeSet<Def> {
+    let rule = if ns == Ns::Type { "DATA-15" } else { "DATA-14" };
     let mut reached = BTreeSet::new();
     for ban in &list.bans {
         match bans::reaches(model, impls, &ban.path, ns) {
@@ -108,7 +112,7 @@ fn banned(
                 CONFIG,
                 ban.line,
                 format!(
-                    "`{}` in `{}` reaches nothing in the locked sqlx crates, so it bans nothing (DATA-14)",
+                    "`{}` in `{}` reaches nothing in the locked sqlx crates, so it bans nothing ({rule})",
                     ban.path, list.key
                 ),
             )),
@@ -501,6 +505,18 @@ mod tests {
                 ("sqlx::query_checked2".to_owned(), 20),
             ]
         );
+    }
+
+    #[test]
+    fn data_15_a_ban_of_a_sqlx_type_that_reaches_nothing_fails() {
+        let macros = ["sqlx::query_unchecked", "sqlx::raw"];
+        let types = "disallowed-types = [\n    { path = \"sqlx::Pool\", reason = \"r\" },\n    \
+                     { path = \"sqlx::postgres::PgConnection\", reason = \"r\" },\n    \
+                     { path = \"sqlx::Gone\", reason = \"r\" },\n    \
+                     { path = \"other_crate::Type\", reason = \"r\" },\n]\n";
+        let config = config(&TAKING_SQL[..11], &macros) + types;
+
+        assert_eq!(found(&config), [("sqlx::Gone".to_owned(), 21)]);
     }
 
     #[test]

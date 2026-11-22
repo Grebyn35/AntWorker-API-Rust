@@ -80,8 +80,9 @@ impl Catalog {
         &self.named_checks
     }
 
-    /// Problems in how the IDs are defined: an ID defined twice, or a behavior in the spec of
-    /// another module.
+    /// Problems in how the IDs are defined: an ID defined twice, a behavior in the spec of
+    /// another module, a behavior that takes a number its spec retired, or a number below its
+    /// spec's highest that is neither a behavior nor retired.
     pub fn findings(&self) -> &[Finding] {
         &self.findings
     }

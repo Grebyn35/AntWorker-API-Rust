@@ -108,9 +108,9 @@ An ADR has four sections: context, decision, consequences and status. After it i
 - Check: `test` (what a release refuses of the changelog), plus `review`.
 
 ### DOC-12 Links and IDs resolve
-Every link in the docs, and in a Rust file's doc comments, resolves, to one heading where it names an anchor, so no two headings of a document share their text. Every rule ID or behavior ID cited in a document, comment or test exists, and so does the ID whose test prefix a document or comment cites, such as `workspaces_005_`. Two places are exempt from both: the inventory, whose IDs are its own (DOC-13), and the tests of the checks in `crates/xtask/`, whose documents and code, links among them, are made up for a check to read, and name files and modules that no repository need have. Every CI check a rule names is listed in the table of checks in `docs/operations/ci.md`, or, while the migration runs, in the tracker's CI checks.
+Every link in the docs, and in a Rust file's doc comments, resolves, to one heading where it names an anchor, so no two headings of a document share their text, but in `CHANGELOG.md`, whose sections each repeat the headings that Keep a Changelog gives a release (DOC-11), and whose repeated headings no link names. Every rule ID or behavior ID cited in a document, comment or test exists, and so does the ID whose test prefix a document or comment cites, such as `workspaces_005_`. The inventory, whose IDs are its own (DOC-13), is exempt from the IDs and from the headings' texts, while its links resolve. The tests of the checks in `crates/xtask/` are exempt from the links and the IDs both, since their documents and code, links among them, are made up for a check to read, and name files and modules that no repository need have. Every CI check a rule names is listed in the table of checks in `docs/operations/ci.md`, or, while the migration runs, in the tracker's CI checks.
 - Why: a broken reference is a silent lie.
-- Check: `ci: check-docs`, plus `ci: check-doc-links` (a doc comment's link to an item of the code, which rustdoc resolves).
+- Check: `ci: check-docs`, plus `ci: check-doc-links` (a doc comment's link to an item of the code, which rustdoc resolves). Nothing checks a link to another site.
 
 ## The migration workspace
 
@@ -120,12 +120,13 @@ Documents and comments describe only this codebase. The one exception is the mig
 - `docs/MIGRATION.md`, the tracker, records the migration (DOC-14).
 - Neither is held to the bounds on a document's words (DOC-15).
 - `CLAUDE.md` may point to the inventory, so a session can look up old behavior.
+- `docs/standards/docs.md`, which holds this rule, names the inventory and what it describes.
 - The `conformance-review` skill in `.claude/skills/` reads the inventory's `decision-trace.md`, so the review of a build-order part first settles the commitments the trace gives that part.
 - Until the ADRs are written, documents cite decisions by their IDs, such as D4, and `docs/architecture.md` and the tracker link to the decisions' records: the inventory's for D1 to D36, and the tracker's decisions for later ones.
 
 When the migration completes, the workspace is deleted, and these exceptions with it.
 - Why: a fork's developers never saw any other codebase, so references to one mean nothing to them.
-- Check: `ci: check-docs` (known names of other codebases, the phrases that name one, and a path into the inventory, in any file but the places above and a Rust file's code, which names what a check checks), plus `review`.
+- Check: `ci: check-docs` (known names of other codebases, in any file but the migration workspace, and the phrases that name one and a path into the inventory, in any file but the places above, each outside a Rust file's code, which names what a check checks), plus `review`.
 
 ### DOC-14 The tracker holds status, not content
 While the migration runs, `docs/MIGRATION.md` records its progress, which DOC-01 otherwise forbids. It holds status and pointers. Every other fact lives in its home (DOC-07). Its sections, in this order:

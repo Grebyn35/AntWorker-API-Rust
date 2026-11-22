@@ -59,7 +59,7 @@ It checks that `main` can release that version, sets the version in `crates/app/
 
 | It refuses when | What to do |
 |---|---|
-| There are changes that aren't committed | Commit them, or set them aside with `git stash` |
+| There are changes that aren't committed, untracked files among them | Commit them, or set them aside with `git stash --include-untracked` |
 | Another branch than `main` is checked out | `git switch main` |
 | GitHub's `main` has commits that yours doesn't | `git pull` |
 | The version is released already, or comes before the latest release | Run it with one of the versions it suggests: the next patch, minor or major version |

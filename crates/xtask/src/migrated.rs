@@ -313,7 +313,7 @@ mod tests {
     }
 
     #[test]
-    fn data_19_a_check_s_database_replaces_the_one_each_url_names() {
+    fn ops_21_a_task_s_database_replaces_the_one_each_url_names() {
         assert_eq!(
             with_database_name("postgres://app:pw@127.0.0.1:5432/api", "api_schema_7"),
             "postgres://app:pw@127.0.0.1:5432/api_schema_7"

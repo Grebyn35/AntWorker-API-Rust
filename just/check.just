@@ -248,7 +248,7 @@ check-layout:
 # Postgres, which `services` starts.
 [doc("Fails on a table, constraint, index or grant of the migrations that breaks the data rules")]
 [group('check')]
-check-schema: services
+check-schema: bound-build services
     {{ xtask }} check-schema
 
 # part: removal

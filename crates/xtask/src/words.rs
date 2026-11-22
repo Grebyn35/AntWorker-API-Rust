@@ -352,7 +352,7 @@ mod tests {
             "{} [two words](https://example.invalid/a%20path%20of%20many%20words).\n",
             words(98)
         );
-        let comment = format!("{}. <!-- part: files and more words -->\n", words(100));
+        let comment = format!("{} <!-- part: files and more words -->\n", words(100));
         let lines = format!("{}\n{}.\n", words(50), words(51));
 
         assert_eq!(findings(&link), Vec::<String>::new());

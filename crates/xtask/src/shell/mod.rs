@@ -3,7 +3,8 @@
 //! on the line before the command it concerns, with a comment that states its reason. A script
 //! under `deploy/` writes a value with printf, never echo, and none of its functions assigns a
 //! variable that its top level sets (CODE-07). Each `psql` of a script under `deploy/` takes its
-//! statement with `-c`, and the statement names no table of the product schema (ARCH-14).
+//! statement with `-c`, with no expansion, and the statement names no table of the product schema
+//! (ARCH-14). The doc of `scripts` says how the check reads each of the three.
 //!
 //! shellcheck reports nothing in a file that a script sources, and finds the script's variables
 //! unassigned when it checks that file alone, so each script is checked with the files it
