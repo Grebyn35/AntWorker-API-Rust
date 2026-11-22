@@ -1,5 +1,5 @@
 //! The picture that a provider gives for a new account, copied as the account's avatar
-//! (ACCOUNTS-028, AUTH-092), from the hosts that the provider names (AUTH-097), through the tests'
+//! (ACCOUNTS-028 to ACCOUNTS-030, AUTH-092), from the hosts that the provider names (AUTH-097), through the tests'
 //! stand-in provider, which also serves the picture.
 
 use platform::telemetry::testing;

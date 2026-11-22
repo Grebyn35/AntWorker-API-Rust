@@ -1,6 +1,6 @@
 //! The operator's writing back of the files' bytes that were deleted or replaced in their bucket
 //! since a moment, from the versions that the bucket kept (the files spec's "Restoring bytes",
-//! FILES-028).
+//! FILES-028, FILES-029).
 
 use std::process::Output;
 

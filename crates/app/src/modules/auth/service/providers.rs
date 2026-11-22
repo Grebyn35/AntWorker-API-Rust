@@ -1,5 +1,5 @@
 //! Signing in, registering and re-authenticating through an OAuth provider (AUTH-073 to AUTH-080,
-//! the auth spec's "Signing in through a provider").
+//! AUTH-099 to AUTH-101, the auth spec's "Signing in through a provider").
 
 use platform::{
     authn::{AuditScope, Principal},

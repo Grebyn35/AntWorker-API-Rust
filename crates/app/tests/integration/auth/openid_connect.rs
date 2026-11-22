@@ -1,5 +1,5 @@
-//! An OpenID Connect provider that the deployment names in its settings (AUTH-084), against a
-//! stand-in of its endpoints.
+//! An OpenID Connect provider that the deployment names in its settings (AUTH-084, AUTH-103),
+//! against a stand-in of its endpoints.
 
 use serde_json::{Value, json};
 

@@ -1,6 +1,6 @@
 //! Resetting a forgotten password with a code sent to the account's address, and changing the
 //! password with the current one (the auth spec's "Password reset" and "Changing the password",
-//! AUTH-034 to AUTH-041).
+//! AUTH-034 to AUTH-041, AUTH-098).
 
 use serde_json::{Value, json};
 

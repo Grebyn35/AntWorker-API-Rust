@@ -1,5 +1,5 @@
 //! Resetting a forgotten password with a code sent to the account's address, and changing the
-//! password with the current one (AUTH-034 to AUTH-041, the auth spec's "Password reset" and
+//! password with the current one (AUTH-034 to AUTH-041, AUTH-098, the auth spec's "Password reset" and
 //! "Changing the password").
 
 use platform::{

@@ -1,6 +1,6 @@
 //! Writing back what the bucket kept of the objects that were deleted or replaced in it since a
 //! moment, which the subcommand `restore-files` runs (the files spec's "Restoring bytes",
-//! FILES-028). It reads the bucket alone, writes each such object again by its key, and deletes
+//! FILES-028, FILES-029). It reads the bucket alone, writes each such object again by its key, and deletes
 //! nothing.
 
 use bytes::{Bytes, BytesMut};

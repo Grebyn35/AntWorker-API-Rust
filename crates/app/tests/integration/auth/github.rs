@@ -1,4 +1,4 @@
-//! GitHub, through OAuth 2.0 (AUTH-083), against a stand-in of its endpoints.
+//! GitHub, through OAuth 2.0 (AUTH-083, AUTH-102), against a stand-in of its endpoints.
 
 use serde_json::{Value, json};
 

@@ -1,5 +1,6 @@
 //! Signing in, registering and re-authenticating through an OAuth provider, and linking one to
-//! the caller's account (the auth spec's Routes, AUTH-073 to AUTH-080, AUTH-087).
+//! the caller's account (the auth spec's Routes, AUTH-073 to AUTH-080, AUTH-087, AUTH-099 to
+//! AUTH-101).
 
 use std::sync::Arc;
 

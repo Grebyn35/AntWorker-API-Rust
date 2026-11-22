@@ -1,5 +1,5 @@
 //! The subcommand `restore-files`, which an operator runs against the bucket that holds files'
-//! bytes (ARCH-14, FILES-028): what it takes, and what it does, which `main.rs` runs with the
+//! bytes (ARCH-14, FILES-028, FILES-029): what it takes, and what it does, which `main.rs` runs with the
 //! bucket's settings and logs.
 
 use platform::{

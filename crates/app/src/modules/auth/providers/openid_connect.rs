@@ -1,5 +1,5 @@
 //! An OpenID Connect provider that the deployment names in its settings, such as an
-//! organization's own (AUTH-084, D142, the auth spec's "Signing in through a provider"). Its
+//! organization's own (AUTH-084, AUTH-103, D142, the auth spec's "Signing in through a provider"). Its
 //! addresses differ between deployments, so they are settings, where another provider's are
 //! constants of its file (OPS-02).
 

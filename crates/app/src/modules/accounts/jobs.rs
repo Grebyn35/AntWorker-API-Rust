@@ -17,7 +17,7 @@
 //!   for them, outside any transaction, and makes it their avatar in one unit of work, touching
 //!   `users`, `avatars`, `audit_entries` and `events`, and reading `workspace_memberships`
 //!   through `access` (ACCOUNTS-028). A second run finds the avatar, fetches nothing, and changes
-//!   nothing.
+//!   nothing (ACCOUNTS-030).
 // end part: files
 
 use std::time::Duration;
