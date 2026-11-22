@@ -112,8 +112,11 @@ query_values() {
     tr -d '\n' | sed 's/#.*//' | sed -n 's/^[^?]*?//p' | tr '&' '\n' | sed -n "s/^$1=//p"
 }
 
-# Fails unless secrets/ holds each secret that the operator holds for these settings, which
-# `just server-setup` writes.
+# Fails unless secrets/ holds each secret that `just server-setup` asks the operator for with
+# these settings, but the mail server's password and the providers' client secrets, which a deploy
+# writes empty when they are missing, for the API to read as unset. It also refuses a managed
+# database's URL that names the bundled database or doesn't set sslmode=verify-full once, and a
+# password of Grafana's administrator of fewer than 15 characters.
 check_secrets() {
     secrets=$deployment/secrets
     if [ ! -s "$secrets/encryption_keys" ]; then fail "$secrets/encryption_keys is missing: just server-setup generates it (docs/operations/deploy.md#the-encryption-keys)"; fi

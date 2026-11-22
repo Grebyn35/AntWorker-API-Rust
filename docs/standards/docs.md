@@ -44,12 +44,12 @@ A new kind of document needs a rule change.
 - Check: `ci: check-docs` (no Markdown files outside these locations, except the migration workspace in DOC-13).
 
 ### DOC-06 Docs are written for a developer new to the codebase
-Each technical term is defined in the glossary or in the sentence where it first appears. An acronym is spelled out where a document first uses it: it stands alone in parentheses right after the words it abbreviates, as in "Simple Mail Transfer Protocol (SMTP)", or those words stand in parentheses right after it, or after the hyphenated name it starts. The glossary lists the exceptions: the acronyms a developer is assumed to know, and the names written in capitals, such as SHA. Sentences use the active voice, and the same term is used throughout (CODE-11).
+Each technical term is defined in the glossary or in the sentence where it first appears. An acronym is spelled out where a document first uses it: it stands alone in parentheses right after the words it abbreviates, as in "Simple Mail Transfer Protocol (SMTP)", or those words stand in parentheses right after it, or after the hyphenated name it starts. The glossary lists the exceptions: the acronyms a developer is assumed to know, and the names written in capitals, such as SHA. The same term is used throughout (CODE-11).
 - Why: the reader is often someone who forked the template yesterday.
 - Check: `ci: check-docs` (where each acronym is first used, outside the migration workspace), plus `review`.
 
 ### DOC-07 A fact lives in one place
-Each kind of fact has one home, listed below. A fact is written in its home as soon as it is known, and every other mention links to it or cites its ID instead of restating it.
+Each kind of fact has one home, listed below. A fact is written in its home as soon as it is known, and every other mention links to it or cites its ID instead of restating it. The threat model restates a behavior's number beside the ID that holds it, where a row says how large a mitigation is.
 
 | Fact | Home |
 |---|---|

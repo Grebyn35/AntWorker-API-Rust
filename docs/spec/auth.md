@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`auth` proves who a caller is. It owns sign-in methods and sessions, and it implements the `SessionVerifier` that `platform::authn` uses on every protected request. It serves both kinds of client (D61): one that sets its own headers, such as the desktop client, holds its tokens and sends the Bearer header, and a browser holds them in cookies it can't read. This spec covers:
+`auth` proves who a caller is. It owns sign-in methods and sessions, and it implements the `SessionVerifier` that `platform::authn` uses on every protected request. It serves both kinds of client (D61): one that sets its own headers, such as a desktop client, holds its tokens and sends the Bearer header, and a browser holds them in cookies it can't read. This spec covers:
 
 - registration and sign-in with a password
 - refreshing, reading and ending the current session

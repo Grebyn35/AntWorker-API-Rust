@@ -2,12 +2,13 @@
 # The reference deployment's tasks on its server (D45): deploys a release with no downtime
 # (OPS-14), and with a managed backend, imports its dashboards and alert rules into the backend's
 # Grafana through import-grafana.sh (D42), takes and restores the bundled database's backups
-# (OPS-15), shows the deployment's state and its services' logs, and writes a new key in place of
-# one that a deploy generated (OPS-19), removes a lost second factor from an account (AUTH-072),
-# and ends an account's sessions, or every account's (AUTH-094). `just deploy`, `just backup`,
-# `just restore`, `just status`, `just logs`, `just replace-key`, `just remove-second-factor` and
-# `just end-sessions` run it over SSH from a developer's machine; docs/operations/deploy.md
-# describes the deployment. Each task's code is a file of tasks/, which this script sources.
+# (OPS-15), shows the deployment's state and its services' logs, checks what a deploy needs, and
+# writes a new key in place of one that a deploy generated (OPS-19), removes a lost second factor
+# from an account (AUTH-072), and ends an account's sessions, or every account's (AUTH-094).
+# `just deploy`, `just backup`, `just restore`, `just status`, `just logs`, `just server-check`,
+# `just replace-key`, `just remove-second-factor` and `just end-sessions` run it over SSH from a
+# developer's machine; docs/operations/deploy.md describes the deployment. Each task's code is a
+# file of tasks/, which this script sources.
 # It also sets up a workspace (WORKSPACES-023), which `just setup-workspace` runs. # part: workspace_setup
 # It also makes an account a superadmin, ends one, or lists them (SUPERADMINS-001), which `just superadmin` runs. # part: superadmins
 # It also writes back the files' bytes that were deleted or replaced in their bucket since a moment (FILES-028), which `just restore-files` runs. # part: files
@@ -100,7 +101,8 @@
 #       Checks what a deploy of the release <version>, or of the two images, each named by
 #       digest, needs, and changes nothing of the deployment but an object that it writes to
 #       each bucket and deletes (OPS-22), though it pulls the tools' images and the Postgres
-#       image, as a deploy does. Prints a line for each check, and fails if any fails.
+#       image, as a deploy does. Prints a line for each check that it runs, and fails if any
+#       fails.
 #
 # A deploy restarts a service that runs once, such as Postgres or Caddy, only with
 # --allow-restart, because restarting one interrupts requests.

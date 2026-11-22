@@ -76,7 +76,7 @@ Tests make no network calls outside the test environment. A test that fails inte
 - Check: `clippy` (`disallowed_methods` covers sleeps and timed waits in tests, and `disallowed_types` the system clock), `test` (the watch that prints a long test's lines), `ci: e2e` (the shell of the end-to-end tests' server, which panics on a command whose first word, its first run of characters other than white space, is `sleep`), plus `review`.
 
 ### TEST-07 Tests assert outcomes, not internals
-Tests assert what a client or operator can observe: HTTP responses, database rows, emitted events, enqueued jobs, sent emails and audit entries. A periodic job's interval is asserted as its registration gives it, which `platform`'s tests show the scheduler keeps (PLATFORM-015). A test is laid out as arrange, act, assert, and proves one behavior. A test of a boundary may act on each of its sides in turn, and assert after each: a request that is refused, then one that what the first lacked lets through.
+Tests assert what a client or operator can observe: HTTP responses, database rows, emitted events, enqueued jobs, sent emails and audit entries. A periodic job's interval is asserted as its registration gives it, which `platform`'s tests show the scheduler keeps (PLATFORM-015). A test is laid out as arrange, act, assert, and proves one behavior. A request that only reads what the act changed, such as a `GET` of what a `PATCH` changed, belongs to the assert phase. A test of a boundary may act on each of its sides in turn, and assert after each: a request that is refused, then one that what the first lacked lets through.
 - Why: tests survive refactoring, and a failure points at one behavior.
 - Check: `review`.
 

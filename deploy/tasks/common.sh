@@ -260,6 +260,11 @@ read_settings() {
             for name in BACKUP_S3_ENDPOINT BACKUP_S3_REGION BACKUP_S3_BUCKET; do
                 if [ -z "$(setting "$name")" ]; then fail "$name is required with DATABASE=bundled, for its backups (docs/operations/backups.md)"; fi
             done
+            whole_number BACKUP_S3_PORT "$(setting BACKUP_S3_PORT 443)" 1 65535
+            case $(setting BACKUP_S3_URI_STYLE host) in
+                host | path) ;;
+                *) fail "BACKUP_S3_URI_STYLE is host or path, not '$(setting BACKUP_S3_URI_STYLE)'" ;;
+            esac
             whole_number BACKUP_RETENTION_DAYS "$(setting BACKUP_RETENTION_DAYS 28)" 1 3650
             whole_number BACKUP_HOUR "$(setting BACKUP_HOUR 3)" 0 23
             ;;

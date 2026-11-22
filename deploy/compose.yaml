@@ -218,8 +218,8 @@ x-restore-files: &restore-files
 # end part: files
 
 # What confines the collector, which reads the host's filesystem for the host's metrics
-# (observability/compose.yaml): beside its image's user, which isn't root, it has no capability
-# and no way to gain one, and it writes only its state's volume.
+# (observability/compose.yaml): beside its image's user, which isn't root, it has no Linux
+# capability and no way to gain one, and it writes only its state's volume.
 x-confined: &confined
   read_only: true
   cap_drop: [ALL]
