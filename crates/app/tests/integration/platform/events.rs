@@ -719,6 +719,35 @@ async fn platform_034_the_hub_records_its_streams_why_it_closed_them_and_its_lag
 }
 
 #[tokio::test]
+async fn platform_034_the_lag_is_the_seconds_from_an_event_s_commit_to_its_delivery() {
+    let api = api().await;
+    let db = api.database();
+    let name = db.name().to_owned();
+    let ada = users::register(&api, "ada@example.com").await;
+    let mut stream = streams::opened(&api, &ada).await;
+
+    // An event that committed a minute ago, by the database's clock, which the hub hears of now.
+    db.owner_executes(&events::statement(
+        &[Event {
+            committed_before: Some("1 minute"),
+            ..Event::to_user(&ada.user_id, "note.made", "{}")
+        }],
+        true,
+    ))
+    .await;
+    let delivered = stream.event().await;
+
+    let lag = testing::recorded("platform.event_delivery_lag")
+        .into_iter()
+        .find(|point| point.labels.get("db.namespace") == Some(&name))
+        .unwrap();
+    assert_eq!(delivered.event.as_deref(), Some("note.made"));
+    // The start of Ada's session (AUTH-046), loaded as it committed, and the minute-old event.
+    assert_eq!(lag.count, Some(2));
+    assert!((60.0..70.0).contains(&lag.value), "{}", lag.value);
+}
+
+#[tokio::test]
 async fn platform_019_the_sweep_deletes_the_events_older_than_24_hours() {
     let api = api().await;
     let ada = users::register(&api, "ada@example.com").await;

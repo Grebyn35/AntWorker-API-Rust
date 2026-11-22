@@ -1,12 +1,22 @@
-//! The spans of the database's transactions (PLATFORM-104), as `serve` exports them.
+//! The spans of the database's transactions (PLATFORM-104), as `serve` exports them, and, in
+//! process, how long a unit of work's span lasts.
+
+use std::{future::Future, time::Duration};
 
 use opentelemetry_proto::tonic::trace::v1::{Span, span::SpanKind};
-use platform::telemetry::testing::collector::{Collector, Received, attribute};
+use platform::{
+    jobs::JobContext,
+    telemetry::testing::{
+        collector::{Collector, Received, attribute},
+        spans::OpenSpans,
+    },
+};
+use tracing::{Instrument, instrument::WithSubscriber};
 
 use crate::support::{
     Server, TestDatabase,
     events::{self, Event},
-    http_exchange, users,
+    execute_on, http_exchange, query_waits_on_a_lock, users,
 };
 
 fn hex(bytes: &[u8]) -> String {
@@ -220,4 +230,70 @@ async fn platform_104_a_transaction_outside_every_span_opens_no_span() {
         .map(|(_, span)| span.name.as_str())
         .collect();
     assert_eq!(without_a_parent, <[&str; 0]>::default());
+}
+
+/// Runs `work` inside a span, with `spans` the subscriber of every span that opens in it.
+async fn around<T>(spans: &OpenSpans, work: impl Future<Output = T>) -> T {
+    async {
+        let run = tracing::info_span!("run");
+        work.instrument(run).await
+    }
+    .with_subscriber(spans.dispatch())
+    .await
+}
+
+/// The advisory lock that a commit ordered with the events takes before it commits
+/// (PLATFORM-028): the bytes of `events`.
+const POSITION_LOCK: i64 = 0x6576_656e_7473;
+
+#[tokio::test]
+async fn platform_104_a_unit_of_work_s_span_lasts_until_it_has_committed() {
+    let db = TestDatabase::migrated().await;
+    let database = db.app().await;
+    let spans = OpenSpans::default();
+    let mut held = db
+        .holding(&format!("SELECT pg_advisory_xact_lock({POSITION_LOCK})"))
+        .await;
+
+    // The commit waits for the lock, once the unit of work's statements have run.
+    let committing = tokio::spawn({
+        let spans = spans.clone();
+        async move {
+            around(&spans, async {
+                let mut uow = database.for_job(&JobContext::for_tests()).await?;
+                uow.order_with_events();
+                uow.commit().await
+            })
+            .await
+        }
+    });
+    query_waits_on_a_lock(&db, "pg_advisory_xact_lock").await;
+    let while_it_commits = spans.is_open("transaction");
+    execute_on(&mut held, "COMMIT").await;
+    let committed = committing.await.unwrap();
+
+    assert!(committed.is_ok(), "{committed:?}");
+    assert!(while_it_commits);
+    assert!(!spans.is_open("transaction"));
+}
+
+#[tokio::test]
+async fn platform_104_a_unit_of_work_s_span_lasts_until_it_is_dropped() {
+    let db = TestDatabase::migrated().await;
+    let database = db.app().await;
+    let spans = OpenSpans::default();
+
+    let (ran, while_it_lasts, dropped) = around(&spans, async {
+        let mut uow = database.for_job(&JobContext::for_tests()).await.unwrap();
+        // A statement of the unit of work's own.
+        let ran = uow.wait_for_locks_at_most(Duration::from_secs(1)).await;
+        let while_it_lasts = spans.is_open("transaction");
+        drop(uow);
+        (ran, while_it_lasts, spans.is_open("transaction"))
+    })
+    .await;
+
+    assert!(ran.is_ok(), "{ran:?}");
+    assert!(while_it_lasts);
+    assert!(!dropped);
 }

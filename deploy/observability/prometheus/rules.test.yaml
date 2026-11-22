@@ -608,8 +608,8 @@ tests:
               summary: A runnable job has waited more than 10 minutes past its time to run, for 5 minutes.
               runbook: docs/operations/runbooks.md#jobsdelayed
 
-  # A replica that started an hour in dead-letters its first email at the 2nd minute; one that
-  # started at the 70th minute dead-letters its first at the 71st.
+  # Each replica's series is born with its first dead letter: one's at the 2nd minute, the
+  # other's at the 70th.
   - interval: 1m
     input_series:
       - series: 'platform_job_runs_total{job="api", instance="a", job_kind="platform.send_email", job_outcome="dead_lettered"}'
@@ -699,6 +699,70 @@ tests:
             exp_annotations:
               summary: A periodic job failed at least twice within 3 hours, or twice within 49 hours with no run that succeeded.
               runbook: docs/operations/runbooks.md#periodicjobfailing
+
+  # An hourly job fails at the 1st, the 61st and the 121st minute, and its next run succeeds: the
+  # alert clears 3 hours after the failure before the last.
+  - interval: 1m
+    input_series:
+      - series: 'platform_job_runs_total{job="api", instance="a", job_kind="platform.hourly", job_outcome="failed"}'
+        values: "_ 1x59 2x59 3x240"
+      - series: 'platform_job_runs_total{job="api", instance="a", job_kind="platform.hourly", job_outcome="succeeded"}'
+        values: "_x181 1x180"
+    alert_rule_test:
+      - eval_time: 235m
+        alertname: PeriodicJobFailing
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              job_kind: platform.hourly
+            exp_annotations:
+              summary: A periodic job failed at least twice within 3 hours, or twice within 49 hours with no run that succeeded.
+              runbook: docs/operations/runbooks.md#periodicjobfailing
+      - eval_time: 245m
+        alertname: PeriodicJobFailing
+        exp_alerts: []
+
+  # Two daily jobs fail at the 24th and the 48th hour. One's next run succeeds, at the 72nd hour,
+  # and its alert clears with that run. The other doesn't run again, and its alert clears 49 hours
+  # after its first failure.
+  - interval: 1h
+    input_series:
+      - series: 'platform_job_runs_total{job="api", instance="a", job_kind="platform.daily", job_outcome="succeeded"}'
+        values: "1x71 2x8"
+      - series: 'platform_job_runs_total{job="api", instance="a", job_kind="platform.daily", job_outcome="failed"}'
+        values: "_x24 1x23 2x32"
+      - series: 'platform_job_runs_total{job="api", instance="a", job_kind="platform.daily_other", job_outcome="succeeded"}'
+        values: "1x80"
+      - series: 'platform_job_runs_total{job="api", instance="a", job_kind="platform.daily_other", job_outcome="failed"}'
+        values: "_x24 1x23 2x32"
+    alert_rule_test:
+      - eval_time: 71h
+        alertname: PeriodicJobFailing
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              job_kind: platform.daily
+            exp_annotations:
+              summary: A periodic job failed at least twice within 3 hours, or twice within 49 hours with no run that succeeded.
+              runbook: docs/operations/runbooks.md#periodicjobfailing
+          - exp_labels:
+              severity: ticket
+              job_kind: platform.daily_other
+            exp_annotations:
+              summary: A periodic job failed at least twice within 3 hours, or twice within 49 hours with no run that succeeded.
+              runbook: docs/operations/runbooks.md#periodicjobfailing
+      - eval_time: 72h
+        alertname: PeriodicJobFailing
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              job_kind: platform.daily_other
+            exp_annotations:
+              summary: A periodic job failed at least twice within 3 hours, or twice within 49 hours with no run that succeeded.
+              runbook: docs/operations/runbooks.md#periodicjobfailing
+      - eval_time: 74h
+        alertname: PeriodicJobFailing
+        exp_alerts: []
 
   # A server with 8 gigabytes of memory, of which 500 megabytes stay available.
   - interval: 1m

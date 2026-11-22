@@ -32,7 +32,7 @@ use tokio::{
     task::JoinHandle,
 };
 
-use crate::support::{self, Api, Options, TestDatabase, mailbox};
+use crate::support::{self, Api, Options, TestDatabase, mailbox, users};
 
 /// How long a shutdown lets runs go on, in these tests.
 const GRACE: Duration = Duration::from_secs(5);
@@ -813,6 +813,27 @@ async fn platform_020_a_runs_span_links_to_the_trace_that_enqueued_it() {
         Some("platform.send_email")
     );
     assert_eq!(mailbox::to(&to).await.len(), 1);
+}
+
+#[tokio::test]
+async fn obs_07_a_job_stores_the_trace_context_that_enqueued_it() {
+    let api = Api::new().await;
+
+    // A registration with email on enqueues the job that sends its first code (AUTH-027).
+    let response = api
+        .post("/v1/users", &users::registration("ada@example.com"))
+        .send()
+        .await;
+
+    assert_eq!(response.status, 201);
+    // `server-timing: trace;desc=00-<trace ID>-<span ID>-<flags>` (API-16).
+    let trace_id = response.header("server-timing").split('-').nth(1).unwrap();
+    let traceparents = api
+        .database()
+        .owner_reads("SELECT traceparent FROM jobs WHERE kind = 'auth.send_verification_code'")
+        .await;
+    assert_eq!(traceparents.len(), 1);
+    assert_eq!(traceparents[0].split('-').nth(1), Some(trace_id));
 }
 
 fn hex(bytes: &[u8]) -> String {

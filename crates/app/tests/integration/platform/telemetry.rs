@@ -1,5 +1,6 @@
-//! The export of telemetry over OTLP (PLATFORM-066, PLATFORM-068, OBS-10), and the metrics the
-//! pipeline and the readiness check record (PLATFORM-067, PLATFORM-069, OBS-15).
+//! The export of telemetry over OTLP (PLATFORM-066, PLATFORM-068, OBS-10), the metrics the
+//! pipeline and the readiness check record (PLATFORM-067, PLATFORM-069), and what the health
+//! probes leave out of the telemetry (OBS-15, PLATFORM-044).
 
 use std::{
     collections::BTreeMap,
@@ -21,7 +22,9 @@ use platform::telemetry::testing::{
     collector::{Collector, Received, attribute, text},
 };
 
-use crate::support::{Api, Options, TestDatabase, fixtures, service_name};
+use serde_json::json;
+
+use crate::support::{Api, Options, TestDatabase, fixtures, jobs, mailbox, service_name};
 
 /// How often the instance checks the listener.
 const CHECK_INTERVAL: Duration = Duration::from_secs(5);
@@ -87,6 +90,58 @@ fn hex(bytes: &[u8]) -> String {
 /// span for each of the request's database transactions (PLATFORM-104).
 fn is_the_request_s(span: &Span, trace: &str) -> bool {
     hex(&span.trace_id) == trace && span.kind == i32::from(SpanKind::Server)
+}
+
+/// The value of `span`'s attribute `key`, of the type the collector received it as.
+fn value(span: &Span, key: &str) -> Option<any_value::Value> {
+    span.attributes
+        .iter()
+        .find(|pair| pair.key == key)
+        .and_then(|pair| pair.value.as_ref()?.value.clone())
+}
+
+/// What `collector` received from a `serve` that ran a queued job of `platform.send_email`, once
+/// it holds the span of the run and that of its send.
+async fn an_email_s_spans(collector: &Collector) -> Received {
+    let database = TestDatabase::migrated().await;
+    let payload = json!({
+        "message_id": "<numbers@example.com>",
+        "email": {
+            "to": mailbox::address("numbers"),
+            "subject": "Numbers",
+            "text": "A run's numbers.",
+            "html": "<p>A run's numbers.</p>",
+        },
+    });
+    jobs::enqueued(
+        &database,
+        "platform.send_email",
+        &payload,
+        "00-8a3c60f7d188f8fa79d48a391a778fa6-00f067aa0ba902b7-01",
+    )
+    .await;
+    let _server = database
+        .serve(&[
+            ("ENVIRONMENT", "production"),
+            ("OTEL_EXPORTER_OTLP_ENDPOINT", &collector.endpoint()),
+        ])
+        .await;
+    collector
+        .wait_for(|received| {
+            let arrived = |name: &str| received.spans().iter().any(|(_, span)| span.name == name);
+            arrived("platform.send_email") && arrived("smtp send")
+        })
+        .await
+}
+
+/// The span named `name` among `received`.
+fn named<'a>(received: &'a Received, name: &str) -> &'a Span {
+    received
+        .spans()
+        .into_iter()
+        .map(|(_, span)| span)
+        .find(|span| span.name == name)
+        .unwrap()
 }
 
 #[tokio::test]
@@ -276,6 +331,95 @@ async fn obs_15_the_health_probes_record_no_request_metric() {
         })
         .collect();
     assert!(probes.is_empty(), "{probes:#?}");
+}
+
+#[tokio::test]
+async fn obs_15_a_health_probe_carries_no_trace_id() {
+    let api = Api::new().await;
+
+    let live = api.get("/health/live").send().await;
+    let ready = api.get("/health/ready").send().await;
+
+    for probe in [&live, &ready] {
+        assert_eq!(probe.status, StatusCode::OK);
+        assert!(
+            probe.headers.get("server-timing").is_none(),
+            "{:?}",
+            probe.headers
+        );
+    }
+}
+
+#[tokio::test]
+async fn platform_044_a_health_probe_writes_no_line() {
+    let api = Api::new().await;
+
+    for path in ["/health/live", "/health/ready"] {
+        assert_eq!(api.get(path).send().await.status, StatusCode::OK);
+    }
+
+    // A line of a probe's would hold its route, as every completion line does.
+    let lines: Vec<serde_json::Value> = testing::all_logged()
+        .into_iter()
+        .filter(|line| {
+            line["http.route"]
+                .as_str()
+                .is_some_and(|route| route.starts_with("/health"))
+        })
+        .collect();
+    assert!(lines.is_empty(), "{lines:#?}");
+}
+
+#[tokio::test]
+async fn obs_15_serve_exports_no_span_of_a_health_probe() {
+    let collector = Collector::start().await.unwrap();
+    let database = TestDatabase::migrated().await;
+    let server = database
+        .serve(&[
+            ("ENVIRONMENT", "production"),
+            ("OTEL_EXPORTER_OTLP_ENDPOINT", &collector.endpoint()),
+        ])
+        .await;
+    let (probed, after) = (
+        "6e0c63257de34c926f9efcd03927272e",
+        "a3ce929d0e0e47364bf92f3577b34da6",
+    );
+    let parent = |trace: &str| format!("00-{trace}-b7ad6b7169203331-01");
+
+    let live = server
+        .request("GET", "/health/live", &[("traceparent", &parent(probed))])
+        .await;
+    let ready = server
+        .request("GET", "/health/ready", &[("traceparent", &parent(probed))])
+        .await;
+    // A probe's span would end before the next request's spans begin, so its export would come
+    // no later than theirs.
+    server
+        .request(
+            "GET",
+            "/v1/capabilities",
+            &[("traceparent", &parent(after))],
+        )
+        .await;
+    let received = collector
+        .wait_for(|received| {
+            received
+                .spans()
+                .iter()
+                .any(|(_, span)| is_the_request_s(span, after))
+        })
+        .await;
+
+    assert!(live.starts_with("HTTP/1.1 200"), "{live}");
+    assert!(ready.starts_with("HTTP/1.1 200"), "{ready}");
+    let probes: Vec<&str> = received
+        .spans()
+        .into_iter()
+        .map(|(_, span)| span)
+        .filter(|span| hex(&span.trace_id) == probed || span.name.contains("/health"))
+        .map(|span| span.name.as_str())
+        .collect();
+    assert_eq!(probes, <[&str; 0]>::default());
 }
 
 #[tokio::test]
@@ -533,6 +677,34 @@ async fn platform_066_each_process_exports_as_an_instance_of_its_own() {
     measured.sort();
     measured.dedup();
     assert_eq!(measured, instances);
+}
+
+#[tokio::test]
+async fn platform_066_a_job_run_s_span_exports_its_attempt_as_a_number() {
+    let collector = Collector::start().await.unwrap();
+
+    let received = an_email_s_spans(&collector).await;
+
+    let run = named(&received, "platform.send_email");
+    assert_eq!(
+        value(run, "job.attempt"),
+        Some(any_value::Value::IntValue(1))
+    );
+}
+
+#[tokio::test]
+async fn platform_066_the_smtp_span_exports_the_server_s_port_as_a_number() {
+    let collector = Collector::start().await.unwrap();
+
+    let received = an_email_s_spans(&collector).await;
+
+    // The mail server's port in `.env`, which the tests' settings have read by now.
+    let port: i64 = std::env::var("SMTP_PORT").unwrap().parse().unwrap();
+    let send = named(&received, "smtp send");
+    assert_eq!(
+        value(send, "server.port"),
+        Some(any_value::Value::IntValue(port))
+    );
 }
 
 #[tokio::test]

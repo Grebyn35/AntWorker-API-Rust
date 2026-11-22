@@ -116,7 +116,7 @@ impl Transport {
             { names::OTEL_NAME } = "smtp send",
             { names::OTEL_KIND } = "client",
             { names::SERVER_ADDRESS } = %self.host,
-            { names::SERVER_PORT } = self.port,
+            { names::SERVER_PORT } = i64::from(self.port),
         );
         async {
             let to: Address = email.to.as_str().parse().map_err(|_| {

@@ -61,11 +61,11 @@ impl FromStr for Environment {
     }
 }
 
-/// The most detailed log level written (OBS-03). It is never coarser than `INFO`, because
-/// every request writes its completion line at `INFO` (PLATFORM-044).
+/// The most detailed log level written (OBS-03). It is never coarser than `INFO`, because a
+/// request's completion line is written at `INFO` (PLATFORM-044).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LogLevel {
-    /// Errors, warnings, lifecycle events and one line per request.
+    /// Errors, warnings, lifecycle events and the requests' completion lines.
     Info,
     /// Also diagnostics.
     Debug,

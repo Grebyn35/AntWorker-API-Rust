@@ -6,12 +6,14 @@ use std::sync::{Arc, Mutex, PoisonError};
 use platform::{
     config::Environment,
     outbound::{Configured, FetchError, OutboundConfig, Request, Untrusted},
+    telemetry,
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
     sync::Notify,
 };
+use tracing::Instrument;
 
 /// The host that the untrusted client of [`serving`] fetches from, beside the tests' origin: a
 /// name that resolves on the machine alone, to a loopback address.
@@ -38,6 +40,15 @@ async fn configured(answer: impl Fn(&str) -> Option<Vec<u8>> + Send + 'static) -
 async fn origin(
     answer: impl Fn(&str) -> Option<Vec<u8>> + Send + 'static,
 ) -> (OutboundConfig, String) {
+    reading(move |head| answer(head.split(' ').nth(1).unwrap_or_default())).await
+}
+
+/// A server on a loopback address that answers each request with what `answer` gives for its
+/// head, the request line and the headers, or never, when it gives none: its origin, and the
+/// settings that make it the tests'.
+async fn reading(
+    answer: impl Fn(&str) -> Option<Vec<u8>> + Send + 'static,
+) -> (OutboundConfig, String) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let origin = format!("http://{}", listener.local_addr().unwrap());
     tokio::spawn(async move {
@@ -51,8 +62,7 @@ async fn origin(
                 }
             }
             let head = String::from_utf8_lossy(&request).into_owned();
-            let path = head.split(' ').nth(1).unwrap_or_default();
-            match answer(path) {
+            match answer(&head) {
                 Some(response) => {
                     let sent = async {
                         stream.write_all(&response).await?;
@@ -322,4 +332,46 @@ async fn sec_10_the_configured_client_gives_up_an_answer_that_doesn_t_come_in_ti
     );
 
     assert!(failed.is_err(), "{failed:?}");
+}
+
+#[tokio::test]
+async fn obs_07_neither_client_sends_the_trace_context_to_the_server_it_calls() {
+    // The tests' tracer, which gives a span a trace context.
+    telemetry::testing::install(crate::support::api::SERVICE).unwrap();
+    let heads = Arc::new(Mutex::new(Vec::new()));
+    let (config, origin) = reading({
+        let heads = heads.clone();
+        move |head| {
+            heads
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(head.to_lowercase());
+            Some(response("200 OK", &["Content-Length: 4"], b"\x89PNG"))
+        }
+    })
+    .await;
+    let configured = Configured::new(Environment::Test, &config).unwrap();
+    let untrusted = Untrusted::new(&config, vec![HOST.to_owned()]).unwrap();
+
+    // Each request goes out inside a span, as a request's or a job run's does.
+    let (trace, sent, fetched) = async {
+        let sent = configured
+            .send(Request::get("https://provider.example.com/token"))
+            .await;
+        let fetched = untrusted.get(&format!("{origin}/ada.png"), 16).await;
+        (telemetry::trace_id(), sent, fetched)
+    }
+    .instrument(tracing::info_span!("work"))
+    .await;
+
+    assert!(sent.is_ok(), "{sent:?}");
+    assert!(fetched.is_ok(), "{fetched:?}");
+    assert_ne!(trace, "00000000000000000000000000000000");
+    let heads = heads.lock().unwrap_or_else(PoisonError::into_inner).clone();
+    assert_eq!(heads.len(), 2, "{heads:?}");
+    for head in &heads {
+        for header in ["traceparent", "tracestate", "baggage"] {
+            assert!(!head.contains(&format!("\r\n{header}:")), "{head}");
+        }
+    }
 }

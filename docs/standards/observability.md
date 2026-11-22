@@ -19,11 +19,11 @@ Every JSON log line carries its time, `timestamp`, in UTC, and `service.name`, `
 |---|---|
 | `ERROR` | A human must look: a 5xx other than a disabled feature's (OPS-04) or a health probe's (OPS-05), a job that failed its last attempt, a startup failure |
 | `WARN` | Degraded but handled: an ignored error (ERR-11), a job attempt that will be retried |
-| `INFO` | Lifecycle events, plus exactly one completion line per request (method, route, status, duration) |
+| `INFO` | Lifecycle events, plus exactly one completion line per request (method, route, status, duration), but for the health probes (OBS-15) and a request that the HTTP server refuses itself (PLATFORM-099) |
 | `DEBUG` | Diagnostics, off in production |
 
 Module code writes events only at `DEBUG`. Every `INFO`, `WARN` and `ERROR` event comes from `platform` or the binary's `main.rs`. A business event that matters is an audit entry (DATA-22), not a log line.
-- Why: a level tells the reader what to do, and every request has at least one log line (D10). When the mechanisms write every event above `DEBUG`, each kind of event is written once, in one shape.
+- Why: a level tells the reader what to do, and every request but a health probe and one that the HTTP server refuses itself has at least one log line (D10). When the mechanisms write every event above `DEBUG`, each kind of event is written once, in one shape.
 - Check: `ci: check-instrument` (the levels of events in `app`'s code outside `main.rs`), plus `review`.
 
 ### OBS-04 No personal data or secrets in telemetry
@@ -44,7 +44,7 @@ Every field name in logs and spans, and every metric label name, comes from the 
 ## Traces
 
 ### OBS-06 One server span per request, child spans for work
-Each request has one server span in the API, and each run of a job a span of its own (OBS-07). Inside either, each database transaction and each outbound call gets a child span. A transaction that runs outside every span, such as the hub's load of new events or a dispatcher's claim of jobs, gets none: its span would have no parent, and so would start a trace of its own each time (D218). Behind the reference deployment's proxy, the server span is a child of the proxy's span for the request, so a trace starts at the proxy (D53). Spans come only from `platform` and the binary's `main.rs`; module code opens none. CPU-heavy work runs through the `platform` helper that adds its span (CODE-05), so slow steps such as password hashing still show in traces.
+Each request has one server span in the API, but for the health probes (OBS-15) and a request that the HTTP server refuses itself (PLATFORM-099), and each run of a job a span of its own (OBS-07). Inside either, each database transaction and each outbound call gets a child span. A transaction that runs outside every span, such as the hub's load of new events or a dispatcher's claim of jobs, gets none: its span would have no parent, and so would start a trace of its own each time (D218). Behind the reference deployment's proxy, the server span is a child of the proxy's span for the request, so a trace starts at the proxy (D53). Spans come only from `platform` and the binary's `main.rs`; module code opens none. CPU-heavy work runs through the `platform` helper that adds its span (CODE-05), so slow steps such as password hashing still show in traces.
 - Why: a trace shows where a request spent its time, and every span has the same shape wherever it comes from.
 - Check: `ci: check-instrument` (no spans in `app`'s code outside `main.rs`), plus `test` (PLATFORM-104, a database transaction's span inside a request's span and a job run's, and none outside every span), plus `review`.
 

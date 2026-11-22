@@ -5,7 +5,9 @@
 //! fails compilation when the name differs from the one the conventions publish. The
 //! conventions are version 1.42.0, as `opentelemetry-semantic-conventions` 0.33.1 publishes
 //! them, and a name they deprecate fails clippy. Any other name is `<term>.<property>`, outside
-//! every namespace the conventions define. No name is for personal data or secrets (OBS-04).
+//! every namespace the conventions define, but the trace context of a JSON line, `trace_id` and
+//! `span_id`, and the bridge's own `otel.name` and `otel.kind` (OBS-05). No name is for personal
+//! data or secrets (OBS-04).
 
 use opentelemetry_semantic_conventions::attribute as otel;
 
@@ -48,9 +50,11 @@ pub const EXCEPTION_MESSAGE: &str = convention("exception.message", otel::EXCEPT
 pub const CODE_FILE_PATH: &str = convention("code.file.path", otel::CODE_FILE_PATH);
 /// The line a panic happened on.
 pub const CODE_LINE_NUMBER: &str = convention("code.line.number", otel::CODE_LINE_NUMBER);
-/// The address the server listens on.
+/// A server's address: on a client span, that of the server it calls, and on the line that
+/// `serve` writes as it starts listening, the API's own.
 pub const SERVER_ADDRESS: &str = convention("server.address", otel::SERVER_ADDRESS);
-/// The port the server listens on.
+/// A server's port: on a client span, that of the server it calls, and on the line that `serve`
+/// writes as it starts listening, the API's own.
 pub const SERVER_PORT: &str = convention("server.port", otel::SERVER_PORT);
 /// The name of the database that a task ran against, or that a span's transaction ran in.
 pub const DB_NAMESPACE: &str = convention("db.namespace", otel::DB_NAMESPACE);

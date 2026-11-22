@@ -1,6 +1,7 @@
 //! Events that a test commits as a unit of work commits them, without the API: each with the next
-//! position, the transaction's ID and snapshot, and the commit's time (PLATFORM-028), and, unless
-//! the test leaves the hub to find them, the notification that names each position.
+//! position, the transaction's ID and snapshot, and the commit's time (PLATFORM-028), or a time
+//! before it, and, unless the test leaves the hub to find them, the notification that names each
+//! position.
 
 /// Whom an event reaches.
 pub enum Scope<'a> {
@@ -20,6 +21,9 @@ pub struct Event<'a> {
     pub payload: &'a str,
     /// The trace context of what published it, if any.
     pub traceparent: Option<&'a str>,
+    /// How long before the statement it committed, as Postgres writes an interval, such as
+    /// `1 minute`, for a hub that hears of it late; or `None`, when it commits with the statement.
+    pub committed_before: Option<&'a str>,
 }
 
 impl<'a> Event<'a> {
@@ -30,6 +34,7 @@ impl<'a> Event<'a> {
             name,
             payload,
             traceparent: None,
+            committed_before: None,
         }
     }
 
@@ -45,6 +50,7 @@ impl<'a> Event<'a> {
             name,
             payload,
             traceparent: None,
+            committed_before: None,
         }
     }
 }
@@ -66,10 +72,11 @@ pub fn statement(events: &[Event<'_>], notify: bool) -> String {
                 ),
             };
             format!(
-                "('{scope}', {user}, {workspace}, {}, {permission}, {}, {})",
+                "('{scope}', {user}, {workspace}, {}, {permission}, {}, {}, {})",
                 quoted(event.name),
                 quoted(event.payload),
-                event.traceparent.map_or("NULL".to_owned(), quoted)
+                event.traceparent.map_or("NULL".to_owned(), quoted),
+                quoted(event.committed_before.unwrap_or("0 seconds"))
             )
         })
         .collect();
@@ -78,8 +85,9 @@ pub fn statement(events: &[Event<'_>], notify: bool) -> String {
          position, xact, snapshot, created_at) \
          SELECT scope::event_scope, user_id::uuid, workspace_id::uuid, name, permission, \
          payload::jsonb, traceparent, nextval('events_position_seq'), pg_current_xact_id(), \
-         pg_current_snapshot(), clock_timestamp() \
-         FROM (VALUES {}) AS v(scope, user_id, workspace_id, name, permission, payload, traceparent)",
+         pg_current_snapshot(), clock_timestamp() - committed_before::interval \
+         FROM (VALUES {}) \
+         AS v(scope, user_id, workspace_id, name, permission, payload, traceparent, committed_before)",
         rows.join(", ")
     );
     if notify {

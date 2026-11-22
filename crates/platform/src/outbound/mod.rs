@@ -223,7 +223,7 @@ impl Configured {
             .instrument(span.clone())
             .await;
         if let Ok(response) = &answered {
-            span.record(names::HTTP_RESPONSE_STATUS_CODE, response.status);
+            span.record(names::HTTP_RESPONSE_STATUS_CODE, i64::from(response.status));
         }
         answered
     }

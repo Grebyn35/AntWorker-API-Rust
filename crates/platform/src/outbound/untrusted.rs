@@ -138,7 +138,7 @@ impl Untrusted {
         };
         let mut response = self.client.get(url).send().await.map_err(failed)?;
         let status = response.status();
-        span.record(names::HTTP_RESPONSE_STATUS_CODE, status.as_u16());
+        span.record(names::HTTP_RESPONSE_STATUS_CODE, i64::from(status.as_u16()));
         if !status.is_success() {
             let answered = format!("GET of {host} answered {}", status.as_u16());
             // A server's failure, a timeout it reports, or a limit it sets may pass; any other

@@ -1,6 +1,7 @@
 //! The telemetry of the tests, which compile with the `test-support` feature.
 
 pub mod collector;
+pub mod spans;
 
 use std::{
     cell::RefCell,

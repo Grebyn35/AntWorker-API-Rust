@@ -60,8 +60,13 @@ processors:
     check_interval: 1s
     limit_percentage: 80
     spike_limit_percentage: 25
-  # A trace is decided once its spans have had time to arrive: longer than the request timeout
-  # of 10 seconds, plus the export delay of 1 second, the API's and the proxy's.
+  # The wait is longer than the timeout of 10 seconds of the public, user and workspace route
+  # groups, plus the export delay of 1 second, the API's and the proxy's, so a trace of such a
+  # request is decided once its spans have had time to arrive. A job's run, which lasts up to its
+  # time limit, can last longer.
+  # part: files
+  # So can an upload's request, whose timeout is 60 seconds.
+  # end part: files
   tail_sampling:
     decision_wait: 15s
     num_traces: 50000

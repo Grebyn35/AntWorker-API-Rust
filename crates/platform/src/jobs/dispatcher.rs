@@ -110,7 +110,7 @@ pub(super) async fn run_job(
         { names::OTEL_KIND } = "consumer",
         { names::JOB_KIND } = queued.kind,
         { names::JOB_ID } = %job.id,
-        { names::JOB_ATTEMPT } = attempt,
+        { names::JOB_ATTEMPT } = i64::from(attempt),
     );
     if let Some(traceparent) = &job.traceparent {
         telemetry::link(&span, traceparent);

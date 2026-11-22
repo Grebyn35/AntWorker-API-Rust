@@ -6,14 +6,18 @@ use std::{io::Write, time::Duration};
 
 use flate2::{Compression, write::GzEncoder};
 use http::Method;
-use platform::telemetry::testing;
+use opentelemetry_proto::tonic::{
+    common::v1::any_value,
+    trace::v1::{Span, span::SpanKind},
+};
+use platform::telemetry::testing::{self, collector::Collector};
 use serde_json::json;
 
-use super::{choose, read};
+use super::{CONSENT, choose, read};
 use crate::support::{
-    Api, Options,
+    Api, Options, Server, TestDatabase,
     api::{Response, refusal},
-    budgets,
+    budgets, http_exchange,
     upstream::Upstream,
     users::{self, SignedIn},
 };
@@ -801,4 +805,98 @@ async fn platform_091_the_relay_s_request_holds_the_batch_and_its_media_type_alo
         .collect();
     names.sort_unstable();
     assert_eq!(names, ["accept", "content-length", "content-type", "host"]);
+}
+
+/// Sends `body` to `path` of `server`, with `headers` and the body's length, and returns the
+/// whole response.
+async fn exchange(
+    server: &Server,
+    method: &str,
+    path: &str,
+    headers: &[(&str, &str)],
+    body: &str,
+) -> String {
+    let length = body.len().to_string();
+    let mut headers = headers.to_vec();
+    headers.push(("content-length", &length));
+    http_exchange(server.address(), method, path, &headers, body)
+        .await
+        .expect("a response from the server")
+}
+
+/// Whether `span` is the client span of the relay's `POST` of a batch.
+fn is_the_relay_s(span: &Span) -> bool {
+    span.kind == i32::from(SpanKind::Client) && span.name == "POST"
+}
+
+#[tokio::test]
+async fn obs_08_the_relay_s_span_exports_the_collector_s_status_as_a_number() {
+    let collector = Collector::start().await.unwrap();
+    let database = TestDatabase::migrated().await;
+    let endpoint = collector.endpoint();
+    // Without email, an account is served without proving its address (PLATFORM-022), and the
+    // stand-in collector takes the batches too.
+    let server = database
+        .serve(&[
+            ("ENVIRONMENT", "production"),
+            ("EMAIL", "off"),
+            ("OTEL_EXPORTER_OTLP_ENDPOINT", &endpoint),
+            ("CLIENT_TELEMETRY_ENDPOINT", &endpoint),
+        ])
+        .await;
+    let registered = exchange(
+        &server,
+        "POST",
+        "/v1/users",
+        &[("content-type", "application/json")],
+        &users::registration("ada@example.com").to_string(),
+    )
+    .await;
+    let (_, body) = registered.split_once("\r\n\r\n").unwrap();
+    let session: serde_json::Value = serde_json::from_str(body).unwrap();
+    let bearer = format!("Bearer {}", session["access_token"].as_str().unwrap());
+    let consented = exchange(
+        &server,
+        "PUT",
+        CONSENT,
+        &[
+            ("authorization", &bearer),
+            ("content-type", "application/json"),
+        ],
+        &json!({ "consented": true }).to_string(),
+    )
+    .await;
+
+    // A batch that holds one empty resource of spans.
+    let sent = exchange(
+        &server,
+        "POST",
+        TRACES,
+        &[("authorization", &bearer), ("content-type", PROTOBUF)],
+        "\n\0",
+    )
+    .await;
+    let received = collector
+        .wait_for(|received| {
+            received
+                .spans()
+                .iter()
+                .any(|(_, span)| is_the_relay_s(span))
+        })
+        .await;
+
+    assert!(registered.starts_with("HTTP/1.1 201"), "{registered}");
+    assert!(consented.starts_with("HTTP/1.1 200"), "{consented}");
+    assert!(sent.starts_with("HTTP/1.1 200"), "{sent}");
+    let (_, relay) = received
+        .spans()
+        .into_iter()
+        .find(|(_, span)| is_the_relay_s(span))
+        .unwrap();
+    let status = relay
+        .attributes
+        .iter()
+        .find(|pair| pair.key == "http.response.status_code")
+        .and_then(|pair| pair.value.as_ref()?.value.clone());
+    assert_eq!(status, Some(any_value::Value::IntValue(200)));
 }

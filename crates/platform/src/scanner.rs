@@ -154,7 +154,7 @@ impl Scanner {
             { names::OTEL_NAME } = "clamd INSTREAM",
             { names::OTEL_KIND } = "client",
             { names::SERVER_ADDRESS } = &*self.host,
-            { names::SERVER_PORT } = self.port,
+            { names::SERVER_PORT } = i64::from(self.port),
         )
     }
 }

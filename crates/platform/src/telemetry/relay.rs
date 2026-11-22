@@ -140,7 +140,7 @@ impl Relay {
                 ))));
             }
         };
-        span.record(names::HTTP_RESPONSE_STATUS_CODE, status);
+        span.record(names::HTTP_RESPONSE_STATUS_CODE, i64::from(status));
         match status {
             200..=299 => Ok(()),
             // A 404 and a 405 say that nothing takes batches at the address, and nothing of the

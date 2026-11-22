@@ -177,7 +177,7 @@ With a managed database, run the same query in the provider's console. Add `payl
 One of the files bucket clears with it: follow [StorageUnreachable](#storageunreachable). <!-- part: files -->
 A run that passes its time limit, which its job's declaration sets, stops where it was. The sweeps delete in batches, so the next run continues where it stopped.
 So does `files.delete_unreferenced_objects`. `files.find_unreferenced_objects` keeps what it recorded, but its next run lists the bucket from its start again, so a bucket whose listing takes longer than the hour has objects that it never reaches, which no deletion then removes: its runs fail each day, and the job needs a longer limit or a listing that resumes. <!-- part: files -->
-The alert clears 3 hours after the last failure, or, for a daily job, once a run succeeds.
+The alert clears once neither of its conditions holds: the first ends 3 hours after the failure before the last, and the second once a run succeeds, or 49 hours after the failure before the last. So the alert of an hourly job that kept failing clears 2 hours after its last failure, if a run has succeeded by then, and a daily job's once a run succeeds.
 
 ## BackupArchivingFailing
 
