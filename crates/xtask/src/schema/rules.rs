@@ -36,6 +36,7 @@ pub fn check(catalog: &Value, bookkeeping: &[String]) -> Vec<Problem> {
     problems.extend(functions(catalog, &tables, bookkeeping));
     problems.extend(names(catalog));
     problems.extend(value_rules(catalog));
+    problems.extend(unvalidated(catalog));
     problems.extend(foreign_keys(catalog));
     problems.extend(roles::check(catalog));
     problems
@@ -237,6 +238,24 @@ fn value_rules(catalog: &Value) -> Vec<Problem> {
                 _ => None,
             },
         )
+        .collect()
+}
+
+/// DATA-10: a constraint that a migration adds `NOT VALID` is validated by a later one, so the
+/// schema that every migration built holds none that the catalog marks as not valid.
+fn unvalidated(catalog: &Value) -> Vec<Problem> {
+    list(catalog, "constraints")
+        .filter(|constraint| constraint["valid"] == false)
+        .map(|constraint| {
+            let (name, table) = (text(constraint, "name"), text(constraint, "table"));
+            (
+                name.to_owned(),
+                format!(
+                    "the constraint {name} of {table} isn't valid: a later migration validates \
+                     a constraint that one adds `NOT VALID` (DATA-10)"
+                ),
+            )
+        })
         .collect()
 }
 
@@ -479,6 +498,22 @@ mod tests {
             );
         }
         assert_eq!(found.len(), 4, "{found:#?}");
+    }
+
+    #[test]
+    fn data_10_a_constraint_that_no_migration_validated_fails() {
+        let mut catalog = catalog();
+        let constraints = catalog["constraints"].as_array_mut().unwrap();
+        constraints[4]["valid"] = json!(false);
+        constraints[3]["valid"] = json!(true);
+
+        assert_eq!(
+            messages(&catalog),
+            [
+                "the constraint audit_entries_user_id_fkey of audit_entries isn't valid: a later \
+              migration validates a constraint that one adds `NOT VALID` (DATA-10)"
+            ]
+        );
     }
 
     #[test]

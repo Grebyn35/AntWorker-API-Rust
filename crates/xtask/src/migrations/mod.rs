@@ -1,5 +1,6 @@
-//! `check-migrations`: the migrations keep their history (DATA-09), and build an index of an
-//! earlier migration's table outside a transaction (DATA-10).
+//! `check-migrations`: the migrations keep their history (DATA-09), build an index of an
+//! earlier migration's table outside a transaction, and add a constraint to one as
+//! `constraints` says (DATA-10).
 //! - Each file of `migrations/` is named `<timestamp>_<module>_<description>.sql`: fourteen
 //!   digits, a module of `app` or `platform`, then a description in `snake_case`.
 //! - The newest release holds its migrations as they are: none of the files under `migrations/`
@@ -16,6 +17,8 @@
 //!   migration's, and a build with no `ON` after it is a finding.
 //!
 //! It reads the newest release from git's tags, so a checkout needs them: CI's fetches them.
+
+mod constraints;
 
 use std::{path::Path, process::Command};
 
@@ -77,6 +80,13 @@ fn check_with(
         }
     }
     findings.extend(indexes(repo));
+    let tables = tenancy::tables(repo);
+    let migrations = repo
+        .files()
+        .filter(|file| file.path.starts_with(MIGRATIONS) && file.path.ends_with(".sql"));
+    for file in migrations {
+        findings.extend(constraints::check(file, &tables));
+    }
     let report = match release {
         None => "check-migrations: no release holds a migration yet.".to_owned(),
         Some(release) => {

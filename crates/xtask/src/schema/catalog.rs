@@ -44,7 +44,7 @@ SELECT json_build_object(
     WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'S'),
   'constraints', (SELECT coalesce(json_agg(json_build_object(
       'name', con.conname, 'table', rel.relname, 'type', con.contype,
-      'on_delete', con.confdeltype,
+      'valid', con.convalidated, 'on_delete', con.confdeltype,
       'references', (SELECT r.relname FROM pg_class r WHERE r.oid = con.confrelid),
       'columns', (SELECT coalesce(json_agg(a.attname ORDER BY k.ord), '[]')
           FROM unnest(con.conkey) WITH ORDINALITY k(attnum, ord)
