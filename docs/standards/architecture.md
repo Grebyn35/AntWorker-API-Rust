@@ -136,6 +136,7 @@ Or, on the telemetry proxy's routes, whether the caller consents to their client
 The operator's end of every account's sessions is an operation for each account: it reads the users that hold a session in short transactions that write nothing, and ends each user's sessions in a unit of work of their own (AUTH-094).
 A periodic job's run is an operation for each batch of rows that it works through: it opens a unit of work for the batch, so a run that ends partway leaves the rest to the next run, as the platform's sweeps do (PLATFORM-019).
 The job that deletes the objects that no row names opens two for each batch, one on each side of the bucket's deletions (DATA-21). <!-- part: files -->
+The job that copies a provider's picture opens two: before its outbound request, a short transaction that writes nothing, which reads whether the account has an avatar, and so whether the job fetches the picture, and then its unit of work, which records the picture once the job has fetched and stored it (ACCOUNTS-030, DATA-21). <!-- part: files -->
 A download that streams bytes it stored, such as an export's documents, after its unit of work commits reads them in short transactions of their own that write nothing, since those bytes never change and the response reports what it committed already (ACCOUNTS-026).
 
 Three records are written outside it, each so that what happens to the operation can't undo it:

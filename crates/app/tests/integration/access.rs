@@ -1111,7 +1111,7 @@ async fn data_20_a_deletion_waits_for_a_member_before_it_locks_the_members_below
     assert_eq!(left, ["0"]);
 }
 
-/// What a member's request, `method` to the path that `path` gives for the workspace and the
+/// What a member's request, `DELETE` of the path that `path` gives for the workspace and the
 /// ID of its owner, answers, and what its refusal records, when a deletion of the workspace
 /// commits once the request is refused, while the refusal's entry waits at the workspace's row:
 /// the answer's status and code, and each `access.denied` entry as its scope, the log it is in,
@@ -1119,7 +1119,6 @@ async fn data_20_a_deletion_waits_for_a_member_before_it_locks_the_members_below
 /// workspace's.
 async fn refused_while_the_workspace_goes(
     role: &str,
-    method: Method,
     path: fn(&str, &str) -> String,
 ) -> ((StatusCode, String), Vec<String>, (String, String)) {
     let api = Api::new().await;
@@ -1140,7 +1139,7 @@ async fn refused_while_the_workspace_goes(
         .await;
 
     let refused = api.spawn(
-        method,
+        Method::DELETE,
         &path(&workspace, &owner.user_id),
         &member.access,
         None,
@@ -1169,7 +1168,7 @@ async fn refused_while_the_workspace_goes(
 async fn audit_004_a_member_s_refusal_whose_workspace_went_meanwhile_is_in_their_own_log() {
     // A member may not delete the workspace.
     let (answer, entries, (member, workspace)) =
-        refused_while_the_workspace_goes("member", Method::DELETE, |workspace, _| {
+        refused_while_the_workspace_goes("member", |workspace, _| {
             format!("/v1/workspaces/{workspace}")
         })
         .await;
@@ -1193,7 +1192,7 @@ async fn audit_004_a_member_s_refusal_whose_workspace_went_meanwhile_is_in_their
 async fn platform_010_a_rank_refusal_whose_workspace_went_meanwhile_is_in_the_caller_s_own_log() {
     // An admin may remove members, but not the owner, who outranks them.
     let (answer, entries, (admin, workspace)) =
-        refused_while_the_workspace_goes("admin", Method::DELETE, |workspace, owner| {
+        refused_while_the_workspace_goes("admin", |workspace, owner| {
             format!("/v1/workspaces/{workspace}/members/{owner}")
         })
         .await;
@@ -1370,7 +1369,7 @@ async fn invitations_006_accepting_while_the_owner_deletes_the_workspace_answers
 }
 /// Bob answers Ada's invitation to her workspace, whose only member she is, `answer` being
 /// `accept` or `decline`, while the deletion of her account holds its owner's membership; returns
-/// the answer's response, with the database.
+/// the API, Bob and the answer's response.
 async fn answering_while_the_owner_is_deleted(
     answer: &str,
 ) -> (Api, SignedIn, crate::support::api::Response) {

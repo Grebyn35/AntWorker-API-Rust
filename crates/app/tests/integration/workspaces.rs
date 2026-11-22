@@ -209,6 +209,31 @@ async fn access_005_a_search_reaches_every_workspace_the_caller_belongs_to_and_n
 }
 
 #[tokio::test]
+async fn access_005_a_rename_publishes_in_each_workspace_the_caller_belongs_to_and_in_no_other() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let db = api.database();
+    let own = workspaces::arrange(db, "Team one", &[(&ada.user_id, "member")]).await;
+    workspaces::arrange(db, "Team four", &[(&grace.user_id, "owner")]).await;
+    // The registrations' sessions published their starts (AUTH-046).
+    db.owner_executes("DELETE FROM events").await;
+
+    // Each workspace of `workspace_ids` gets the rename's event (ACCOUNTS-007).
+    let renamed = api
+        .patch("/v1/users/me", &json!({ "name": "Ada King" }))
+        .bearer(&ada.access)
+        .send()
+        .await;
+
+    assert_eq!(renamed.status, 200);
+    let reached = db
+        .owner_reads("SELECT workspace_id::text FROM events WHERE workspace_id IS NOT NULL")
+        .await;
+    assert_eq!(reached, [own]);
+}
+
+#[tokio::test]
 async fn workspaces_004_lists_the_members_with_their_profiles_the_latest_joined_first() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
@@ -325,6 +350,48 @@ async fn accounts_006_a_member_search_matches_only_the_workspace_s_members() {
         .json();
 
     assert_eq!(field(&body, "email"), ["ada@example.com"]);
+}
+
+#[tokio::test]
+async fn accounts_006_a_member_search_leaves_out_the_members_whose_name_and_email_miss_it() {
+    let api = Api::new().await;
+    let (ada, workspace) = ada_and_an_outsider(&api).await;
+    // A member whose email and name, Ada Lovelace as every test user's, miss the search.
+    let grace = users::register(&api, "grace@example.com").await;
+    workspaces::join(api.database(), &workspace, &grace.user_id, "member").await;
+
+    let body = api
+        .get(&format!(
+            "/v1/workspaces/{workspace}/members?search=ADA@EXAMPLE"
+        ))
+        .bearer(&ada.access)
+        .send()
+        .await
+        .json();
+
+    assert_eq!(field(&body, "email"), ["ada@example.com"]);
+}
+
+#[tokio::test]
+async fn accounts_006_a_member_search_finds_a_member_by_their_name_alone() {
+    let api = Api::new().await;
+    let (ada, workspace) = ada_and_an_outsider(&api).await;
+    let grace = users::register(&api, "grace@example.com").await;
+    workspaces::join(api.database(), &workspace, &grace.user_id, "member").await;
+    // Grace's name holds the search, and no member's email does.
+    api.patch("/v1/users/me", &json!({ "name": "Grace Hopper" }))
+        .bearer(&grace.access)
+        .send()
+        .await;
+
+    let body = api
+        .get(&format!("/v1/workspaces/{workspace}/members?search=HOPPER"))
+        .bearer(&ada.access)
+        .send()
+        .await
+        .json();
+
+    assert_eq!(field(&body, "email"), ["grace@example.com"]);
 }
 
 #[tokio::test]

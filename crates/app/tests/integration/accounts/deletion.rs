@@ -135,7 +135,7 @@ async fn accounts_013_a_deletion_erases_the_user_s_codes_as_a_step_of_its_own() 
     .await;
     // A lock on the code, as the job that issues one holds its row until it commits: the
     // deletion waits for it as it erases the codes, where waiting is allowed, rather than meeting
-    // it through the user's row's foreign keys at its last step, which waits for no lock and would
+    // it through the foreign keys of the user's row, whose deletion waits for no lock and would
     // answer 409 (ACCOUNTS-016, the auth spec's "Deleting an account").
     let mut job = db
         .holding(&format!(

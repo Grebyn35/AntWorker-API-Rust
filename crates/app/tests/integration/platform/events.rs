@@ -473,6 +473,30 @@ async fn access_007_a_stream_holds_each_workspace_s_permissions_of_its_role_ther
 }
 
 #[tokio::test]
+async fn access_007_a_stream_holds_a_workspace_from_the_transaction_that_added_the_membership() {
+    let api = api().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let workspace =
+        workspaces::arrange(api.database(), "Joined", &[(&grace.user_id, "owner")]).await;
+    let mut first = streams::opened(&api, &ada).await;
+    announce(&api, &ada, 1).await;
+    first.event().await;
+    let before = first.last_event_id.clone();
+    drop(first);
+    post(&api, &grace, &workspace, 1, false).await;
+    workspaces::join(api.database(), &workspace, &ada.user_id, "member").await;
+
+    let mut resumed = streams::connect(&api, &ada.access, before.as_deref()).await;
+    resumed.opened().await;
+    announce(&api, &ada, 1).await;
+    let next = resumed.event().await;
+
+    // The post committed before the transaction that made Ada a member, so it isn't replayed.
+    assert_eq!(next.event.as_deref(), Some("announcement.made"));
+}
+
+#[tokio::test]
 async fn auth_018_a_stream_outlives_its_access_token_but_not_its_session() {
     let api = api().await;
     let clock = api.clock();

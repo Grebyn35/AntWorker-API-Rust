@@ -57,8 +57,6 @@ mimalloc.workspace = true
 [dev-dependencies]
 app = { path = ".", features = ["test-support"] }
 platform = { workspace = true, features = ["test-support"] }
-# The fixture routes parse a query.
-axum = { workspace = true, features = ["query"] }
 dotenvy.workspace = true
 # The tests of an export's documents inflate them (PLATFORM-084).
 flate2.workspace = true

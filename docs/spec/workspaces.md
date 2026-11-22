@@ -20,6 +20,7 @@ A superadmin lists every workspace of the deployment here, deletes any of them, 
 - `names(uow, &[WorkspaceId])`: workspace names for a batch of IDs that came from a query filtered by tenant, used by `invitations` (DATA-16). <!-- part: invitations -->
 - `matching(uow, &[WorkspaceId], &Search)`: the IDs among a batch, from a query filtered by tenant, of the workspaces whose name contains the search, used by `invitations` (API-20). <!-- part: invitations -->
 - The domain type `WorkspaceName` (D25), which `invitations` uses. <!-- part: invitations -->
+- `ChangedRole`, the details type that `invitations` records `invitation.role_changed` with, `WorkspacesError`, which its errors convert from, and the user event `MEMBERSHIP_CREATED` with its payload `MembershipCreated`, which it publishes to the user whom an acceptance makes a member. <!-- part: invitations -->
 - `Contract`, the personal data contract for `workspaces` (D31), which exports the workspaces whose only member is the user ([accounts spec](accounts.md#what-an-export-holds)), and deletes the workspaces whose only member is a deleted user, and records and publishes their leaving the others (ACCOUNTS-014).
   It covers `workspace_setups` too, whose rows it exports with their workspaces, and which go with them (WORKSPACES-027). <!-- part: workspace_setup -->
 - `Setup`, what the subcommand `setup-workspace` takes, and `set_up`, which runs it and answers what it did, or why it changed nothing (WORKSPACES-023, WORKSPACES-028). <!-- part: workspace_setup -->
@@ -167,11 +168,12 @@ WORKSPACES-020's kinds and limit are an avatar's (ACCOUNTS-009): a list of the c
 
 A superadmin's routes on workspaces are this module's, since they read what it owns, and each is added through `Routes::superadmin`: its handler extracts `AuthorizeSuperadmin`, whose `open` gives the unit of work with the proof that the caller is a superadmin, `Superadmin`, or refuses them ([superadmins spec](superadmins.md#what-authorizes-a-superadmins-routes)). The proof names no workspace, so these routes read across workspaces, and act on a workspace that their path alone names, which no other route does: each function that exists only for them takes the proof, and reads only what D62 gives a superadmin, a workspace's name, creation time, member count and owner, never a row of what its members share (DATA-16).
 
-The list of every workspace takes three queries, since a workspace's members belong to `access`, and its owner's name and address to `accounts` (ARCH-06):
+The list of every workspace takes a query for each of three steps, since a workspace's members belong to `access`, and its owner's name and address to `accounts` (ARCH-06):
 
 1. A page of the workspaces, the latest created first, through the index on their creation time and ID, kept to those whose name contains the search (DATA-17).
 2. `access::census` reads, for exactly those workspaces, each one's owner and how many members it has.
 3. `accounts::profiles` reads the owners' names and addresses, by exactly those users' IDs.
+   With `files`, `accounts::profiles` also reads, in a second query, the links of the owners' avatars, which the list drops, since it shows none. <!-- part: files -->
 
 A workspace that a deletion takes between the first read and the second drops out of the page, as one does from the list of a caller's own workspaces.
 

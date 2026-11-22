@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`superadmins` holds the deployment's superadmins (D62): the users whom its operator made one, through the binary's subcommand `superadmin`, which nothing in the API does. A superadmin sees every workspace's name, creation time, member count and owner, deletes any workspace, and creates workspaces, which they then own, through routes of their own, and never sees a workspace's content as a superadmin. This spec covers the subcommand, what authorizes a superadmin's routes, and the route that tells a caller whether they are one. The routes themselves are `workspaces`', which owns what they read ([workspaces spec](workspaces.md#a-superadmins-routes)).
+`superadmins` holds the deployment's superadmins (D62): the users whom its operator made one, through the binary's subcommand `superadmin`, which nothing in the API does, or, in development, through `seed` (SYSTEM-010). A superadmin sees every workspace's name, creation time, member count and owner, deletes any workspace, and creates workspaces, which they then own, through routes of their own, and never sees a workspace's content as a superadmin. This spec covers the subcommand, what authorizes a superadmin's routes, and the route that tells a caller whether they are one. The routes themselves are `workspaces`', which owns what they read ([workspaces spec](workspaces.md#a-superadmins-routes)).
 
 ## Owns
 
@@ -40,7 +40,7 @@
 
 ### Who is a superadmin
 
-A superadmin is a user with a row in `superadmins`. It is not a role: a role belongs to a membership, and a superadmin needs none ([architecture's glossary](../architecture.md#11-glossary)). Only the subcommand makes a superadmin, so only someone who reaches the deployment's server does: no route does, whoever calls it (D62). The subcommand ends one too, and so does the deletion of their account, which takes the row with it (SUPERADMINS-007).
+A superadmin is a user with a row in `superadmins`. It is not a role: a role belongs to a membership, and a superadmin needs none ([architecture's glossary](../architecture.md#11-glossary)). Only the subcommand makes a superadmin, and, in development, `seed`, through the subcommand's operation (SYSTEM-010), so only someone who reaches the deployment's server does: no route does, whoever calls it (D62). The subcommand ends one too, and so does the deletion of their account, which takes the row with it (SUPERADMINS-007).
 
 ### The subcommand
 

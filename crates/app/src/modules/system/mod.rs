@@ -7,10 +7,10 @@ mod seed;
 
 pub(crate) use error::SystemError;
 pub(crate) use routes::{Capabilities, Features, SignInClient, SignInProvider, routes};
-pub(crate) use seed::{Mailbox, PASSWORD, Seed, Seeded, allowed as seed_allowed, seed};
+pub(crate) use seed::{Account, Mailbox, PASSWORD, Seed, Seeded, allowed as seed_allowed, seed};
 // part: workspace_setup
-pub(crate) use seed::SettingUp;
+pub(crate) use seed::{SetUp, SettingUp};
 // end part: workspace_setup
 // part: superadmins
-pub(crate) use seed::MakingSuperadmin;
+pub(crate) use seed::{MakeSuperadmin, MakingSuperadmin};
 // end part: superadmins

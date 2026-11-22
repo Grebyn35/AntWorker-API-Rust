@@ -67,20 +67,22 @@ pub async fn seed(
     let set_up = |name: &'static str, email: &'static str| -> system::SettingUp<'_> {
         Box::pin(set_up_for_seed(resources, name, email))
     };
+    let set_up: system::SetUp<'_> = &set_up;
     // end part: workspace_setup
     // part: superadmins
     let make_superadmin = |email: &'static str| -> system::MakingSuperadmin<'_> {
         Box::pin(make_superadmin_for_seed(resources, email))
     };
+    let make_superadmin: system::MakeSuperadmin<'_> = &make_superadmin;
     // end part: superadmins
     let seed = system::Seed {
         router,
         mailbox,
         // part: workspace_setup
-        set_up: &set_up,
+        set_up,
         // end part: workspace_setup
         // part: superadmins
-        make_superadmin: &make_superadmin,
+        make_superadmin,
         // end part: superadmins
     };
     let seeded: system::Seeded = system::seed(seed).await.map_err(SeedError)?;
@@ -88,7 +90,7 @@ pub async fn seed(
         accounts: seeded
             .accounts
             .iter()
-            .map(|account| (account.email, account.name))
+            .map(|account: &system::Account| (account.email, account.name))
             .collect(),
         password: system::PASSWORD,
         workspaces: seeded.workspaces,

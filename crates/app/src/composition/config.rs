@@ -238,3 +238,28 @@ impl Config {
         })
     }
 }
+// part: client_telemetry
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn client_telemetry_008_without_its_setting_a_replica_s_budget_is_1_073_741_824_at_most() {
+        // A user's budget whose fourfold is 4 bytes beyond the most.
+        let user = (1_u32 << 28) + 1;
+        let env = |name: &str| {
+            (name == "CLIENT_TELEMETRY_USER_BYTES_PER_MINUTE")
+                .then(|| OsString::from(user.to_string()))
+        };
+        let settings = Settings::new(env, |_: &Path| -> io::Result<String> {
+            Err(io::ErrorKind::NotFound.into())
+        });
+
+        let budgets = client_telemetry_budgets(&settings).unwrap();
+
+        assert_eq!(budgets.user_budget.limit, user);
+        assert_eq!(budgets.replica_budget.limit, 1_073_741_824);
+    }
+}
+// end part: client_telemetry

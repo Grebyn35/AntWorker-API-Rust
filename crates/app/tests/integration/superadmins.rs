@@ -78,7 +78,8 @@ async fn superadmins_of(api: &Api) -> Vec<String> {
 }
 
 /// The log, actor, target, resource and details of each entry of `action`, the oldest first,
-/// with `-` for no actor, no target or no resource ID, and how many of them record a client.
+/// with `-` for no actor, no target or no resource ID, and how many of them record a client, an
+/// address or a user agent.
 async fn entries(api: &Api, action: &str) -> (Vec<String>, String) {
     let entries = reads(
         api,
@@ -96,7 +97,7 @@ async fn entries(api: &Api, action: &str) -> (Vec<String>, String) {
         &format!(
             "SELECT count(*)::text FROM audit_entry_clients c JOIN audit_entries e \
              ON e.id = c.audit_entry_id WHERE e.action = '{action}' \
-             AND c.client_ip IS NOT NULL AND c.user_agent IS NOT NULL"
+             AND (c.client_ip IS NOT NULL OR c.user_agent IS NOT NULL)"
         ),
     )
     .await

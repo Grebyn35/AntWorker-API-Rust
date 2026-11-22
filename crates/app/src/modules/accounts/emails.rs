@@ -121,14 +121,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn accounts_015_the_email_names_the_account_and_carries_no_link() {
+    fn accounts_015_the_email_says_the_account_and_its_data_are_deleted_and_carries_no_link() {
         let to = EmailAddress::parse("alice@example.com").unwrap();
         let email = Deleted { to }.render().unwrap();
         assert_eq!(email.to.as_str(), "alice@example.com");
         assert_eq!(email.subject, "Your AntWorker account is deleted");
         for part in [&email.text, &email.html] {
             assert!(
-                part.contains("Your AntWorker account for alice@example.com is deleted"),
+                part.contains(
+                    "Your AntWorker account for alice@example.com is deleted, as you asked, with \
+                     everything it held and every workspace whose only member you were."
+                ),
                 "{part}"
             );
             assert!(!part.contains("http"), "{part}");
