@@ -881,3 +881,28 @@ async fn realtime_008_a_frame_whose_payload_or_type_the_catalog_doesn_t_hold_fai
     assert!(unlisted.is_err());
     assert!(unnamed.is_err());
 }
+
+#[tokio::test]
+async fn test_06_a_test_that_waits_for_a_stream_s_frame_logs_which_one() {
+    let api = api().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let mut stream = streams::connect(&api, &ada.access, None).await;
+    stream.opened().await;
+    let opening = stream.last_event_id.clone();
+
+    announce(&api, &ada, 1).await;
+    stream.event().await;
+
+    // What the watch prints of a test that waits for minutes: its last line is its last wait.
+    let waits: Vec<serde_json::Value> = platform::telemetry::testing::all_logged()
+        .into_iter()
+        .filter(|line| {
+            line["message"] == "the test waits for a frame of a stream"
+                && line["opened_by"] == stream.trace_id()
+        })
+        .collect();
+    let after = |line: Option<&serde_json::Value>| line.map(|line| line["after"].clone());
+    assert!(opening.is_some());
+    assert_eq!(after(waits.first()), Some(serde_json::Value::Null));
+    assert_eq!(after(waits.last()), Some(json!(opening)));
+}

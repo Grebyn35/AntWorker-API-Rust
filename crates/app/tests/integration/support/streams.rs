@@ -216,6 +216,13 @@ impl Stream {
                 let block: String = self.buffer.drain(..end + 2).collect();
                 return Some(self.parse(&block));
             }
+            // What the watch of a test that runs on for minutes prints last of a test that
+            // waits here (TEST-06).
+            tracing::info!(
+                opened_by = self.trace_id(),
+                after = self.last_event_id,
+                "the test waits for a frame of a stream"
+            );
             let frame = self.body.frame().await?.unwrap();
             if let Ok(data) = frame.into_data() {
                 self.buffer.push_str(std::str::from_utf8(&data).unwrap());

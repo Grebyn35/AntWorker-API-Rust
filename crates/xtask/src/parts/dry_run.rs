@@ -6,8 +6,8 @@
 use std::collections::{HashMap, HashSet};
 
 use super::{
-    LIST, Part, REMOVAL, Run, citations, exports, is_migration, leftovers, list, markers, matrix,
-    owned, validate,
+    LIST, Part, REMOVAL, Run, citations, exports, imports, is_migration, leftovers, list, markers,
+    matrix, owned, validate,
 };
 use crate::{
     Finding, Outcome, metrics,
@@ -160,10 +160,12 @@ fn removed(run: &Run, parts: &[Part]) -> Run {
 }
 
 /// What the dry run reads once of the repository, for every removal it does: the parts that own
-/// each line of each file whose markers read, what each line cites or links to, and what the
-/// modules export and the lines that name it.
+/// each line of each file whose markers read, the imports of each Rust file that parses and of
+/// which a part owns a line, what each line cites or links to, and what the modules export and
+/// the lines that name it.
 struct Read<'a> {
     owners: HashMap<&'a str, Vec<Vec<&'a str>>>,
+    uses: HashMap<&'a str, imports::Uses>,
     citations: citations::Index<'a>,
     exports: exports::Exports<'a>,
 }
@@ -171,14 +173,29 @@ struct Read<'a> {
 impl<'a> Read<'a> {
     fn of(repo: &'a Repo, parts: &[Part]) -> Self {
         let known: Vec<&str> = parts.iter().map(|part| part.name.as_str()).collect();
+        let owners: HashMap<&str, Vec<Vec<&str>>> = repo
+            .files()
+            .filter_map(|file| {
+                let owners = markers::owners(&file.text, &known).ok()?;
+                Some((file.path.as_str(), owners))
+            })
+            .collect();
+        let uses = repo
+            .files()
+            .filter(|file| {
+                file.path.ends_with(".rs")
+                    && owners
+                        .get(file.path.as_str())
+                        .is_some_and(|lines| lines.iter().any(|parts| !parts.is_empty()))
+            })
+            .filter_map(|file| {
+                let parsed = syn::parse_file(&file.text).ok()?;
+                Some((file.path.as_str(), imports::Uses::of(&parsed)))
+            })
+            .collect();
         Self {
-            owners: repo
-                .files()
-                .filter_map(|file| {
-                    let owners = markers::owners(&file.text, &known).ok()?;
-                    Some((file.path.as_str(), owners))
-                })
-                .collect(),
+            owners,
+            uses,
             citations: citations::Index::read(repo),
             exports: exports::Exports::read(repo),
         }
@@ -238,7 +255,9 @@ impl Removal<'_> {
 }
 
 /// Removes `run`'s parts from `repo` in memory, and returns what it removed, and a finding for
-/// each Rust file whose kept lines don't parse, for each kept path or line, other than those of
+/// each Rust file whose kept lines don't parse, for each import of one whose kept lines parse that
+/// it deletes while kept code names its name, or keeps while only deleted lines named it, as
+/// [`imports`] reads them, for each kept path or line, other than those of
 /// the files the removal writes again, that holds a word of a part it removes, for each kept
 /// line that cites a decision, a behavior or a rule, or links to a file or a heading, that it
 /// deletes, for each kept line that names a module's export that only lines it deletes give, and,
@@ -262,7 +281,15 @@ fn remove(repo: &Repo, parts: &[Part], run: &Run, read: &Read<'_>) -> (String, V
         if lines.len() < owners.len() {
             edited += 1;
             if file.path.ends_with(".rs") {
-                findings.extend(unparsed(&file.path, &lines));
+                match parsed(&file.path, &lines) {
+                    Err(finding) => findings.push(finding),
+                    Ok(kept) => {
+                        if let Some(original) = read.uses.get(file.path.as_str()) {
+                            let kept = imports::Uses::of(&kept);
+                            findings.extend(imports::lost(&file.path, original, &kept, &lines));
+                        }
+                    }
+                }
             }
         }
         if !is_rewritten(&file.path) {
@@ -311,24 +338,25 @@ pub(super) fn is_rewritten(path: &str) -> bool {
     })
 }
 
-/// A finding at the line where Rust made of `lines` stops parsing, counted in the file the lines
-/// were kept from, if it does.
-fn unparsed(path: &str, lines: &[(usize, &str)]) -> Option<Finding> {
+/// The Rust made of `lines`, or a finding at the line where it stops parsing, counted in the file
+/// the lines were kept from.
+fn parsed(path: &str, lines: &[(usize, &str)]) -> Result<syn::File, Finding> {
     let text = lines
         .iter()
         .map(|(_, line)| *line)
         .collect::<Vec<_>>()
         .join("\n");
-    let error = syn::parse_file(&text).err()?;
-    let at = error.span().start().line;
-    let line = lines
-        .get(at.saturating_sub(1))
-        .map_or(1, |(number, _)| *number);
-    Some(Finding::new(
-        path,
-        line,
-        format!("the Rust left doesn't parse here: {error}"),
-    ))
+    syn::parse_file(&text).map_err(|error| {
+        let at = error.span().start().line;
+        let line = lines
+            .get(at.saturating_sub(1))
+            .map_or(1, |(number, _)| *number);
+        Finding::new(
+            path,
+            line,
+            format!("the Rust left doesn't parse here: {error}"),
+        )
+    })
 }
 
 #[cfg(test)]

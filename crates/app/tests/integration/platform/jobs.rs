@@ -453,12 +453,23 @@ async fn platform_016_a_replica_runs_at_most_4_jobs_at_once_and_claims_only_kind
     let fifth_waited = starts.try_recv().is_err();
     steering.release.add_permits(1);
     let fifth = starts.recv().await.unwrap();
-    // A job committed while the replica is idle runs at its next poll.
+    // A job committed with no run in flight runs at a poll. The clock moves on only while the
+    // replica sleeps its poll, and each time it does, until the job starts: a claim that read
+    // the queue before the commit may return after it, and the replica then sleeps a poll from
+    // there, which a clock that had moved on before would never end.
     steering.release.add_permits(4);
-    clock.sleeping(POLL).await;
+    let claimed = "SELECT count(*)::text FROM jobs WHERE claim_id IS NOT NULL";
+    while db.owner_reads(claimed).await != ["0"] {
+        tokio::task::yield_now().await;
+    }
     enqueue(&database, JobScope::for_tests(), &probe("later")).await;
-    clock.advance(POLL);
-    let later = starts.recv().await.unwrap();
+    let later = loop {
+        tokio::select! {
+            biased;
+            label = starts.recv() => break label.unwrap(),
+            () = clock.sleeping(POLL) => clock.advance(POLL),
+        }
+    };
     stop.send_replace(true);
     running.await.unwrap();
 
