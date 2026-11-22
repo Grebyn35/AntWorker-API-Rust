@@ -21,7 +21,7 @@ use crate::modules::workspaces::{
 };
 
 /// The route that creates a workspace, which takes the database as its state. It publishes the
-/// event that [`super::routes`] declares.
+/// event that [`super::routes()`] declares.
 pub(super) fn routes() -> Routes<Database> {
     Routes::new().user(routes!(create), &[])
 }

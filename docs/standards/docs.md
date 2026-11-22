@@ -71,7 +71,7 @@ Each kind of fact has one home, listed below. A fact is written in its home as s
 | A number a tool computes, such as how many tests prove behaviors | no document: the tool reports it |
 
 - Why: a fact written in two places drifts apart, and a reader can't tell which copy is true. A fact written anywhere but its home is missed by whoever reads the home (D27).
-- Check: `ci: check-docs` (the formats that DOC-08 and DOC-14 fix), plus `review`.
+- Check: `ci: check-docs` (the formats that DOC-08 and DOC-14 fix, and a row in each of the accounts spec's two tables of the personal data contracts for each contract that the composition root registers, and for no other), plus `review`.
 
 ### DOC-08 Documents keep their format
 - A spec has the sections that the [spec README](../spec/README.md#sections) lists, in that order, and no others, and none of them is empty: one with nothing in it reads "None.".
@@ -104,7 +104,7 @@ An ADR has four sections: context, decision, consequences and status. After it i
 ### DOC-12 Links and IDs resolve
 Every link in the docs, and in a Rust file's doc comments, resolves, to one heading where it names an anchor, so no two headings of a document share their text. Every rule ID or behavior ID cited in a document, comment or test exists, and so does the ID whose test prefix a document or comment cites, such as `workspaces_005_`. Two places are exempt from both: the inventory, whose IDs are its own (DOC-13), and the tests of the checks in `crates/xtask/`, whose documents and code, links among them, are made up for a check to read, and name files and modules that no repository need have. Every CI check a rule names is listed in the table of checks in `docs/operations/ci.md`, or, while the migration runs, in the tracker's CI checks.
 - Why: a broken reference is a silent lie.
-- Check: `ci: check-docs`.
+- Check: `ci: check-docs`, plus `ci: check-doc-links` (a doc comment's link to an item of the code, which rustdoc resolves).
 
 ## The migration workspace
 

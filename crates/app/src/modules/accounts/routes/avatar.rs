@@ -20,7 +20,7 @@ use crate::modules::{
 };
 
 /// The avatar's routes, which take the database and `files` as their state. They publish the
-/// events that [`super::routes`] declares.
+/// events that [`super::routes()`] declares.
 pub(crate) fn avatar_routes() -> Routes<Avatars> {
     Routes::new()
         .user_upload(routes!(set_avatar), &SET_ERRORS)

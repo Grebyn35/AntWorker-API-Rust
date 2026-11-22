@@ -15,7 +15,8 @@ pub use untrusted::{FetchError, Untrusted};
 
 use crate::{config::Environment, telemetry::names, types::Secret};
 
-/// How long the configured client waits for a connection (the auth spec's "The requests").
+/// How long the configured client waits for a connection (the platform spec's "Outbound
+/// requests").
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// How long the configured client waits for a whole answer, the connection's time included,

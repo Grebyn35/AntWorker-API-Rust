@@ -34,7 +34,7 @@ pub(super) fn matches(listed: &str, uri: &str) -> bool {
 }
 
 /// Whether two listed redirect URIs name one URI that a request may give: they are the same, or
-/// one matches the other as [`matches`] matches a request's (AUTH-081).
+/// one matches the other as [`matches()`] matches a request's (AUTH-081).
 pub(super) fn overlap(first: &str, second: &str) -> bool {
     matches(first, second) || matches(second, first)
 }

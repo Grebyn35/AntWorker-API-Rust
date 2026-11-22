@@ -242,9 +242,9 @@ impl<'de> Deserialize<'de> for Timestamp {
 
 impl Timestamp {
     /// The moment in `text`, as a request gives one, such as a list's filter, or `invalid`:
-    /// `YYYY-MM-DDTHH:MM:SS`, with an uppercase `T`, then 0 to 6 digits of a second's fraction
-    /// after a `.`, then an uppercase `Z`, which names a day of the calendar and a second of 00
-    /// to 59 (API-11, PLATFORM-088).
+    /// `YYYY-MM-DDTHH:MM:SS`, with an uppercase `T`, then, or not, a `.` and 1 to 6 digits of a
+    /// second's fraction, then an uppercase `Z`, which names a day of the calendar and a second
+    /// of 00 to 59 (API-11, PLATFORM-088).
     pub fn read(text: &str) -> Result<Self, Invalid> {
         Self::parse_with(text, 0).ok_or_else(|| {
             Invalid::new(

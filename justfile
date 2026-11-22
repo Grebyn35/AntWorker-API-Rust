@@ -82,7 +82,7 @@ ci: checks check-new-module check-rename image image-scan e2e
 # Runs the checks of the code that need neither the image nor a copy of the repository.
 [doc("Runs the checks of the code that need no image and no copy of the repository")]
 [group('check')]
-checks: fmt-check lint test deny check-test-map check-docs check-openapi check-instrument check-metrics check-telemetry-config alert-rules check-pins check-shell check-sql-bans check-layers check-deps check-layout check-schema check-tenancy check-table-ownership check-migrations sqlx-check
+checks: fmt-check lint check-doc-links test deny check-test-map check-docs check-openapi check-instrument check-metrics check-telemetry-config alert-rules check-pins check-shell check-sql-bans check-layers check-deps check-layout check-schema check-tenancy check-table-ownership check-migrations sqlx-check
     # part: removal
     {{ xtask }} check-parts
     # end part: removal

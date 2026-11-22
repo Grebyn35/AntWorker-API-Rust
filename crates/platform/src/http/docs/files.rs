@@ -11,7 +11,7 @@ use super::{header, operations};
 use crate::signed_urls::{EXPIRES, SESSION, SIGNATURE};
 
 /// Documents on each response of a public download among `paths`, a 200, 206 or 304 that
-/// [`super::download`] documented, its `Cache-Control`, since shared caches may keep them
+/// [`super::download()`] documented, its `Cache-Control`, since shared caches may keep them
 /// (PLATFORM-081, FILES-023).
 pub(in crate::http) fn public(paths: &mut Paths) {
     for item in paths.paths.values_mut() {

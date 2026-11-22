@@ -292,7 +292,7 @@ pub fn values_schema<T: PartialSchema>() -> RefOr<Schema> {
 }
 
 /// Declares the type `$name`, whose schema is that of a list's filter that takes several values,
-/// each of `$item`'s schema, as [`values_schema`](crate::lists::values_schema) gives it, for a
+/// each of `$item`'s schema, as [`values_schema`] gives it, for a
 /// query's field that names it as its `value_type`, `inline`, beside the style `form` without
 /// `explode` (PLATFORM-088). A type for each filter, rather than one generic type, since utoipa
 /// takes a generic `value_type` only through a trait of its own macros, and rather than the
@@ -318,9 +318,9 @@ macro_rules! filter_values {
     };
 }
 
-/// The schema of a moment that a list's filter takes, which `Timestamp::read` reads, for its
-/// documentation: `YYYY-MM-DDTHH:MM:SS`, then 0 to 6 digits of a second's fraction after a `.`,
-/// then `Z` (PLATFORM-088).
+/// The schema of a moment that a list's filter takes, for its documentation: a pattern of the
+/// form that `Timestamp::read` reads, whose doc comment states it (PLATFORM-088). The pattern
+/// reads digits alone, so it also takes a day that no calendar holds, which `read` refuses.
 pub struct Moment;
 
 impl PartialSchema for Moment {

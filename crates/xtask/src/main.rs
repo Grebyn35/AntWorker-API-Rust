@@ -8,6 +8,7 @@ mod boards;
 mod calendar;
 mod cargo;
 mod catalog;
+mod contracts;
 mod copy;
 mod crate_deps;
 mod declarations;

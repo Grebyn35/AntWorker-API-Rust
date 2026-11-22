@@ -125,6 +125,82 @@ async fn api_10_every_parameter_of_a_list_refuses_a_value_that_is_none_by_its_na
 }
 
 #[tokio::test]
+async fn platform_088_the_pattern_that_documents_a_moment_takes_the_forms_that_a_filter_takes() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let workspace = workspaces::arrange(api.database(), "Acme", &[(&ada.user_id, "owner")]).await;
+    // What a filter takes; what it refuses by its form; and what it refuses by its value, a day
+    // that no calendar holds or a second past 59, which a pattern of digits can't tell.
+    let taken = [
+        "2026-11-01T02:26:40Z",
+        "2026-11-01T02:26:40.2Z",
+        "2026-11-01T02:26:40.123456Z",
+    ];
+    let malformed = [
+        "2026-11-01T02:26:40.1234567Z",
+        "2026-11-01T02:26:40.Z",
+        "2026-11-01T02:26:40",
+        "2026-11-01T02:26:40+00:00",
+        "2026-11-01 02:26:40Z",
+        "2026-+1-01T02:26:40Z",
+        "2026-11-01T02:26:40.12a4Z",
+        "2026-11-01t02:26:40Z",
+        "2026-11-01T02:26:40z",
+        "x2026-11-01T02:26:40Z",
+    ];
+    let no_moment = [
+        "2026-02-30T02:26:40Z",
+        "2026-11-01T24:00:00Z",
+        "2016-12-31T23:59:60Z",
+    ];
+    let paths = api.document()["paths"].as_object().unwrap().clone();
+    let mut filters = 0;
+
+    for (template, item) in &paths {
+        let moments = item["get"]["parameters"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|parameter| parameter["schema"]["format"] == "date-time");
+        for parameter in moments {
+            let name = parameter["name"].as_str().unwrap();
+            // The pattern alone: the format's own check is the validator's, not the document's.
+            let pattern = serde_json::json!({ "pattern": parameter["schema"]["pattern"] });
+            let documented = jsonschema::validator_for(&pattern).unwrap();
+            let path = template.replace("{workspace_id}", &workspace);
+            let forms = taken
+                .iter()
+                .map(|moment| (moment, true, true))
+                .chain(malformed.iter().map(|moment| (moment, false, false)))
+                .chain(no_moment.iter().map(|moment| (moment, true, false)));
+            for (moment, matches, answers) in forms {
+                let value: String =
+                    url::form_urlencoded::byte_serialize(moment.as_bytes()).collect();
+                let response = api
+                    .get(&format!("{path}?{name}={value}"))
+                    .bearer(&ada.access)
+                    .send()
+                    .await;
+
+                assert_eq!(
+                    documented.is_valid(&serde_json::json!(moment)),
+                    matches,
+                    "{template} {name} {moment}"
+                );
+                assert_eq!(
+                    response.status == StatusCode::OK,
+                    answers,
+                    "{template} {name} {moment}: {}",
+                    response.status
+                );
+            }
+            filters += 1;
+        }
+    }
+    assert!(filters >= 2, "only {filters} filters that take a moment");
+}
+
+#[tokio::test]
 async fn api_17_every_path_serves_exactly_the_methods_its_documentation_lists() {
     let api = Api::new().await;
     let methods = [

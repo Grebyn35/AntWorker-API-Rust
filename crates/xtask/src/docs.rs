@@ -10,8 +10,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    Finding, Outcome, acronyms, catalog::Catalog, formats, markdown, references, repo::Repo,
-    routes, text,
+    Finding, Outcome, acronyms, catalog::Catalog, contracts, formats, markdown, references,
+    repo::Repo, routes, text,
 };
 
 /// Words that describe history instead of the current state (DOC-01).
@@ -47,6 +47,7 @@ pub fn check(repo: &Repo, catalog: &Catalog) -> Outcome {
     findings.extend(routes::check(repo));
     findings.extend(acronyms::check(repo, catalog));
     findings.extend(references::check(repo, catalog));
+    findings.extend(contracts::check(repo));
     Outcome {
         report: vec![format!(
             "check-docs: {} files checked, {} of them documents.",
@@ -100,7 +101,8 @@ fn links(repo: &Repo, documents: &BTreeMap<&str, markdown::Document>) -> Vec<Fin
 
 /// Every link of a Rust file's doc comments to a file resolves, as a document's does (DOC-12),
 /// but in a check's own tests (`text::citing_lines`). A link to an item, such as
-/// `[cfg](super::cfg)`, is rustdoc's, and a link inside a code span is no link.
+/// `[cfg](super::cfg)`, is rustdoc's, which `just check-doc-links` has resolve it, and a link
+/// inside a code span is no link.
 fn comment_links(repo: &Repo, documents: &BTreeMap<&str, markdown::Document>) -> Vec<Finding> {
     let mut findings = Vec::new();
     for file in repo.files().filter(|file| file.path.ends_with(".rs")) {

@@ -120,6 +120,12 @@ opt-level = 3
 [workspace.lints.rust]
 unsafe_code = "forbid"
 
+# `just check-doc-links` builds the documentation with private items, so a doc comment's link to
+# one resolves there, and every other finding of rustdoc's fails it (DOC-12).
+[workspace.lints.rustdoc]
+all = { level = "deny", priority = -1 }
+private_intra_doc_links = "allow"
+
 [workspace.lints.clippy]
 unwrap_used = "deny"
 expect_used = "deny"

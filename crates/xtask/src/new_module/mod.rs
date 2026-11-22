@@ -218,6 +218,8 @@ fn inserts(repo: &Repo, names: &Names) -> Result<Inserts, String> {
         architecture_graph: read("architecture-graph.md")?,
         spec_index: read("spec-index.md")?,
         access_matrix: read("access-matrix.md")?,
+        accounts_erases: read("accounts-erases.md")?,
+        accounts_exports: read("accounts-exports.md")?,
     };
     leftovers(
         names,
@@ -230,6 +232,8 @@ fn inserts(repo: &Repo, names: &Names) -> Result<Inserts, String> {
             ("architecture-graph.md", &inserts.architecture_graph),
             ("spec-index.md", &inserts.spec_index),
             ("access-matrix.md", &inserts.access_matrix),
+            ("accounts-erases.md", &inserts.accounts_erases),
+            ("accounts-exports.md", &inserts.accounts_exports),
         ],
     )?;
     Ok(inserts)

@@ -91,6 +91,14 @@ lint: bound-build
     cargo clippy --workspace --locked -- -D warnings
     cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
+# Builds the documentation of the workspace's crates, private items included, without their
+# dependencies', and fails on a finding of rustdoc's, such as a doc comment's link to an item
+# that doesn't resolve (DOC-12): the workspace's lints deny them.
+[doc("Fails on a doc comment's link to an item that rustdoc can't resolve")]
+[group('check')]
+check-doc-links: bound-build
+    cargo doc --workspace --locked --no-deps --document-private-items
+
 # Fetches the locked crates, and RustSec's advisory database in up to three attempts: a CI runner
 # now and then fails to reach the database's host for a couple of minutes, and cargo-deny tries
 # once. The check of the advisories then reads what is fetched, without the network.

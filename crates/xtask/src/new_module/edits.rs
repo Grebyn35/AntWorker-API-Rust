@@ -36,6 +36,10 @@ pub struct Inserts {
     pub spec_index: String,
     /// The permissions' rows of the access spec's matrix.
     pub access_matrix: String,
+    /// The contract's row of what a deletion erases (the accounts spec).
+    pub accounts_erases: String,
+    /// The contract's row of what an export holds (the accounts spec).
+    pub accounts_exports: String,
 }
 
 /// Every edit that registers the module `names`, given each shared file's text by `read`, or,
@@ -142,9 +146,22 @@ fn code(plan: &mut Plan<'_>, module: &str, inserts: &Inserts) {
     );
 }
 
-/// The documents' edits: architecture.md's table and graph, the spec index, and the access spec's
-/// matrix.
+/// The documents' edits: architecture.md's table and graph, the spec index, the access spec's
+/// matrix, and the accounts spec's two tables of the personal data contracts.
 fn documents(plan: &mut Plan<'_>, inserts: &Inserts) {
+    plan.place(
+        "docs/spec/accounts.md",
+        "the contract's rows of what a deletion erases and of what an export holds, each before \
+         the row of `accounts`, whose contract runs last",
+        &|text| {
+            let erased = before_row(text, "### Deleting an account", &inserts.accounts_erases)?;
+            before_row(
+                &erased,
+                "### What an export holds",
+                &inserts.accounts_exports,
+            )
+        },
+    );
     plan.place(
         "docs/architecture.md",
         "the module's row of what each module owns, and its edges in the graph of dependencies (§5)",
@@ -417,6 +434,19 @@ fn architecture(text: &str, owns: &str, graph: &str) -> Option<String> {
     })
 }
 
+/// `text` with `row` before the row of `accounts` in the first table below the heading
+/// `heading`: the contracts' rows stand in the order that the composition root registers them,
+/// that of `accounts` last.
+fn before_row(text: &str, heading: &str, row: &str) -> Option<String> {
+    let lines: Vec<&str> = text.lines().collect();
+    let at = find(&lines, 0, |line| line == heading)?;
+    let table = find(&lines, at, |line| line.starts_with('|'))?;
+    let table_end = find(&lines, table, |line| !line.starts_with('|')).unwrap_or(lines.len());
+    let last = find(&lines, table, |line| line.starts_with("| `accounts` |"))
+        .filter(|last| *last < table_end)?;
+    Some(before(text, last, row))
+}
+
 /// `text` with `rows` after the last row of the first table below the heading `heading`.
 fn after_table(text: &str, heading: &str, rows: &str) -> Option<String> {
     let lines: Vec<&str> = text.lines().collect();
@@ -547,6 +577,8 @@ mod tests {
             architecture_graph: String::new(),
             spec_index: String::new(),
             access_matrix: String::new(),
+            accounts_erases: String::new(),
+            accounts_exports: String::new(),
         };
         let names = Names::new("items", None).unwrap();
 
@@ -557,10 +589,36 @@ mod tests {
             Err(missing) => missing,
         };
 
-        assert_eq!(missing.len(), 10);
+        assert_eq!(missing.len(), 11);
         assert!(
             missing[0].starts_with("crates/app/src/modules/mod.rs: add `pub(crate) mod items;`")
         );
+    }
+
+    #[test]
+    fn arch_03_a_contract_s_row_goes_before_the_row_of_accounts_in_each_table() {
+        let spec = "### Deleting an account\n\nSteps.\n\n| Contract | What it erases |\n|---|---|\n\
+                    | `auth` | a |\n| `accounts` | b |\n\nText.\n\n### What an export holds\n\n\
+                    | Contract | What it exports |\n|---|---|\n| `accounts` | c |\n";
+
+        let erased = before_row(spec, "### Deleting an account", "| `items` | d |").unwrap();
+        assert_eq!(
+            before_row(&erased, "### What an export holds", "| `items` | e |").unwrap(),
+            "### Deleting an account\n\nSteps.\n\n| Contract | What it erases |\n|---|---|\n\
+             | `auth` | a |\n| `items` | d |\n| `accounts` | b |\n\nText.\n\n\
+             ### What an export holds\n\n| Contract | What it exports |\n|---|---|\n\
+             | `items` | e |\n| `accounts` | c |\n"
+        );
+        // A table without the row of `accounts`, and a document without the heading.
+        assert_eq!(
+            before_row(
+                "### What an export holds\n\n| A |\n|---|\n| `auth` |\n\n| `accounts` |\n",
+                "### What an export holds",
+                "| x |"
+            ),
+            None
+        );
+        assert_eq!(before_row(spec, "### Exporting", "| x |"), None);
     }
 
     #[test]
