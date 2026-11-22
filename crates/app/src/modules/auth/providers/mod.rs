@@ -303,7 +303,7 @@ pub(crate) struct Listed {
     pub(crate) clients: Vec<(String, Vec<String>)>,
 }
 
-/// What a provider's key finds (AUTH-077).
+/// What a provider's key finds (AUTH-100).
 pub(super) enum Found<'a> {
     /// A provider that the deployment configures.
     On(&'a On),
@@ -395,7 +395,7 @@ impl Providers {
 
     /// Whether the clients of the provider that `provider` names list `redirect_uri`, as a
     /// request's conversion asks, so its 400 names every field; a provider that the deployment
-    /// doesn't configure lists any, since the service answers it (AUTH-077, AUTH-078).
+    /// doesn't configure lists any, since the service answers it (AUTH-078, AUTH-100).
     pub(crate) fn lists(&self, provider: &str, redirect_uri: &str) -> bool {
         match self.find(provider) {
             Found::On(provider) => provider.client_for(redirect_uri).is_some(),
@@ -412,7 +412,7 @@ impl Providers {
         }
     }
 
-    /// The provider that `key` names (AUTH-077).
+    /// The provider that `key` names (AUTH-100).
     pub(super) fn find(&self, key: &str) -> Found<'_> {
         if let Some(provider) = self.on.iter().find(|provider| provider.key == key) {
             return Found::On(provider);

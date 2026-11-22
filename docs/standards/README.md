@@ -28,6 +28,8 @@ The rule, stated so a reviewer can answer yes or no.
 - Check: how it is enforced.
 ```
 
+A `Check` line that names several kinds of check, or a check that covers part of the rule, may say what each covers in a list nested under it.
+
 `Check` names the strongest enforcement available, in this order of preference:
 
 | Check | Meaning |

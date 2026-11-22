@@ -86,7 +86,7 @@ fn refusal(answer: &Response) -> ProviderError {
 
 /// The code of a token endpoint's refusal when it is one that RFC 6749 defines (§5.2), or
 /// `another code`, so the logs name a refusal, such as `invalid_client` for a client's secret set
-/// wrong, but nothing else that the provider sent (AUTH-077).
+/// wrong, but nothing else that the provider sent (AUTH-100).
 fn error_code(error: &str) -> &'static str {
     const CODES: [&str; 6] = [
         "invalid_request",

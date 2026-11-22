@@ -67,7 +67,7 @@ pub(crate) enum AuthError {
     #[error("the request lacks the second factor's code")]
     SecondFactorRequired,
     /// The account whose password a reset sets has an authenticator app, whose code the
-    /// confirmation lacks (AUTH-037).
+    /// confirmation lacks (AUTH-098).
     #[error("the confirmation lacks the second factor's code")]
     SecondFactorMissing,
     /// The deployment requires a second factor, so the caller's app can't be removed, only
@@ -77,7 +77,7 @@ pub(crate) enum AuthError {
     /// The signed-in user's second factor's code is wrong (AUTH-065).
     #[error("the second factor's code is wrong")]
     WrongSecondFactor,
-    /// The request's `provider` names no provider of the API (AUTH-077).
+    /// The request's `provider` names no provider of the API (AUTH-100).
     #[error("no provider of the API has the key")]
     ProviderNotFound,
     /// The provider refused the exchange of the code (AUTH-077).
@@ -94,7 +94,7 @@ pub(crate) enum AuthError {
     /// them: a re-authentication's, or a link's (AUTH-080, AUTH-087).
     #[error("the provider refused the signed-in caller's code")]
     ProviderProofRejected,
-    /// The subject of the provider's sign-in isn't the caller's (AUTH-080).
+    /// The subject of the provider's sign-in isn't the caller's (AUTH-101).
     #[error("the provider's account isn't the caller's")]
     WrongIdentity,
     /// The account has a password, so none is added: it changes with the current one (AUTH-086).

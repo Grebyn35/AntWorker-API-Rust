@@ -54,7 +54,7 @@ fn err_11_an_ignored_error_is_counted_by_its_kind() {
 }
 
 #[tokio::test]
-async fn platform_081_bytes_that_fail_once_the_status_is_sent_are_written_and_counted_as_ignored() {
+async fn platform_100_bytes_that_fail_once_the_status_is_sent_are_written_and_counted_as_ignored() {
     testing::install(Service {
         name: "api",
         version: "0.0.0",

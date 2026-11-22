@@ -1,7 +1,7 @@
 //! What the bucket keeps of each object that was written, replaced or deleted in it: its
 //! versions, as S3's `ListObjectVersions` lists them, a page at a time, and the bytes of one
-//! (PLATFORM-096). A bucket keeps the versions of an object that was replaced or deleted only
-//! while its versioning is on.
+//! (PLATFORM-096, PLATFORM-102, PLATFORM-103). A bucket keeps the versions of an object that was
+//! replaced or deleted only while its versioning is on.
 
 use futures_util::{
     StreamExt,
@@ -374,7 +374,7 @@ mod tests {
     }
 
     #[test]
-    fn platform_096_a_page_that_more_follows_names_the_key_and_the_version_it_starts_after() {
+    fn platform_102_a_page_that_more_follows_names_the_key_and_the_version_it_starts_after() {
         let entries = [version("users/aa", "3", true, 21, 7)];
         let more = "<IsTruncated>true</IsTruncated><NextKeyMarker>users/aa</NextKeyMarker>\
                     <NextVersionIdMarker>3</NextVersionIdMarker>";
@@ -415,7 +415,7 @@ mod tests {
     }
 
     #[test]
-    fn platform_096_a_version_s_media_type_is_its_answer_s_or_that_of_bytes_of_no_type() {
+    fn platform_103_a_version_s_media_type_is_its_answer_s_or_that_of_bytes_of_no_type() {
         let mut headers = reqwest::header::HeaderMap::new();
         let none = media_type(&headers);
         headers.insert(CONTENT_TYPE, "image/png".parse().unwrap());
@@ -429,7 +429,7 @@ mod tests {
     }
 
     #[test]
-    fn platform_096_a_page_s_keys_are_decoded_only_when_it_says_that_it_encoded_them() {
+    fn platform_102_a_page_s_keys_are_decoded_only_when_it_says_that_it_encoded_them() {
         let entries = [version("users/a+b%2Bc%25d", "1", true, 21, 1)];
         let more = "<IsTruncated>true</IsTruncated><NextKeyMarker>users/a+b%2Bc%25d\
                     </NextKeyMarker><NextVersionIdMarker>1</NextVersionIdMarker>";
@@ -451,7 +451,7 @@ mod tests {
     }
 
     #[test]
-    fn platform_096_a_page_gives_a_key_that_no_url_addresses_as_the_bucket_lists_it() {
+    fn platform_102_a_page_gives_a_key_that_no_url_addresses_as_the_bucket_lists_it() {
         let page = listing(&[version("users//aa", "1", true, 21, 1)], "");
 
         let (versions, _) = read(page.as_bytes()).unwrap();
@@ -461,7 +461,7 @@ mod tests {
     }
 
     #[test]
-    fn platform_096_a_page_fails_on_what_it_can_t_read() {
+    fn platform_102_a_page_fails_on_what_it_can_t_read() {
         let whole = listing(&[version("users/aa", "1", true, 21, 1)], "");
         let typed = whole.replacen(
             "<ListVersionsResult",

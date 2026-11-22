@@ -276,7 +276,7 @@ async fn auth_083_github_is_listed_by_its_key_name_and_scopes() {
 }
 
 #[tokio::test]
-async fn auth_083_startup_refuses_another_client_s_redirect_uri_under_one_of_github_s() {
+async fn auth_102_startup_refuses_another_client_s_redirect_uri_under_one_of_github_s() {
     let beside = |stand_in: &str| {
         Options::default()
             .set("GITHUB_CLIENT_ID", "github-client")

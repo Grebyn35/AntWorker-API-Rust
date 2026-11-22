@@ -120,7 +120,7 @@ async fn auth_084_the_provider_that_the_settings_name_signs_in_through_their_add
 }
 
 #[tokio::test]
-async fn auth_084_a_token_whose_answer_doesn_t_say_that_it_lapses_answers_503() {
+async fn auth_103_a_token_whose_answer_doesn_t_say_that_it_lapses_answers_503() {
     let (upstream, api) = named().await;
     upstream.set(
         "GET",
@@ -155,7 +155,7 @@ async fn auth_084_a_token_whose_answer_doesn_t_say_that_it_lapses_answers_503() 
 }
 
 #[tokio::test]
-async fn auth_084_the_same_sub_of_another_issuer_reaches_no_account_of_the_first_s() {
+async fn auth_103_the_same_sub_of_another_issuer_reaches_no_account_of_the_first_s() {
     let (upstream, api) = named().await;
     gives(&upstream, json!({ "sub": "7", "email": "ada@example.com" }));
     assert_eq!(sign_in(&api).await.status, 201);

@@ -1,7 +1,7 @@
 //! The check of a second factor's code: an authenticator app's, or a recovery code, which a
 //! completion of a sign-in, a re-authentication, a change of the password and a reset of it go
-//! through, with the buckets that count them (AUTH-037, AUTH-057, AUTH-061, AUTH-062, AUTH-065,
-//! AUTH-066).
+//! through, with the buckets that count them (AUTH-057, AUTH-061, AUTH-062, AUTH-065, AUTH-066,
+//! AUTH-098).
 
 use platform::{
     authn::{AuditScope, Principal},
@@ -96,7 +96,7 @@ impl Auth {
     /// `uow`: nothing for an account without an app, or else `proof`, which must be the app's code
     /// or a recovery code. A wrong one is recorded in the account's log, with no actor, whose unit
     /// of work commits before the answer, as a completion's does; a recovery code that it uses is
-    /// told to `address`, in a job of `scope` (AUTH-037, AUTH-062, ARCH-11). Its bucket counted the
+    /// told to `address`, in a job of `scope` (AUTH-062, AUTH-098, ARCH-11). Its bucket counted the
     /// request before `uow` opened (AUTH-061). It locks the password identity, then the app, the
     /// order of every operation that locks both (DATA-20).
     pub(in crate::modules::auth::service) async fn check_reset_factor(
@@ -128,8 +128,8 @@ impl Auth {
     }
 
     /// Counts a reset's check of `user_id`'s second factor in the bucket of their completions of
-    /// a sign-in, before its unit of work opens, once its reset code matched (AUTH-037,
-    /// AUTH-061).
+    /// a sign-in, before its unit of work opens, once its reset code matched (AUTH-061,
+    /// AUTH-098).
     pub(in crate::modules::auth::service) async fn count_reset_check(
         &self,
         limits: &RateLimits,

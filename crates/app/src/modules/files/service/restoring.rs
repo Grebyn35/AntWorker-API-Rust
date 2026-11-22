@@ -319,7 +319,7 @@ mod tests {
     }
 
     #[test]
-    fn files_028_a_listing_that_isn_t_the_latest_first_stops_the_run() {
+    fn files_029_a_listing_that_isn_t_the_latest_first_stops_the_run() {
         let oldest_first = Seen::first(version("1", false, 20, Some("a")), moment());
         let mut two_latest = Seen::first(version("2", true, 40, None), moment()).unwrap();
         let second = two_latest.older(version("1", true, 20, Some("a")), moment());

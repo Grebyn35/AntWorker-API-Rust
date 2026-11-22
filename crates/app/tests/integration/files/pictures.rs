@@ -185,7 +185,7 @@ async fn accounts_028_a_registration_through_a_provider_gets_its_picture_as_its_
 }
 
 #[tokio::test]
-async fn accounts_028_a_second_run_of_the_job_changes_nothing() {
+async fn accounts_030_a_second_run_of_the_job_changes_nothing() {
     let (upstream, api) = standing(Options::default()).await;
     let ada = registered(&upstream, &api, files::PNG).await;
     api.run_jobs().await;
@@ -219,7 +219,7 @@ async fn accounts_028_a_second_run_of_the_job_changes_nothing() {
 }
 
 #[tokio::test]
-async fn accounts_028_an_account_that_gets_an_avatar_while_its_picture_is_fetched_keeps_it() {
+async fn accounts_030_an_account_that_gets_an_avatar_while_its_picture_is_fetched_keeps_it() {
     let (upstream, api) = standing(Options::default()).await;
 
     let (ada, other) = overtaken(&upstream, &api).await;
@@ -256,7 +256,7 @@ async fn files_013_a_copy_of_a_provider_s_picture_counts_as_an_avatar_s_upload()
 }
 
 #[tokio::test]
-async fn accounts_028_an_account_that_set_an_avatar_before_the_job_ran_keeps_it() {
+async fn accounts_030_an_account_that_set_an_avatar_before_the_job_ran_keeps_it() {
     let (upstream, api) = standing(Options::default()).await;
     let ada = registered(&upstream, &api, files::PNG).await;
     let set = api
@@ -285,7 +285,7 @@ async fn accounts_028_an_account_that_set_an_avatar_before_the_job_ran_keeps_it(
 }
 
 #[tokio::test]
-async fn accounts_028_a_picture_that_is_no_avatar_leaves_the_account_without_one() {
+async fn accounts_029_a_picture_that_is_no_avatar_leaves_the_account_without_one() {
     // Bytes that are no image, more bytes than an avatar holds, and an answer that says the
     // address gives nothing.
     let large = [files::PNG, &vec![0; 1_048_576]].concat();
@@ -305,7 +305,7 @@ async fn accounts_028_a_picture_that_is_no_avatar_leaves_the_account_without_one
 }
 
 #[tokio::test]
-async fn accounts_028_a_picture_in_which_the_scanner_finds_malware_leaves_no_avatar() {
+async fn accounts_029_a_picture_in_which_the_scanner_finds_malware_leaves_no_avatar() {
     let stand_in = scanner::scripted(Script::Answer("stream: Eicar-Test-Signature FOUND")).await;
     let options = Options::default().set("CLAMD_ADDRESS", &stand_in.address);
     let (upstream, api) = standing(options).await;
@@ -323,7 +323,7 @@ async fn accounts_028_a_picture_in_which_the_scanner_finds_malware_leaves_no_ava
 }
 
 #[tokio::test]
-async fn accounts_028_an_address_that_the_untrusted_client_refuses_is_never_fetched() {
+async fn accounts_029_an_address_that_the_untrusted_client_refuses_is_never_fetched() {
     // A loopback address that isn't the tests' origin, a listed name that resolves to one, a
     // listed host over plain HTTP and at a port, and a host that the provider doesn't list
     // (SEC-10).
@@ -355,7 +355,7 @@ async fn accounts_028_an_address_that_the_untrusted_client_refuses_is_never_fetc
 }
 
 #[tokio::test]
-async fn accounts_028_a_fetch_that_fails_is_tried_again_and_the_fifth_leaves_no_dead_letter() {
+async fn accounts_029_a_fetch_that_fails_is_tried_again_and_the_fifth_leaves_no_dead_letter() {
     let (upstream, api) = standing(Options::default()).await;
     upstream.set_bytes("GET", PICTURE, 503, b"");
     pictured(&upstream, &upstream.url(PICTURE));
@@ -382,7 +382,7 @@ async fn accounts_028_a_fetch_that_fails_is_tried_again_and_the_fifth_leaves_no_
 }
 
 #[tokio::test]
-async fn accounts_028_a_scanner_that_doesn_t_answer_is_tried_again_until_the_fifth_attempt() {
+async fn accounts_029_a_scanner_that_doesn_t_answer_is_tried_again_until_the_fifth_attempt() {
     let stand_in = scanner::scripted(Script::Close).await;
     let options = Options::default().set("CLAMD_ADDRESS", &stand_in.address);
     let (upstream, api) = standing(options).await;
@@ -410,7 +410,7 @@ async fn accounts_028_a_scanner_that_doesn_t_answer_is_tried_again_until_the_fif
 }
 
 #[tokio::test]
-async fn accounts_028_a_storage_that_doesn_t_answer_is_tried_again_until_the_fifth_attempt() {
+async fn accounts_029_a_storage_that_doesn_t_answer_is_tried_again_until_the_fifth_attempt() {
     // Nothing listens on port 9 of the loopback address.
     let options = Options::default().set("S3_ENDPOINT", "http://127.0.0.1:9");
     let (upstream, api) = standing(options).await;

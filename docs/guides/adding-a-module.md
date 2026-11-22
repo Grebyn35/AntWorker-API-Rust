@@ -26,7 +26,19 @@ It writes these files, each holding what [architecture §5](../architecture.md#i
 | `crates/app/tests/integration/support/<module>.rs` | The builder that arranges the module's rows for tests (TEST-09) |
 | `docs/spec/<module>.md` | The spec: its routes, and a behavior for each thing the routes guarantee |
 
-It registers the module in the eleven files that every module shares: `modules/mod.rs`; `composition/mod.rs`, which mounts its routes, lists its audit actions in the action catalog, and registers its personal data contract; the permission matrix in `access/permissions.rs`, with the module's four permissions, such as `order_items.read`, `.create`, `.update` and `.delete`, and their re-export in `access/mod.rs`; the access spec's copy of the matrix; the accounts spec's two tables of the personal data contracts, with what the module's contract erases and what it exports; the list of test modules in `tests/integration/main.rs`, and of the test support's in `support/mod.rs`; TEST-08's fixtures in `tests/integration/access.rs`; the spec index; and architecture.md's table of what each module owns and its graph of dependencies, where a module that the document already plans keeps its planned row and edges. Then it rewrites `.sqlx/` and `openapi.json`, and formats the code. Before it writes anything, it finds the place of each line in each of those files; if a file doesn't hold it, as when a fork has rewritten the file, the task writes nothing at all, and names each line to add by hand, and where.
+It registers the module in the eleven files that every module shares:
+
+- `modules/mod.rs`;
+- `composition/mod.rs`, which mounts its routes, lists its audit actions in the action catalog, and registers its personal data contract;
+- the permission matrix in `access/permissions.rs`, with the module's four permissions, such as `order_items.read`, `.create`, `.update` and `.delete`, and their re-export in `access/mod.rs`;
+- the access spec's copy of the matrix;
+- the accounts spec's two tables of the personal data contracts, with what the module's contract erases and what it exports;
+- the list of test modules in `tests/integration/main.rs`, and of the test support's in `support/mod.rs`;
+- TEST-08's fixtures in `tests/integration/access.rs`;
+- the spec index;
+- architecture.md's table of what each module owns and its graph of dependencies, where a module that the document already plans keeps its planned row and edges.
+
+Then it rewrites `.sqlx/` and `openapi.json`, and formats the code. Before it writes anything, it finds the place of each line in each of those files; if a file doesn't hold it, as when a fork has rewritten the file, the task writes nothing at all, and names each line to add by hand, and where.
 
 ## Making it the module you need
 
@@ -69,7 +81,7 @@ Editing a migration that no release contains (DATA-09) means recreating the deve
 | What the route does | `service.rs`, in the unit of work that `Authorized<P>` opened | ARCH-09, ARCH-11 |
 | Its SQL | `repo.rs`, filtered by the workspace from the proof | ARCH-06, ARCH-10, DATA-14 to DATA-16, DATA-20 |
 | Its errors, with their codes | `error.rs`, and the codes each route lists in `routes()` | ERR-01 to ERR-06, ERR-13 |
-| What it records about a change | `audit.rs`, recorded in the service's unit of work: each action with its name in double quotes right after `Action::new(`, the form in which `check-openapi` reads it, the sentence that tells what it means, the kinds of resource it happens to, the logs that record it, and the type of its details, a struct of IDs and non-personal fields, listed in `ACTIONS`, which `catalog()` in `composition/mod.rs` lists, then `just openapi`; an action that a workspace's log records declares, with `in_workspace_log::<P>()`, the permission of the event that its change publishes, which reading it in the log then takes (the audit spec's [Reading a workspace's log](../spec/audit.md#reading-a-workspaces-log) and [The action catalog](../spec/audit.md#the-action-catalog)) | DATA-22, SEC-18, AUDIT-007, AUDIT-012 to AUDIT-014 |
+| What it records about a change | `audit.rs`, recorded in the service's unit of work: each action with its name in double quotes right after `Action::new(`, the form in which `check-openapi` reads it, the sentence that tells what it means, the kinds of resource it happens to, the logs that record it, and the type of its details, a struct of IDs and non-personal fields, listed in `ACTIONS`, which `catalog()` in `composition/mod.rs` lists, then `just openapi`. An action that a workspace's log records declares, with `in_workspace_log::<P>()`, the permission of the event that its change publishes, which reading it in the log then takes (the audit spec's [Reading a workspace's log](../spec/audit.md#reading-a-workspaces-log) and [The action catalog](../spec/audit.md#the-action-catalog)) | DATA-22, SEC-18, AUDIT-007, AUDIT-012 to AUDIT-014 |
 | What it tells clients over the stream | `events.rs`, published in the service's unit of work: each event with its name in double quotes right after `UserEvent::new(` or `WorkspaceEvent::new(`, the form in which `check-openapi` reads it ([realtime spec](../spec/realtime.md#the-event-catalog)), registered with the module's routes through `Routes::events`, then `just openapi` | API-19, SEC-19 |
 | Work after the request, and email | `jobs.rs`, `emails.rs` and its templates ([platform spec](../spec/platform.md#sending-email)) | OPS-09 |
 | What it measures | `metrics.rs`, then `just metrics` | OBS-11 to OBS-14 |

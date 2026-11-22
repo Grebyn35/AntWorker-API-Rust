@@ -512,7 +512,7 @@ async fn auth_087_a_link_whose_session_ended_once_it_was_authenticated_answers_4
 }
 
 #[tokio::test]
-async fn auth_074_a_registration_that_meets_a_link_of_its_subject_answers_409() {
+async fn auth_099_a_registration_that_meets_a_link_of_its_subject_answers_409() {
     let (upstream, api) = standing().await;
     let carol = users::register(&api, "carol@example.com").await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
@@ -583,7 +583,7 @@ async fn auth_073_a_sign_in_that_waited_for_the_removal_of_its_identity_reaches_
 }
 
 #[tokio::test]
-async fn auth_074_a_registration_after_a_removal_that_its_sign_in_waited_for_counts_in_its_bucket()
+async fn auth_099_a_registration_after_a_removal_that_its_sign_in_waited_for_counts_in_its_bucket()
 {
     let (upstream, api) = standing().await;
     let ada = users::register(&api, "ada@example.com").await;
@@ -630,7 +630,7 @@ async fn auth_074_a_registration_after_a_removal_that_its_sign_in_waited_for_cou
 }
 
 #[tokio::test]
-async fn auth_074_beyond_its_limit_a_registration_after_such_a_wait_answers_429_and_writes_nothing()
+async fn auth_099_beyond_its_limit_a_registration_after_such_a_wait_answers_429_and_writes_nothing()
 {
     let (upstream, api) = standing().await;
     let ada = users::register(&api, "ada@example.com").await;
@@ -682,7 +682,7 @@ async fn auth_074_beyond_its_limit_a_registration_after_such_a_wait_answers_429_
 }
 
 #[tokio::test]
-async fn auth_074_a_registration_after_a_deletion_that_its_sign_in_waited_for_counts_in_its_bucket()
+async fn auth_099_a_registration_after_a_deletion_that_its_sign_in_waited_for_counts_in_its_bucket()
 {
     let (upstream, api) = standing().await;
     // Her provider doesn't prove her address, so her registration counted once in the address's

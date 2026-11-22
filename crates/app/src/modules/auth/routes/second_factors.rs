@@ -70,7 +70,7 @@ pub(super) fn routes() -> Routes<Arc<Auth>> {
 /// The second factor that a request gives, `code`, the app's code at the JSON Pointer `code_at`,
 /// or `recovery_code`, or `None` when it gives neither and `required` is false, or `None` with the
 /// refusals in `errors`, which name `code_at` when it gives both, or neither while `required`
-/// (AUTH-037, AUTH-060, AUTH-065).
+/// (AUTH-060, AUTH-065, AUTH-098).
 pub(super) fn factor_proof(
     errors: &mut FieldErrors,
     (code_at, code): (&'static str, Option<&str>),

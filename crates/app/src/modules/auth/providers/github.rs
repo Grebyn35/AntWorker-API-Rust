@@ -73,7 +73,7 @@ impl Provider for GitHub {
         }
     }
 
-    /// GitHub sends a user back to any address under a callback URL of its app (AUTH-083).
+    /// GitHub sends a user back to any address under a callback URL of its app (AUTH-102).
     fn also_redirects_to(&self, listed: &str, uri: &str) -> bool {
         under(listed, uri)
     }
@@ -120,7 +120,7 @@ impl Provider for GitHub {
 
 /// Whether GitHub takes `uri` for an address under the callback URL `listed`: on the URL's host or
 /// a subdomain of it, at its port, or at any port of a loopback host, and at its path or in a
-/// directory below it, whatever the scheme of either (AUTH-083).
+/// directory below it, whatever the scheme of either (AUTH-102).
 fn under(listed: &str, uri: &str) -> bool {
     let (Ok(listed), Ok(uri)) = (url::Url::parse(listed), url::Url::parse(uri)) else {
         return false;
@@ -231,7 +231,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn auth_083_an_address_is_under_a_callback_url_on_its_host_at_its_port_and_below_its_path() {
+    fn auth_102_an_address_is_under_a_callback_url_on_its_host_at_its_port_and_below_its_path() {
         let callback = "https://app.example.com/callback";
         for inside in [
             "https://app.example.com/callback",

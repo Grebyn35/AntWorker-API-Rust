@@ -35,7 +35,7 @@ pub(crate) struct ResetConfirmation {
     pub(crate) email: EmailAddress,
     pub(crate) code: ResetCode,
     pub(crate) password: Password,
-    /// The second factor's code, which an account with an authenticator app gives (AUTH-037).
+    /// The second factor's code, which an account with an authenticator app gives (AUTH-098).
     pub(crate) proof: Option<FactorProof>,
 }
 
@@ -171,7 +171,7 @@ impl Auth {
             .await?;
         // The job of another request's code deletes the codes that expired, holding no turn of
         // the user's, so a code that expired while the check ran may be gone: the reset then
-        // rolls back whole, the second factor's check with it (AUTH-037).
+        // rolls back whole, the second factor's check with it (AUTH-098).
         if !codes::claim(&mut uow, user_id, code).await? {
             return Err(AuthError::InvalidResetCode);
         }
@@ -206,7 +206,7 @@ impl Auth {
     /// matched, in the bucket of the user it names: a read before the unit of work opens, in one
     /// of its own that writes nothing, finds the user and whether the code matches, so a reset
     /// code that doesn't match counts in no user's bucket, and whoever knows the address alone
-    /// fills none (AUTH-037, AUTH-061, ARCH-11).
+    /// fills none (AUTH-061, AUTH-098, ARCH-11).
     async fn count_reset_factor(
         &self,
         limits: &RateLimits,

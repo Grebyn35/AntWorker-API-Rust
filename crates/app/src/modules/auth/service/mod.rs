@@ -11,7 +11,7 @@
 //! unit of work, after any per-action limit it counts first. One operation opens a second: a
 //! sign-in through a provider whose linked account went while it waited for the user's turn
 //! ends its unit of work with nothing written, counts as the registration it has become, and
-//! reads again in a new one (ARCH-11, AUTH-074). The operator's end of every account's sessions
+//! reads again in a new one (ARCH-11, AUTH-099). The operator's end of every account's sessions
 //! is an operation for each account, with a unit of work for each (AUTH-094).
 
 use std::sync::Arc;

@@ -67,7 +67,7 @@ pub(super) struct CopyPicture {
 
 impl Job for CopyPicture {
     const KIND: &'static str = "accounts.copy_picture";
-    /// Fewer than a job's 10: the account does without the picture sooner (ACCOUNTS-028).
+    /// Fewer than a job's 10: the account does without the picture sooner (ACCOUNTS-029).
     const MOST_ATTEMPTS: u32 = 5;
 }
 

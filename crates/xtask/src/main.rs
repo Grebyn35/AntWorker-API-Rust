@@ -56,6 +56,7 @@ mod tenancy;
 mod test_map;
 mod text;
 mod unused;
+mod words;
 
 use std::{fmt, io, process::ExitCode};
 
@@ -84,8 +85,9 @@ enum Command {
     },
     /// Fails on a link, ID or named CI check that doesn't resolve, a history marker, an
     /// unfinished-work marker, a document outside the documentation set, an acronym not spelled out
-    /// where a document first uses it, a spec, rule or tracker whose format breaks DOC-08 or
-    /// DOC-14, or a spec's Routes table that doesn't match `openapi.json`.
+    /// where a document first uses it, a sentence, paragraph or cell of more words than DOC-15
+    /// allows, a spec, rule or tracker whose format breaks DOC-08 or DOC-14, or a spec's Routes
+    /// table that doesn't match `openapi.json`.
     #[command(name = "check-docs")]
     Docs,
     /// Fails on a part of the committed `openapi.json` that breaks the rules for the HTTP contract,

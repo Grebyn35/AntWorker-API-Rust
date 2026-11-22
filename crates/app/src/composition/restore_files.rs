@@ -47,7 +47,7 @@ impl RestoreFiles {
     /// Writes again each object of the bucket that `bucket` describes whose version at the
     /// moment isn't its current one, from the version that the bucket kept, waiting for the
     /// bucket's answers on `clock`, and answers what it did, for the subcommand's log
-    /// (FILES-028).
+    /// (FILES-028, FILES-029).
     pub async fn run(
         self,
         bucket: StorageConfig,

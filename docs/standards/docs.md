@@ -79,10 +79,15 @@ Each kind of fact has one home, listed below. A fact is written in its home as s
 - A spec's retired IDs are named in one line at the top of its Behaviors, `ID 009 is retired.` or `IDs 014 and 015 are retired.`, which no behavior of the spec takes, and every number from 001 to the highest that the spec names is a behavior's or retired ([spec README](../spec/README.md#ids)).
 - The spec README's index links every spec.
 - A module's spec lists, in its Routes table, each operation that `openapi.json` documents for the module, with its access level. Each operation names its module as its first tag. Once the module is built, its Routes table lists no operation the document lacks; until then, the table is the plan.
-- A rule follows the format in the [standards README](README.md#rule-format): a heading with its ID and its name, the statement, a `Why` line, and a `Check` line that starts with one of the kinds of check the README lists. Its ID starts with the prefix the README gives its file.
+- A rule follows the format in the [standards README](README.md#rule-format): a heading with its ID and its name, the statement, a `Why` line, and a `Check` line that starts with one of the kinds of check the README lists, after which only the items of a list nested under it follow. Its ID starts with the prefix the README gives its file.
 - Every table in a document, a block of lines whose first character other than whitespace is `|`, has a delimiter row under its header, and a blank line after it unless it ends the document. Every row, the delimiter row among them, has as many cells as the header: one pipe at each end of a row bounds it, and a pipe that follows a backslash belongs to its cell.
 - Why: every document of a kind reads the same way, and an edit that changes a document's shape fails CI instead of waiting for a reader to notice (D27).
 - Check: `ci: check-docs`, which also reads the `tag` of each `#[utoipa::path]` under `crates/app/src/modules/<module>/` and fails unless it is `<module>`, plus `review` (a spec lists the routes its module serves outside `openapi.json`, such as the health probes).
+
+### DOC-15 Sentences, paragraphs and cells are bounded
+A sentence of a document holds at most 100 words, a paragraph or an item of a list at most 300, and a cell of a table at most 200. The doc comment of [`words.rs`](../../crates/xtask/src/words.rs) says what the check counts as a word, as a sentence, and as each of those blocks. The migration workspace is exempt (DOC-13).
+- Why: a reviewer answers a statement one guarantee at a time, and a reader new to the codebase holds only so much of a sentence; a bound that a check holds every document to has each place over it split, where a reader's taste would choose some (D217).
+- Check: `ci: check-docs`.
 
 ## Specs, ADRs and the changelog
 
@@ -112,6 +117,7 @@ Every link in the docs, and in a Rust file's doc comments, resolves, to one head
 Documents and comments describe only this codebase. The one exception is the migration workspace:
 - `docs/inventory/` describes the old codebase, quotes it, and numbers its entries with IDs of its own, so `check-docs` reads neither its IDs nor its markers (DOC-01, DOC-04, DOC-12).
 - `docs/MIGRATION.md`, the tracker, records the migration (DOC-14).
+- Neither is held to the bounds on a document's words (DOC-15).
 - `CLAUDE.md` may point to the inventory, so a session can look up old behavior.
 - The `conformance-review` skill in `.claude/skills/` reads the inventory's `decision-trace.md`, so the review of a build-order part first settles the commitments the trace gives that part.
 - Until the ADRs are written, documents cite decisions by their IDs, such as D4, and `docs/architecture.md` and the tracker link to the decisions' records: the inventory's for D1 to D36, and the tracker's decisions for later ones.

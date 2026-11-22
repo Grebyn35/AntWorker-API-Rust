@@ -33,7 +33,7 @@ use crate::modules::{
 const PICTURE_MAX_CHARS: usize = 2_048;
 
 /// The name of the failure that leaves an account without the picture that a provider gave for
-/// it, as the logs and `platform.errors_ignored` carry it (ACCOUNTS-028, ERR-11).
+/// it, as the logs and `platform.errors_ignored` carry it (ACCOUNTS-029, ERR-11).
 const NOT_COPIED: &str = "picture_not_copied";
 
 /// What the avatar's routes and the copy of a provider's picture take: the database, `files`,
@@ -72,7 +72,7 @@ impl Avatars {
     /// stored as an avatar's upload is, and recorded in a unit of work of the job's. A picture
     /// that the client refuses, that isn't an image an avatar may be, or that holds malware is
     /// ignored, and so is one that the `last` attempt fails to fetch, scan or store; an earlier
-    /// attempt's failure is one that the job retries (ACCOUNTS-028).
+    /// attempt's failure is one that the job retries (ACCOUNTS-028, ACCOUNTS-029, ACCOUNTS-030).
     pub(in crate::modules::accounts) async fn copy(
         &self,
         context: &JobContext,

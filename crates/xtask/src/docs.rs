@@ -1,7 +1,8 @@
 //! `check-docs`: links, IDs and the CI checks the rules name all resolve (DOC-12); prose and
 //! comments hold no history markers (DOC-01) and no unfinished-work markers (DOC-04); every
 //! document belongs to the documentation set (DOC-05); documents spell out acronyms where they
-//! first use them (DOC-06, in `acronyms`); specs, rules, tables and the tracker keep their
+//! first use them (DOC-06, in `acronyms`), and hold no sentence, paragraph or cell of more
+//! words than its bound (DOC-15, in `words`); specs, rules, tables and the tracker keep their
 //! formats (DOC-07, DOC-08 and DOC-14, in `formats`); each spec's Routes table matches `openapi.json`
 //! (DOC-08, in `routes`); and test prefixes, paths to Rust files, the name of a codebase this one
 //! replaces, and paths into the inventory are named only where they resolve or DOC-13 allows
@@ -11,7 +12,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
     Finding, Outcome, acronyms, catalog::Catalog, contracts, formats, markdown, references,
-    repo::Repo, routes, text,
+    repo::Repo, routes, text, words,
 };
 
 /// Words that describe history instead of the current state (DOC-01).
@@ -54,6 +55,7 @@ pub fn check(repo: &Repo, catalog: &Catalog) -> Outcome {
     findings.extend(acronyms::check(repo, catalog));
     findings.extend(references::check(repo, catalog));
     findings.extend(contracts::check(repo));
+    findings.extend(words::check(repo));
     Outcome {
         report: vec![format!(
             "check-docs: {} files checked, {} of them documents.",
@@ -372,9 +374,9 @@ fn locations(repo: &Repo) -> Vec<Finding> {
         .collect()
 }
 
-/// Whether DOC-06's check of acronyms reads the document at `path`: the documentation set
-/// outside the migration workspace.
-pub fn checks_acronyms(path: &str) -> bool {
+/// Whether `path` is a document of the documentation set outside the migration workspace,
+/// which DOC-06's check of acronyms and DOC-15's of words read.
+pub fn outside_migration(path: &str) -> bool {
     in_documentation_set(path) && !path.starts_with(INVENTORY) && path != TRACKER
 }
 

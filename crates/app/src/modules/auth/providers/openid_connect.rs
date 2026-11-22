@@ -142,7 +142,7 @@ impl Provider for OpenIdConnect {
 
     /// The issuer and the `sub`, since OpenID Connect names a user by the two together (Core,
     /// §5.7): the `sub` that another provider gives, which the deployment names next, may be
-    /// another user's (AUTH-084).
+    /// another user's (AUTH-103).
     fn subject(&self, sub: String) -> String {
         format!("{} {sub}", self.issuer)
     }

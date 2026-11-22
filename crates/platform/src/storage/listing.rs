@@ -1,5 +1,5 @@
 //! A listing of the bucket's objects, a page at a time, as S3's `ListObjectsV2` gives it
-//! (PLATFORM-094).
+//! (PLATFORM-101).
 
 use futures_util::{
     StreamExt,
@@ -140,7 +140,7 @@ mod tests {
     const WRITTEN: &str = "<LastModified>2026-11-19T11:48:17.000Z</LastModified>";
 
     #[test]
-    fn platform_094_a_page_gives_its_objects_and_the_token_of_the_next() {
+    fn platform_101_a_page_gives_its_objects_and_the_token_of_the_next() {
         let first = format!("<Key>avatars/0a</Key>{WRITTEN}<Size>3</Size>");
         let second = format!("<Key>avatars/a+b%25c</Key>{WRITTEN}");
         let more = "<IsTruncated>true</IsTruncated>\
@@ -158,7 +158,7 @@ mod tests {
     }
 
     #[test]
-    fn platform_094_a_page_with_a_document_type_or_an_entity_of_its_own_fails() {
+    fn platform_101_a_page_with_a_document_type_or_an_entity_of_its_own_fails() {
         let object = format!("<Key>a</Key>{WRITTEN}");
         let page = listing(&[&object], "");
         let typed = page.replacen(
@@ -178,7 +178,7 @@ mod tests {
     }
 
     #[test]
-    fn platform_094_a_page_fails_on_a_key_no_url_addresses_and_on_a_time_it_can_t_read() {
+    fn platform_101_a_page_fails_on_a_key_no_url_addresses_and_on_a_time_it_can_t_read() {
         for object in [
             format!("<Key>avatars/../pictures/0a</Key>{WRITTEN}"),
             format!("<Key>avatars//0a</Key>{WRITTEN}"),

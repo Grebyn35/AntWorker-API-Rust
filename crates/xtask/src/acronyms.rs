@@ -41,7 +41,7 @@ pub fn check(repo: &Repo, catalog: &Catalog) -> Vec<Finding> {
         }
     }
     for file in repo.files() {
-        if file.path.ends_with(".md") && docs::checks_acronyms(&file.path) {
+        if file.path.ends_with(".md") && docs::outside_migration(&file.path) {
             findings.extend(first_uses(&file.path, &file.text, &known, catalog));
         }
     }

@@ -404,7 +404,7 @@ async fn auth_077_a_provider_that_doesn_t_answer_answers_503_at_the_exchange_s_d
 }
 
 #[tokio::test]
-async fn auth_077_an_unknown_provider_answers_404_and_an_unconfigured_one_503() {
+async fn auth_100_an_unknown_provider_answers_404_and_an_unconfigured_one_503() {
     let api = Api::new().await;
 
     let mut nobody = grant();
@@ -419,7 +419,7 @@ async fn auth_077_an_unknown_provider_answers_404_and_an_unconfigured_one_503() 
 }
 
 #[tokio::test]
-async fn auth_077_a_malformed_code_verifier_or_redirect_uri_answers_400_before_the_exchange() {
+async fn auth_100_a_malformed_code_verifier_or_redirect_uri_answers_400_before_the_exchange() {
     let (upstream, api) = standing().await;
     let malformed = json!({
         "provider": "stand_in",
@@ -558,7 +558,7 @@ async fn auth_080_the_caller_s_subject_reauthenticates_the_session() {
 }
 
 #[tokio::test]
-async fn auth_080_another_subject_answers_403_records_it_and_changes_nothing() {
+async fn auth_101_another_subject_answers_403_records_it_and_changes_nothing() {
     let (upstream, api) = standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     let ada = signed_in(&api).await;
@@ -782,7 +782,7 @@ async fn auth_080_a_code_the_provider_refuses_answers_403_since_the_session_stil
 }
 
 #[tokio::test]
-async fn auth_080_an_account_without_an_identity_of_the_provider_answers_403() {
+async fn auth_101_an_account_without_an_identity_of_the_provider_answers_403() {
     let (upstream, api) = standing().await;
     let ada = users::register(&api, "ada@example.com").await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
@@ -809,7 +809,7 @@ async fn auth_080_re_authenticating_counts_in_the_bucket_of_the_user_s_checks() 
 }
 
 #[tokio::test]
-async fn auth_080_a_session_that_another_request_ended_meanwhile_answers_401() {
+async fn auth_101_a_session_that_another_request_ended_meanwhile_answers_401() {
     let (upstream, api) = standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     let ada = signed_in(&api).await;
@@ -880,7 +880,7 @@ fn logged(text: &str) -> bool {
 }
 
 #[tokio::test]
-async fn auth_077_the_log_of_a_refusal_names_its_status_and_rfc_6749_s_code_alone() {
+async fn auth_100_the_log_of_a_refusal_names_its_status_and_rfc_6749_s_code_alone() {
     let (upstream, api) = standing().await;
     upstream.set(
         "POST",
@@ -1513,7 +1513,7 @@ async fn auth_077_a_re_authentication_exchanges_the_code_and_answers_a_provider_
 }
 
 #[tokio::test]
-async fn auth_077_a_re_authentication_refuses_a_malformed_body_before_the_exchange_and_answers_503_at_its_deadline()
+async fn auth_100_a_re_authentication_refuses_a_malformed_body_before_the_exchange_and_answers_503_at_its_deadline()
  {
     let (upstream, api) = standing().await;
     let bob = users::register(&api, "bob@example.com").await;

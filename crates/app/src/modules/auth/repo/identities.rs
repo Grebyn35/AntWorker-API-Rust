@@ -144,7 +144,7 @@ pub(in crate::modules::auth) async fn user_of_subject(
 /// Inserts `user_id`'s provider identity at `provider`, which holds `subject`, for a registration
 /// through the provider or a link, and returns its ID, or `None` when a provider identity holds
 /// the subject already: the unique constraint `provider_identities_provider_subject_key` decides
-/// it, so of two requests that give one subject at once, one inserts it (AUTH-074, AUTH-087,
+/// it, so of two requests that give one subject at once, one inserts it (AUTH-087, AUTH-099,
 /// ERR-05).
 pub(in crate::modules::auth) async fn insert_provider_identity(
     uow: &mut UnitOfWork,

@@ -87,7 +87,7 @@ pub(super) const SECOND_FACTOR_CHECK: Bucket = Bucket {
 
 /// The bucket of each user's completions of a sign-in that bring no valid device token, and of
 /// the checks of their second factor at a reset whose code matched: 10 in 24 hours, fixed
-/// (AUTH-037, AUTH-061).
+/// (AUTH-061, AUTH-098).
 pub(super) const SECOND_FACTOR_SIGN_IN: Bucket = Bucket {
     name: "second_factor_sign_in",
     limit: 10,

@@ -4802,7 +4802,7 @@
             "oneOf": [
               {
                 "$ref": "#/components/schemas/AppCode",
-                "description": "The code that the account's authenticator app shows, which an account with an app sends,\nor else `recovery_code` (AUTH-037)."
+                "description": "The code that the account's authenticator app shows, which an account with an app sends,\nor else `recovery_code` (AUTH-098)."
               },
               {
                 "type": "null"

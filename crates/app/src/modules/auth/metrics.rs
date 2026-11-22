@@ -172,8 +172,8 @@ static SECOND_FACTOR_CHECKS: Counter<1> = Counter::new(
     "{check}",
     "Checks of second factors' codes, an authenticator app's or a recovery code, at a sign-in's \
      completion, a setup's confirmation, a reset's confirmation, a re-authentication or a change \
-     of the password, by how each ended: passed, wrong_code or rate_limited (AUTH-037, AUTH-056 \
-     to AUTH-065).",
+     of the password, by how each ended: passed, wrong_code or rate_limited (AUTH-056 to \
+     AUTH-065, AUTH-098).",
     [names::AUTH_OUTCOME],
 );
 

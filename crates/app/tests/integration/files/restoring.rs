@@ -231,7 +231,7 @@ async fn files_028_an_object_that_the_api_can_t_have_written_is_left_and_counted
 }
 
 #[tokio::test]
-async fn files_028_a_run_that_stops_exits_1_and_says_how_many_objects_it_had_written() {
+async fn files_029_a_run_that_stops_exits_1_and_says_how_many_objects_it_had_written() {
     let deleted = |key: &'static str| {
         [
             Kept::marker(key, "2", true, at(40)),
@@ -296,7 +296,7 @@ async fn files_028_a_run_that_stops_exits_1_and_says_how_many_objects_it_had_wri
 }
 
 #[tokio::test]
-async fn files_028_what_isn_t_a_moment_as_the_api_writes_one_is_refused_before_any_request() {
+async fn files_029_what_isn_t_a_moment_as_the_api_writes_one_is_refused_before_any_request() {
     let bucket = bucket::scripted(Some(500)).await;
 
     for moment in [

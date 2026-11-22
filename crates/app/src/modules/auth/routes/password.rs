@@ -82,7 +82,7 @@ pub(crate) struct ResetConfirmationRequest {
     #[schema(value_type = Password)]
     password: String,
     /// The code that the account's authenticator app shows, which an account with an app sends,
-    /// or else `recovery_code` (AUTH-037).
+    /// or else `recovery_code` (AUTH-098).
     #[serde(default)]
     #[schema(value_type = Option<crate::modules::auth::model::AppCode>)]
     second_factor_code: Option<String>,

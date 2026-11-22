@@ -203,7 +203,7 @@ pub(super) const RECOVERY_CODES_ISSUED: Action = Action::new(
 )
 .in_own_log();
 /// A signed-in user's re-authentication through a provider named another of its accounts than
-/// theirs (AUTH-080).
+/// theirs (AUTH-101).
 pub(super) const IDENTITY_CHECK_FAILED: Action<LinkedProvider> = Action::new(
     "identity.check_failed",
     "A signed-in user's proof through a provider named another account than theirs.",

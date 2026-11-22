@@ -23,10 +23,10 @@ use crate::modules::auth::{
     service::{Auth, Grant, ProviderSignIn, SignedIn},
 };
 
-/// The longest code that a request carries (AUTH-077).
+/// The longest code that a request carries (AUTH-100).
 const CODE_MAX_CHARS: usize = 2_048;
 
-/// The shortest and longest verifier of a PKCE challenge, as RFC 7636 allows them (AUTH-077).
+/// The shortest and longest verifier of a PKCE challenge, as RFC 7636 allows them (AUTH-100).
 const VERIFIER_CHARS: std::ops::RangeInclusive<usize> = 43..=128;
 
 /// The state of the routes that sign in, re-authenticate and link through a provider: the
@@ -161,7 +161,7 @@ pub(crate) struct ProviderLinkRequest {
 
 /// The grant of `code`, `verifier` and `redirect_uri` at `provider`, or `None` when the code or
 /// the verifier is malformed, or the provider's clients don't list the redirect URI, which
-/// `errors` then holds, so one 400 names every field (AUTH-077, AUTH-078, API-10).
+/// `errors` then holds, so one 400 names every field (AUTH-078, AUTH-100, API-10).
 fn grant(
     errors: &mut FieldErrors,
     providers: &Providers,

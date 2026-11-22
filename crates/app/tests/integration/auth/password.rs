@@ -1102,7 +1102,7 @@ fn with_factor(email: &str, code: &str, factor: Value) -> Value {
 }
 
 /// Confirms a reset of `email`'s password with `code`, to [`NEW_PASSWORD`], with `factor`'s
-/// fields, a second factor's code (AUTH-037).
+/// fields, a second factor's code (AUTH-098).
 async fn confirm_with(api: &Api, email: &str, code: &str, factor: Value) -> Response {
     api.post(
         "/v1/password-resets/confirm",
@@ -1123,7 +1123,7 @@ async fn reset_codes(api: &Api, user_id: &str) -> Vec<String> {
 }
 
 #[tokio::test]
-async fn auth_037_an_account_with_an_app_resets_only_with_the_app_s_code_too() {
+async fn auth_098_an_account_with_an_app_resets_only_with_the_app_s_code_too() {
     let api = Api::new().await;
     let address = mailbox::address("ada");
     let ada = users::register(&api, &address).await;
@@ -1181,7 +1181,7 @@ async fn auth_037_an_account_with_an_app_resets_only_with_the_app_s_code_too() {
 }
 
 #[tokio::test]
-async fn auth_037_a_recovery_code_resets_in_place_of_the_app_s_code_and_is_told() {
+async fn auth_098_a_recovery_code_resets_in_place_of_the_app_s_code_and_is_told() {
     let api = Api::new().await;
     let address = mailbox::address("ada");
     let ada = users::register(&api, &address).await;
@@ -1292,7 +1292,7 @@ async fn auth_061_a_reset_counts_its_second_factor_in_the_bucket_of_the_user_s_c
 }
 
 #[tokio::test]
-async fn auth_037_a_code_that_the_job_deleted_as_it_expired_while_the_factor_was_checked_changes_nothing()
+async fn auth_098_a_code_that_the_job_deleted_as_it_expired_while_the_factor_was_checked_changes_nothing()
  {
     let api = Api::new().await;
     let address = mailbox::address("ada");

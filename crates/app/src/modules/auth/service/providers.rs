@@ -57,7 +57,7 @@ const NAME_MAX_CHARS: usize = 100;
 impl Auth {
     /// Signs in through a provider, registering when no account is linked to the provider's
     /// subject and none holds its address, once a registration that sends the address a code has
-    /// counted in the address's bucket (AUTH-073 to AUTH-076, AUTH-029).
+    /// counted in the address's bucket (AUTH-073 to AUTH-076, AUTH-029, AUTH-099).
     pub(crate) async fn sign_in_through(
         &self,
         limits: &RateLimits,
@@ -79,7 +79,7 @@ impl Auth {
             // The account that the count read holds the subject no more: its deletion, or a
             // removal of the identity, came first. The sign-in registers after all, so it counts
             // as a registration does, before it writes anything, and reads again whether it
-            // registers (AUTH-074).
+            // registers (AUTH-099).
             drop(uow);
             if let Some(email) = self.counted_address(&identity) {
                 limits
@@ -204,7 +204,7 @@ impl Auth {
             Creation::EmailInUse => return Err(AuthError::EmailInUse),
         };
         // A link of the subject that committed since the sign-in read that no account held it
-        // took it: the client signs in again, into that account (AUTH-074).
+        // took it: the client signs in again, into that account (AUTH-099).
         repo::insert_provider_identity(&mut uow, user_id, provider.key, &identity.subject)
             .await?
             .ok_or(AuthError::IdentityInUse)?;
@@ -249,7 +249,7 @@ impl Auth {
 
     /// Re-authenticates the session that authenticated the caller through `provider`, when the
     /// provider's subject is the caller's, with the second factor's code of an account that has
-    /// one, and answers it, or records a subject that isn't theirs (AUTH-080).
+    /// one, and answers it, or records a subject that isn't theirs (AUTH-080, AUTH-101).
     pub(crate) async fn reauthenticate_through(
         &self,
         limits: &RateLimits,
@@ -320,7 +320,7 @@ impl Auth {
 
     /// The provider that `id` names, and the identity that `grant`'s code gives there, which its
     /// exchange reads before any unit of work opens, and counts in `auth.provider_exchanges`
-    /// (AUTH-077 to AUTH-079).
+    /// (AUTH-077 to AUTH-079, AUTH-100).
     async fn identify(&self, id: &str, grant: &Grant) -> Result<(&On, Identity), AuthError> {
         let provider = match self.providers.find(id) {
             Found::On(provider) => provider,
