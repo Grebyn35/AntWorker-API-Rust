@@ -11,8 +11,9 @@ use serde::Serialize;
 use super::{FileName, Visibility};
 
 /// A file whose bytes an export's archive holds: its path there, and its object's key, size and
-/// CRC-32, which its row gave when the export was built (FILES-026).
-#[derive(Clone, Debug)]
+/// CRC-32, which its row gave when the export was built (FILES-026). Its path holds the file's
+/// name, which is personal data, so it has no `Debug` (OBS-04).
+#[derive(Clone)]
 pub(crate) struct ExportedFile {
     pub(in crate::modules::files) path: String,
     pub(in crate::modules::files) object_key: String,
@@ -34,8 +35,9 @@ impl ExportedFile {
     }
 }
 
-/// A file of the user's own, as `files/files.json` holds it.
-#[derive(Debug, Serialize)]
+/// A file of the user's own, as `files/files.json` holds it. Its path holds the file's name, so
+/// it has no `Debug` (OBS-04).
+#[derive(Serialize)]
 pub(in crate::modules::files) struct OwnRecord {
     pub(in crate::modules::files) id: uuid::Uuid,
     pub(in crate::modules::files) name: FileName,
@@ -57,7 +59,8 @@ pub(in crate::modules::files) struct AvatarRecord {
 }
 
 /// A file of a workspace whose only member is the user, as `files/workspace_files.json` holds it.
-#[derive(Debug, Serialize)]
+/// Its path holds the file's name, so it has no `Debug` (OBS-04).
+#[derive(Serialize)]
 pub(in crate::modules::files) struct WorkspaceRecord {
     pub(in crate::modules::files) id: uuid::Uuid,
     pub(in crate::modules::files) workspace_id: WorkspaceId,

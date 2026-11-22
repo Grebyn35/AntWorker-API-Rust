@@ -326,8 +326,9 @@ fn said(change: FactorChange, to: &str) -> (String, String, String) {
             ),
             format!(
                 "If you set it up, there is nothing to do. If you didn't, someone who signed in \
-                     as you did: reset your password in {PRODUCT} now, which ends every session of \
-                     the account, and ask {PRODUCT}'s operator to remove the app."
+                     as you did: ask {PRODUCT}'s operator to remove the app, which ends every \
+                     session of the account, then reset your password in {PRODUCT}, since a reset \
+                     needs the app's code while the account has the app."
             ),
         ),
         FactorChange::CodesReplaced => (
@@ -512,6 +513,27 @@ mod tests {
     }
 
     #[test]
+    fn auth_068_the_email_of_an_app_that_someone_else_added_advises_its_removal_before_a_reset() {
+        // A reset of an account with an app needs the app's code (AUTH-098), which the owner of
+        // an account that someone else gave an app doesn't hold.
+        let to = EmailAddress::parse("alice@example.com").unwrap();
+
+        let email = FactorChangedEmail {
+            to,
+            change: FactorChange::AppAdded,
+        }
+        .render()
+        .unwrap();
+
+        for part in [&email.text, &email.html] {
+            let removal = part.find("operator to remove the app");
+            let reset = part.find("reset your password");
+            assert!(removal.is_some() && reset.is_some(), "{part}");
+            assert!(removal < reset, "{part}");
+        }
+    }
+
+    #[test]
     fn auth_041_the_email_says_the_password_changed_and_how_to_reset_it_with_no_secret_or_link() {
         let to = EmailAddress::parse("alice@example.com").unwrap();
         let email = PasswordChangedEmail { to }.render().unwrap();
@@ -520,6 +542,7 @@ mod tests {
         for part in [&email.text, &email.html] {
             assert!(part.contains("has changed"), "{part}");
             assert!(part.contains("reset your password"), "{part}");
+            assert!(part.contains("a reset ends every session"), "{part}");
             assert!(part.contains("alice@example.com"), "{part}");
             assert!(!part.contains("http"), "{part}");
         }

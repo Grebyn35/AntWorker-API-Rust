@@ -35,6 +35,10 @@ const CHANGELOG: &str = "CHANGELOG.md";
 /// The architecture decision records, another of history's homes (DOC-01, DOC-10).
 const ADRS: &str = "docs/adr/";
 
+/// The API's document, which holds the strings of each route's `#[utoipa::path]`, which no
+/// comment holds (DOC-01).
+const DOCUMENT: &str = "openapi.json";
+
 /// Runs the check.
 pub fn check(repo: &Repo, catalog: &Catalog) -> Outcome {
     let documents: BTreeMap<&str, markdown::Document> = repo
@@ -50,6 +54,7 @@ pub fn check(repo: &Repo, catalog: &Catalog) -> Outcome {
     findings.extend(named_checks(repo, catalog));
     findings.extend(prose_markers(&documents));
     findings.extend(comment_markers(repo));
+    findings.extend(document_markers(repo));
     findings.extend(locations(repo));
     findings.extend(formats::check(repo));
     findings.extend(routes::check(repo));
@@ -334,6 +339,19 @@ fn comment_markers(repo: &Repo) -> Vec<Finding> {
     findings
 }
 
+/// No line of the API's document holds a history marker (DOC-01).
+fn document_markers(repo: &Repo) -> Vec<Finding> {
+    repo.files()
+        .filter(|file| file.path == DOCUMENT)
+        .flat_map(|file| {
+            let lines = file.text.lines().enumerate();
+            lines
+                .flat_map(|(index, line)| history(&file.path, index + 1, line))
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
 fn history(path: &str, line: usize, text: &str) -> Vec<Finding> {
     HISTORY
         .iter()
@@ -572,6 +590,24 @@ mod tests {
                 "docs/MIGRATION.md:5: \"no longer\" describes history; describe the current state (DOC-01)",
                 "docs/guides/history.md:3: \"previously\" describes history; describe the current state (DOC-01)",
                 "Cargo.toml:1: a date in a comment records when something was written; describe the current state (DOC-01)"
+            ]
+        );
+    }
+
+    #[test]
+    fn doc_01_history_markers_on_a_line_of_the_api_s_document_are_reported() {
+        let document =
+            "{\n  \"description\": \"The session, whose account No longer needs it.\"\n}\n";
+
+        let marked: Vec<String> = findings(&[(DOCUMENT, document)])
+            .into_iter()
+            .filter(|finding| finding.ends_with("(DOC-01)"))
+            .collect();
+
+        assert_eq!(
+            marked,
+            [
+                "openapi.json:2: \"no longer\" describes history; describe the current state (DOC-01)"
             ]
         );
     }

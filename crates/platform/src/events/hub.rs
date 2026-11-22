@@ -116,7 +116,8 @@ pub struct Hub {
 impl Hub {
     /// Starts the hub on `listener`, which it checks every 5 seconds and records in
     /// `readiness`, filtering events through `policy` and re-checking every stream through
-    /// `verifier` and `policy` every `recheck`. It runs until the instance stops.
+    /// `verifier` and `policy` every `recheck`. The instance's stop closes its streams, and it
+    /// runs until every clone of the hub and every subscription it opened has been dropped.
     pub fn start(
         listener: Listener,
         policy: Arc<dyn AccessPolicy>,

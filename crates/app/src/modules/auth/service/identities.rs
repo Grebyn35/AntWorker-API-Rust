@@ -158,7 +158,7 @@ impl Auth {
         }
         let change = match &way {
             // The identity before any challenge or session, as a sign-in locks them (the auth
-            // spec's "Taking turns").
+            // spec's "Identities").
             None => {
                 repo::delete_password_identity(&mut uow, user_id, id).await?;
                 IdentityChange::PasswordRemoved

@@ -12,7 +12,7 @@ use std::{
 
 use crate::{
     db::Database,
-    errors::{Category, ErrorCode, Internal},
+    errors::{Category, ErrorCode, Internal, RequestError},
     hashing::HmacKey,
     telemetry::{metrics::Counter, names},
 };
@@ -172,7 +172,8 @@ impl RateLimits {
     }
 }
 
-/// A rate limit refused the request, or couldn't count it.
+/// A rate limit refused the request, or couldn't count it. A refusal answers as
+/// [`RequestError::RateLimited`] does, whose code, title and category it takes.
 #[derive(Debug, thiserror::Error)]
 pub enum LimitError {
     /// The bucket is full (PLATFORM-054).
@@ -186,21 +187,21 @@ pub enum LimitError {
 impl ErrorCode for LimitError {
     fn code(&self) -> &'static str {
         match self {
-            Self::RateLimited => "request.rate_limited",
+            Self::RateLimited => RequestError::RateLimited.code(),
             Self::Internal(error) => error.code(),
         }
     }
 
     fn title(&self) -> &'static str {
         match self {
-            Self::RateLimited => "Too many requests",
+            Self::RateLimited => RequestError::RateLimited.title(),
             Self::Internal(error) => error.title(),
         }
     }
 
     fn category(&self) -> Category {
         match self {
-            Self::RateLimited => Category::RateLimited,
+            Self::RateLimited => RequestError::RateLimited.category(),
             Self::Internal(_) => Category::Internal,
         }
     }

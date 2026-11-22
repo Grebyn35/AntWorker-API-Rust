@@ -110,7 +110,8 @@ pub(crate) struct Rename {
     pub(crate) name: DisplayName,
 }
 
-/// How a user appears to the other members of a workspace they share (ACCOUNTS-005).
+/// How a user appears where another reads them, such as to the other members of a workspace they
+/// share (ACCOUNTS-005).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct PublicProfile {
     /// The user's ID.
@@ -133,7 +134,8 @@ pub(crate) enum ExportState {
     Pending,
     /// Its archive is built, and downloads until it expires.
     Ready,
-    /// The last attempt of its job failed, so it has no archive.
+    /// The last attempt of its job failed, or it was still pending 24 hours after its request
+    /// (ACCOUNTS-027), so it has no archive.
     Failed,
 }
 

@@ -390,6 +390,23 @@ async fn platform_021_send_now_sends_at_once_and_tells_its_job_whether_to_retry(
 #[tokio::test]
 #[expect(
     clippy::disallowed_methods,
+    reason = "the test of send_now calls it, as a job's handler does (PLATFORM-021)"
+)]
+async fn platform_021_a_recipient_that_isn_t_an_address_smtp_takes_fails_send_now_for_good() {
+    // An address that no account could hold, as a row that a fault wrote would hold it.
+    let email = Email {
+        to: EmailAddress::from_stored("no address".to_owned()),
+        ..secret_email(&mailbox::address("unsent"))
+    };
+
+    let sent = mail(&Options::default()).send_now(email).await;
+
+    assert!(matches!(sent, Err(JobFailure::Permanent(_))), "{sent:?}");
+}
+
+#[tokio::test]
+#[expect(
+    clippy::disallowed_methods,
     reason = "the test of send_now calls it, as a job's handler does (PLATFORM-022)"
 )]
 async fn platform_022_with_email_off_send_now_sends_nothing() {

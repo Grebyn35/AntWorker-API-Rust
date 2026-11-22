@@ -250,7 +250,7 @@ modules/workspaces/
   error.rs           the module's error enum (D17)
   events.rs          events it publishes
   audit.rs           audit actions it records, the kinds of resource they happen to, and their details
-  jobs.rs            background jobs it declares (D13)
+  jobs.rs            background jobs it declares (D13), and a periodic job's queries (ARCH-10)
   emails.rs          emails it sends, rendered from its templates in templates/workspaces/ (D1)
   metrics.rs         metrics it declares (D19)
   personal_data.rs   its export and erasure contract (D31)

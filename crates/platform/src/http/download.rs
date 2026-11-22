@@ -29,18 +29,26 @@ impl<S: Send + Sync> FromRequestParts<S> for Wanted {
     type Rejection = std::convert::Infallible;
 
     async fn from_request_parts(parts: &mut Parts, _: &S) -> Result<Self, Self::Rejection> {
-        let text = |name: HeaderName| {
+        // A condition that holds a byte outside ASCII is read too, as UTF-8, with the replacement
+        // character for what isn't, so a member that holds such a byte names no entity tag the
+        // API sent, and a `Range` that holds one is none that a download can serve
+        // (PLATFORM-092).
+        let condition = |name: HeaderName| {
             parts
                 .headers
                 .get(name)
-                .and_then(|value| value.to_str().ok())
-                .map(str::to_owned)
+                .map(|value| String::from_utf8_lossy(value.as_bytes()).into_owned())
         };
+        let range = parts
+            .headers
+            .get(header::RANGE)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned);
         Ok(Self::new(
             parts.method == Method::GET,
-            text(header::RANGE),
-            text(header::IF_RANGE),
-            text(header::IF_NONE_MATCH),
+            range,
+            condition(header::IF_RANGE),
+            condition(header::IF_NONE_MATCH),
         ))
     }
 }
@@ -236,6 +244,35 @@ fn percent_encoded(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// What a `GET` with `headers` asks of the 1,000 bytes whose entity tag is `tag`.
+    async fn served(headers: &[(HeaderName, &[u8])]) -> Served {
+        let mut request = axum::http::Request::builder().method(Method::GET);
+        for (name, value) in headers {
+            request = request.header(name, HeaderValue::from_bytes(value).unwrap());
+        }
+        let (mut parts, ()) = request.body(()).unwrap().into_parts();
+        let wanted = Wanted::from_request_parts(&mut parts, &()).await.unwrap();
+        wanted.serve(1_000, "tag")
+    }
+
+    #[tokio::test]
+    async fn platform_092_a_download_reads_an_if_range_or_if_none_match_that_holds_a_byte_outside_ascii()
+     {
+        let range = (header::RANGE, &b"bytes=0-1"[..]);
+
+        let other_tag = served(&[range.clone(), (header::IF_RANGE, b"\"tag\xc3\xa9\"")]).await;
+        let spaced_tag = served(&[range.clone(), (header::IF_RANGE, b"\xc2\xa0\"tag\"")]).await;
+        let named = served(&[(header::IF_NONE_MATCH, b"\"tag\", \"caf\xc3\xa9\"")]).await;
+        let spaced = served(&[(header::IF_NONE_MATCH, b"\xc2\xa0\"tag\"")]).await;
+        let no_range = served(&[(header::RANGE, b"bytes=\xc2\xa00-1")]).await;
+
+        assert_eq!(other_tag, Served::Whole);
+        assert_eq!(spaced_tag, Served::Whole);
+        assert_eq!(named, Served::NotModified);
+        assert_eq!(spaced, Served::Whole);
+        assert_eq!(no_range, Served::Whole);
+    }
 
     #[test]
     fn platform_081_a_name_is_served_in_ascii_and_in_utf_8() {

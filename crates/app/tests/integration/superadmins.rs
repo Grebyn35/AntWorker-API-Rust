@@ -218,8 +218,8 @@ async fn superadmins_002_with_email_on_an_account_that_has_not_proved_its_addres
     refused(
         &unproved,
         AREA,
-        "the account that holds the address hasn't proved it, so it may not be its owner's: \
-         nothing changed; run it again once the account has proved the address",
+        "the account that holds the address hasn't proved it, so the address may not be the \
+         account's user's: nothing changed; run it again once the account has proved the address",
         &[&address],
     );
     assert!(superadmins_of(&api).await.is_empty());

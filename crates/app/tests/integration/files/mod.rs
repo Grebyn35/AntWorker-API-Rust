@@ -1549,6 +1549,21 @@ async fn files_013_uploads_are_counted_by_how_they_ended() {
 }
 
 #[tokio::test]
+async fn files_013_a_retry_of_a_keyed_upload_counts_as_stored_too() {
+    let api = Api::new().await;
+    let (workspace, ada, _) = acme(&api, "member").await;
+    let first = upload(&api, &ada, &workspace, "a.txt", b"one", Some("\"k1\"")).await;
+    let stored = uploads("stored");
+
+    let retry = upload(&api, &ada, &workspace, "a.txt", b"one", Some("\"k1\"")).await;
+
+    assert_eq!(retry.status, 201);
+    assert_eq!(retry.json()["id"], first.json()["id"]);
+    // Tests running alongside upload too, so the count grows by at least this.
+    assert!(uploads("stored") >= stored + 1.0);
+}
+
+#[tokio::test]
 async fn files_013_an_upload_that_the_bucket_doesn_t_take_counts_as_failed() {
     // Nothing listens on port 9 of the loopback address.
     let api = Api::with(Options::default().set("S3_ENDPOINT", "http://127.0.0.1:9")).await;

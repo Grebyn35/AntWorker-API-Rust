@@ -369,8 +369,8 @@ pub enum SuperadminRefused {
     NoAccount,
     /// Email is on, and the account that holds the address hasn't proved it.
     #[error(
-        "the account that holds the address hasn't proved it, so it may not be its owner's: \
-         nothing changed; run it again once the account has proved the address"
+        "the account that holds the address hasn't proved it, so the address may not be the \
+         account's user's: nothing changed; run it again once the account has proved the address"
     )]
     AddressUnproved,
     /// The account is a superadmin already.

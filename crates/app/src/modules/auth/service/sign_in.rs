@@ -178,7 +178,7 @@ impl Auth {
         if stored.starts_with(&self.current_parameters()) {
             return Ok(None);
         }
-        let (rehashed, _) = hash_in(hashing, password).await?;
+        let rehashed = hash_in(hashing, password).await?;
         Ok(Some(rehashed))
     }
 

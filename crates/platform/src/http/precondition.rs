@@ -31,11 +31,17 @@ impl IfMatch {
             [only] if only.as_bytes().trim_ascii() == b"*" => return Self(None),
             _ => {}
         }
-        let versions = values
+        // A line that holds a byte outside ASCII counts too, read as UTF-8, with the replacement
+        // character for what isn't, and only ASCII's white space trimmed: a member that holds
+        // such a byte is so no tag the API sent (PLATFORM-092).
+        let lines: Vec<_> = values
             .iter()
-            .filter_map(|value| value.to_str().ok())
+            .map(|value| String::from_utf8_lossy(value.as_bytes()))
+            .collect();
+        let versions = lines
+            .iter()
             .flat_map(|text| text.split(','))
-            .filter_map(|tag| Version::from_etag(tag.trim()))
+            .filter_map(|tag| Version::from_etag(tag.trim_ascii()))
             .collect();
         Self(Some(versions))
     }
@@ -86,6 +92,19 @@ mod tests {
         assert_eq!(read(&["\"1\"", "*"]).0, versions(&[1]));
         assert_eq!(read(&["*", "*"]).0, versions(&[]));
         assert_eq!(read(&["*, *"]).0, versions(&[]));
+    }
+
+    #[test]
+    fn platform_092_the_tags_of_an_if_match_line_that_holds_a_byte_outside_ascii_still_count() {
+        let mut headers = HeaderMap::new();
+        let line =
+            HeaderValue::from_bytes(b"\"5\", \"caf\xc3\xa9\", \xc2\xa0\"6\", \"\xff\"").unwrap();
+        headers.append(header::IF_MATCH, line);
+        headers.append(header::IF_MATCH, HeaderValue::from_static("\"7\""));
+
+        let versions_named = IfMatch::read(&headers).0;
+
+        assert_eq!(versions_named, versions(&[5, 7]));
     }
 
     #[test]

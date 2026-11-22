@@ -277,7 +277,7 @@ impl Auth {
         // the check took before the unit of work opened. The turn goes before anything is
         // written: a wrong password's record, a second factor's step, and the change (AUTH-093).
         let password_hash = if matches {
-            let (hash, _) = hash_in(hashing, change.password).await?;
+            let hash = hash_in(hashing, change.password).await?;
             Some(hash)
         } else {
             drop(hashing);
@@ -290,7 +290,7 @@ impl Auth {
             .check_signed_in_factor(uow, principal, change.proof.as_ref())
             .await?;
         // The identity before any session, as a sign-in locks them, so the two never deadlock
-        // (the auth spec's "Taking turns").
+        // (the auth spec's "A user's sessions").
         let identity = repo::set_password(&mut uow, user_id, &password_hash).await?;
         // No challenge issued for the password before completes a sign-in (AUTH-069).
         repo::second_factors::delete_challenges(&mut uow, user_id).await?;

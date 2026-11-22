@@ -5,7 +5,8 @@ How errors are defined, how they move through the code, and how they reach the c
 ## Defining errors
 
 ### ERR-01 One error enum per module
-Each module defines one error enum in `error.rs`, using `thiserror`, with variants named in domain terms (for example `SessionExpired` or `MemberNotFound`). A large module may group variants into nested enums inside that file.
+Each module defines one error enum in `error.rs`, using `thiserror`, with variants named in domain terms (for example `SessionExpired` or `MemberNotFound`). A large module may group variants into nested enums inside that file. Beside it, the file may hold an enum of what stops a run of a subcommand of the module's, which no route answers, and which the run's internal error holds as its cause.
+`files` holds one so, `RestoreFailure`, of what stops a run of `restore-files` (FILES-029). <!-- part: files -->
 - Why: a module's failure modes can be read in one place (D17).
 - Check: `ci: check-layout` (every module has its `error.rs`), plus `review`.
 
@@ -79,7 +80,7 @@ The HTTP boundary logs every 5xx at `ERROR`, with its cause chain and trace ID, 
 - Check: `review`.
 
 ### ERR-11 An ignored error is explicit
-An error is deliberately ignored only through `platform::errors::ignore(error, reason)`, which logs it at `WARN` in a standard shape and counts it in the `platform.errors_ignored` metric, labelled by reason. `let _ =` on a fallible call is not allowed (CODE-03).
+An error is deliberately ignored only through `platform::errors::ignore(error, reason)`, which logs it at `WARN` in a standard shape and counts it in the `platform.errors_ignored` metric, labelled by reason. `let _ =` on a fallible call is not allowed (CODE-03). An error that the code reads as a value, where its doc says what value, is no ignored error, such as a cookie that may not authenticate its request, which counts as none (AUTH-096), or the body of a probe's answer that isn't its JSON, which names no status.
 - Why: every ignored failure is visible in logs and metrics (D17).
 - Check: `clippy` (`let_underscore_must_use`, and `unused_result_ok` for a `Result` dropped with `.ok()`), `test` (the line and the count), plus `review` (a `Result` dropped another way, such as one that holds nothing and ends in `unwrap_or_default`, which no lint tells from a value's default).
 

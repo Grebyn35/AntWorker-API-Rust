@@ -30,8 +30,13 @@ use axum::{
     http::{Method, Request, StatusCode, header},
 };
 use platform::{
-    clock::SharedClock, config::Environment, db::Database, errors::Internal, jobs::Jobs,
-    mail::Inbox, types::EmailAddress,
+    clock::SharedClock,
+    config::Environment,
+    db::Database,
+    errors::Internal,
+    jobs::Jobs,
+    mail::Inbox,
+    types::{EmailAddress, Secret},
 };
 use serde_json::{Value, json};
 use tower::ServiceExt;
@@ -49,13 +54,15 @@ pub(crate) const PASSWORD: &str = "orchard-lantern-42-violet";
 const ANSWER_LIMIT: usize = 1 << 20;
 
 /// An account that the seed registered.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub(crate) struct Account {
     /// Its email address, which a developer signs in with.
     pub(crate) email: &'static str,
     /// Its name.
     pub(crate) name: &'static str,
-    access_token: String,
+    /// Its session's access token, which the seed's requests as the account carry, wrapped, so
+    /// nothing prints it (SEC-01).
+    access_token: Secret<String>,
     /// Whether it must still prove its address, as registering answered (AUTH-026).
     email_verification_required: bool,
 }
@@ -236,7 +243,7 @@ impl Api {
         Ok(Account {
             email,
             name,
-            access_token: text(&answer, "access_token")?,
+            access_token: Secret::new(text(&answer, "access_token")?),
             email_verification_required: answer["email_verification_required"].as_bool()
                 == Some(true),
         })
@@ -338,7 +345,7 @@ impl Api {
         if let Some(account) = account {
             request = request.header(
                 header::AUTHORIZATION,
-                format!("Bearer {}", account.access_token),
+                format!("Bearer {}", account.access_token.expose()),
             );
         }
         let body = match body {

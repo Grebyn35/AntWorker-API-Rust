@@ -670,3 +670,33 @@ async fn audit_010_a_user_s_own_read_shows_only_the_clients_that_were_theirs() {
         json!({ "ip": "203.0.113.3", "user_agent": null })
     );
 }
+
+#[tokio::test]
+async fn audit_010_a_user_agent_is_kept_to_512_characters_and_none_that_holds_a_byte_outside_ascii()
+{
+    let api = behind_a_proxy().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let long = "A".repeat(600);
+    for user_agent in [long.as_str(), "Caf\u{e9}/1"] {
+        let attempt = api
+            .post(
+                "/v1/sessions",
+                &json!({ "email": "ada@example.com", "password": "wrong-password-123" }),
+            )
+            .header("user-agent", user_agent)
+            .header("x-forwarded-for", "203.0.113.7")
+            .send()
+            .await;
+        assert_eq!(attempt.status, 401);
+    }
+
+    let own = listed(&api, &ada, OWN).await;
+
+    assert_eq!(own["items"][1]["action"], "sign_in.failed");
+    assert_eq!(own["items"][1]["client"]["user_agent"], "A".repeat(512));
+    assert_eq!(own["items"][0]["action"], "sign_in.failed");
+    assert_eq!(
+        own["items"][0]["client"],
+        json!({ "ip": "203.0.113.7", "user_agent": null })
+    );
+}

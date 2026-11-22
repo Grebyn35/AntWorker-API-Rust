@@ -6,13 +6,15 @@
 //! an export of the caller's data; in `verification.rs`, proving an account's
 //! email address, and the job that sends every code; in `password.rs`, resetting and changing the
 //! password; in `email_change.rs`, changing the account's address; in `second_factors/`, second
-//! factors and the completion of a sign-in with one; in `identities.rs`, a user's identities; and
-//! in `verifier.rs`, the verifier of access tokens and sessions. Each operation opens its own
-//! unit of work, after any per-action limit it counts first. One operation opens a second: a
-//! sign-in through a provider whose linked account went while it waited for the user's turn
-//! ends its unit of work with nothing written, counts as the registration it has become, and
-//! reads again in a new one (ARCH-11, AUTH-099). The operator's end of every account's sessions
-//! is an operation for each account, with a unit of work for each (AUTH-094).
+//! factors and the completion of a sign-in with one; in `providers.rs`, signing in, registering
+//! and re-authenticating through a provider; in `identities.rs`, a user's identities; in
+//! `devices.rs`, a sign-in's device tokens; in `buckets.rs`, the fixed limits of the module's
+//! actions; and in `verifier.rs`, the verifier of access tokens and sessions. Each operation
+//! opens its own unit of work, after any per-action limit it counts first. One operation opens a
+//! second: a sign-in through a provider whose linked account went while it waited for the
+//! user's turn ends its unit of work with nothing written, counts as the registration it has
+//! become, and reads again in a new one (ARCH-11, AUTH-099). The operator's end of every
+//! account's sessions is an operation for each account, with a unit of work for each (AUTH-094).
 
 use std::sync::Arc;
 
@@ -396,16 +398,15 @@ fn new_tokens() -> Result<Tokens, Internal> {
 /// turn of theirs is free (AUTH-014).
 async fn hash(workers: &Workers, password: Password) -> Result<String, Internal> {
     let hashing = workers.turn().await.map_err(Internal::new)?;
-    let (hash, _) = hash_in(hashing, password).await?;
-    Ok(hash)
+    hash_in(hashing, password).await
 }
 
 /// The Argon2id hash of `password`, in PHC format, with a new salt, in the turn `hashing`, which
-/// its caller took before it opened its unit of work, and which comes back with the hash
+/// its caller took before it opened its unit of work, and which goes once the hash is made
 /// (AUTH-014, AUTH-093).
-async fn hash_in(hashing: Turn, password: Password) -> Result<(String, Turn), Internal> {
+async fn hash_in(hashing: Turn, password: Password) -> Result<String, Internal> {
     let salt = random::bytes::<16>()?;
-    let (hash, hashing) = hashing
+    let (hash, _) = hashing
         .run("hash_password", move || {
             Argon2::default()
                 .hash_password_with_salt(password.bytes(), &salt)
@@ -414,7 +415,7 @@ async fn hash_in(hashing: Turn, password: Password) -> Result<(String, Turn), In
         })
         .await
         .map_err(Internal::new)?;
-    Ok((hash?, hashing))
+    hash
 }
 
 /// Whether `password` matches `stored`, in the turn `hashing`, which its caller took before it

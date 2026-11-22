@@ -38,7 +38,7 @@ pub(crate) async fn record<D: Serialize>(
     let admitted = entry.admitted(scope)?;
     match repo::insert(uow, admitted, &telemetry::trace_id()).await? {
         Inserted::Recorded => Ok(()),
-        Inserted::LogGone => Err(Internal::new("the audit entry's log is gone")),
+        Inserted::LogGone(refused) => Err(refused),
     }
 }
 
@@ -81,7 +81,8 @@ pub(crate) async fn own_entries(
     Ok(page.list(rows, |row| key(row.created_at, row.id)))
 }
 
-/// Records each refusal in a unit of work of its own, since the refused operation wrote nothing.
+/// Records each refusal in a unit of work of its own, since the refused operation wrote nothing,
+/// and in a second where the first finds the workspace's log gone (AUDIT-004).
 pub(crate) struct Sink {
     database: Database,
 }
@@ -127,7 +128,7 @@ impl Sink {
                 uow.commit().await?;
                 Ok(true)
             }
-            Inserted::LogGone => Ok(false),
+            Inserted::LogGone(_) => Ok(false),
         }
     }
 }
@@ -161,7 +162,7 @@ impl SecurityEventSink for Sink {
             let mut uow = self.database.begin(client, None).await?;
             match repo::insert(&mut uow, admitted, &telemetry::trace_id()).await? {
                 Inserted::Recorded => uow.commit().await,
-                Inserted::LogGone => Ok(()),
+                Inserted::LogGone(_) => Ok(()),
             }
         })
     }

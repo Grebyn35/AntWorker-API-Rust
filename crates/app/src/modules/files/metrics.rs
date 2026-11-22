@@ -16,7 +16,8 @@ static UPLOADS: Counter<1> = Counter::new(
 /// How an upload that reached the check of its bytes ended.
 #[derive(Clone, Copy, Debug)]
 pub(super) enum Upload {
-    /// Its row committed (FILES-001).
+    /// Its row committed (FILES-001), or, for a retry of a keyed upload, its key's first upload's
+    /// row answers it (FILES-013).
     Stored,
     /// Its bytes aren't of an accepted kind's (FILES-003).
     UnsupportedType,

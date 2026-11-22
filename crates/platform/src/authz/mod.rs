@@ -124,7 +124,8 @@ impl Refusal {
 
 /// Records refused requests, which `audit` implements for `platform` (ARCH-13).
 pub trait SecurityEventSink: Send + Sync {
-    /// Records `refusal`, in a transaction of its own.
+    /// Records `refusal`, in transactions of its own: two where the first finds the workspace's
+    /// log gone (AUDIT-004).
     fn refused<'a>(&'a self, refusal: &'a Refusal) -> BoxFuture<'a, Result<(), Internal>>;
 
     // part: superadmins

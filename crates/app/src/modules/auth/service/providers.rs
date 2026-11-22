@@ -406,7 +406,7 @@ async fn linked(
         return Ok(None);
     };
     // The user's turn, as a deletion of the account takes it first: a sign-in that waited for
-    // one finds no user (the auth spec's "Taking turns").
+    // one finds no user (the auth spec's "Signing in through a provider").
     let Some(address) = accounts::address_for_update(uow, user_id).await? else {
         return Ok(None);
     };

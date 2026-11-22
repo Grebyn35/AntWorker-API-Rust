@@ -289,6 +289,39 @@ mod tests {
         assert!(parsed(" {\"name\":\"Ada\"}\r\n\t ").is_ok());
     }
 
+    #[tokio::test]
+    async fn platform_049_each_json_extractor_refuses_bytes_after_the_body_s_json_value() {
+        let request = |media_type: &'static str| {
+            Request::builder()
+                .method("POST")
+                .uri("/v1/things")
+                .header(header::CONTENT_TYPE, media_type)
+                .body(axum::body::Body::from(r#"{"name":"Ada"}garbage"#))
+                .unwrap()
+        };
+        type Value = serde_json::Value;
+
+        let faults = [
+            Json::<Value>::from_request(request(JSON), &()).await.err(),
+            MergePatch::<Value>::from_request(request(MERGE_PATCH), &())
+                .await
+                .err(),
+            Idempotent::<Value>::from_request(request(JSON), &())
+                .await
+                .err(),
+        ];
+
+        for fault in faults {
+            assert!(
+                matches!(
+                    fault,
+                    Some(Problem(RequestError::InvalidBody(BodyFault::Syntax)))
+                ),
+                "{fault:?}"
+            );
+        }
+    }
+
     #[test]
     fn platform_049_a_pointer_escapes_its_segments() {
         assert_eq!(escape("a/b~c"), "a~1b~0c");
