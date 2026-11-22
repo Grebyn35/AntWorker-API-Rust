@@ -43,7 +43,10 @@ import /etc/caddy-state/sites/*.caddy
 # gets no answer: Caddy aborts it, where it would answer an HTTPS request for a host that no site
 # names with an empty 200, and a plain one with a redirect to HTTPS (SEC-14). Plain HTTP at
 # Grafana's address still gets that redirect, which Caddy matches by the address's name before
-# these (OPS-17).
+# these (OPS-17). The second block imports no TLS of its own: Caddy completes no handshake that
+# names neither address, or no name, and answers each with an alert, so the block gets only a
+# request whose handshake named one of the addresses, under that address's TLS, and whose Host
+# names another.
 http:// {
 	abort
 }
