@@ -17,7 +17,7 @@ Every JSON log line carries its time, `timestamp`, in UTC, and `service.name`, `
 ### OBS-03 Levels have fixed meanings
 | Level | Meaning |
 |---|---|
-| `ERROR` | A human must look: a 5xx other than a disabled feature's (OPS-04), a job that failed its last attempt, a startup failure |
+| `ERROR` | A human must look: a 5xx other than a disabled feature's (OPS-04) or a health probe's (OPS-05), a job that failed its last attempt, a startup failure |
 | `WARN` | Degraded but handled: an ignored error (ERR-11), a job attempt that will be retried |
 | `INFO` | Lifecycle events, plus exactly one completion line per request (method, route, status, duration) |
 | `DEBUG` | Diagnostics, off in production |

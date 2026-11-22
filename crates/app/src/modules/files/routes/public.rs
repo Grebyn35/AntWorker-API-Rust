@@ -1,10 +1,10 @@
 //! The downloads of public files, of avatars and of workspaces' pictures, which anyone may make
 //! without signing in (the files spec's Routes, FILES-023, FILES-024, FILES-027).
 
-use axum::extract::{RawPathParams, State};
+use axum::extract::State;
 use platform::{
     errors::Problem,
-    http::{Download, Routes, path_id},
+    http::{Download, PathIds, Routes},
     ranges::Wanted,
     storage::ObjectBytes,
     types::Client,
@@ -44,10 +44,10 @@ pub(super) fn routes() -> Routes<Files> {
 async fn download_public_workspace_file(
     State(files): State<Files>,
     client: Client,
-    params: RawPathParams,
+    params: PathIds,
     wanted: Wanted,
 ) -> Result<Download<ObjectBytes>, Problem<FilesError>> {
-    let id = path_id(&params, "file_id").ok_or(FilesError::NotFound)?;
+    let id = params.id("file_id").ok_or(FilesError::NotFound)?;
     let downloaded = service::download(&files, &client, Owner::Workspace, id, &wanted).await?;
     Ok(response(downloaded))
 }
@@ -67,10 +67,10 @@ async fn download_public_workspace_file(
 async fn download_public_user_file(
     State(files): State<Files>,
     client: Client,
-    params: RawPathParams,
+    params: PathIds,
     wanted: Wanted,
 ) -> Result<Download<ObjectBytes>, Problem<FilesError>> {
-    let id = path_id(&params, "file_id").ok_or(FilesError::NotFound)?;
+    let id = params.id("file_id").ok_or(FilesError::NotFound)?;
     let downloaded = service::download(&files, &client, Owner::User, id, &wanted).await?;
     Ok(response(downloaded))
 }
@@ -89,10 +89,10 @@ async fn download_public_user_file(
 async fn download_avatar(
     State(files): State<Files>,
     client: Client,
-    params: RawPathParams,
+    params: PathIds,
     wanted: Wanted,
 ) -> Result<Download<ObjectBytes>, Problem<FilesError>> {
-    let id = path_id(&params, "avatar_id").ok_or(FilesError::NotFound)?;
+    let id = params.id("avatar_id").ok_or(FilesError::NotFound)?;
     let downloaded = service::download(&files, &client, Owner::Avatar, id, &wanted).await?;
     Ok(response(downloaded))
 }
@@ -111,10 +111,10 @@ async fn download_avatar(
 async fn download_picture(
     State(files): State<Files>,
     client: Client,
-    params: RawPathParams,
+    params: PathIds,
     wanted: Wanted,
 ) -> Result<Download<ObjectBytes>, Problem<FilesError>> {
-    let id = path_id(&params, "picture_id").ok_or(FilesError::NotFound)?;
+    let id = params.id("picture_id").ok_or(FilesError::NotFound)?;
     let downloaded = service::download(&files, &client, Owner::Picture, id, &wanted).await?;
     Ok(response(downloaded))
 }

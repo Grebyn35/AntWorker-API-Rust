@@ -4,14 +4,14 @@
 use std::sync::Arc;
 
 use axum::{
-    extract::{RawPathParams, State},
+    extract::State,
     http::StatusCode,
     response::{IntoResponse, Response},
 };
 use platform::{
     authn::Principal,
     errors::{Problem, RequestError},
-    http::{FieldErrors, Query, Routes, path_id},
+    http::{FieldErrors, PathIds, Query, Routes},
     lists::{Cursor, Limit, List, Page, Search},
     types::{Client, SessionId},
 };
@@ -146,9 +146,9 @@ async fn end_session(
     State(auth): State<Arc<Auth>>,
     client: Client,
     principal: Principal,
-    params: RawPathParams,
+    params: PathIds,
 ) -> Result<Response, Problem<AuthError>> {
-    let id = path_id(&params, "session_id").map(SessionId::from_uuid);
+    let id = params.id("session_id").map(SessionId::from_uuid);
     match auth.end_session(&client, &principal, id).await? {
         Ended::Own => Ok(signed_out()?),
         Ended::Other => Ok(StatusCode::NO_CONTENT.into_response()),

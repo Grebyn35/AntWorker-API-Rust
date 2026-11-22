@@ -51,6 +51,12 @@ impl<S: Send + Sync> FromRequestParts<S> for Wanted {
 /// `ETag` names the bytes, and `Accept-Ranges` says that a request may ask for a range of them.
 /// The security headers add `X-Content-Type-Options: nosniff` and `Cache-Control: no-store`
 /// (SEC-12, PLATFORM-081).
+// part: files
+///
+/// `Content-Disposition` is `inline` instead where [`Download::inline`] is set, and a public
+/// file's `Cache-Control` lets shared caches keep it for [`Download::public_for`], in place of
+/// `no-store` (SEC-11, FILES-023).
+// end part: files
 pub struct Download<S> {
     /// The bytes' media type.
     pub media_type: String,
@@ -94,9 +100,13 @@ where
         headers.insert(header::ETAG, tag);
         // part: files
         if let Some(duration) = self.public_for {
-            let value = format!("public, max-age={}", duration.as_secs());
-            if let Ok(value) = HeaderValue::from_str(&value) {
-                headers.insert(header::CACHE_CONTROL, value);
+            // A number of seconds is always a header's value. Without it, no cache keeps the
+            // bytes, since the security headers add `no-store`.
+            match HeaderValue::from_str(&format!("public, max-age={}", duration.as_secs())) {
+                Ok(value) => {
+                    headers.insert(header::CACHE_CONTROL, value);
+                }
+                Err(error) => errors::ignore(&error, "cache_control_not_set"),
             }
         }
         // end part: files
@@ -105,8 +115,12 @@ where
             Served::Whole => (StatusCode::OK, self.size),
             Served::Range(range) => {
                 let value = format!("bytes {}-{}/{}", range.first, range.last, self.size);
-                if let Ok(value) = HeaderValue::from_str(&value) {
-                    headers.insert(header::CONTENT_RANGE, value);
+                // A 206 that doesn't say which bytes it holds is no answer to its request.
+                match HeaderValue::from_str(&value) {
+                    Ok(value) => {
+                        headers.insert(header::CONTENT_RANGE, value);
+                    }
+                    Err(error) => return Problem(Internal::new(error)).into_response(),
                 }
                 (StatusCode::PARTIAL_CONTENT, range.len())
             }
@@ -159,7 +173,13 @@ fn disposition(kind: &str, name: &str) -> HeaderValue {
         percent_encoded(name)
     );
     // Both forms of the name hold only visible ASCII, so the value is always a header's.
-    HeaderValue::from_str(&value).unwrap_or_else(|_| HeaderValue::from_static("attachment"))
+    match HeaderValue::from_str(&value) {
+        Ok(value) => value,
+        Err(error) => {
+            errors::ignore(&error, "disposition_name_not_set");
+            HeaderValue::from_static("attachment")
+        }
+    }
 }
 
 /// `name` in visible ASCII for the `filename` parameter: every other character, the quote, the

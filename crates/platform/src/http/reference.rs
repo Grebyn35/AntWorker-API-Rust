@@ -17,6 +17,7 @@ use base64::Engine;
 use sha2::{Digest, Sha256};
 
 use super::{docs::QueryNames, stack};
+use crate::errors::{Internal, Problem};
 
 /// The page's path.
 pub(super) const PAGE: &str = "/docs";
@@ -71,14 +72,19 @@ fn policy() -> String {
 )]
 pub(super) fn mount(router: Router, document: Arc<str>) -> Router {
     let page: Arc<str> = format!("{HTML}<script>{START}</script>\n</body>\n</html>\n").into();
-    // The policy holds visible ASCII alone, which a header's value takes.
-    let policy = HeaderValue::from_str(&policy()).ok();
+    let policy: Arc<str> = policy().into();
     router
         .route(
             PAGE,
             grouped(get(move || {
                 let (page, policy) = (page.clone(), policy.clone());
                 async move {
+                    // The policy holds visible ASCII alone, which a header's value takes. Without
+                    // it, the page would load nothing, so it answers the internal problem instead.
+                    let policy = match HeaderValue::from_str(&policy) {
+                        Ok(policy) => policy,
+                        Err(error) => return Problem(Internal::new(error)).into_response(),
+                    };
                     let mut response = (
                         [(
                             header::CONTENT_TYPE,
@@ -87,11 +93,9 @@ pub(super) fn mount(router: Router, document: Arc<str>) -> Router {
                         page.to_string(),
                     )
                         .into_response();
-                    if let Some(policy) = policy {
-                        response
-                            .headers_mut()
-                            .insert(header::CONTENT_SECURITY_POLICY, policy);
-                    }
+                    response
+                        .headers_mut()
+                        .insert(header::CONTENT_SECURITY_POLICY, policy);
                     response
                 }
             })),

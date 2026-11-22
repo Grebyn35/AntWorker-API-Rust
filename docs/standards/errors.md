@@ -74,7 +74,7 @@ A 500 response has a fixed title and no detail. Its only identifying field is `t
 - Check: `review`.
 
 ### ERR-10 An error is logged once, where it is handled
-The HTTP boundary logs every 5xx at `ERROR`, with its cause chain and trace ID, but the 503 of a feature that the deployment turned off, which is no failure (OPS-04). 4xx responses appear in the request's completion log (OBS-03) and are not logged at `WARN` or `ERROR`. Code that returns an error never logs it. An error that a download's bytes meet once its status is sent can become no response: it ends the body short, and is an ignored error of ERR-11 (PLATFORM-100).
+The HTTP boundary logs every 5xx at `ERROR`, with its cause chain and trace ID, but a health probe's (OPS-05), a panic's, whose one `ERROR` line the panic hook writes (ERR-12), and the 503 of a feature that the deployment turned off, which is no failure (OPS-04). 4xx responses appear in the request's completion log (OBS-03) and are not logged at `WARN` or `ERROR`. Code that returns an error never logs it. An error that a download's bytes meet once its status is sent can become no response: it ends the body short, and is an ignored error of ERR-11 (PLATFORM-100).
 - Why: one log entry per failure, at a level that means something (D17).
 - Check: `review`.
 

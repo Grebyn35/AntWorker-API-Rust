@@ -1,14 +1,11 @@
 //! What a workspace's members do with its invitations: listing them, reading one, changing its
 //! role, sending it again and cancelling it (the invitations spec's Routes).
 
-use axum::{
-    extract::{RawPathParams, State},
-    http::StatusCode,
-};
+use axum::{extract::State, http::StatusCode};
 use platform::{
     authz::Authorize,
     errors::{Problem, RequestError},
-    http::{FieldErrors, IfMatch, MergePatch, Query, ResourceResponse, Routes, path_id},
+    http::{FieldErrors, IfMatch, MergePatch, PathIds, Query, ResourceResponse, Routes},
     lists::{Cursor, Limit, List, Page, Search},
     rate_limit::RateLimits,
     types::WorkspaceId,
@@ -109,9 +106,9 @@ async fn workspace_invitations(
 )]
 async fn workspace_invitation(
     authorize: Authorize<InvitationsRead>,
-    params: RawPathParams,
+    params: PathIds,
 ) -> Result<ResourceResponse<Invitation>, Problem<InvitationsError>> {
-    let id = path_id(&params, "invitation_id");
+    let id = params.id("invitation_id");
     let (mut uow, authorized) = authorize.open().await.map_err(InvitationsError::from)?;
     let id = id.ok_or(InvitationsError::NotFound)?;
     let current = service::invitation(&mut uow, &authorized, id).await?;
@@ -159,11 +156,11 @@ impl TryFrom<ChangeInvitationRoleRequest> for NewRole {
 )]
 async fn change_invitation_role(
     authorize: Authorize<InvitationsUpdate>,
-    params: RawPathParams,
+    params: PathIds,
     if_match: IfMatch,
     request: MergePatch<ChangeInvitationRoleRequest>,
 ) -> Result<ResourceResponse<Invitation>, Problem<InvitationsError>> {
-    let id = path_id(&params, "invitation_id");
+    let id = params.id("invitation_id");
     let role = NewRole::try_from(request.0).map_err(InvitationsError::from)?;
     let (uow, authorized) = authorize.open().await.map_err(InvitationsError::from)?;
     let id = id.ok_or(InvitationsError::NotFound)?;
@@ -190,9 +187,9 @@ async fn resend_invitation(
     State(invitations): State<Invitations>,
     limits: RateLimits,
     authorize: Authorize<InvitationsCreate>,
-    params: RawPathParams,
+    params: PathIds,
 ) -> Result<ResourceResponse<Invitation>, Problem<InvitationsError>> {
-    let id = path_id(&params, "invitation_id");
+    let id = params.id("invitation_id");
     let current = service::resend(&limits, authorize, id, &invitations).await?;
     Ok(ResourceResponse::ok(current.invitation).tagged(current.version))
 }
@@ -212,9 +209,9 @@ async fn resend_invitation(
 )]
 async fn cancel_invitation(
     authorize: Authorize<InvitationsCancel>,
-    params: RawPathParams,
+    params: PathIds,
 ) -> Result<StatusCode, Problem<InvitationsError>> {
-    let id = path_id(&params, "invitation_id");
+    let id = params.id("invitation_id");
     let (uow, authorized) = authorize.open().await.map_err(InvitationsError::from)?;
     let id = id.ok_or(InvitationsError::NotFound)?;
     service::cancel(uow, &authorized, id).await?;

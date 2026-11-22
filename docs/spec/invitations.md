@@ -60,7 +60,7 @@ An invitation is addressed to an email, not to a user. It reaches whichever acco
 
 ### Inviting
 
-1. The service counts the request in the caller's bucket of INVITATIONS-009, in its own short transaction, before the unit of work opens (PLATFORM-011). Its key is a hash-based message authentication code (HMAC) of the caller's user ID (PLATFORM-057).
+1. The service counts the request in the caller's bucket of INVITATIONS-009, in a statement that commits by itself, outside any transaction, before the unit of work opens (PLATFORM-011). Its key is a hash-based message authentication code (HMAC) of the caller's user ID (PLATFORM-057).
 2. The service opens the unit of work with the `Authorize<InvitationsCreate>` the handler handed it, which authorizes the caller inside it (platform spec, Unit of work), and refuses a role that isn't one of those `access::offerable` gives the caller, through `authz::refuse` (INVITATIONS-014). `access` decides the rank, as it decides every role (SEC-08).
 3. `accounts::find_by_email` looks up the invitee's account. If there is one, `access::is_member` decides INVITATIONS-002.
 4. The invitation is inserted or refreshed by `(workspace_id, email)`, expiring `INVITATION_EXPIRY_DAYS` after `now()`. The refresh's `WHERE` keeps it to an invitation that offers one of those roles, so one at another role, such as the owner's invitation of an admin, which an admin invites again, stays as it was, and the request is refused through `authz::refuse` (INVITATIONS-014).

@@ -1,12 +1,12 @@
 //! Creating, listing, reading, renaming and deleting a workspace's sample items (the sample items
 //! spec's Routes).
 
-use axum::{extract::RawPathParams, http::StatusCode};
+use axum::http::StatusCode;
 use platform::{
     authz::Authorize,
     errors::{Problem, RequestError},
     http::{
-        FieldErrors, Idempotent, IfMatch, MergePatch, Query, ResourceResponse, Routes, path_id,
+        FieldErrors, Idempotent, IfMatch, MergePatch, PathIds, Query, ResourceResponse, Routes,
     },
     idempotency::IdempotencyKey,
     lists::{Cursor, Limit, List, Page, Search},
@@ -160,9 +160,9 @@ async fn list_sample_items(
 )]
 async fn read_sample_item(
     authorize: Authorize<SampleItemsRead>,
-    params: RawPathParams,
+    params: PathIds,
 ) -> Result<ResourceResponse<SampleItem>, Problem<SampleItemsError>> {
-    let id = path_id(&params, "sample_item_id");
+    let id = params.id("sample_item_id");
     let (mut uow, authorized) = authorize.open().await.map_err(SampleItemsError::from)?;
     let id = id.ok_or(SampleItemsError::NotFound)?;
     let current = service::read(&mut uow, &authorized, id).await?;
@@ -207,12 +207,12 @@ impl TryFrom<RenameSampleItemRequest> for Rename {
 )]
 async fn rename_sample_item(
     authorize: Authorize<SampleItemsUpdate>,
-    params: RawPathParams,
+    params: PathIds,
     if_match: IfMatch,
     request: MergePatch<RenameSampleItemRequest>,
 ) -> Result<ResourceResponse<SampleItem>, Problem<SampleItemsError>> {
     let rename = Rename::try_from(request.0).map_err(SampleItemsError::from)?;
-    let id = path_id(&params, "sample_item_id");
+    let id = params.id("sample_item_id");
     let (uow, authorized) = authorize.open().await.map_err(SampleItemsError::from)?;
     let id = id.ok_or(SampleItemsError::NotFound)?;
     let current = service::rename(uow, &authorized, id, rename, if_match.versions()).await?;
@@ -234,9 +234,9 @@ async fn rename_sample_item(
 )]
 async fn delete_sample_item(
     authorize: Authorize<SampleItemsDelete>,
-    params: RawPathParams,
+    params: PathIds,
 ) -> Result<StatusCode, Problem<SampleItemsError>> {
-    let id = path_id(&params, "sample_item_id");
+    let id = params.id("sample_item_id");
     let (uow, authorized) = authorize.open().await.map_err(SampleItemsError::from)?;
     let id = id.ok_or(SampleItemsError::NotFound)?;
     service::delete(uow, &authorized, id).await?;

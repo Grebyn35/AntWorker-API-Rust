@@ -11,7 +11,7 @@ mod superadmin;
 use std::{collections::HashMap, marker::PhantomData, sync::Arc};
 
 use axum::{
-    extract::{FromRequestParts, RawPathParams},
+    extract::FromRequestParts,
     http::request::Parts,
     response::{IntoResponse, Response},
 };
@@ -20,7 +20,7 @@ use crate::{
     authn::{AuditScope, BoxFuture, Log, Principal},
     db::{Database, UnitOfWork},
     errors::{Internal, PlatformError, Problem, RequestError},
-    http::path_id,
+    http::PathIds,
     jobs::JobScope,
     telemetry::{metrics::Counter, names},
     types::{Client, UserId, WorkspaceId},
@@ -204,10 +204,8 @@ impl<P: Permission, S: Send + Sync> FromRequestParts<S> for Authorize<P> {
         let client = Client::from_request_parts(parts, state).await?;
         // A path segment that isn't a UUID names no workspace, which answers as one the caller
         // doesn't belong to.
-        let workspace_id = RawPathParams::from_request_parts(parts, state)
-            .await
-            .ok()
-            .and_then(|params| path_id(&params, WORKSPACE_PARAMETER))
+        let workspace_id = PathIds::of(parts)
+            .id(WORKSPACE_PARAMETER)
             .map(WorkspaceId::from_uuid);
         Ok(Self {
             principal,

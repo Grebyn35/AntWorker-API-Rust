@@ -170,4 +170,6 @@ disallowed-types = [
     { path = "sqlx::Transaction", reason = "the unit of work is the only transaction (DATA-15, ARCH-11)" },
     { path = "sqlx::postgres::PgTransaction", reason = "the unit of work is the only transaction (DATA-15, ARCH-11)" },
     { path = "sqlx::postgres::PgListener", reason = "only platform::db listens for notifications (DATA-15)" },
+    { path = "axum::extract::Path", reason = "a route reads its path through platform::http::PathIds, which never rejects a request, where axum's extractor answers a segment that isn't UTF-8 with plain text, which is no problem (API-07, PLATFORM-072)" },
+    { path = "axum::extract::RawPathParams", reason = "a route reads its path through platform::http::PathIds, which never rejects a request, where axum's extractor answers a segment that isn't UTF-8 with plain text, which is no problem (API-07, PLATFORM-072)" },
 ]

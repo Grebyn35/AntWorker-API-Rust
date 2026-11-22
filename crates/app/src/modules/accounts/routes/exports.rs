@@ -1,11 +1,11 @@
 //! Reading the caller's exports, and downloading an export's archive (the accounts spec's Routes,
 //! D31). `auth` serves the request of an export, which it confirms (D137).
 
-use axum::extract::{RawPathParams, State};
+use axum::extract::State;
 use platform::{
     authn::Principal,
     errors::{ErrorCode, Problem},
-    http::{Download, FieldErrors, FileBytes, Query, ResourceResponse, Routes, path_id},
+    http::{Download, FieldErrors, FileBytes, PathIds, Query, ResourceResponse, Routes},
     lists::{Cursor, Limit, List, Page},
     ranges::Wanted,
     types::Client,
@@ -93,9 +93,11 @@ async fn read_export(
     State(exports): State<Exports>,
     client: Client,
     principal: Principal,
-    params: RawPathParams,
+    params: PathIds,
 ) -> Result<ResourceResponse<Export>, Problem<AccountsError>> {
-    let id = path_id(&params, "export_id").ok_or(AccountsError::ExportNotFound)?;
+    let id = params
+        .id("export_id")
+        .ok_or(AccountsError::ExportNotFound)?;
     Ok(ResourceResponse::ok(
         exports.read(&client, &principal, id).await?,
     ))
@@ -122,10 +124,12 @@ async fn download_export(
     State(exports): State<Exports>,
     client: Client,
     principal: Principal,
-    params: RawPathParams,
+    params: PathIds,
     wanted: Wanted,
 ) -> Result<Download<ArchiveBytes>, Problem<AccountsError>> {
-    let id = path_id(&params, "export_id").ok_or(AccountsError::ExportNotFound)?;
+    let id = params
+        .id("export_id")
+        .ok_or(AccountsError::ExportNotFound)?;
     let download = exports.download(&client, &principal, id, &wanted).await?;
     Ok(Download {
         media_type: "application/zip".to_owned(),

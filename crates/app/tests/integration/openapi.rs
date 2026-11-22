@@ -73,6 +73,50 @@ async fn api_14_every_route_that_isn_t_public_refuses_a_caller_without_a_credent
 }
 
 #[tokio::test]
+async fn api_07_every_route_answers_a_path_segment_that_isn_t_utf_8_with_a_problem() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let workspace = workspaces::arrange(api.database(), "Acme", &[(&ada.user_id, "owner")]).await;
+    let paths = api.document()["paths"].as_object().unwrap().clone();
+    let mut sent = 0;
+
+    for (template, item) in &paths {
+        let parameters = template.split('/').filter(|part| part.starts_with('{'));
+        for parameter in parameters {
+            // `%FF` percent-decodes to a byte that no UTF-8 text holds. Every other parameter
+            // names Ada's workspace, or an ID that names no row.
+            let path: String = template
+                .split('/')
+                .map(|part| match part {
+                    _ if part == parameter => "%FF",
+                    "{workspace_id}" => workspace.as_str(),
+                    _ if part.starts_with('{') => "01900000-0000-7000-8000-000000000000",
+                    _ => part,
+                })
+                .collect::<Vec<_>>()
+                .join("/");
+            for method in item.as_object().unwrap().keys() {
+                let method = Method::from_bytes(method.to_ascii_uppercase().as_bytes()).unwrap();
+                let response = api
+                    .request(method.clone(), &path)
+                    .bearer(&ada.access)
+                    .send()
+                    .await;
+
+                assert_eq!(
+                    response.header("content-type"),
+                    "application/problem+json",
+                    "{method} {template} with {parameter} not UTF-8: {}",
+                    response.status
+                );
+                sent += 1;
+            }
+        }
+    }
+    assert!(sent >= 10, "only {sent} requests");
+}
+
+#[tokio::test]
 async fn api_10_every_parameter_of_a_list_refuses_a_value_that_is_none_by_its_name() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;

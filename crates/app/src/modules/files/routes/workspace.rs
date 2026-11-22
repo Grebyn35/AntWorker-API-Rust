@@ -2,13 +2,13 @@
 //! Routes).
 
 use axum::{
-    extract::{RawPathParams, State},
+    extract::State,
     http::{HeaderMap, StatusCode},
 };
 use platform::{
     authz::Authorize,
     errors::Problem,
-    http::{Download, FileBytes, Query, ResourceResponse, Routes, Upload, path_id},
+    http::{Download, FileBytes, PathIds, Query, ResourceResponse, Routes, Upload},
     idempotency::IdempotencyKey,
     lists::List,
     ranges::Wanted,
@@ -130,9 +130,9 @@ async fn list_files(
 async fn read_file(
     State(files): State<Files>,
     authorize: Authorize<FilesRead>,
-    params: RawPathParams,
+    params: PathIds,
 ) -> Result<ResourceResponse<File>, Problem<FilesError>> {
-    let id = path_id(&params, "file_id");
+    let id = params.id("file_id");
     let (mut uow, authorized) = authorize.open().await.map_err(FilesError::from)?;
     let id = id.ok_or(FilesError::NotFound)?;
     let file = service::read(&files, &mut uow, &authorized, id).await?;
@@ -155,10 +155,10 @@ async fn read_file(
 async fn download_file(
     State(files): State<Files>,
     authorize: Authorize<FilesRead>,
-    params: RawPathParams,
+    params: PathIds,
     wanted: Wanted,
 ) -> Result<Download<ObjectBytes>, Problem<FilesError>> {
-    let id = path_id(&params, "file_id");
+    let id = params.id("file_id");
     let (uow, authorized) = authorize.open().await.map_err(FilesError::from)?;
     let id = id.ok_or(FilesError::NotFound)?;
     let downloaded = service::download(&files, uow, &authorized, id, &wanted).await?;
@@ -180,9 +180,9 @@ async fn download_file(
 )]
 async fn delete_file(
     authorize: Authorize<FilesDelete>,
-    params: RawPathParams,
+    params: PathIds,
 ) -> Result<StatusCode, Problem<FilesError>> {
-    let id = path_id(&params, "file_id");
+    let id = params.id("file_id");
     let (uow, authorized) = authorize.open().await.map_err(FilesError::from)?;
     let id = id.ok_or(FilesError::NotFound)?;
     service::delete(uow, &authorized, id).await?;

@@ -25,9 +25,10 @@ static REFUSALS: Counter<1> = Counter::new(
 );
 
 /// What a bucket counts of a client's address: an IPv4 address's bytes, with one that arrived
-/// mapped into IPv6 counted as itself, or an IPv6 address's /64 prefix, which one subscriber holds
-/// whole, so a client can't escape a limit by moving within it (PLATFORM-054). The IP limit counts
-/// it, and so does a per-action limit that counts by address, such as AUTH-006's.
+/// mapped into IPv6 taken as its IPv4 address (PLATFORM-053), or an IPv6 address's /64 prefix,
+/// which one subscriber holds whole, so a client can't escape a limit by moving within it
+/// (PLATFORM-054). The IP limit counts it, and so does a per-action limit that counts by address,
+/// such as AUTH-006's.
 pub fn address(ip: IpAddr) -> Vec<u8> {
     match ip.to_canonical() {
         IpAddr::V4(address) => address.octets().to_vec(),
@@ -234,7 +235,7 @@ mod tests {
     }
 
     #[test]
-    fn platform_057_an_ipv4_address_mapped_into_ipv6_counts_as_itself() {
+    fn platform_053_an_ipv4_address_mapped_into_ipv6_counts_as_its_ipv4_address() {
         let mapped: IpAddr = "::ffff:192.0.2.1".parse().unwrap();
         let plain: IpAddr = "192.0.2.1".parse().unwrap();
         assert_eq!(address(mapped), address(plain));

@@ -1,12 +1,12 @@
 //! A superadmin's routes on the deployment's workspaces: listing every one, creating one, and
 //! deleting any (the workspaces spec's "A superadmin's routes").
 
-use axum::{extract::RawPathParams, http::StatusCode};
+use axum::http::StatusCode;
 use platform::{
     authz::AuthorizeSuperadmin,
     db::Database,
     errors::{Problem, RequestError},
-    http::{FieldErrors, Idempotent, Query, ResourceResponse, Routes, path_id},
+    http::{FieldErrors, Idempotent, PathIds, Query, ResourceResponse, Routes},
     idempotency::IdempotencyKey,
     lists::{Cursor, Limit, List, Page, Search},
     types::WorkspaceId,
@@ -145,9 +145,9 @@ async fn create_own(
 )]
 async fn delete_any(
     authorize: AuthorizeSuperadmin,
-    params: RawPathParams,
+    params: PathIds,
 ) -> Result<StatusCode, Problem<WorkspacesError>> {
-    let workspace = path_id(&params, "workspace_id").map(WorkspaceId::from_uuid);
+    let workspace = params.id("workspace_id").map(WorkspaceId::from_uuid);
     let (uow, superadmin) = authorize.open().await.map_err(WorkspacesError::from)?;
     service::delete(uow, &superadmin, workspace).await?;
     Ok(StatusCode::NO_CONTENT)
