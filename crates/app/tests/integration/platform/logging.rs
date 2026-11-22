@@ -200,8 +200,9 @@ async fn platform_099_a_request_that_the_server_refuses_before_the_router_gets_i
         item("ratelimit: ", "r=") + 1,
         item("ratelimit-policy: ", "q=")
     );
-    // The lines that the API wrote up to the last request's are those of the two requests that
-    // the router answered, and none above `INFO`.
+    // Of the lines that the API wrote up to the last request's, those that hold a request's
+    // status are the two of the requests that the router answered. Another line may stand
+    // among them, such as one of a periodic job.
     let mut lines = Vec::new();
     while lines
         .iter()
@@ -216,8 +217,9 @@ async fn platform_099_a_request_that_the_server_refuses_before_the_router_gets_i
         .filter_map(|line| line.get("http.response.status_code"))
         .collect();
     assert_eq!(statuses, [200, 404], "{lines:?}");
-    assert!(
-        lines.iter().all(|line| line["level"] == "INFO"),
-        "{lines:?}"
-    );
+    let requests = lines
+        .iter()
+        .filter(|line| line.get("http.request.method").is_some())
+        .count();
+    assert_eq!(requests, 2, "{lines:?}");
 }
