@@ -35,6 +35,7 @@ Until then, `just remove <part>...` removes parts and keeps what makes the other
 
 - `SECURITY.md` is the template's disclosure policy. The product replaces it with its own: where its users report a vulnerability, and how soon it answers a report, fixes a vulnerability and updates a component that has one.
 - `README.md` says what the template is. The product says what it is, and keeps the quickstart.
+- `CHANGELOG.md` holds what the template's releases change. The product keeps its explanation and empties `Unreleased`, which then gathers what the product's own first release brings, since `just release` asks each of the product's final releases for its section ([release.md](../operations/release.md#before-you-release)). What a later release of the template changes, the product reads in the template's changelog, and ports.
 
 ## Next
 

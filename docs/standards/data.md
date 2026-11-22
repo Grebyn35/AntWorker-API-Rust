@@ -70,7 +70,7 @@ A migration keeps the previous release working. A column or table is removed or 
 
 ### DATA-11 Migrations are tested both ways
 A test applies every migration to an empty database. To a second, it applies the migrations that the newest release holds (DATA-09), then the migrations as they are, which adds the new ones. The two databases then hold one schema, by the lines that the test reads of each one's catalog, a table's columns in their order among them. In a repository without a release, such as a fork before its first, the second database takes every migration as the first does.
-- Why: fresh installs and upgrades both work.
+- Why: fresh installs and upgrades both work (D213).
 - Check: `test`.
 
 ## Roles

@@ -98,7 +98,7 @@ An ADR has four sections: context, decision, consequences and status. After it i
 
 ### DOC-11 The changelog serves forks
 `CHANGELOG.md` follows the Keep a Changelog format. Each final release has a section, whose upgrade notes tell a fork what to port, and in which security fixes are marked. What a prerelease holds stays under the changelog's `Unreleased` until the final release of its number. `just release`, and the run that releases, refuse a final release whose section, upgrade notes or capacity (OPS-16) the changelog lacks; the doc comment of `lacks` in [`notes.rs`](../../crates/xtask/src/release/notes.rs) says what they read of it.
-- Why: forks diverge, and porting by hand is how they receive fixes (D29).
+- Why: forks diverge, and porting by hand is how they receive fixes (D29, D212).
 - Check: `test` (what a release refuses of the changelog), plus `review`.
 
 ### DOC-12 Links and IDs resolve

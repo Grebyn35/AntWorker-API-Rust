@@ -123,7 +123,10 @@ mod testing {
         /// the clock only after the code under test has started that wait. Another task's sleep
         /// of the same duration completes it too, so a test of a wait that may share its
         /// duration with another first waits for what the code does just before it sleeps, such
-        /// as its request reaching a stand-in.
+        /// as its request reaching a stand-in. A sleep that the code starts after work of its
+        /// own, as a poll follows a query, may start after the test moved the clock on, and no
+        /// earlier advance ends it: such a test advances each time the sleep waits, until what
+        /// it waits for has happened.
         pub async fn sleeping(&self, duration: Duration) {
             loop {
                 let slept = self.slept.notified();
