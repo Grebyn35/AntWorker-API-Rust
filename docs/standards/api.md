@@ -138,7 +138,7 @@ A budget, which counts bytes, says so with the draft's quota unit, as `RateLimit
 ### API-16 Every response carries its trace ID
 Every response except the health probes (OBS-15), including streams, carries its trace context in `server-timing: trace;desc=<traceparent value>`, the form the W3C Trace Context editors' draft defines. Error bodies also carry `trace_id` (API-07).
 - Why: any response leads back to its trace and logs (D10).
-- Check: `test`.
+- Check: `test` (PLATFORM-041).
 
 ### API-17 The OpenAPI document is generated and committed
 `openapi.json` is generated from code and committed, and a test fails if the document the binary writes differs from it. Every route under `/v1` documents its requests, responses, error codes and access level, and a response header the document lists is one the API always sends with that response. Each operation's `operationId` is its own, and each schema is one type's, so no operation documents another's request or response. The stream of server-sent events documents every frame it sends, in its event catalog (REALTIME-008), and its action catalog documents every action that an audit entry holds (AUDIT-012, AUDIT-014). Every field and every parameter typed with a domain type, a header's among them, such as `Idempotency-Key`, carries that type's limits in the schema (D25), and every string of a JSON request body has a `maxLength`.
