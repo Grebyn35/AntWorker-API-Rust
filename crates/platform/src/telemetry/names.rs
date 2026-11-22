@@ -52,8 +52,13 @@ pub const CODE_LINE_NUMBER: &str = convention("code.line.number", otel::CODE_LIN
 pub const SERVER_ADDRESS: &str = convention("server.address", otel::SERVER_ADDRESS);
 /// The port the server listens on.
 pub const SERVER_PORT: &str = convention("server.port", otel::SERVER_PORT);
-/// The name of the database a task ran against.
+/// The name of the database that a task ran against, or that a span's transaction ran in.
 pub const DB_NAMESPACE: &str = convention("db.namespace", otel::DB_NAMESPACE);
+/// The database system that a span's transaction ran in: `postgresql`.
+pub const DB_SYSTEM_NAME: &str = convention("db.system.name", otel::DB_SYSTEM_NAME);
+/// The operation and the table of a statement that commits by itself, such as
+/// `INSERT rate_limit_buckets`, on its span (PLATFORM-104).
+pub const DB_QUERY_SUMMARY: &str = convention("db.query.summary", otel::DB_QUERY_SUMMARY);
 
 /// The trace a line was written in, a top-level field of JSON logs.
 pub const TRACE_ID: &str = "trace_id";

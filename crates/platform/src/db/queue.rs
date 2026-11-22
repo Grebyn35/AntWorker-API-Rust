@@ -1,11 +1,13 @@
-//! The job queue's statements that run outside any transaction, each committing at once: the
-//! claims of jobs and periodic jobs, the renewals of their leases, and their outcomes (the
-//! platform spec's "The job queue"). Every statement after a claim names the claim's ID, so a run whose
+//! The job queue's statements that run outside any transaction, each committing at once, in a
+//! span of its own where it runs inside one, as a run's span (PLATFORM-104): the claims of jobs
+//! and periodic jobs, the renewals of their leases, and their outcomes (the platform spec's
+//! "The job queue"). Every statement after a claim names the claim's ID, so a run whose
 //! lease ran out, while another replica claimed the job, changes nothing.
 
 use std::time::Duration;
 
 use time::OffsetDateTime;
+use tracing::Instrument;
 use uuid::Uuid;
 
 use super::Database;
@@ -73,6 +75,7 @@ impl Database {
             lease.as_secs_f64(),
         )
         .fetch_all(&self.pool)
+        .instrument(self.statement("UPDATE jobs"))
         .await?;
         Ok(rows
             .into_iter()
@@ -104,6 +107,7 @@ impl Database {
             lease.as_secs_f64(),
         )
         .execute(&self.pool)
+        .instrument(self.statement("UPDATE jobs"))
         .await?;
         Ok(())
     }
@@ -116,6 +120,7 @@ impl Database {
             claim
         )
         .execute(&self.pool)
+        .instrument(self.statement("DELETE jobs"))
         .await?;
         Ok(())
     }
@@ -142,6 +147,7 @@ impl Database {
             failure,
         )
         .execute(&self.pool)
+        .instrument(self.statement("UPDATE jobs"))
         .await?;
         Ok(())
     }
@@ -166,6 +172,7 @@ impl Database {
             failure,
         )
         .execute(&self.pool)
+        .instrument(self.statement("UPDATE jobs"))
         .await?;
         Ok(())
     }
@@ -180,6 +187,7 @@ impl Database {
             claim,
         )
         .execute(&self.pool)
+        .instrument(self.statement("UPDATE jobs"))
         .await?;
         Ok(())
     }
@@ -194,6 +202,7 @@ impl Database {
                 AND (lease_expires_at IS NULL OR lease_expires_at <= now())"#,
         )
         .fetch_one(&self.pool)
+        .instrument(self.statement("SELECT jobs"))
         .await?;
         Ok(Duration::try_from_secs_f64(seconds.max(0.0)).unwrap_or_default())
     }
@@ -207,6 +216,7 @@ impl Database {
             names,
         )
         .execute(&self.pool)
+        .instrument(self.statement("INSERT job_schedules"))
         .await?;
         Ok(())
     }
@@ -233,6 +243,7 @@ impl Database {
             lease.as_secs_f64(),
         )
         .fetch_all(&self.pool)
+        .instrument(self.statement("UPDATE job_schedules"))
         .await?;
         Ok(rows
             .into_iter()
@@ -259,6 +270,7 @@ impl Database {
             lease.as_secs_f64(),
         )
         .execute(&self.pool)
+        .instrument(self.statement("UPDATE job_schedules"))
         .await?;
         Ok(())
     }
@@ -284,6 +296,7 @@ impl Database {
             interval.as_secs_f64(),
         )
         .execute(&self.pool)
+        .instrument(self.statement("UPDATE job_schedules"))
         .await?;
         Ok(())
     }
@@ -298,6 +311,7 @@ impl Database {
             claim,
         )
         .execute(&self.pool)
+        .instrument(self.statement("UPDATE job_schedules"))
         .await?;
         Ok(())
     }

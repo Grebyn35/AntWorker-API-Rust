@@ -12,7 +12,9 @@ use std::{
 
 use http::{Method, StatusCode};
 use opentelemetry_proto::tonic::{
-    common::v1::any_value, resource::v1::Resource, trace::v1::span::SpanKind,
+    common::v1::any_value,
+    resource::v1::Resource,
+    trace::v1::{Span, span::SpanKind},
 };
 use platform::telemetry::testing::{
     self, Point,
@@ -79,6 +81,12 @@ fn assert_names_the_process(resource: &Resource, environment: &str) -> String {
 
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// Whether `span` is the server span of the request in the trace `trace`, which also holds a
+/// span for each of the request's database transactions (PLATFORM-104).
+fn is_the_request_s(span: &Span, trace: &str) -> bool {
+    hex(&span.trace_id) == trace && span.kind == i32::from(SpanKind::Server)
 }
 
 #[tokio::test]
@@ -343,7 +351,7 @@ async fn platform_066_serve_exports_its_spans_and_log_records_with_their_trace_c
         received
             .spans()
             .iter()
-            .any(|(_, span)| hex(&span.trace_id) == trace)
+            .any(|(_, span)| is_the_request_s(span, trace))
             && received.records().iter().any(|(_, record)| {
                 hex(&record.trace_id) == trace
                     && record.body.as_ref().and_then(text).as_deref() == Some("request completed")
@@ -355,7 +363,7 @@ async fn platform_066_serve_exports_its_spans_and_log_records_with_their_trace_c
     let (resource, span) = received
         .spans()
         .into_iter()
-        .find(|(_, span)| hex(&span.trace_id) == trace)
+        .find(|(_, span)| is_the_request_s(span, trace))
         .unwrap();
     assert_names_the_process(resource, "production");
     assert_eq!(span.name, "GET /v1/capabilities");
@@ -427,7 +435,7 @@ async fn platform_067_a_method_http_doesn_t_define_is_other_in_the_span() {
             received
                 .spans()
                 .iter()
-                .any(|(_, span)| hex(&span.trace_id) == trace)
+                .any(|(_, span)| is_the_request_s(span, trace))
         })
         .await;
 
@@ -435,7 +443,7 @@ async fn platform_067_a_method_http_doesn_t_define_is_other_in_the_span() {
     let (_, span) = received
         .spans()
         .into_iter()
-        .find(|(_, span)| hex(&span.trace_id) == trace)
+        .find(|(_, span)| is_the_request_s(span, trace))
         .unwrap();
     assert_eq!(span.name, "HTTP /v1/capabilities");
     assert_eq!(

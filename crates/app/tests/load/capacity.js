@@ -9,8 +9,9 @@
 // in with their password, and beside them the step reads the capabilities 50 times a second,
 // the other requests, whose own outcome the step reports: a sign-in hashes a password, the
 // API's CPU-heavy work, and the step shows what the others wait for it. Before and after the
-// step, the script reads how many spans the collector has accepted, so the task can compare them
-// with the requests served: a span the API's queue dropped would never reach the collector.
+// step, the script reads how many spans the collector has accepted, so the task can report them
+// beside the requests served, each of which writes two spans when it asks for the capabilities:
+// a span the API's queue dropped would never reach the collector.
 
 import http from "k6/http";
 import { fail, sleep } from "k6";

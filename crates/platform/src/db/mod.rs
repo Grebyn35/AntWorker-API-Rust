@@ -14,6 +14,7 @@ mod listener;
 mod migrations;
 mod queue;
 mod roles;
+mod spans;
 #[cfg(feature = "test-support")]
 pub mod testing;
 mod url;
@@ -33,6 +34,7 @@ pub use roles::{Admin, BootstrapError, RoleProblem, bootstrap};
 pub use url::{DatabaseUrl, InvalidDatabaseUrl};
 
 use serde::{Serialize, de::DeserializeOwned};
+use tracing::Instrument;
 
 use crate::{
     authn::Principal,
@@ -127,16 +129,8 @@ impl Database {
         client: &Client,
         principal: Option<&Principal>,
     ) -> Result<UnitOfWork, Internal> {
-        Ok(UnitOfWork {
-            tx: self.pool.begin().await?,
-            client: Some(client.clone()),
-            publisher: principal.map(Principal::user_id),
-            claimed: None,
-            published: Vec::new(),
-            ordered: false,
-            ran: false,
-            snapshot: false,
-        })
+        self.open(Some(client.clone()), principal.map(Principal::user_id))
+            .await
     }
 
     /// Opens a unit of work for a job's run, which only a run's `JobContext` can ask for, as
@@ -171,15 +165,27 @@ impl Database {
     /// Opens a unit of work for `platform`'s own mechanisms, such as the hub's reads, which act
     /// for no request and no job, and whose audit entries record no client.
     pub(crate) async fn unattributed(&self) -> Result<UnitOfWork, Internal> {
+        self.open(None, None).await
+    }
+
+    /// Opens a unit of work of `client` and `publisher`, with its span, which begins before the
+    /// wait for a pooled connection (PLATFORM-104).
+    async fn open(
+        &self,
+        client: Option<Client>,
+        publisher: Option<UserId>,
+    ) -> Result<UnitOfWork, Internal> {
+        let span = self.transaction();
         Ok(UnitOfWork {
             tx: self.pool.begin().await?,
-            client: None,
-            publisher: None,
+            client,
+            publisher,
             claimed: None,
             published: Vec::new(),
             ordered: false,
             ran: false,
             snapshot: false,
+            _span: span,
         })
     }
 
@@ -212,6 +218,7 @@ impl Database {
             window.as_secs_f64(),
         )
         .fetch_one(&self.pool)
+        .instrument(self.statement("INSERT rate_limit_buckets"))
         .await?;
         let count = u32::try_from(row.count).unwrap_or(u32::MAX);
         let resets_in = Duration::try_from_secs_f64(row.resets_in.max(0.0)).unwrap_or(window);
@@ -233,6 +240,9 @@ pub struct UnitOfWork {
     ran: bool,
     /// Whether [`Database::for_snapshot_job`] opened the unit of work.
     snapshot: bool,
+    /// The transaction's span, if it opened inside a span, which ends when the unit of work has
+    /// committed or is dropped (PLATFORM-104).
+    _span: tracing::Span,
 }
 
 impl UnitOfWork {

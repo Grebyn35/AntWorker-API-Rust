@@ -44,9 +44,9 @@ Every field name in logs and spans, and every metric label name, comes from the 
 ## Traces
 
 ### OBS-06 One server span per request, child spans for work
-Each request has one server span in the API. Database transactions, outbound calls and job runs get child spans. Behind the reference deployment's proxy, the server span is a child of the proxy's span for the request, so a trace starts at the proxy (D53). Spans come only from `platform` and the binary's `main.rs`; module code opens none. CPU-heavy work runs through the `platform` helper that adds its span (CODE-05), so slow steps such as password hashing still show in traces.
+Each request has one server span in the API, and each run of a job a span of its own (OBS-07). Inside either, each database transaction and each outbound call gets a child span. A transaction that runs outside every span, such as the hub's load of new events or a dispatcher's claim of jobs, gets none: its span would have no parent, and so would start a trace of its own each time (D218). Behind the reference deployment's proxy, the server span is a child of the proxy's span for the request, so a trace starts at the proxy (D53). Spans come only from `platform` and the binary's `main.rs`; module code opens none. CPU-heavy work runs through the `platform` helper that adds its span (CODE-05), so slow steps such as password hashing still show in traces.
 - Why: a trace shows where a request spent its time, and every span has the same shape wherever it comes from.
-- Check: `ci: check-instrument` (no spans in `app`'s code outside `main.rs`), plus `review`.
+- Check: `ci: check-instrument` (no spans in `app`'s code outside `main.rs`), plus `test` (PLATFORM-104, a database transaction's span inside a request's span and a job run's, and none outside every span), plus `review`.
 
 ### OBS-07 Trace context carries across work that happens later
 Inbound W3C `traceparent` from clients is accepted. Every job and event row stores the trace context that created it. The span for running that job or delivering that event links to the stored context. Outbound requests send trace context only to our own infrastructure, never to third parties.
