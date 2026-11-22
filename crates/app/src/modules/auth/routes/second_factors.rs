@@ -114,6 +114,24 @@ pub(crate) struct CompletionRequest {
     recovery_code: Option<String>,
 }
 
+/// The challenge, when the body holds one, and the second factor, in domain types (AUTH-060).
+impl TryFrom<CompletionRequest> for (Option<Secret<String>>, FactorProof) {
+    type Error = RequestError;
+
+    fn try_from(request: CompletionRequest) -> Result<Self, Self::Error> {
+        let mut errors = FieldErrors::new();
+        let proof = factor_proof(
+            &mut errors,
+            ("/code", request.code.as_deref()),
+            request.recovery_code.as_deref(),
+            true,
+        )
+        .flatten();
+        let proof = errors.finish(proof)?;
+        Ok((request.challenge.map(Secret::new), proof))
+    }
+}
+
 /// The challenge of a sign-in that waits for its second factor (AUTH-058).
 #[derive(Serialize, ToSchema)]
 pub(crate) struct ChallengeResponse {
@@ -172,27 +190,20 @@ async fn complete_sign_in(
     headers: HeaderMap,
     Json(request): Json<CompletionRequest>,
 ) -> Result<Response, Problem<AuthError>> {
-    let mut errors = FieldErrors::new();
-    let proof = factor_proof(
-        &mut errors,
-        ("/code", request.code.as_deref()),
-        request.recovery_code.as_deref(),
-        true,
-    )
-    .flatten();
-    let proof = errors.finish(proof).map_err(AuthError::from)?;
-    let challenge = match request.challenge {
+    let (challenge, proof) =
+        <(Option<Secret<String>>, FactorProof)>::try_from(request).map_err(AuthError::from)?;
+    let challenge = match challenge {
         Some(challenge) => challenge,
         None => match cookies
             .credential(CHALLENGE_COOKIE)
             .map_err(AuthError::from)?
         {
-            Some(challenge) => challenge.to_owned(),
+            Some(challenge) => Secret::new(challenge.to_owned()),
             None => return Err(AuthError::InvalidChallenge.into()),
         },
     };
     let completion = Completion {
-        challenge: Secret::new(challenge),
+        challenge,
         proof,
         held: held(&cookies),
     };
@@ -303,6 +314,17 @@ pub(crate) struct SetupConfirmationRequest {
     code: String,
 }
 
+/// The code, in its domain type (AUTH-056).
+impl TryFrom<SetupConfirmationRequest> for AppCode {
+    type Error = RequestError;
+
+    fn try_from(request: SetupConfirmationRequest) -> Result<Self, Self::Error> {
+        let mut errors = FieldErrors::new();
+        let code = errors.check("/code", AppCode::parse(&request.code));
+        errors.finish(code)
+    }
+}
+
 /// The recovery codes, shown once (AUTH-056, AUTH-063).
 #[derive(Serialize, ToSchema)]
 pub(crate) struct RecoveryCodesResponse {
@@ -337,9 +359,7 @@ async fn confirm_setup(
     principal: Principal,
     Json(request): Json<SetupConfirmationRequest>,
 ) -> Result<axum::Json<RecoveryCodesResponse>, Problem<AuthError>> {
-    let mut errors = FieldErrors::new();
-    let code = errors.check("/code", AppCode::parse(&request.code));
-    let code = errors.finish(code).map_err(AuthError::from)?;
+    let code = AppCode::try_from(request).map_err(AuthError::from)?;
     let codes = auth
         .confirm_setup(&limits, &client, &principal, code)
         .await?;

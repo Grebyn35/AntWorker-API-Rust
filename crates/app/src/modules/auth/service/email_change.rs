@@ -1,6 +1,6 @@
 //! Changing the account's email address to another, which a code sent to the new address proves
 //! (AUTH-048 to AUTH-053, the auth spec's "Changing the email address"): asking, once the session
-//! has proved its password just before, which enqueues the job that issues the code, and
+//! has proved who its user is just before, which enqueues the job that issues the code, and
 //! confirming with the code. The job's run is in `verification.rs`, beside the other codes'.
 
 use platform::{
@@ -41,7 +41,7 @@ pub(crate) struct ChangeConfirmation {
 impl Auth {
     /// Asks to change the caller's address to `email`: enqueues the job that issues the code that
     /// changes it, and sends it there (AUTH-050), once the request has counted in the bucket of
-    /// the address (AUTH-049), and the session proved its password within the last 5 minutes
+    /// the address (AUTH-049), and the session proved who its user is within the last 5 minutes
     /// (AUTH-048). Answers the address the code goes to.
     pub(crate) async fn request_email_change(
         &self,
@@ -170,6 +170,12 @@ impl Auth {
         {
             return Err(AuthError::EmailInUse);
         }
+        // Every device token of the account went to the address before, so none counts for it
+        // once another account holds it (AUTH-019). They go once the update holds the user's row
+        // `FOR UPDATE`, which waited for every sign-in whose session's insert holds the row `FOR
+        // KEY SHARE`, so this delete reads the tokens those sign-ins committed, and a sign-in that
+        // waits for this unit of work gets a token for the new address.
+        repo::delete_device_tokens(&mut uow, user_id).await?;
         audit_log::record(
             &mut uow,
             principal.audit_scope(),

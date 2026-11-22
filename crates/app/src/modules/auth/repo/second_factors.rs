@@ -449,8 +449,8 @@ pub(in crate::modules::auth) async fn delete_setup(
 }
 
 /// The versions of the key ring under which an app's secret, or a lasting setup's, is stored, of
-/// every user's rows: the one read that spans every user outside a job, which startup makes, and
-/// which reads the versions alone (AUTH-066, DATA-16).
+/// every user's rows: a read that spans every user outside a job, which startup makes, and which
+/// reads the versions alone (AUTH-066, DATA-16).
 pub(in crate::modules::auth) async fn stored_key_versions(
     uow: &mut UnitOfWork,
 ) -> Result<Vec<i16>, Internal> {

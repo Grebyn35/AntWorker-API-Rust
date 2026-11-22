@@ -153,7 +153,7 @@ impl Auth {
         )
         .await?;
         let device = self
-            .issue_device_token(&mut uow, user_id, &input.email, trusted.as_ref())
+            .issue_device_token(&mut uow, user_id, trusted.as_ref())
             .await?;
         audit_log::record(
             &mut uow,

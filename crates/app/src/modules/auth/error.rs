@@ -285,9 +285,7 @@ impl ErrorCode for AuthError {
                  deletion again."
                     .to_owned(),
             ),
-            Self::WrongCode => Some(
-                "The code is wrong: check it and type it again, or ask for another.".to_owned(),
-            ),
+            Self::WrongCode => Some("The code is wrong: check it and type it again.".to_owned()),
             Self::CodeExpired => Some(
                 "The code's 10 minutes have passed, or a newer one replaced it: ask for another."
                     .to_owned(),
@@ -362,5 +360,22 @@ impl ErrorCode for AuthError {
             Self::ProviderUnavailable(_) => 30,
             _ => 1,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use platform::errors::ErrorCode;
+
+    use super::AuthError;
+
+    #[test]
+    fn err_09_the_detail_of_a_wrong_code_holds_on_a_setup_s_confirmation_too() {
+        // An authenticator app shows its code, which no route sends again (AUTH-056), so the
+        // detail asks for no other code, as an email's codes would let it (AUTH-032, AUTH-052).
+        assert_eq!(
+            AuthError::WrongCode.detail().as_deref(),
+            Some("The code is wrong: check it and type it again.")
+        );
     }
 }

@@ -321,13 +321,13 @@ fn said(change: FactorChange, to: &str) -> (String, String, String) {
         FactorChange::AppAdded => (
             format!("An authenticator app now signs in to your {PRODUCT} account"),
             format!(
-                "An authenticator app now signs in to your {PRODUCT} account, {to}, beside its \
-                     password, with new recovery codes."
+                "An authenticator app now signs in to your {PRODUCT} account, {to}, with new \
+                     recovery codes."
             ),
             format!(
-                "If you set it up, there is nothing to do. If you didn't, someone who knows \
-                     your password did: reset your password in {PRODUCT} now, which ends every \
-                     session of the account, and ask {PRODUCT}'s operator to remove the app."
+                "If you set it up, there is nothing to do. If you didn't, someone who signed in \
+                     as you did: reset your password in {PRODUCT} now, which ends every session of \
+                     the account, and ask {PRODUCT}'s operator to remove the app."
             ),
         ),
         FactorChange::CodesReplaced => (
@@ -338,7 +338,7 @@ fn said(change: FactorChange, to: &str) -> (String, String, String) {
             ),
             format!(
                 "If you asked for them, keep them where only you can reach them. If you \
-                     didn't, someone who knows your password and holds your app did: reset your \
+                     didn't, someone who signed in as you, with your app, did: reset your \
                      password in {PRODUCT} now, which ends every session of the account."
             ),
         ),
@@ -346,7 +346,7 @@ fn said(change: FactorChange, to: &str) -> (String, String, String) {
             format!("The authenticator app of your {PRODUCT} account was removed"),
             format!(
                 "The authenticator app of your {PRODUCT} account, {to}, was removed, with its \
-                     recovery codes, so the account signs in with its password alone."
+                     recovery codes, so the account signs in without a second factor."
             ),
             format!(
                 "If you removed it, there is nothing to do. If you didn't, reset your password \
@@ -359,7 +359,7 @@ fn said(change: FactorChange, to: &str) -> (String, String, String) {
             format!(
                 "{PRODUCT}'s operator removed the authenticator app of your {PRODUCT} account, \
                      {to}, with its recovery codes, and ended every session of the account, so it \
-                     signs in with its password alone."
+                     signs in without a second factor."
             ),
             format!(
                 "If you asked the operator for it, sign in and set up an app again. If you \
@@ -376,9 +376,9 @@ fn said(change: FactorChange, to: &str) -> (String, String, String) {
             ),
             format!(
                 "If you used it, there is nothing to do, but ask for new codes before none is \
-                     left. If you didn't, someone knows your password and holds your recovery \
-                     codes: reset your password in {PRODUCT} now, which ends every session of the \
-                     account, and ask for new recovery codes."
+                     left. If you didn't, someone holds your recovery codes: reset your password \
+                     in {PRODUCT} now, which ends every session of the account, and ask for new \
+                     recovery codes."
             ),
         ),
     }
@@ -483,6 +483,32 @@ mod tests {
         }
         assert_eq!(codes_left(0), "No recovery code is left.");
         assert_eq!(codes_left(7), "7 recovery codes are left.");
+    }
+
+    #[test]
+    fn auth_068_each_change_of_a_second_factor_s_email_holds_for_an_account_without_a_password() {
+        // An account that signs in through a provider alone has no password (AUTH-074), so an
+        // email names none, but in the reset that it advises, which serves such an account too
+        // (AUTH-034, AUTH-037).
+        let to = EmailAddress::parse("alice@example.com").unwrap();
+        for change in [
+            FactorChange::AppAdded,
+            FactorChange::CodesReplaced,
+            FactorChange::AppRemoved,
+            FactorChange::AppRemovedByOperator,
+            FactorChange::RecoveryCodeUsed(1),
+        ] {
+            let email = FactorChangedEmail {
+                to: to.clone(),
+                change,
+            }
+            .render()
+            .unwrap();
+            for part in [&email.subject, &email.text, &email.html] {
+                let said = part.replace("reset your password", "");
+                assert!(!said.contains("password"), "{change:?}: {part}");
+            }
+        }
     }
 
     #[test]

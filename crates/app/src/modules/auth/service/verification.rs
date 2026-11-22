@@ -37,8 +37,9 @@ pub(super) const CODE_KIND: &str = "verification_code";
 
 impl Auth {
     /// Whether `user_id`'s account must still prove its email address before the API serves it
-    /// anything but proving it: while email is on and it hasn't (AUTH-025, AUTH-026), or `None`
-    /// once the account is gone.
+    /// anything but proving it: while email is on and it hasn't (AUTH-025, AUTH-026). With email
+    /// on, it reads the account, and answers `None` once the account is gone; with email off, it
+    /// reads nothing, and answers `Some(false)`.
     pub(super) async fn email_verification_required(
         &self,
         uow: &mut UnitOfWork,
@@ -54,8 +55,9 @@ impl Auth {
 
     /// Asks for a code that proves the caller's address: enqueues the job that issues one and
     /// sends it (AUTH-030), once the request has counted in the bucket of the account's address,
-    /// which a read before the unit of work finds (AUTH-028, AUTH-029, ARCH-11). Answers the
-    /// address the code goes to.
+    /// which a read before the unit of work finds, and the unit of work has read the address
+    /// again under the user's row's lock (AUTH-028, AUTH-029, ARCH-11). Answers the address the
+    /// code goes to.
     pub(crate) async fn request_code(
         &self,
         limits: &RateLimits,
@@ -80,13 +82,19 @@ impl Auth {
         let mut uow = self.database.begin(client, Some(principal)).await?;
         // The user's row, as a deletion of the account locks it first, so the two take turns:
         // the deletion deletes the job, or it took the account, and the session with it
-        // (DATA-23, ACCOUNTS-019).
-        accounts::address_for_update(&mut uow, principal.user_id())
+        // (DATA-23, ACCOUNTS-019). A confirmation of a code, or of a change of the address, that
+        // the lock waited for proved the address, and the request writes nothing (ARCH-11). A
+        // change of the address proves the new one (AUTH-051), so an address that isn't proved
+        // is the one whose bucket the read counted the request in.
+        let held = accounts::address_for_update(&mut uow, principal.user_id())
             .await?
             .ok_or(RequestError::Unauthenticated)?;
+        if held.verified {
+            return Err(AuthError::EmailAlreadyVerified);
+        }
         self.enqueue_code(&mut uow, principal).await?;
         uow.commit().await?;
-        Ok(address.email)
+        Ok(held.email)
     }
 
     /// Enqueues in `uow` the job that issues a code to the account of `principal`, and sends it,

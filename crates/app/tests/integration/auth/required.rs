@@ -470,7 +470,7 @@ async fn auth_072_the_subcommand_removes_the_app_and_the_codes_and_ends_every_se
         &removed,
         "remove-second-factor",
         "removed the account's authenticator app and recovery codes, and ended every session of \
-         it; the account signs in with its password alone, and its address is told",
+         it; the account signs in without a second factor, and its address is told",
         &[&address],
     );
     for table in [

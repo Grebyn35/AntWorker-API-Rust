@@ -101,7 +101,7 @@ pub(crate) struct EmailChange {
 }
 
 /// Asks to change the account's email address to another, which an email to it with a code
-/// proves, in place of any change asked for before. The session must have proved its password
+/// proves, in place of any change asked for before. The session must have proved who its user is
 /// within the last 5 minutes.
 #[utoipa::path(
     post,

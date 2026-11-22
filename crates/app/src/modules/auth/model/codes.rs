@@ -82,16 +82,22 @@ const CODE_DIGITS: usize = 6;
 /// How many codes of [`CODE_DIGITS`] digits there are.
 const CODES: u32 = 1_000_000;
 
+/// How many characters a typed verification code holds at most, its digits and the white space
+/// around them, as its schema gives (API-17).
+const CODE_MAX_INPUT: usize = 32;
+
 /// A verification code: 6 digits (AUTH-030), as the user typed it, or as the API drew it. Its
 /// `Debug` shows no digit (SEC-01).
 #[derive(Clone, Debug)]
 pub(crate) struct VerificationCode(Secret<String>);
 
 impl VerificationCode {
-    /// The code the user typed, trimmed, or why it isn't one (AUTH-032).
+    /// The code the user typed, of at most [`CODE_MAX_INPUT`] characters, trimmed, or why it
+    /// isn't one (AUTH-032, API-17).
     pub(crate) fn parse(value: &str) -> Result<Self, Invalid> {
+        let within = value.chars().count() <= CODE_MAX_INPUT;
         let value = value.trim();
-        if value.len() == CODE_DIGITS && value.bytes().all(|byte| byte.is_ascii_digit()) {
+        if within && value.len() == CODE_DIGITS && value.bytes().all(|byte| byte.is_ascii_digit()) {
             Ok(Self(Secret::new(value.to_owned())))
         } else {
             Err(Invalid::new("invalid_code", "A code is 6 digits."))
@@ -122,7 +128,7 @@ impl PartialSchema for VerificationCode {
         ObjectBuilder::new()
             .schema_type(Type::String)
             .min_length(Some(CODE_DIGITS))
-            .max_length(Some(32))
+            .max_length(Some(CODE_MAX_INPUT))
             .pattern(Some("^\\s*[0-9]{6}\\s*$"))
             .description(Some(
                 "The 6 digits of the code, which spaces around them may surround.",
@@ -148,8 +154,8 @@ const LONG_CODE_MAX_INPUT: usize = 64;
 /// What a code of Crockford's base32 alphabet is: how many characters it has, 5 bits to a
 /// character, and the name its schema has in the API's document.
 pub(crate) trait LongKind {
-    /// How many characters the code has: 16 for a reset code or a change code, the 80 bits of 10
-    /// random bytes (AUTH-036, AUTH-050), and 24 for a recovery code, 120 bits (AUTH-062).
+    /// How many characters the code has: 16 for a reset code or a change code, 80 bits
+    /// (AUTH-036, AUTH-050), and 24 for a recovery code, 120 bits (AUTH-062).
     const CHARS: usize;
     /// The name of the code's schema.
     const SCHEMA: &'static str;
@@ -339,6 +345,22 @@ mod tests {
                 "{refused}"
             );
         }
+    }
+
+    #[test]
+    fn api_17_a_typed_code_holds_at_most_the_32_characters_that_its_schema_gives() {
+        let at_bound = format!("{}424242{}", " ".repeat(13), "\t".repeat(13));
+        assert_eq!(at_bound.chars().count(), 32);
+        assert_eq!(
+            VerificationCode::parse(&at_bound).unwrap().digits(),
+            "424242"
+        );
+        assert_eq!(
+            VerificationCode::parse(&format!("{at_bound} "))
+                .unwrap_err()
+                .code,
+            "invalid_code"
+        );
     }
 
     #[test]

@@ -18,7 +18,7 @@ pub(crate) use error::AuthError;
 pub(crate) use jobs::register;
 pub(crate) use model::Lifetimes;
 pub(crate) use personal_data::Contract;
-pub(crate) use providers::Providers;
+pub(crate) use providers::{Listed, Providers};
 pub(crate) use routes::{ExportRequests, ProviderRoutes, export_routes, provider_routes, routes};
 // part: superadmins
 pub(crate) use service::has_authenticator_app;

@@ -255,9 +255,7 @@ impl Auth {
             Entry::new(audit::USER_REGISTERED, audit::USER, user_id.uuid()),
         )
         .await?;
-        let device = self
-            .issue_device_token(&mut uow, user_id, &input.email, None)
-            .await?;
+        let device = self.issue_device_token(&mut uow, user_id, None).await?;
         self.enqueue_code(&mut uow, &principal).await?;
         uow.commit().await?;
         // A new account has proved no address and has no app.
@@ -331,8 +329,10 @@ impl Auth {
 
     /// `session` as its client sees it, which says whether its account must still prove its
     /// email address or set up a second factor, as `uow` reads the account (AUTH-026, AUTH-070).
-    /// An account that a deletion took since the session was read went with the session, so the
-    /// request answers as one sent after the deletion does (AUTH-016, ACCOUNTS-019).
+    /// An account that a deletion took since the session was read went with the session: with
+    /// email on, `required` finds it gone, and the request answers as one sent after the deletion
+    /// does (AUTH-016, ACCOUNTS-019); with email off, it reads no row of the account's, and the
+    /// session answers as it was read.
     async fn answer(
         &self,
         uow: &mut UnitOfWork,
@@ -347,7 +347,8 @@ impl Auth {
 
     /// What `user_id`'s account must still do before the API serves it anything else, as `uow`
     /// reads it: prove its email address (AUTH-025), or set up a second factor, while the
-    /// deployment requires one (AUTH-070); or `None` once the account is gone.
+    /// deployment requires one (AUTH-070); or `None` once the account is gone, which it finds
+    /// only with email on, as `email_verification_required` says.
     async fn required(
         &self,
         uow: &mut UnitOfWork,

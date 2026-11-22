@@ -170,7 +170,7 @@ impl Auth {
             .replace_session(&mut uow, user_id, &input.device)
             .await?;
         let device = self
-            .issue_device_token(&mut uow, user_id, &address.email, trusted.as_ref())
+            .issue_device_token(&mut uow, user_id, trusted.as_ref())
             .await?;
         audit_log::record(
             &mut uow,
@@ -224,9 +224,7 @@ impl Auth {
             ),
         )
         .await?;
-        let device = self
-            .issue_device_token(&mut uow, user_id, &email, None)
-            .await?;
+        let device = self.issue_device_token(&mut uow, user_id, None).await?;
         if !identity.proved {
             self.enqueue_code(&mut uow, &principal).await?;
         }
