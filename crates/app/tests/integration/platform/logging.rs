@@ -136,3 +136,88 @@ fn test_06_a_watch_prints_its_test_s_lines_then_each_line_it_logs_until_it_ends(
         assert_eq!(logged["message"], message, "{text}");
     }
 }
+
+#[tokio::test]
+async fn platform_099_a_request_that_the_server_refuses_before_the_router_gets_its_bare_answer_and_no_line()
+ {
+    let db = TestDatabase::migrated().await;
+    let mut server = db.serve(&[("ENVIRONMENT", "production")]).await;
+    // With the two headers that every request of the test support carries, 101 and 100.
+    let names: Vec<String> = (0..99).map(|n| format!("x-{n}")).collect();
+    let headers = |count: usize| -> Vec<(&str, &str)> {
+        names[..count]
+            .iter()
+            .map(|name| (name.as_str(), "1"))
+            .collect()
+    };
+    let target = |bytes: usize| format!("/{}", "a".repeat(bytes - 1));
+
+    let unread = server
+        .request("GET", "/v1/capabilities and more", &[])
+        .await;
+    let crowded = server
+        .request("GET", "/v1/capabilities", &headers(99))
+        .await;
+    let lengthy = server.request("GET", &target(65_535), &[]).await;
+    // The most that the server takes of each reaches the router.
+    let served = server
+        .request("GET", "/v1/capabilities", &headers(98))
+        .await;
+    let missing = server.request("GET", &target(65_534), &[]).await;
+
+    for (answer, status) in [
+        (&unread, "400 Bad Request"),
+        (&crowded, "431 Request Header Fields Too Large"),
+        (&lengthy, "414 URI Too Long"),
+    ] {
+        let (head, body) = answer.split_once("\r\n\r\n").unwrap();
+        let mut lines = head.lines();
+        assert_eq!(lines.next(), Some(format!("HTTP/1.1 {status}").as_str()));
+        let mut named: Vec<&str> = lines
+            .filter_map(|line| line.split_once(':'))
+            .map(|(name, _)| name)
+            .collect();
+        named.sort_unstable();
+        assert_eq!(named, ["connection", "content-length", "date"], "{answer}");
+        assert_eq!(body, "", "{answer}");
+    }
+    assert!(served.starts_with("HTTP/1.1 200"), "{served}");
+    assert!(missing.starts_with("HTTP/1.1 404"), "{missing}");
+    assert!(
+        missing.contains("content-type: application/problem+json"),
+        "{missing}"
+    );
+    // The first request that the router answered is the first that the IP limit counted.
+    let item = |name: &str, key: &str| -> u32 {
+        let header = served
+            .lines()
+            .find_map(|line| line.strip_prefix(name))
+            .expect("a response that the IP limit counted names its bucket");
+        let value = header.split(';').find_map(|part| part.strip_prefix(key));
+        value.and_then(|value| value.parse().ok()).unwrap()
+    };
+    assert_eq!(
+        item("ratelimit: ", "r=") + 1,
+        item("ratelimit-policy: ", "q=")
+    );
+    // The lines that the API wrote up to the last request's are those of the two requests that
+    // the router answered, and none above `INFO`.
+    let mut lines = Vec::new();
+    while lines
+        .iter()
+        .filter(|line: &&serde_json::Value| line["message"] == "request completed")
+        .count()
+        < 2
+    {
+        lines.push(server.line(|_| true).await);
+    }
+    let statuses: Vec<&serde_json::Value> = lines
+        .iter()
+        .filter_map(|line| line.get("http.response.status_code"))
+        .collect();
+    assert_eq!(statuses, [200, 404], "{lines:?}");
+    assert!(
+        lines.iter().all(|line| line["level"] == "INFO"),
+        "{lines:?}"
+    );
+}

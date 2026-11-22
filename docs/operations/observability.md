@@ -142,7 +142,7 @@ Grafana opens without signing in, as a viewer who can explore. On a server, it a
 
 ## Following a request from its trace ID
 
-Every response except the health probes carries its trace context in `server-timing`, as `trace;desc=00-<trace ID>-<span ID>-01`, and every error body holds the trace ID as `trace_id` (API-16, API-07), the proxy's `request.unavailable` too (D53). A user who reports a failure can quote it. To follow it:
+Every response except the health probes carries its trace context in `server-timing`, as `trace;desc=00-<trace ID>-<span ID>-01`, and every error body holds the trace ID as `trace_id` (API-16, API-07), the proxy's `request.unavailable` too (D53). The one answer without either is the bare 400, 431 or 414 that a replica's HTTP server gives a request that it can't read, or whose headers or target are more than it takes: the API logs nothing of such a request (PLATFORM-099). A user who reports a failure can quote it. To follow it:
 
 1. In Grafana, open Explore, choose the Loki data source, and run `{service_name=~".+"} | trace_id="<trace ID>"`. Every log line of the request appears, with its fields: the API's, or, for a request that no replica answered, the proxy's.
 2. Open a line, and choose "Open the trace" under its links. The trace opens beside the logs, with each span's duration and attributes.

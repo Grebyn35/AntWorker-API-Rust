@@ -54,7 +54,7 @@ Every list is paginated by keyset. `limit` defaults to 50 and is capped at 100. 
 - Check: `ci: check-openapi` (a list takes `limit` and `cursor`), plus `test` (each list has a test that pages across rows sharing a timestamp, such as PLATFORM-046's and AUTH-043's).
 
 ### API-07 Errors are RFC 9457 problems
-An error response, except from the health probes (OPS-05), has `Content-Type: application/problem+json` and these members:
+An error response, except from the health probes (OPS-05) and the HTTP server's own refusal of a request that never reaches the router (PLATFORM-099), has `Content-Type: application/problem+json` and these members:
 - `type`: `/problems/<code>`.
 - `title`: a short summary.
 - `status`: the HTTP status.
@@ -62,7 +62,7 @@ An error response, except from the health probes (OPS-05), has `Content-Type: ap
 - `code`: the stable error code (ERR-02).
 - `trace_id`: the request's trace ID.
 - `errors`: present only for validation failures. A list of `{field, code, message}`, where `field` is a JSON Pointer to the invalid input: into the body, or, for `request.invalid_query`, into the query's parameters, such as `/limit`.
-- Why: one standard format that every client parses the same way (D8, D10).
+- Why: one standard format that every client parses the same way (D8, D10). The exception is a request that only a broken client sends, and that only another HTTP server would answer otherwise (D215).
 - Check: `compiler` (ERR-07), plus `test`.
 
 ### API-08 Request bodies are strict
@@ -136,7 +136,7 @@ A budget, which counts bytes, says so with the draft's quota unit, as `RateLimit
 - Check: `test` (PLATFORM-056, the headers of a bucket and a 429's `Retry-After`, and PLATFORM-089, a budget's).
 
 ### API-16 Every response carries its trace ID
-Every response except the health probes (OBS-15), including streams, carries its trace context in `server-timing: trace;desc=<traceparent value>`, the form the W3C Trace Context editors' draft defines. Error bodies also carry `trace_id` (API-07).
+Every response except the health probes (OBS-15) and the HTTP server's own refusal of a request that never reaches the router (PLATFORM-099), including streams, carries its trace context in `server-timing: trace;desc=<traceparent value>`, the form the W3C Trace Context editors' draft defines. Error bodies also carry `trace_id` (API-07).
 - Why: any response leads back to its trace and logs (D10).
 - Check: `test` (PLATFORM-041).
 
@@ -148,8 +148,8 @@ A batch of telemetry is documented as the OpenTelemetry Protocol defines it and 
 - Check: `clippy` (only the builders of API-14 register routes, each at a path its documentation names), `test` (every documented path serves, of the methods OpenAPI can document, exactly those it documents, the committed document is the one the code writes, and every request an integration test sends through the test support's typed calls, every response the in-process API gives it, and every frame of a stream it reads are checked against the document of the routes that answered it; a test of malformed input sends its body raw, unchecked), plus `ci: check-openapi` (each operation's access level and response descriptions, each `operationId` its own, every reference in the document resolves, every string of a request body has a `maxLength`; of the schema names that it reads in the code, which the comment of [its `names.rs`](../../crates/xtask/src/openapi/names.rs) lists with the `ToSchema` that it refuses since it can't read their names, no two are the same, none is `Frame` or `AuditEntry`, the two catalogs, a component that one of them refers to, or one that the document marks as a frame type's or an action's, and each whose `ToSchema` a file of `app` writes is a component's, or, for a generic type, an instance's, while each component is one of those names, a catalog's, or an instance of a generic type, as that comment says; and the event catalog and the action catalog, as the realtime spec and the audit spec say the check reads them), plus `review` (fields and parameters of domain types carry their limits, and that a module declares its events and its audit actions in the form the check reads, which the two specs give).
 
 ### API-18 `/v1` only grows
-Within `/v1`, changes are additive: new routes, new optional request fields, new response fields, and a request that is taken where it was refused, such as one without a field that was required and is optional now (D151). Removing or changing anything else that exists requires `/v2`.
-- Why: a client built against `/v1` keeps working (D211).
+Within `/v1`, changes are additive: new routes, new optional request fields, new response fields, a new alternative of a response that lists its alternatives, as a new event of the stream and a new action of an audit log are, and a request that is taken where it was refused, such as one without a field that was required and is optional now (D151). A client passes over an event or an action that it doesn't know (D214). Removing or changing anything else that exists requires `/v2`, a new value of a response's closed set among them, such as a role.
+- Why: a client built against `/v1` keeps working, and a fork's new module still brings its events and its actions (D211, D214).
 - Check: `ci: check-openapi` (a breaking-change diff against the last final release, which reads of the two documents what the comment of [`breaking`](../../crates/xtask/src/openapi/breaking/mod.rs) says), plus `review` (what the documents don't hold, such as what a route does with a request that it takes).
 
 ### API-19 Event names and payloads

@@ -348,7 +348,7 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
   Revoking a session closes its streams.
 - **Authorization (D2).** One permission matrix, in `access/permissions.rs`, maps roles to permissions. Every workspace route declares its permission in its type. Role rank limits who may change whom. A workspace tells its caller the permissions that their role holds in it, and `openapi.json` names each workspace route's, so no client holds the matrix (D171).
   A superadmin's route is authorized by the caller being a superadmin instead, and reads no workspace's content (D62). <!-- part: superadmins -->
-- **Observability (D10, D19).** Every response except the health probes carries a trace ID that leads to its logs, and to its trace whenever the request ended in an error. Metrics are declared in code. The metric catalog is generated from the declarations, and CI checks the dashboards and alerts against it.
+- **Observability (D10, D19).** Every response that the router answers, except the health probes, carries a trace ID that leads to its logs, and to its trace whenever the request ended in an error. Metrics are declared in code. The metric catalog is generated from the declarations, and CI checks the dashboards and alerts against it.
 - **Configuration (D9).** Strict and typed, with no defaults that are unsafe in production. A disabled feature answers 503 and is advertised by the capabilities endpoint.
 - **Background jobs (D13).** Declared in one registry. A queued job runs at least once, on whichever instance claims it, with retries and a dead-letter state; a periodic job runs once per interval across the fleet. Each run holds a lease that a heartbeat renews, and shutdown is bounded.
 - **Personal data (D31).** Every module that stores personal data implements export and erasure. CI fails if any column referencing a user isn't covered by a contract.
@@ -487,7 +487,7 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 | Digest | The hash of an image's content, which names exactly that image. A tag can move to another image; a digest can't. |
 | Image index | The list in a registry that names one image's version for each platform, with each one's SBOM and provenance. A multi-platform image's digest is its index's. |
 | Capability | A feature that a deployment can turn off, which the capabilities endpoint lists with whether it is on (D9). |
-| Trace ID | The identifier, returned with every response except the health probes, that leads to a request's logs, and to its trace whenever the request ended in an error (D10). |
+| Trace ID | The identifier, returned with every response that the router answers, except the health probes, that leads to a request's logs, and to its trace whenever the request ended in an error (D10). |
 | Personal data | In these documents: information that identifies a person directly, such as email addresses, names, IP addresses, user agents and text a user writes. User and workspace IDs are pseudonymous. The General Data Protection Regulation (GDPR) still counts them as personal data, so export and erasure cover them (D31), but they may appear in telemetry and audit entries. |
 | Point-in-time recovery | A restore of a database as it stood at any moment its backups reach, from a base backup and the write-ahead log archived after it: what the reference deployment's bundled Postgres provides, and what it requires of a managed one (OPS-15). |
 
