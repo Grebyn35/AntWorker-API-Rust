@@ -259,28 +259,46 @@ async fn auth_006_an_existing_email_s_attempts_count_too_in_a_window_that_is_a_s
 #[tokio::test]
 async fn auth_007_a_session_holds_two_random_tokens_stored_only_as_hashes() {
     let api = Api::new().await;
-    let ada = users::register(&api, "ada@example.com").await;
+    let registered = users::register(&api, "ada@example.com").await;
+    let signed_in = users::new_session(&api, "ada@example.com").await;
 
-    assert_eq!(ada.access.len(), 43);
-    assert_eq!(ada.refresh.len(), 43);
-    assert_ne!(ada.access, ada.refresh);
-    let stored = api
-        .database()
-        .owner_reads(
-            "SELECT encode(access_token_hash, 'base64') || encode(refresh_token_hash, 'base64') \
-             FROM sessions",
-        )
-        .await;
-    assert!(!stored[0].contains(&ada.access) && !stored[0].contains(&ada.refresh));
-    let lifetimes = api
-        .database()
-        .owner_reads(
-            "SELECT round(extract(epoch FROM access_token_expires_at - created_at))::text || ' ' || \
-             round(extract(epoch FROM refresh_token_expires_at - created_at))::text || ' ' || \
-             round(extract(epoch FROM expires_at - created_at))::text FROM sessions",
-        )
-        .await;
-    assert_eq!(lifetimes, ["3600 2592000 7776000"]);
+    for (route, ada) in [("registration", registered), ("sign-in", signed_in)] {
+        assert_eq!(ada.access.len(), 43, "{route}");
+        assert_eq!(ada.refresh.len(), 43, "{route}");
+        assert_ne!(ada.access, ada.refresh, "{route}");
+        let session = &ada.session_id;
+        let stored = api
+            .database()
+            .owner_reads(&format!(
+                "SELECT encode(access_token_hash, 'base64') || encode(refresh_token_hash, 'base64') \
+                 FROM sessions WHERE id = '{session}'"
+            ))
+            .await;
+        assert!(
+            !stored[0].contains(&ada.access) && !stored[0].contains(&ada.refresh),
+            "{route}"
+        );
+        let hashed = api
+            .database()
+            .owner_reads(&format!(
+                "SELECT (access_token_hash = sha256(convert_to('{}', 'UTF8')) \
+                 AND refresh_token_hash = sha256(convert_to('{}', 'UTF8')))::text \
+                 FROM sessions WHERE id = '{session}'",
+                ada.access, ada.refresh
+            ))
+            .await;
+        assert_eq!(hashed, ["true"], "{route}: SHA-256 hashes");
+        let lifetimes = api
+            .database()
+            .owner_reads(&format!(
+                "SELECT round(extract(epoch FROM access_token_expires_at - created_at))::text \
+                 || ' ' || round(extract(epoch FROM refresh_token_expires_at - created_at))::text \
+                 || ' ' || round(extract(epoch FROM expires_at - created_at))::text \
+                 FROM sessions WHERE id = '{session}'"
+            ))
+            .await;
+        assert_eq!(lifetimes, ["3600 2592000 7776000"], "{route}");
+    }
 }
 
 #[tokio::test]

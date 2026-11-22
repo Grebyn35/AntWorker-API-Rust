@@ -11,10 +11,16 @@ use std::{
 use serde_json::Value;
 
 use super::{compose_id, docker, read, report};
+use crate::migrated::Database;
 
-/// Prepares the development Postgres for a replica of `image`, with its `bootstrap` and `migrate`, and
-/// returns the network it is on and the replica's settings.
-pub(super) fn prepare(root: &Path, image: &str) -> Result<(String, Vec<String>), String> {
+/// Prepares `database`, the load test's own on the development Postgres, for a replica of
+/// `image`, with its `bootstrap` and `migrate`, and returns the network it is on and the
+/// replica's settings.
+pub(super) fn prepare(
+    root: &Path,
+    image: &str,
+    database: &Database,
+) -> Result<(String, Vec<String>), String> {
     let network = docker(
         root,
         &[
@@ -25,7 +31,7 @@ pub(super) fn prepare(root: &Path, image: &str) -> Result<(String, Vec<String>),
         ],
     )
     .map_err(|error| format!("Postgres isn't running; run `just services`: {error}"))?;
-    let settings = settings(root)?;
+    let settings = settings(root, database)?;
     for task in ["bootstrap", "migrate"] {
         let mut args = vec!["run", "--rm", "--network", &network];
         for setting in &settings {
@@ -238,7 +244,7 @@ const IMAGE_SETTINGS: &str = "crates/app/tests/e2e/image.env";
 /// with the development Postgres as `postgres`, and IP, user and sign-in limits that the load, from
 /// one address and a few users, never reaches, so the test measures the replica rather than the
 /// limits, while every request still counts in them.
-pub(super) fn settings(root: &Path) -> Result<Vec<String>, String> {
+pub(super) fn settings(root: &Path, database: &Database) -> Result<Vec<String>, String> {
     let key = std::env::var("HMAC_KEY").map_err(|_| "HMAC_KEY is unset; run `just setup`")?;
     let keys = std::env::var("ENCRYPTION_KEYS")
         .map_err(|_| "ENCRYPTION_KEYS is unset; run `just setup`")?;
@@ -254,20 +260,29 @@ pub(super) fn settings(root: &Path) -> Result<Vec<String>, String> {
         "SIGN_IN_EMAIL_ATTEMPTS=100000".to_owned(),
         "SIGN_IN_WINDOW_SECONDS=1".to_owned(),
     ]);
-    for name in ["DATABASE_ADMIN_URL", "DATABASE_OWNER_URL", "DATABASE_URL"] {
-        settings.push(format!("{name}={}", database_url(name)?));
+    for name in [ADMIN_URL, OWNER_URL, "DATABASE_URL"] {
+        let url = database
+            .url(name)
+            .ok_or_else(|| format!("{name} is unset; run `just setup`"))?;
+        settings.push(format!("{name}={}", in_network(name, &url)?));
     }
     Ok(settings)
 }
 
-/// The database URL that .env gives as `name`, with the development Postgres as `postgres`, as a
-/// container on its network reaches it.
-pub(super) fn database_url(name: &str) -> Result<String, String> {
-    let value = std::env::var(name).map_err(|_| format!("{name} is unset; run `just setup`"))?;
-    let at = value.rfind('@').ok_or(format!("{name} has no host"))?;
-    let rest = &value[at + 1..];
+/// The setting of the administrator's URL.
+const ADMIN_URL: &str = "DATABASE_ADMIN_URL";
+
+/// The setting of the URL of the role that owns the schema, which a scenario arranges its rows
+/// through.
+pub(super) const OWNER_URL: &str = "DATABASE_OWNER_URL";
+
+/// `url`, the database URL of the setting `name`, with the development Postgres as `postgres`,
+/// as a container on its network reaches it.
+fn in_network(name: &str, url: &str) -> Result<String, String> {
+    let at = url.rfind('@').ok_or(format!("{name} has no host"))?;
+    let rest = &url[at + 1..];
     let path = rest.find('/').map_or("", |slash| &rest[slash..]);
-    Ok(format!("{}@postgres:5432{path}", &value[..at]))
+    Ok(format!("{}@postgres:5432{path}", &url[..at]))
 }
 
 /// The settings of `IMAGE_SETTINGS`: each line that is neither empty nor a comment.

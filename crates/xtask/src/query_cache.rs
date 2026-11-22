@@ -11,7 +11,7 @@ const CACHE: &str = ".sqlx/";
 
 /// Compares the committed cache with what sqlx-cli writes from a migrated database.
 pub fn check() -> Outcome {
-    let checked = migrated::with_database("sqlx", |database| {
+    let checked = migrated::with_database(migrated::Purpose::Sqlx, |database| {
         let url = database
             .url("DATABASE_URL")
             .ok_or("DATABASE_URL isn't set: run the check through `just`, which reads .env")?;

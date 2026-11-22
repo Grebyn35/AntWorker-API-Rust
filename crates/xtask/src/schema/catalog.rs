@@ -98,6 +98,7 @@ SELECT json_build_object(
 /// Builds a database with the production `bootstrap` and `migrate`, reads its catalog, and drops
 /// it.
 pub fn read() -> Result<Value, String> {
-    let catalog = migrated::with_database("schema", |database| database.psql(QUERY))?;
+    let catalog =
+        migrated::with_database(migrated::Purpose::Schema, |database| database.psql(QUERY))?;
     serde_json::from_str(catalog.trim()).map_err(|error| format!("the catalog isn't JSON: {error}"))
 }

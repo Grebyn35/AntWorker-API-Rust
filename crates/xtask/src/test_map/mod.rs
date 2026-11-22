@@ -8,6 +8,7 @@
 
 mod named;
 mod rules;
+pub mod sent;
 
 use std::collections::BTreeSet;
 

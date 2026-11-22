@@ -202,6 +202,42 @@ async fn invitations_010_the_invitation_email_reaches_the_invitee_with_both_part
 }
 
 #[tokio::test]
+async fn sec_20_the_invitation_s_subject_holds_the_names_that_users_wrote_encoded_by_the_mail_library()
+ {
+    let api = Api::new().await;
+    let mut body = users::registration("zoe@example.com");
+    body["name"] = json!("Zo\u{eb} \u{dc}nal");
+    let registered = api.post("/v1/users", &body).send().await;
+    assert_eq!(registered.status, 201, "{}", registered.json());
+    let zoe = SignedIn::from(&registered);
+    users::verified(&api, &zoe.user_id).await;
+    let workspace = workspaces::arrange(
+        api.database(),
+        "Caf\u{e9} \u{dc}nal",
+        &[(&zoe.user_id, "owner")],
+    )
+    .await;
+    let invitee = mailbox::address("invitee");
+    invite(&api, &zoe, &workspace, &invitee, "member").await;
+
+    api.run_jobs().await;
+
+    let raw = mailbox::raw_to(&invitee).await;
+    assert_eq!(raw.len(), 1);
+    let (head, _) = raw[0].split_once("\r\n\r\n").unwrap();
+    assert!(head.is_ascii(), "{head}");
+    let subject = head
+        .split("\r\n")
+        .find(|line| line.starts_with("Subject:"))
+        .expect("a Subject");
+    assert!(subject.contains("=?utf-8?"), "an encoded word: {subject}");
+    assert_eq!(
+        mailbox::to(&invitee).await[0].subject,
+        "Zo\u{eb} \u{dc}nal invited you to Caf\u{e9} \u{dc}nal on AntWorker"
+    );
+}
+
+#[tokio::test]
 async fn invitations_001_an_invitation_lasts_the_configured_days() {
     let api = Api::with(Options::default().set("INVITATION_EXPIRY_DAYS", 3)).await;
     let ada = users::register(&api, "ada@example.com").await;

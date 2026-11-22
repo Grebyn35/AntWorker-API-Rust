@@ -1,7 +1,7 @@
 //! `load-test`, which `just load-test` runs: it measures one replica's capacity (OPS-16). It runs
 //! one replica of the API's image under test, with the reference deployment's limits on CPU and
-//! memory for a replica, against the development Postgres, with its telemetry exported to Compose's
-//! collector. Then k6 sends it requests at constant rates, raising the rate until a step fails,
+//! memory for a replica, against a database of the run's own on the development Postgres, which
+//! the run drops as it ends (OPS-21), with its telemetry exported to Compose's collector. Then k6 sends it requests at constant rates, raising the rate until a step fails,
 //! and narrowing the gap. A step passes when no request failed, k6 dropped none for want of a
 //! client, and the 99th percentile of their durations is within the latency objective, which it
 //! reads from the collector's tail sampling, as `check-telemetry-config` does. The highest rate
@@ -26,7 +26,7 @@ use std::{
 
 use serde_json::Value;
 
-use crate::{repo::Repo, telemetry_config};
+use crate::{migrated, repo::Repo, telemetry_config};
 use replica::{LABEL, healthy, hold_the_machine, image, limits, prepare, start_the_stack};
 
 mod replica;
@@ -167,7 +167,30 @@ pub fn run(route: &str) -> ExitCode {
         Ok(objective_ms) => objective_ms,
         Err(error) => return fail(&format!("can't read the latency objective: {error}")),
     };
-    let (network, settings) = match prepare(&root, image) {
+    // A database of the run's own, which goes when the run ends, with what the run wrote there.
+    let database = match migrated::created(migrated::Purpose::Load) {
+        Ok(database) => database,
+        Err(error) => return fail(&error),
+    };
+    let limits = (cpus.as_str(), memory.as_str());
+    let outcome = on_database(&root, &database, (route, path), image, limits, objective_ms);
+    if let Err(error) = database.dropped() {
+        report(&format!("couldn't drop the run's database: {error}"));
+    }
+    outcome
+}
+
+/// Runs the load test of `(route, path)` with a replica of `image`, limited to `(cpus, memory)`,
+/// on `database`, against the latency objective `objective_ms`.
+fn on_database(
+    root: &Path,
+    database: &migrated::Database,
+    (route, path): (&str, &str),
+    image: &str,
+    (cpus, memory): (&str, &str),
+    objective_ms: f64,
+) -> ExitCode {
+    let (network, settings) = match prepare(root, image, database) {
         Ok(prepared) => prepared,
         Err(error) => return fail(&error),
     };
@@ -177,7 +200,7 @@ pub fn run(route: &str) -> ExitCode {
             network: &network,
             settings: &settings,
         };
-        return streams::run(&root, &replica, (&cpus, &memory), objective_ms);
+        return streams::run(root, &replica, (cpus, memory), objective_ms);
     }
     let listen = format!("LISTEN_ADDR=0.0.0.0:{PORT}");
     let label = format!("{LABEL}=true");
@@ -189,9 +212,9 @@ pub fn run(route: &str) -> ExitCode {
         "--network",
         &network,
         "--cpus",
-        &cpus,
+        cpus,
         "--memory",
-        &memory,
+        memory,
         "--read-only",
         "--env",
         &listen,
@@ -202,18 +225,12 @@ pub fn run(route: &str) -> ExitCode {
         args.extend(["--env", setting]);
     }
     args.extend([image, "serve"]);
-    let replica = match docker(&root, &args) {
+    let replica = match docker(root, &args) {
         Ok(id) => id,
         Err(error) => return fail(&format!("the replica didn't start: {error}")),
     };
-    let outcome = measure(
-        &root,
-        &replica,
-        (route, path),
-        (&cpus, &memory),
-        objective_ms,
-    );
-    let removed = docker(&root, &["rm", "--force", &replica]);
+    let outcome = measure(root, &replica, (route, path), (cpus, memory), objective_ms);
+    let removed = docker(root, &["rm", "--force", &replica]);
     if let Err(error) = removed {
         report(&format!("couldn't remove the replica {replica}: {error}"));
     }

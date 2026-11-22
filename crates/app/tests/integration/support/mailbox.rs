@@ -78,13 +78,32 @@ pub async fn to(address: &str) -> Vec<Email> {
     emails
 }
 
+/// The messages sent to `address`, the newest first, each as the mail server received it: its
+/// header lines and its body, as SMTP carried them.
+pub async fn raw_to(address: &str) -> Vec<String> {
+    let query: String =
+        url::form_urlencoded::byte_serialize(format!("to:\"{address}\"").as_bytes()).collect();
+    let found = get(&format!("/api/v1/search?query={query}")).await;
+    let mut messages = Vec::new();
+    for message in found["messages"].as_array().unwrap() {
+        let id = message["ID"].as_str().unwrap();
+        messages.push(get_text(&format!("/api/v1/message/{id}/raw")).await);
+    }
+    messages
+}
+
 fn string(value: &Value) -> String {
     value.as_str().unwrap_or_default().to_owned()
 }
 
-/// The JSON that Mailpit's API answers to `GET path`. The request is HTTP/1.0, so the answer's
-/// body comes whole, never in chunks, and ends with the connection.
+/// The JSON that Mailpit's API answers to `GET path`.
 async fn get(path: &str) -> Value {
+    serde_json::from_str(&get_text(path).await).unwrap()
+}
+
+/// The body that Mailpit's API answers to `GET path`. The request is HTTP/1.0, so the answer's
+/// body comes whole, never in chunks, and ends with the connection.
+async fn get_text(path: &str) -> String {
     let mut stream = TcpStream::connect(MAILPIT)
         .await
         .expect("Mailpit, which `just services` starts");
@@ -97,5 +116,5 @@ async fn get(path: &str) -> Value {
         head.starts_with("HTTP/1.0 200") || head.starts_with("HTTP/1.1 200"),
         "{head}"
     );
-    serde_json::from_str(body).unwrap()
+    body.to_owned()
 }

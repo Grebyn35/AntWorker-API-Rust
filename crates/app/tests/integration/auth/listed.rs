@@ -145,6 +145,26 @@ async fn auth_042_a_registration_s_and_a_sign_in_s_device_name_is_kept_normalize
         ))
         .await;
     assert_eq!(stored, ["Ada's laptop", "-"]);
+    // The list shows each session's name, the latest started first (AUTH-043).
+    let listed = api
+        .get("/v1/users/me/sessions")
+        .bearer(&replaced.access)
+        .send()
+        .await;
+    assert_eq!(listed.status, 200, "{}", listed.json());
+    let names: Vec<(Value, Value)> = listed.json()["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| (item["id"].clone(), item["device_name"].clone()))
+        .collect();
+    assert_eq!(
+        names,
+        [
+            (json!(replaced.session_id), json!(null)),
+            (json!(ada.session_id), json!("Ada's laptop")),
+        ]
+    );
 }
 
 #[tokio::test]

@@ -306,7 +306,7 @@ fn apply(
     for (path, text) in migrations {
         create(path, text, originals)?;
     }
-    migrated::with_database("new_module", |database| {
+    migrated::with_database(migrated::Purpose::NewModule, |database| {
         for (path, text) in &rest {
             create(path, text, originals)?;
         }

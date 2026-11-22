@@ -6,6 +6,9 @@ use serde_json::json;
 use crate::support::{
     Api, Options,
     api::{PEER, Response},
+    providers::{self, gives, grant, identity},
+    second_factors,
+    upstream::Upstream,
     users::{self, PASSWORD, WEB},
 };
 
@@ -276,6 +279,115 @@ async fn auth_019_a_sign_in_records_the_device_token_it_issues() {
             ))
             .await,
         [format!("{0} {0} device_token true", ada.user_id)]
+    );
+}
+
+/// The entries `device_token.issued` of `user_id`, each as its actor and whether its target is
+/// the device token `token`, in the order of their creation.
+async fn issued_entries(api: &Api, user_id: &str, token: &str) -> Vec<String> {
+    api.database()
+        .owner_reads(&format!(
+            "SELECT e.actor_user_id || ' ' || e.resource_type || ' ' || \
+             coalesce((e.resource_id = d.id)::text, 'false') \
+             FROM audit_entries e LEFT JOIN device_tokens d \
+             ON d.token_hash = sha256(convert_to('{token}', 'UTF8')) \
+             WHERE e.action = 'device_token.issued' AND e.user_id = '{user_id}' \
+             ORDER BY e.created_at, e.id"
+        ))
+        .await
+}
+
+/// Makes the device token `token` one that expired a second ago, a time in the past that only a
+/// test sets (TEST-09).
+async fn expire(api: &Api, token: &str) {
+    api.database()
+        .owner_executes(&format!(
+            "UPDATE device_tokens SET expires_at = now() - interval '1 second' \
+             WHERE token_hash = sha256(convert_to('{token}', 'UTF8'))"
+        ))
+        .await;
+}
+
+#[tokio::test]
+async fn auth_019_a_completion_of_a_sign_in_ends_the_token_that_its_sign_in_brought_and_issues_the_next()
+ {
+    let api = Api::with(Options::default().set("DEVICE_TOKEN_SECONDS", 86_400)).await;
+    let registered = api
+        .post("/v1/users", &users::registration("ada@example.com"))
+        .send()
+        .await;
+    let ada = users::SignedIn::from(&registered);
+    users::verified(&api, &ada.user_id).await;
+    let used = device_token(&registered);
+    let expired = device_token(&users::sign_in(&api, "ada@example.com", PASSWORD).await);
+    expire(&api, &expired).await;
+    let app = second_factors::add_app(&api, &ada).await;
+    let challenged = sign_in(&api, PEER, "ada@example.com", PASSWORD, Some(&used)).await;
+    assert_eq!(challenged.status, 200, "{}", challenged.json());
+    assert!(challenged.json().get("device_token").is_none());
+    let challenge = challenged.json()["challenge"].as_str().unwrap().to_owned();
+
+    let completed = second_factors::complete(
+        &api,
+        &challenge,
+        json!({ "code": second_factors::code(&api, &app.secret).await }),
+    )
+    .await;
+
+    assert_eq!(completed.status, 201, "{}", completed.json());
+    let issued = device_token(&completed);
+    assert_eq!(issued.len(), 43);
+    assert_eq!(
+        stored(&api, &[&used, &expired, &issued]).await,
+        ["none", "none", "86400"],
+        "the token the sign-in brought and the expired one end"
+    );
+    let entries = issued_entries(&api, &ada.user_id, &issued).await;
+    assert_eq!(
+        entries.last().unwrap(),
+        &format!("{} device_token true", ada.user_id)
+    );
+}
+
+#[tokio::test]
+async fn auth_019_a_sign_in_through_a_provider_issues_a_token_and_ends_the_one_it_brought() {
+    let upstream = Upstream::start().await;
+    let options = providers::stand_in(&upstream).set("DEVICE_TOKEN_SECONDS", 86_400);
+    let api = Api::with(options).await;
+    gives(&upstream, identity("subject-1", "ada@example.com", true));
+    let registered = providers::sign_in(&api, &grant()).await;
+    assert_eq!(registered.status, 201, "{}", registered.json());
+    let user_id = registered.json()["user_id"].as_str().unwrap().to_owned();
+    let used = device_token(&registered);
+    let expired = device_token(&providers::sign_in(&api, &grant()).await);
+    expire(&api, &expired).await;
+    let mut body = grant();
+    body["device_token"] = json!(used);
+
+    let next = providers::sign_in(&api, &body).await;
+
+    assert_eq!(next.status, 201, "{}", next.json());
+    let issued = device_token(&next);
+    assert_eq!(issued.len(), 43);
+    assert_ne!(issued, used);
+    assert_eq!(
+        stored(&api, &[&used, &expired, &issued]).await,
+        ["none", "none", "86400"],
+        "the token it brought and the expired one end"
+    );
+    let plain = api
+        .database()
+        .owner_reads(&format!(
+            "SELECT count(*)::text FROM device_tokens \
+             WHERE position(convert_to('{issued}', 'UTF8') IN token_hash) > 0 \
+             OR position(convert_to('ada@example.com', 'UTF8') IN email_hash) > 0"
+        ))
+        .await;
+    assert_eq!(plain, ["0"], "stored only as its hash");
+    let entries = issued_entries(&api, &user_id, &issued).await;
+    assert_eq!(
+        entries.last().unwrap(),
+        &format!("{user_id} device_token true")
     );
 }
 

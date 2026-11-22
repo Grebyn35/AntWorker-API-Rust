@@ -10,8 +10,10 @@ use crate::support::{
     api::Response,
     execute_on, mailbox,
     operator::{self, EMAIL_OFF, SENDS_EMAIL, printed},
+    providers::{self, gives, grant, identity},
     query_waits_on_a_lock,
     second_factors::{self, add_app, code, confirm, start_setup},
+    upstream::Upstream,
     users::{self, PASSWORD, SignedIn},
     workspaces,
 };
@@ -287,6 +289,82 @@ async fn auth_070_the_confirmations_of_a_code_and_of_a_change_of_the_address_say
 
     assert_eq!(changed.status, 200, "{}", changed.json());
     assert_eq!(changed.json()["second_factor_setup_required"], true);
+}
+
+#[tokio::test]
+async fn auth_070_a_sign_in_and_a_re_authentication_through_a_provider_say_whether_the_account_must_set_up_an_app()
+ {
+    let upstream = Upstream::start().await;
+    let api = Api::with(providers::stand_in(&upstream).set("SECOND_FACTOR_REQUIRED", true)).await;
+    gives(&upstream, identity("subject-1", "ada@example.com", true));
+    let registered = providers::sign_in(&api, &grant()).await;
+    let signed_in = providers::sign_in(&api, &grant()).await;
+    let ada = SignedIn::from(&signed_in);
+    let reauthenticate = |ada: &SignedIn, extra: serde_json::Value| {
+        let mut body = grant();
+        body.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        api.post(
+            "/v1/users/me/sessions/current/reauthenticate/provider",
+            &body,
+        )
+        .bearer(&ada.access)
+        .send()
+    };
+
+    // A re-authentication is a route that verifying an address needs, which the setting serves.
+    let without_app = reauthenticate(&ada, json!({})).await;
+    let ada = SignedIn::from(&without_app);
+    let app = add_app(&api, &ada).await;
+    let with_app = reauthenticate(
+        &ada,
+        json!({ "second_factor_code": code(&api, &app.secret).await }),
+    )
+    .await;
+
+    for (response, required, what) in [
+        (&registered, true, "a registration"),
+        (&signed_in, true, "a sign-in"),
+        (&without_app, true, "a re-authentication without an app"),
+        (&with_app, false, "a re-authentication with an app"),
+    ] {
+        assert!(response.status.is_success(), "{what}: {}", response.json());
+        assert_eq!(
+            response.json()["second_factor_setup_required"],
+            required,
+            "{what}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn auth_070_a_change_of_the_password_is_refused_without_an_app_and_says_none_is_needed_with_one()
+ {
+    let api = requiring().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let change = |ada: &SignedIn, extra: serde_json::Value| {
+        let mut body =
+            json!({ "current_password": PASSWORD, "password": "walnut-harbor-77-brisk" });
+        body.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        api.post("/v1/users/me/password/change", &body)
+            .bearer(&ada.access)
+            .send()
+    };
+
+    let refused = change(&ada, json!({})).await;
+    let app = add_app(&api, &ada).await;
+    let changed = change(&ada, json!({ "code": code(&api, &app.secret).await })).await;
+
+    assert_eq!(refused.status, 403);
+    assert_eq!(
+        refused.json()["code"],
+        "request.second_factor_setup_required"
+    );
+    assert_eq!(changed.status, 200, "{}", changed.json());
+    assert_eq!(changed.json()["second_factor_setup_required"], false);
 }
 
 #[tokio::test]

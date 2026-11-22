@@ -5,6 +5,8 @@ mod catalog;
 mod reading;
 mod retention;
 
+use platform::telemetry::testing;
+
 use crate::support::{Api, Options, users};
 
 #[tokio::test]
@@ -23,6 +25,52 @@ async fn audit_001_an_entry_commits_or_rolls_back_with_its_change() {
         .owner_reads("SELECT action FROM audit_entries")
         .await;
     assert_eq!(actions, ["user.registered"]);
+}
+
+#[tokio::test]
+async fn audit_001_an_entry_rolls_back_with_a_unit_of_work_that_fails_after_it_and_commits_with_one_that_succeeds()
+ {
+    let api = Api::new().await;
+    let db = api.database();
+    // A registration records `user.registered`, then issues the device token (the auth spec's
+    // "Registration"), whose insert `app` may not make here, so the unit of work fails after
+    // the entry.
+    db.owner_executes("REVOKE INSERT ON device_tokens FROM app")
+        .await;
+
+    let failed = api
+        .post("/v1/users", &users::registration("ada@example.com"))
+        .send()
+        .await;
+    db.owner_executes("GRANT INSERT ON device_tokens TO app")
+        .await;
+    let registered = api
+        .post("/v1/users", &users::registration("grace@example.com"))
+        .send()
+        .await;
+
+    assert_eq!(failed.status, 500);
+    assert!(
+        testing::logged(failed.trace_id())
+            .iter()
+            .any(|line| line["exception.message"]
+                .as_str()
+                .is_some_and(|message| message.contains("device_tokens"))),
+        "the insert of the device token failed"
+    );
+    assert_eq!(registered.status, 201, "{}", registered.json());
+    let grace = registered.json()["user_id"].as_str().unwrap().to_owned();
+    assert_eq!(
+        db.owner_reads("SELECT action || ' ' || user_id FROM audit_entries")
+            .await,
+        [format!("user.registered {grace}")],
+        "no entry of the failed unit of work stayed"
+    );
+    assert_eq!(
+        db.owner_reads("SELECT email FROM users").await,
+        ["grace@example.com"],
+        "nor did the change it recorded"
+    );
 }
 
 #[tokio::test]

@@ -9,6 +9,11 @@ set windows-shell := ["powershell.exe", "-NoLogo", "-NoProfile", "-Command"]
 # Builds check queries against the committed cache in .sqlx/, as CI does (DATA-14).
 export SQLX_OFFLINE := "true"
 
+# The file in which the integration tests record the routes that each test sends to, which
+# `just test` reads once they pass (TEST-01).
+sent_routes := justfile_directory() / "target" / "sent-routes.tsv"
+export SENT_ROUTES := sent_routes
+
 api := "cargo run --locked --package app --bin antworker-api --"
 xtask := "cargo run --locked --quiet --package xtask --"
 
@@ -45,6 +50,9 @@ image_cache_to := if image_cache == "" { "" } else if env("IMAGE_CACHE_WRITE", "
 # Postgres image is built from, which its label `build.inputs` carries (OPS-14).
 image_revision := `git rev-parse HEAD`
 postgres_inputs := `cargo run --locked --quiet --package xtask -- inputs deploy/postgres`
+# An identifier of the files the API's image is built from, which its label `build.inputs`
+# carries, so `just e2e` and `just load-test` refuse an image of other files (OPS-20).
+api_inputs := `cargo run --locked --quiet --package xtask -- inputs`
 # This machine's platform, on which `just e2e` runs the images unless E2E_PLATFORM names another,
 # such as linux/arm64, which needs the system to run its binaries, such as through QEMU.
 native_platform := if arch() == "aarch64" { "linux/arm64" } else { "linux/amd64" }

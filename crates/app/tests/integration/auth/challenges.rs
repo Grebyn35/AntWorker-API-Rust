@@ -738,6 +738,31 @@ async fn auth_069_a_change_of_the_password_deletes_the_challenges_issued_before_
 }
 
 #[tokio::test]
+async fn auth_069_a_removal_of_the_app_deletes_the_challenges_issued_before_it() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let app = add_app(&api, &ada).await;
+    let before = challenge(&api, "ada@example.com").await;
+    let code_before = code(&api, &app.secret).await;
+
+    let removed = api
+        .request(http::Method::DELETE, "/v1/users/me/second-factors/totp")
+        .bearer(&ada.access)
+        .send()
+        .await;
+
+    assert_eq!(removed.status, 204, "{}", removed.json());
+    assert!(
+        reads(&api, "SELECT id::text FROM sign_in_challenges")
+            .await
+            .is_empty()
+    );
+    let stale = complete(&api, &before, json!({ "code": code_before })).await;
+    assert_eq!(stale.status, 401);
+    assert_eq!(stale.json()["code"], "auth.invalid_challenge");
+}
+
+#[tokio::test]
 async fn auth_069_a_reset_deletes_the_challenges_and_leaves_the_app_that_the_next_sign_in_asks_for()
 {
     let api = Api::new().await;

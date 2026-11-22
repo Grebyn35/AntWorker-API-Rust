@@ -6,7 +6,7 @@ use serde_json::json;
 use crate::support::{
     Api, Options,
     api::Response,
-    execute_on, mailbox, queries_wait_on_locks,
+    execute_on, mailbox, queries_wait_on_locks, second_factors,
     users::{self, SignedIn},
     workspaces,
 };
@@ -289,6 +289,85 @@ async fn auth_026_with_email_off_no_session_must_verify() {
 
     assert_eq!(registered.status, 201);
     assert_eq!(registered.json()["email_verification_required"], false);
+}
+
+#[tokio::test]
+async fn auth_026_a_completion_of_a_sign_in_says_whether_the_account_must_prove_its_address() {
+    // An account that set up its app while email was off, which must prove its address once a
+    // deploy turns email on (AUTH-025).
+    let off = Api::without_email().await;
+    let address = mailbox::address("ada");
+    let ada = users::register_unverified(&off, &address).await;
+    let app = second_factors::add_app(&off, &ada).await;
+    let on = off.instance(Options::default()).await;
+    let complete = |api: &Api| {
+        let (api, secret, user_id) = (api.clone(), app.secret.clone(), ada.user_id.clone());
+        let address = address.clone();
+        async move {
+            second_factors::forget_steps(&api, &user_id).await;
+            let challenge = second_factors::challenge(&api, &address).await;
+            let code = second_factors::code(&api, &secret).await;
+            second_factors::complete(&api, &challenge, json!({ "code": code })).await
+        }
+    };
+
+    let email_off = complete(&off).await;
+    let unproved = complete(&on).await;
+    users::verified(&on, &ada.user_id).await;
+    let proved = complete(&on).await;
+
+    for (response, required, what) in [
+        (&email_off, false, "with email off"),
+        (&unproved, true, "with email on, unproved"),
+        (&proved, false, "with email on, proved"),
+    ] {
+        assert_eq!(response.status, 201, "{what}: {}", response.json());
+        assert_eq!(
+            response.json()["email_verification_required"],
+            required,
+            "{what}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn auth_026_a_change_of_the_password_says_whether_the_account_must_prove_its_address() {
+    // With email on, only an account that proved its address may change its password (AUTH-025).
+    let on = Api::new().await;
+    let ada = users::register(&on, &mailbox::address("ada")).await;
+    let off = Api::without_email().await;
+    let grace = users::register_unverified(&off, "grace@example.com").await;
+    let body = json!({ "current_password": users::PASSWORD, "password": "walnut-harbor-77-brisk" });
+
+    let proved = on
+        .post("/v1/users/me/password/change", &body)
+        .bearer(&ada.access)
+        .send()
+        .await;
+    let email_off = off
+        .post("/v1/users/me/password/change", &body)
+        .bearer(&grace.access)
+        .send()
+        .await;
+
+    for (response, what) in [
+        (&proved, "with email on, proved"),
+        (&email_off, "with email off"),
+    ] {
+        assert_eq!(response.status, 200, "{what}: {}", response.json());
+        assert_eq!(
+            response.json()["email_verification_required"],
+            false,
+            "{what}"
+        );
+    }
+    assert_eq!(
+        off.database()
+            .owner_reads("SELECT email_verified::text FROM users")
+            .await,
+        ["false"],
+        "Grace's address isn't proved"
+    );
 }
 
 #[tokio::test]

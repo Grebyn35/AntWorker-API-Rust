@@ -17,10 +17,11 @@ argon2 = { version = "0.6.0", default-features = false, features = ["alloc", "pa
 askama = { version = "0.16.1", default-features = false, features = ["derive", "std"] }
 axum = { version = "0.8.9", default-features = false, features = ["http1", "json", "tokio"] }
 base64 = { version = "0.23.1", default-features = false, features = ["std"] }
-# The bytes that a download serves, such as a file's or an archive's, which the bucket's client
-# and the HTTP server share.
+# The bytes that a download serves, such as an archive's, a chunk at a time.
+# The bucket's client and the HTTP server share them. # part: files
 bytes = "1.12.1"
-# The CRC-32 of each entry of an export's archive, and of each file's bytes (D126).
+# The CRC-32 of each entry of an export's archive (D126).
+# An upload records the CRC-32 of its bytes too (FILES-025). # part: files
 crc32fast = { version = "1.5.4", default-features = false, features = ["std"] }
 clap ={ version = "4.6.7", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
 # An authenticator app's secret in base32 (RFC 4648), as its setup shows it (AUTH-055).

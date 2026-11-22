@@ -12,7 +12,7 @@ use crate::support::{
     api::Response,
     execute_on,
     fixtures::{self, Gate},
-    queries_wait_on_locks, users,
+    queries_wait_on_locks, users, workspaces,
 };
 
 /// A valid inbound trace context, sampled.
@@ -329,6 +329,45 @@ async fn platform_042_a_request_past_its_timeout_answers_503() {
         "request.timed_out",
     );
     assert_eq!(response.header("retry-after"), "1");
+}
+
+#[tokio::test]
+async fn platform_042_a_user_route_and_a_workspace_route_time_out_by_their_groups_default() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    let acme = workspaces::arrange(db, "Acme", &[(&ada.user_id, "owner")]).await;
+    // The routes' reads wait for the tables that the test holds, until it gives them up.
+    let mut held = db
+        .holding("LOCK TABLE users, workspaces IN ACCESS EXCLUSIVE MODE")
+        .await;
+    let send = |path: String| {
+        let (api, access) = (api.clone(), ada.access.clone());
+        tokio::spawn(async move { api.get(&path).bearer(&access).send().await })
+    };
+    let user = send("/v1/users/me".to_owned());
+    let workspace = send(format!("/v1/workspaces/{acme}"));
+    queries_wait_on_locks(db, 2).await;
+    // Paused once both wait on the database for what the test holds back, then moved on by the
+    // groups' default, 10 seconds, past each timeout, which started before the pause. The test
+    // yields, rather than waiting, so the runtime moves the clock no further: under a longer
+    // timeout, the requests would wait until the database ends their statements, and answer
+    // otherwise.
+    tokio::time::pause();
+    tokio::time::advance(std::time::Duration::from_secs(10)).await;
+    while !(user.is_finished() && workspace.is_finished()) {
+        tokio::task::yield_now().await;
+    }
+
+    for response in [user.await.unwrap(), workspace.await.unwrap()] {
+        problem(
+            &response,
+            StatusCode::SERVICE_UNAVAILABLE,
+            "request.timed_out",
+        );
+        assert_eq!(response.header("retry-after"), "1");
+    }
+    execute_on(&mut held, "ROLLBACK").await;
 }
 
 #[tokio::test]

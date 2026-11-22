@@ -748,6 +748,95 @@ async fn workspaces_002_a_new_name_that_the_rule_refuses_answers_400_and_changes
     assert_eq!(stored_name(&api, &workspace).await, "Acme");
 }
 
+// part: workspace_creation
+#[tokio::test]
+async fn workspaces_002_a_created_workspace_s_name_is_normalized_and_one_that_the_rule_refuses_answers_400()
+ {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let longest = "a".repeat(255);
+    let create = |name: &str| {
+        api.post_raw("/v1/workspaces", &json!({ "name": name }))
+            .bearer(&ada.access)
+            .send()
+    };
+
+    // Trimmed, its inner whitespace collapsed, and in Normalization Form C.
+    let created = create("  Cafe\u{301} \t\n Labs ").await;
+    let long_enough = create(&longest).await;
+    let blank = create(" \t ").await;
+    // Postgres stores no U+0000 in a text, so the name must be refused before it reaches it.
+    let control = create("Ac\u{0}me").await;
+    // A name longer than the document allows is malformed input, sent raw.
+    let long = create(&"a".repeat(256)).await;
+
+    assert_eq!(created.status, 201, "{}", created.json());
+    assert_eq!(created.json()["name"], "Caf\u{e9} Labs");
+    assert_eq!(long_enough.status, 201, "{}", long_enough.json());
+    for (refused, code) in [
+        (&blank, "required"),
+        (&long, "too_long"),
+        (&control, "control_character"),
+    ] {
+        assert_eq!(refused.status, 400, "{code}");
+        assert_eq!(refused.json()["code"], "request.invalid_fields");
+        assert_eq!(refused.json()["errors"][0]["field"], "/name");
+        assert_eq!(refused.json()["errors"][0]["code"], code);
+    }
+    let mut names = api
+        .database()
+        .owner_reads("SELECT name FROM workspaces")
+        .await;
+    names.sort();
+    assert_eq!(names, ["Caf\u{e9} Labs".to_owned(), longest]);
+}
+// end part: workspace_creation
+
+// part: superadmins
+#[tokio::test]
+async fn workspaces_002_a_superadmin_s_workspace_s_name_is_normalized_and_one_that_the_rule_refuses_answers_400()
+ {
+    let api = Api::new().await;
+    let sam = users::register(&api, "sam@example.com").await;
+    crate::support::superadmins::make_with_app(&api, &sam).await;
+    let longest = "a".repeat(255);
+    let create = |name: &str| {
+        api.post_raw("/v1/superadmin/workspaces", &json!({ "name": name }))
+            .bearer(&sam.access)
+            .send()
+    };
+
+    // Trimmed, its inner whitespace collapsed, and in Normalization Form C.
+    let created = create("  Cafe\u{301} \t\n Labs ").await;
+    let long_enough = create(&longest).await;
+    let blank = create(" \t ").await;
+    // Postgres stores no U+0000 in a text, so the name must be refused before it reaches it.
+    let control = create("Ac\u{0}me").await;
+    // A name longer than the document allows is malformed input, sent raw.
+    let long = create(&"a".repeat(256)).await;
+
+    assert_eq!(created.status, 201, "{}", created.json());
+    assert_eq!(created.json()["name"], "Caf\u{e9} Labs");
+    assert_eq!(long_enough.status, 201, "{}", long_enough.json());
+    for (refused, code) in [
+        (&blank, "required"),
+        (&long, "too_long"),
+        (&control, "control_character"),
+    ] {
+        assert_eq!(refused.status, 400, "{code}");
+        assert_eq!(refused.json()["code"], "request.invalid_fields");
+        assert_eq!(refused.json()["errors"][0]["field"], "/name");
+        assert_eq!(refused.json()["errors"][0]["code"], code);
+    }
+    let mut names = api
+        .database()
+        .owner_reads("SELECT name FROM workspaces")
+        .await;
+    names.sort();
+    assert_eq!(names, ["Caf\u{e9} Labs".to_owned(), longest]);
+}
+// end part: superadmins
+
 #[tokio::test]
 async fn platform_049_a_rename_sent_as_plain_json_is_refused() {
     let api = Api::new().await;

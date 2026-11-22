@@ -65,6 +65,19 @@ pub async fn arrange_avatar(db: &TestDatabase, user: &str) -> String {
     .remove(0)
 }
 
+/// Makes a PNG image, whose object the bucket doesn't hold, `workspace`'s picture, and returns its
+/// ID.
+pub async fn arrange_picture(db: &TestDatabase, workspace: &str) -> String {
+    let key = ObjectKey::random("pictures/").unwrap();
+    db.owner_reads(&format!(
+        "INSERT INTO workspace_pictures (workspace_id, media_type, size_bytes, crc32, object_key) \
+         VALUES ('{workspace}', 'image/png', 5, 0, '{}') RETURNING id::text",
+        key.as_str()
+    ))
+    .await
+    .remove(0)
+}
+
 /// Creates a text file named `name` in `workspace` whose object the bucket doesn't hold, uploaded
 /// by nobody, and returns its ID, for a test whose bucket can't be reached.
 pub async fn arrange_row(db: &TestDatabase, workspace: &str, name: &str) -> String {

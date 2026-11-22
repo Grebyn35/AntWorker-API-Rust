@@ -205,6 +205,29 @@ async fn auth_074_without_a_name_the_address_s_part_before_its_at_names_the_acco
 }
 
 #[tokio::test]
+async fn auth_074_a_registration_through_a_provider_records_user_registered_with_the_provider() {
+    let (upstream, api) = standing().await;
+    gives(&upstream, identity("subject-1", "ada@example.com", true));
+
+    let response = sign_in(&api, &grant()).await;
+
+    assert_eq!(response.status, 201, "{}", response.json());
+    let user = response.json()["user_id"].as_str().unwrap().to_owned();
+    assert_eq!(
+        api.database()
+            .owner_reads(
+                "SELECT action || ' ' || scope || ' ' || user_id || ' ' || actor_user_id || ' ' \
+                 || resource_type || ' ' || resource_id || ' ' || details::text \
+                 FROM audit_entries WHERE action = 'user.registered'"
+            )
+            .await,
+        [format!(
+            "user.registered user {user} {user} user {user} {{\"provider\": \"stand_in\"}}"
+        )]
+    );
+}
+
+#[tokio::test]
 async fn auth_075_a_provider_that_proves_the_address_registers_it_proved_and_sends_no_code() {
     let (upstream, api) = standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
@@ -1076,6 +1099,39 @@ async fn auth_073_a_device_token_of_the_account_s_email_ends_and_one_of_another_
 }
 
 #[tokio::test]
+async fn auth_017_a_sign_in_through_a_provider_takes_a_device_id_of_1_to_64_letters_digits_underscores_and_hyphens()
+ {
+    let (upstream, api) = standing().await;
+    gives(&upstream, identity("subject-1", "ada@example.com", true));
+    let (longest, too_long) = ("x".repeat(64), "x".repeat(65));
+    for device_id in ["a", "Laptop_2-b", longest.as_str()] {
+        let mut body = grant();
+        body["device_id"] = json!(device_id);
+
+        let response = sign_in(&api, &body).await;
+
+        assert_eq!(response.status, 201, "{device_id}: {}", response.json());
+        assert_eq!(response.json()["device_id"], device_id);
+    }
+    for device_id in ["", "bad id", "caf\u{e9}", "laptop.1", too_long.as_str()] {
+        let mut body = grant();
+        body["device_id"] = json!(device_id);
+
+        let response = api.post_raw("/v1/sessions/provider", &body).send().await;
+
+        assert_eq!(response.status, 400, "{device_id}");
+        assert_eq!(
+            response.json()["errors"],
+            json!([{
+                "field": "/device_id",
+                "code": "invalid_device_id",
+                "message": "A device ID has 1 to 64 letters, digits, underscores and hyphens.",
+            }])
+        );
+    }
+}
+
+#[tokio::test]
 async fn auth_008_a_sign_in_through_a_provider_on_a_device_replaces_its_session() {
     let (upstream, api) = standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
@@ -1114,4 +1170,572 @@ async fn auth_015_a_browser_s_sign_in_through_a_provider_takes_its_tokens_in_coo
     assert!(cookies.contains("__Host-access_token="), "{cookies}");
     assert!(cookies.contains("__Host-refresh_token="), "{cookies}");
     assert!(cookies.contains("__Host-device_token_"), "{cookies}");
+}
+
+#[tokio::test]
+async fn auth_042_a_sign_in_through_a_provider_keeps_its_device_s_name_normalized() {
+    let (upstream, api) = standing().await;
+    gives(&upstream, identity("subject-1", "ada@example.com", true));
+    let mut body = grant();
+    body["device_name"] = json!("  Ada's \t laptop \n");
+    let registered = sign_in(&api, &body).await;
+    let mut body = grant();
+    body["device_id"] = json!("phone_1");
+    body["device_name"] = json!("Ada's phone");
+    let phone = sign_in(&api, &body).await;
+    let phone_session = api
+        .get("/v1/users/me/sessions/current")
+        .bearer(&SignedIn::from(&phone).access)
+        .send()
+        .await;
+    // A sign-in that replaces its device's session gives the new one its own name, or none.
+    body.as_object_mut().unwrap().remove("device_name");
+    let replaced = sign_in(&api, &body).await;
+
+    assert_eq!(registered.status, 201, "{}", registered.json());
+    assert_eq!(registered.json()["device_name"], "Ada's laptop");
+    assert_eq!(phone.status, 201, "{}", phone.json());
+    assert_eq!(phone_session.json()["device_name"], "Ada's phone");
+    assert_eq!(replaced.status, 201, "{}", replaced.json());
+    assert_eq!(replaced.json()["device_name"], json!(null));
+    assert_eq!(
+        api.database()
+            .owner_reads("SELECT coalesce(device_name, '-') FROM sessions ORDER BY created_at")
+            .await,
+        ["Ada's laptop", "-"]
+    );
+    for (device_name, code) in [
+        (" \t ".to_owned(), "required"),
+        ("Ada's\u{0}laptop".to_owned(), "control_character"),
+        ("é".repeat(101), "too_long"),
+    ] {
+        let mut body = grant();
+        body["device_name"] = json!(device_name);
+
+        let refused = api
+            .request(http::Method::POST, "/v1/sessions/provider")
+            .header("content-type", "application/json")
+            .body(body.to_string())
+            .send()
+            .await;
+
+        assert_eq!(refused.status, 400, "{code}");
+        assert_eq!(refused.json()["errors"][0]["field"], "/device_name");
+        assert_eq!(refused.json()["errors"][0]["code"], code);
+    }
+    assert_eq!(
+        api.database()
+            .owner_reads("SELECT count(*)::text FROM sessions")
+            .await,
+        ["2"]
+    );
+}
+
+#[tokio::test]
+async fn auth_058_a_sign_in_through_a_provider_to_an_account_with_an_app_answers_a_challenge_that_holds_its_provider()
+ {
+    let (upstream, api) = standing().await;
+    gives(&upstream, identity("subject-1", "ada@example.com", true));
+    let registered = sign_in(&api, &grant()).await;
+    assert_eq!(registered.status, 201, "{}", registered.json());
+    let ada = SignedIn::from(&registered);
+    let device_token = registered.json()["device_token"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    second_factors::add_app(&api, &ada).await;
+    let count = |table: &'static str| {
+        let api = api.clone();
+        async move {
+            api.database()
+                .owner_reads(&format!("SELECT count(*)::text FROM {table}"))
+                .await
+        }
+    };
+    let (sessions, tokens) = (count("sessions").await, count("device_tokens").await);
+    let mut body = grant();
+    body["device_id"] = json!("laptop");
+    body["device_name"] = json!("Ada's laptop");
+    body["device_token"] = json!(device_token);
+
+    let response = sign_in(&api, &body).await;
+
+    assert_eq!(response.status, 200, "{}", response.json());
+    let answer = response.json();
+    let token = answer["challenge"].as_str().unwrap();
+    assert_eq!(token.len(), 43);
+    assert!(answer.get("access_token").is_none(), "{answer}");
+    assert!(answer.get("device_token").is_none(), "{answer}");
+    assert_eq!(
+        answer["expires_at"].as_str().unwrap().len(),
+        "2026-11-11T12:00:00.000000Z".len()
+    );
+    assert_eq!(count("sessions").await, sessions, "no session");
+    assert_eq!(count("device_tokens").await, tokens, "no device token");
+    assert_eq!(
+        api.database()
+            .owner_reads(&format!(
+                "SELECT (expires_at - created_at)::text || ' ' || device_id || ' ' || \
+                 device_name || ' ' || \
+                 (device_token_hash = sha256(convert_to('{device_token}', 'UTF8')))::text \
+                 || ' ' || provider || ' ' || \
+                 (token_hash = sha256(convert_to('{token}', 'UTF8')))::text \
+                 FROM sign_in_challenges"
+            ))
+            .await,
+        ["00:05:00 laptop Ada's laptop true stand_in true"]
+    );
+    let ada_id = &ada.user_id;
+    assert_eq!(
+        api.database()
+            .owner_reads(
+                "SELECT user_id || ' ' || coalesce(actor_user_id::text, '-') || ' ' || \
+                 resource_type || ' ' || resource_id FROM audit_entries \
+                 WHERE action = 'sign_in.challenged'"
+            )
+            .await,
+        [format!("{ada_id} - user {ada_id}")]
+    );
+}
+
+#[tokio::test]
+async fn auth_058_a_browser_s_sign_in_through_a_provider_takes_the_challenge_in_a_cookie() {
+    let upstream = Upstream::start().await;
+    let api =
+        Api::with(providers::stand_in(&upstream).set("CORS_ALLOWED_ORIGINS", users::WEB)).await;
+    gives(&upstream, identity("subject-1", "ada@example.com", true));
+    let ada = signed_in(&api).await;
+    second_factors::add_app(&api, &ada).await;
+
+    let browser = api
+        .post("/v1/sessions/provider", &grant())
+        .header("origin", users::WEB)
+        .send()
+        .await;
+    assert_eq!(browser.status, 200, "{}", browser.json());
+    assert!(browser.json().get("challenge").is_none());
+    let set = browser
+        .headers("set-cookie")
+        .into_iter()
+        .find(|set| set.starts_with("__Host-sign_in_challenge="))
+        .expect("the challenge's cookie")
+        .to_owned();
+    assert!(
+        set.ends_with("; Path=/; Secure; HttpOnly; SameSite=Strict"),
+        "{set}"
+    );
+    assert!(!set.contains("Domain"), "{set}");
+    let cookie = users::cookie(&browser, "sign_in_challenge");
+    assert_eq!(
+        api.database()
+            .owner_reads(&format!(
+                "SELECT to_char(expires_at AT TIME ZONE 'UTC', \
+                 'Dy, DD Mon YYYY HH24:MI:SS \"GMT\"') FROM sign_in_challenges \
+                 WHERE token_hash = sha256(convert_to('{cookie}', 'UTF8'))"
+            ))
+            .await,
+        [users::expires(&browser, "sign_in_challenge")]
+    );
+}
+
+#[tokio::test]
+async fn auth_027_a_registration_through_a_provider_that_proves_no_address_enqueues_the_job_of_the_first_code()
+ {
+    let (upstream, api) = standing().await;
+    gives(&upstream, identity("subject-1", "ada@example.com", false));
+    let off = api
+        .instance(providers::stand_in(&upstream).set("EMAIL", "off"))
+        .await;
+
+    let registered = sign_in(&api, &grant()).await;
+    gives(&upstream, identity("subject-2", "grace@example.com", false));
+    let without_email = sign_in(&off, &grant()).await;
+
+    assert_eq!(registered.status, 201, "{}", registered.json());
+    assert_eq!(without_email.status, 201, "{}", without_email.json());
+    assert_eq!(
+        api.database()
+            .owner_reads("SELECT kind || ' ' || user_id || ' ' || payload::text FROM jobs")
+            .await,
+        [format!(
+            "auth.send_verification_code {} {{\"purpose\": \"email_verification\"}}",
+            registered.json()["user_id"].as_str().unwrap()
+        )],
+        "with email off, the registration enqueues none"
+    );
+}
+
+#[tokio::test]
+async fn auth_026_a_sign_in_and_a_re_authentication_through_a_provider_say_whether_the_account_must_prove_its_address()
+ {
+    let (upstream, api) = standing().await;
+    gives(&upstream, identity("subject-1", "ada@example.com", false));
+    let registered = signed_in(&api).await;
+
+    let signed_in_unproved = sign_in(&api, &grant()).await;
+    let reauthenticated_unproved = reauthenticate(&api, &registered, json!({})).await;
+    users::verified(&api, &registered.user_id).await;
+    let signed_in_proved = sign_in(&api, &grant()).await;
+    let reauthenticated_proved =
+        reauthenticate(&api, &SignedIn::from(&reauthenticated_unproved), json!({})).await;
+    // With email off, no account must prove its address.
+    gives(&upstream, identity("subject-2", "grace@example.com", false));
+    let off = api
+        .instance(providers::stand_in(&upstream).set("EMAIL", "off"))
+        .await;
+    let signed_in_off = sign_in(&off, &grant()).await;
+    let reauthenticated_off =
+        reauthenticate(&off, &SignedIn::from(&signed_in_off), json!({})).await;
+
+    for (response, required, what) in [
+        (&signed_in_unproved, true, "a sign-in, unproved"),
+        (
+            &reauthenticated_unproved,
+            true,
+            "a re-authentication, unproved",
+        ),
+        (&signed_in_proved, false, "a sign-in, proved"),
+        (
+            &reauthenticated_proved,
+            false,
+            "a re-authentication, proved",
+        ),
+        (&signed_in_off, false, "a sign-in, email off"),
+        (
+            &reauthenticated_off,
+            false,
+            "a re-authentication, email off",
+        ),
+    ] {
+        assert!(response.status.is_success(), "{what}: {}", response.json());
+        assert_eq!(
+            response.json()["email_verification_required"],
+            required,
+            "{what}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn auth_061_a_re_authentication_through_a_provider_that_carries_a_code_counts_in_the_user_s_bucket_of_checks_of_codes()
+ {
+    let (upstream, api) = standing().await;
+    gives(&upstream, identity("subject-1", "ada@example.com", true));
+    let ada = signed_in(&api).await;
+    // The confirmation of the app's setup counts once in the bucket of 10.
+    let app = second_factors::add_app(&api, &ada).await;
+    let setup = second_factors::start_setup(&api, &ada).await;
+    assert_eq!(setup.status, 200, "{}", setup.json());
+    let other = setup.json()["secret"].as_str().unwrap().to_owned();
+    let wrong = second_factors::other_code(&second_factors::code(&api, &other).await);
+    for _ in 0..9 {
+        let refused = second_factors::confirm(&api, &ada, &wrong).await;
+        assert_eq!(refused.status, 422, "{}", refused.json());
+    }
+    let received = upstream.received().len();
+
+    let right = second_factors::code(&api, &app.secret).await;
+    let limited = reauthenticate(&api, &ada, json!({ "second_factor_code": right })).await;
+    let exchanged = upstream.received().len();
+    let without_a_code = reauthenticate(&api, &ada, json!({})).await;
+
+    assert_eq!(limited.status, 429, "{}", limited.json());
+    assert_eq!(limited.json()["code"], "request.rate_limited");
+    assert!(
+        limited
+            .header("ratelimit-policy")
+            .starts_with("\"second_factor_check\";q=10;w=86400"),
+        "{}",
+        limited.header("ratelimit-policy")
+    );
+    assert_eq!(
+        exchanged, received,
+        "before it reads the code, it exchanges nothing"
+    );
+    // One that carries no code counts in no such bucket.
+    assert_eq!(without_a_code.status, 403, "{}", without_a_code.json());
+    assert_eq!(without_a_code.json()["code"], "auth.second_factor_required");
+}
+
+/// The requests for a token that the stand-in received.
+fn exchanges(upstream: &Upstream) -> Vec<crate::support::upstream::Received> {
+    upstream
+        .received()
+        .into_iter()
+        .filter(|request| request.method == "POST" && request.path == "/token")
+        .collect()
+}
+
+#[tokio::test]
+async fn auth_077_a_re_authentication_exchanges_the_code_and_answers_a_provider_it_can_t_exchange_at_as_a_sign_in_does()
+ {
+    let (upstream, api) = standing().await;
+    gives(&upstream, identity("subject-1", "ada@example.com", true));
+    let ada = signed_in(&api).await;
+    let before = exchanges(&upstream).len();
+    let proved = reauthenticate(&api, &ada, json!({})).await;
+    assert_eq!(proved.status, 200, "{}", proved.json());
+    let exchange = &exchanges(&upstream)[before];
+    assert_eq!(
+        exchange.authorization, None,
+        "the client's ID and secret go in the request's body"
+    );
+    for (field, value) in [
+        ("grant_type", "authorization_code"),
+        ("client_id", "stand-in-client"),
+        ("client_secret", "stand-in-secret"),
+        ("code", "a-code"),
+        ("code_verifier", VERIFIER),
+        ("redirect_uri", "https://app.example.com/callback"),
+    ] {
+        assert_eq!(exchange.field(field).as_deref(), Some(value), "{field}");
+    }
+    let ada = SignedIn::from(&proved);
+
+    let unknown = reauthenticate(&api, &ada, json!({ "provider": "nobody" })).await;
+    upstream.set("POST", "/token", 401, json!({ "error": "invalid_client" }));
+    let refused_client = reauthenticate(&api, &ada, json!({})).await;
+    upstream.set("POST", "/token", 500, json!({}));
+    let failing = reauthenticate(&api, &ada, json!({})).await;
+
+    assert_eq!(unknown.status, 404);
+    assert_eq!(unknown.json()["code"], "auth.provider_not_found");
+    for response in [&refused_client, &failing] {
+        assert_eq!(response.status, 503, "{}", response.json());
+        assert_eq!(response.json()["code"], "auth.provider_unavailable");
+        assert_eq!(response.header("retry-after"), "30");
+    }
+    let plain = Api::new().await;
+    let grace = users::register(&plain, "grace@example.com").await;
+    let unconfigured = reauthenticate(&plain, &grace, json!({})).await;
+    assert_eq!(unconfigured.status, 503);
+    assert_eq!(unconfigured.json()["code"], "request.feature_disabled");
+}
+
+#[tokio::test]
+async fn auth_077_a_re_authentication_refuses_a_malformed_body_before_the_exchange_and_answers_503_at_its_deadline()
+ {
+    let (upstream, api) = standing().await;
+    let bob = users::register(&api, "bob@example.com").await;
+    let malformed = api
+        .post_raw(
+            REAUTHENTICATE,
+            &json!({
+                "provider": "stand_in",
+                "code": "a code with spaces",
+                "code_verifier": "too-short",
+                "redirect_uri": "https://evil.example/callback",
+            }),
+        )
+        .bearer(&bob.access)
+        .send()
+        .await;
+    assert_eq!(malformed.status, 400);
+    let body = malformed.json();
+    let fields: Vec<&str> = body["errors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|error| error["field"].as_str().unwrap())
+        .collect();
+    assert_eq!(fields, ["/code", "/code_verifier", "/redirect_uri"]);
+    assert!(upstream.received().is_empty(), "before the exchange");
+
+    upstream.hang("POST", "/token");
+    let clock = api.clock();
+    let call = {
+        let api = api.clone();
+        let access = bob.access.clone();
+        tokio::spawn(async move {
+            api.post(REAUTHENTICATE, &grant())
+                .bearer(&access)
+                .send()
+                .await
+        })
+    };
+    clock.sleeping(std::time::Duration::from_secs(6)).await;
+    clock.advance(std::time::Duration::from_secs(6));
+    let hung = call.await.unwrap();
+    assert_eq!(hung.status, 503);
+    assert_eq!(hung.json()["code"], "auth.provider_unavailable");
+}
+
+/// The path of a re-authentication through a provider.
+const REAUTHENTICATE: &str = "/v1/users/me/sessions/current/reauthenticate/provider";
+
+/// The path of a link of a provider.
+const LINK: &str = "/v1/users/me/identities/provider";
+
+/// The access token of a caller of `path`: `ada`'s, for a re-authentication, whose subject the
+/// stand-in gives, and, for a link, that of a new user, the `n`th, for whom the stand-in gives a
+/// subject of their own.
+async fn caller_of(api: &Api, upstream: &Upstream, path: &str, ada: &SignedIn, n: usize) -> String {
+    if path == REAUTHENTICATE {
+        let claims = identity("subject-1", "ada@example.com", true);
+        upstream.set("GET", "/identity", 200, claims);
+        return ada.access.clone();
+    }
+    let email = format!("user-{n}@example.com");
+    let claims = identity(&format!("subject-of-user-{n}"), &email, true);
+    upstream.set("GET", "/identity", 200, claims);
+    users::register(api, &email).await.access
+}
+
+#[tokio::test]
+async fn auth_078_a_re_authentication_and_a_link_take_a_listed_or_loopback_redirect_uri_which_names_the_client()
+ {
+    let (upstream, api) = standing_with_both_clients().await;
+    upstream.set("DELETE", "/token", 204, json!({}));
+    gives(&upstream, identity("subject-1", "ada@example.com", true));
+    let mut ada = signed_in(&api).await;
+    let mut callers = 0;
+    for path in [REAUTHENTICATE, LINK] {
+        for (redirect_uri, client_id) in [
+            ("http://127.0.0.1:51234/callback", Some("stand-in-client")),
+            (SECOND_REDIRECT_URI, Some("second-client")),
+            ("http://127.0.0.2:51234/callback", None),
+            ("https://app.example.com/callback/other", None),
+        ] {
+            callers += 1;
+            let access = caller_of(&api, &upstream, path, &ada, callers).await;
+            let mut body = grant();
+            body["redirect_uri"] = json!(redirect_uri);
+            let before = exchanges(&upstream).len();
+
+            let response = api.post_raw(path, &body).bearer(&access).send().await;
+
+            let exchanged = exchanges(&upstream);
+            let Some(client_id) = client_id else {
+                assert_eq!(response.status, 400, "{path} {redirect_uri}");
+                assert_eq!(response.json()["errors"][0]["field"], "/redirect_uri");
+                assert_eq!(response.json()["errors"][0]["code"], "invalid_redirect_uri");
+                assert_eq!(exchanged.len(), before, "{path}: before the exchange");
+                continue;
+            };
+            assert_eq!(
+                response.status,
+                200,
+                "{path} {redirect_uri}: {}",
+                response.json()
+            );
+            let exchange = &exchanged[before];
+            assert_eq!(
+                exchange.field("redirect_uri").as_deref(),
+                Some(redirect_uri),
+                "{path}"
+            );
+            assert_eq!(
+                exchange.field("client_id").as_deref(),
+                Some(client_id),
+                "{path}"
+            );
+            if path == REAUTHENTICATE {
+                // With the tokens that the proof gave the session (AUTH-095).
+                ada = SignedIn::from(&response);
+            }
+        }
+    }
+}
+
+/// Sends `body` to `path` for the `n`th caller of [`caller_of`], with the stand-in's userinfo
+/// endpoint failing unless `reads` says it answers, and keeps the tokens that a re-authentication
+/// of `ada`'s session gives it (AUTH-095).
+async fn prove(
+    (api, upstream): (&Api, &Upstream),
+    path: &str,
+    ada: &mut SignedIn,
+    (n, body, reads): (usize, &Value, bool),
+) -> Response {
+    let access = caller_of(api, upstream, path, ada, n).await;
+    if !reads {
+        upstream.set("GET", "/identity", 500, json!({}));
+    }
+    let response = api.post(path, body).bearer(&access).send().await;
+    if path == REAUTHENTICATE && response.status == 200 {
+        *ada = SignedIn::from(&response);
+    }
+    response
+}
+
+#[tokio::test]
+async fn auth_079_a_re_authentication_and_a_link_keep_the_provider_s_token_nowhere_and_delete_one_that_doesn_t_lapse()
+ {
+    let (upstream, api) = standing_with_both_clients().await;
+    let token = "a-token-that-no-log-of-a-proof-holds";
+    gives(&upstream, identity("subject-1", "ada@example.com", true));
+    let mut ada = signed_in(&api).await;
+    upstream.set("POST", "/token", 200, json!({ "access_token": token }));
+    let bearer = Some(format!("Bearer {token}"));
+    let mut callers = 0;
+    for path in [REAUTHENTICATE, LINK] {
+        upstream.set("DELETE", "/token", 204, json!({}));
+        let start = deletions(&upstream).len();
+        let since = |upstream: &Upstream| deletions(upstream)[start..].to_vec();
+        let mut next = || {
+            callers += 1;
+            callers
+        };
+
+        // The first client's tokens lapse, and the second's don't.
+        let lapsing = prove((&api, &upstream), path, &mut ada, (next(), &grant(), true)).await;
+        let after_lapsing = since(&upstream);
+        let read = prove(
+            (&api, &upstream),
+            path,
+            &mut ada,
+            (next(), &second_grant(), true),
+        )
+        .await;
+        let after_read = since(&upstream);
+        let unread = prove(
+            (&api, &upstream),
+            path,
+            &mut ada,
+            (next(), &second_grant(), false),
+        )
+        .await;
+        let after_unread = since(&upstream);
+        upstream.set("DELETE", "/token", 500, json!({}));
+        let kept = prove(
+            (&api, &upstream),
+            path,
+            &mut ada,
+            (next(), &second_grant(), true),
+        )
+        .await;
+
+        assert_eq!(lapsing.status, 200, "{path}: {}", lapsing.json());
+        assert!(after_lapsing.is_empty(), "{path}: {after_lapsing:?}");
+        assert!(
+            !String::from_utf8_lossy(&lapsing.body).contains(token),
+            "{path}: no answer holds it"
+        );
+        assert_eq!(read.status, 200, "{path}: {}", read.json());
+        assert_eq!(after_read, std::slice::from_ref(&bearer), "{path}");
+        assert_eq!(unread.status, 503, "{path}");
+        assert_eq!(after_unread, [bearer.clone(), bearer.clone()], "{path}");
+        assert_eq!(
+            kept.status,
+            200,
+            "{path}: a failed deletion refuses nothing: {}",
+            kept.json()
+        );
+        assert!(
+            kept_token_logged(&kept, "answered 500"),
+            "{path}: ERR-11's line"
+        );
+    }
+    let found = api
+        .database()
+        .owner_reads(&format!(
+            "SELECT count(*)::text FROM (\
+               SELECT details::text AS value FROM audit_entries \
+               UNION ALL SELECT payload::text FROM jobs \
+               UNION ALL SELECT payload::text FROM events \
+               UNION ALL SELECT subject FROM provider_identities) AS stored \
+             WHERE value LIKE '%{token}%'"
+        ))
+        .await;
+    assert_eq!(found, ["0"], "no row holds it");
+    assert!(!logged(token), "no log holds it");
 }

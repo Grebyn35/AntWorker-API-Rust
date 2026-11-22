@@ -118,6 +118,52 @@ async fn platform_054_a_client_ip_beyond_its_limit_answers_429() {
 }
 
 #[tokio::test]
+async fn platform_054_the_ip_limit_counts_a_request_before_its_credential_is_read() {
+    let api = limited(2, 1_000).await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let peer = "192.0.2.7:1";
+
+    let mut bad = Vec::new();
+    for _ in 0..3 {
+        bad.push(
+            api.get("/v1/users/me")
+                .bearer("not-a-token")
+                .from(peer)
+                .send()
+                .await,
+        );
+    }
+    let good = api
+        .get("/v1/users/me")
+        .bearer(&ada.access)
+        .from(peer)
+        .send()
+        .await;
+    let elsewhere = api
+        .get("/v1/users/me")
+        .bearer("not-a-token")
+        .from("192.0.2.8:1")
+        .send()
+        .await;
+
+    assert_eq!(bad[0].status, 401);
+    assert_eq!(bad[1].status, 401);
+    assert_eq!(
+        bad[2].status, 429,
+        "where a request with room in its bucket gets 401"
+    );
+    assert_eq!(bad[2].json()["code"], "request.rate_limited");
+    assert!(
+        bad[2].header("ratelimit-policy").starts_with("\"ip\";q=2"),
+        "{}",
+        bad[2].header("ratelimit-policy")
+    );
+    assert_eq!(good.status, 429, "a valid credential too");
+    assert_eq!(elsewhere.status, 401);
+    assert_eq!(elsewhere.json()["code"], "request.unauthenticated");
+}
+
+#[tokio::test]
 async fn platform_054_a_user_beyond_their_limit_answers_429() {
     let api = limited(1_000, 2).await;
     let ada = users::register(&api, "ada@example.com").await;

@@ -100,7 +100,8 @@ pub(super) fn run(
     // the search as late as they can (OPS-07).
     let outcome = match start(root, replica, None) {
         Ok(publisher) => {
-            let outcome = measure(root, &hub, &publisher, (cpus, memory), objective_ms);
+            let replicas = (hub.as_str(), publisher.as_str(), replica.settings);
+            let outcome = measure(root, replicas, (cpus, memory), objective_ms);
             remove(root, &publisher);
             outcome
         }
@@ -158,15 +159,15 @@ fn remove(root: &Path, id: &str) {
     }
 }
 
-/// The measurement, once both replicas run.
+/// The measurement, once both replicas run: the measured one, the publishing one, and the
+/// settings that both run with.
 fn measure(
     root: &Path,
-    hub: &str,
-    publisher: &str,
+    (hub, publisher, settings): (&str, &str, &[String]),
     (cpus, memory): (&str, &str),
     objective_ms: f64,
 ) -> ExitCode {
-    let (hub_address, publisher_inside, users) = match prepare(root, hub, publisher) {
+    let (hub_address, publisher_inside, users) = match prepare(root, settings, hub, publisher) {
         Ok(prepared) => prepared,
         Err(error) => return fail(&error),
     };
@@ -243,9 +244,11 @@ fn measure(
 
 /// Waits for both replicas to be ready, and returns the address on the host that reaches the
 /// measured one, the address of the publishing one inside Compose's network, which k6 reaches,
-/// and the users whose streams the measured one will hold.
+/// and the users whose streams the measured one will hold, arranged in the database that the
+/// replicas' `settings` name.
 fn prepare(
     root: &Path,
+    settings: &[String],
     hub: &str,
     publisher: &str,
 ) -> Result<(String, String, Vec<String>), String> {
@@ -264,9 +267,9 @@ fn prepare(
         ],
     )?;
     // The measured replica's container is new on each run, and so are the addresses named after
-    // it, so a run needs no empty database.
+    // it.
     let run = hub.get(..12).unwrap_or(hub);
-    let users = arrange::arrange(root, &publisher_address, run)?;
+    let users = arrange::arrange(root, settings, &publisher_address, run)?;
     Ok((hub_address, inside, users))
 }
 

@@ -22,7 +22,7 @@ use platform::{
 use serde_json::Value;
 use tower::ServiceExt;
 
-use super::{Proxy, TestDatabase, contract::Contract};
+use super::{Proxy, TestDatabase, contract::Contract, sent};
 
 /// The service the tests' OpenAPI documents name. The name and version don't affect a check.
 pub(crate) const SERVICE: Service = Service {
@@ -205,7 +205,7 @@ pub async fn application(
         None => (app::openapi(SERVICE), services.routes),
     };
     Application {
-        router: platform::http::app(routes, pipeline),
+        router: sent::recording(platform::http::app(routes, pipeline)),
         document: serde_json::to_value(document).unwrap(),
         jobs,
         hub,

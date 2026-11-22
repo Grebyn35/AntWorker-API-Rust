@@ -8,7 +8,9 @@ use crate::support::{
     Api,
     api::Response,
     mailbox,
+    providers::{self, gives, identity},
     second_factors::{self, App, add_app, code, confirm, forget_steps, other_code, start_setup},
+    upstream::Upstream,
     users::{self, PASSWORD, SignedIn},
 };
 
@@ -756,4 +758,289 @@ async fn auth_062_a_recovery_code_outlives_a_change_of_hmac_key() {
     .await;
 
     assert_eq!(response.status, 200, "{}", response.json());
+}
+
+/// A route that checks a second factor beside another proof, apart from a signed-in user's
+/// re-authentication with the password: a completion of a sign-in, a reset's confirmation, a
+/// re-authentication through a provider and a change of the password.
+#[derive(Clone, Copy, Debug)]
+enum Proof {
+    Completion,
+    Reset,
+    Provider,
+    Change,
+}
+
+impl Proof {
+    /// Each of them.
+    const ALL: [Self; 4] = [Self::Completion, Self::Reset, Self::Provider, Self::Change];
+
+    /// The field of the route's body that carries an app's code.
+    fn code_field(self) -> &'static str {
+        match self {
+            Self::Completion | Self::Change => "code",
+            Self::Reset | Self::Provider => "second_factor_code",
+        }
+    }
+
+    /// What the route answers a second factor that isn't the user's: its status and its code.
+    fn refusal(self) -> (u16, &'static str) {
+        match self {
+            Self::Completion | Self::Reset => (401, "auth.invalid_second_factor"),
+            Self::Provider | Self::Change => (403, "auth.wrong_second_factor"),
+        }
+    }
+}
+
+/// Ada, with an app, who sends a [`Proof`]'s route her second factors.
+struct Prover {
+    proof: Proof,
+    api: Api,
+    /// The stand-in provider that the API signs in through, which answers while it lives.
+    _upstream: Upstream,
+    address: String,
+    user: SignedIn,
+    app: App,
+}
+
+impl Prover {
+    /// Ada, at an address of her own, on an API with email on or off as `email_on` says, who
+    /// signed in through the stand-in for a re-authentication through it, and registered with
+    /// [`PASSWORD`] for any other route, then set up an app.
+    async fn arrange(proof: Proof, email_on: bool) -> Self {
+        let upstream = Upstream::start().await;
+        let mut options = providers::stand_in(&upstream);
+        if !email_on {
+            options = options.set("EMAIL", "off");
+        }
+        let api = Api::with(options).await;
+        let address = mailbox::address("ada");
+        let user = match proof {
+            Proof::Provider => {
+                gives(&upstream, identity("subject-1", &address, true));
+                providers::signed_in(&api).await
+            }
+            Proof::Completion | Proof::Reset | Proof::Change => {
+                users::register(&api, &address).await
+            }
+        };
+        let app = add_app(&api, &user).await;
+        Self {
+            proof,
+            api,
+            _upstream: upstream,
+            address,
+            user,
+            app,
+        }
+    }
+
+    /// Sends the route `factor`, the fields of a second factor, beside the route's other proof:
+    /// a sign-in's challenge, a reset code that the API sent the address, the stand-in's code, or
+    /// the current password, which a change keeps. Keeps the tokens that a proof of Ada's
+    /// session gives it (AUTH-095).
+    async fn send(&mut self, factor: Value) -> Response {
+        let api = &self.api;
+        let response = match self.proof {
+            Proof::Completion => {
+                let challenge = second_factors::challenge(api, &self.address).await;
+                second_factors::complete(api, &challenge, factor).await
+            }
+            Proof::Reset => {
+                let asked = api
+                    .post("/v1/password-resets", &json!({ "email": self.address }))
+                    .send()
+                    .await;
+                assert_eq!(asked.status, 202, "{}", asked.json());
+                api.run_jobs().await;
+                let emails = mailbox::to(&self.address).await;
+                let email = emails
+                    .iter()
+                    .find(|email| email.subject.contains("password reset code"))
+                    .expect("an email with a reset code");
+                let code = mailbox::grouped_code_in(&email.text).expect("a reset code");
+                let body = json!({ "email": self.address, "code": code, "password": PASSWORD });
+                api.post("/v1/password-resets/confirm", &with(body, factor))
+                    .send()
+                    .await
+            }
+            Proof::Provider => {
+                api.post(
+                    "/v1/users/me/sessions/current/reauthenticate/provider",
+                    &with(providers::grant(), factor),
+                )
+                .bearer(&self.user.access)
+                .send()
+                .await
+            }
+            Proof::Change => {
+                let body = json!({ "current_password": PASSWORD, "password": PASSWORD });
+                api.post("/v1/users/me/password/change", &with(body, factor))
+                    .bearer(&self.user.access)
+                    .send()
+                    .await
+            }
+        };
+        if matches!(self.proof, Proof::Provider | Proof::Change) && response.status == 200 {
+            self.user = SignedIn::from(&response);
+        }
+        response
+    }
+
+    /// The fields of the app's code that it shows now.
+    async fn app_code(&self) -> Value {
+        let code = code(&self.api, &self.app.secret).await;
+        json!({ self.proof.code_field(): code })
+    }
+}
+
+/// `body` with the fields of `extra` added.
+fn with(mut body: Value, extra: Value) -> Value {
+    body.as_object_mut()
+        .unwrap()
+        .extend(extra.as_object().unwrap().clone());
+    body
+}
+
+#[tokio::test]
+async fn auth_057_each_route_that_checks_an_app_accepts_its_code_once_and_keeps_its_step() {
+    for proof in Proof::ALL {
+        let mut prover = Prover::arrange(proof, true).await;
+        let factor = prover.app_code().await;
+
+        let accepted = prover.send(factor.clone()).await;
+        let again = prover.send(factor).await;
+
+        assert!(
+            accepted.status.is_success(),
+            "{proof:?}: {}",
+            accepted.json()
+        );
+        assert_eq!(
+            (
+                again.status.as_u16(),
+                again.json()["code"].as_str().unwrap()
+            ),
+            proof.refusal(),
+            "{proof:?}: the step that a check accepted works no more"
+        );
+        let step = reads(
+            &prover.api,
+            "SELECT (last_used_step = floor(extract(epoch FROM now()) / 30) \
+             OR last_used_step = floor(extract(epoch FROM now()) / 30) - 1)::text \
+             FROM totp_factors",
+        )
+        .await;
+        assert_eq!(
+            step,
+            ["true"],
+            "{proof:?}: the accepted step is the last used one"
+        );
+    }
+}
+
+#[tokio::test]
+async fn auth_062_a_recovery_code_works_once_in_place_of_the_app_s_on_each_route_that_checks_one() {
+    for proof in Proof::ALL {
+        let mut prover = Prover::arrange(proof, true).await;
+        let user_id = prover.user.user_id.clone();
+        let before = reads(
+            &prover.api,
+            "SELECT id::text FROM recovery_codes ORDER BY 1",
+        )
+        .await;
+        let code = prover.app.recovery_codes[0].clone();
+        // Lowercase, without its hyphens, it reads as the code.
+        let typed = code.replace('-', "").to_lowercase();
+
+        let used = prover.send(json!({ "recovery_code": typed })).await;
+        let again = prover.send(json!({ "recovery_code": code })).await;
+
+        assert!(used.status.is_success(), "{proof:?}: {}", used.json());
+        let after = reads(
+            &prover.api,
+            "SELECT id::text FROM recovery_codes ORDER BY 1",
+        )
+        .await;
+        let gone: Vec<&String> = before.iter().filter(|id| !after.contains(id)).collect();
+        assert_eq!(gone.len(), 1, "{proof:?}: using it deletes it");
+        assert_eq!(after.len(), 9, "{proof:?}");
+        let recorded = reads(
+            &prover.api,
+            "SELECT user_id || ' ' || resource_type || ' ' || resource_id FROM audit_entries \
+             WHERE action = 'recovery_code.used'",
+        )
+        .await;
+        assert_eq!(
+            recorded,
+            [format!("{user_id} recovery_code {}", gone[0])],
+            "{proof:?}"
+        );
+        assert_eq!(
+            (
+                again.status.as_u16(),
+                again.json()["code"].as_str().unwrap()
+            ),
+            proof.refusal(),
+            "{proof:?}: it works once"
+        );
+    }
+}
+
+#[tokio::test]
+async fn auth_068_a_recovery_code_used_on_each_route_that_checks_one_tells_the_address() {
+    for proof in Proof::ALL {
+        let mut prover = Prover::arrange(proof, true).await;
+
+        let used = prover
+            .send(json!({ "recovery_code": prover.app.recovery_codes[0] }))
+            .await;
+
+        assert!(used.status.is_success(), "{proof:?}: {}", used.json());
+        prover.api.run_jobs().await;
+        let emails = mailbox::to(&prover.address).await;
+        let told: Vec<_> = emails
+            .iter()
+            .filter(|email| email.subject == "A recovery code was used on your AntWorker account")
+            .collect();
+        assert_eq!(told.len(), 1, "{proof:?}");
+        assert!(
+            told[0].text.contains("9 recovery codes are left."),
+            "{proof:?}: {}",
+            told[0].text
+        );
+        assert!(!told[0].text.contains(&prover.app.secret), "{proof:?}");
+        assert!(
+            prover
+                .app
+                .recovery_codes
+                .iter()
+                .all(|code| !told[0].text.contains(code.as_str())),
+            "{proof:?}"
+        );
+        assert!(
+            !told[0].text.contains("http"),
+            "{proof:?}: {}",
+            told[0].text
+        );
+    }
+    // With email off, none is enqueued; a reset's confirmation answers 503 then (AUTH-038).
+    for proof in [Proof::Completion, Proof::Provider, Proof::Change] {
+        let mut prover = Prover::arrange(proof, false).await;
+
+        let used = prover
+            .send(json!({ "recovery_code": prover.app.recovery_codes[0] }))
+            .await;
+
+        assert!(used.status.is_success(), "{proof:?}: {}", used.json());
+        assert!(
+            reads(
+                &prover.api,
+                "SELECT id::text FROM jobs WHERE kind = 'platform.send_email'"
+            )
+            .await
+            .is_empty(),
+            "{proof:?}"
+        );
+    }
 }

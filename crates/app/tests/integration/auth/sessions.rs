@@ -4,7 +4,12 @@
 use serde_json::{Value, json};
 
 use crate::support::{
-    Api, execute_on, queries_wait_on_locks, queries_waiting_on_locks,
+    Api,
+    api::Response,
+    execute_on,
+    providers::{self, gives, grant, identity},
+    queries_wait_on_locks, queries_waiting_on_locks, second_factors,
+    upstream::Upstream,
     users::{self, PASSWORD, WEB, browser_sign_in, browsers_api, cookie, expires},
 };
 
@@ -302,42 +307,60 @@ async fn auth_012_a_refresh_without_a_token_answers_the_same_401() {
 
 #[tokio::test]
 async fn auth_013_signing_out_ends_the_session_and_clears_its_cookies() {
-    let api = Api::new().await;
-    let ada = users::register(&api, "ada@example.com").await;
-    let mut signals = api.database().signals().await;
+    // Ending the session that authenticated the request by its ID signs out too (AUTH-044).
+    for by_id in [false, true] {
+        let api = Api::new().await;
+        let ada = users::register(&api, "ada@example.com").await;
+        let mut signals = api.database().signals().await;
+        let path = if by_id {
+            format!("/v1/users/me/sessions/{}", ada.session_id)
+        } else {
+            "/v1/users/me/sessions/current".to_owned()
+        };
 
-    let response = api
-        .request(http::Method::DELETE, "/v1/users/me/sessions/current")
-        .bearer(&ada.access)
-        .send()
-        .await;
+        let response = api
+            .request(http::Method::DELETE, &path)
+            .bearer(&ada.access)
+            .send()
+            .await;
 
-    assert_eq!(response.status, 204);
-    let cleared = response.headers("set-cookie");
-    assert!(
-        cleared.contains(
-            &"__Host-access_token=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Strict"
-        )
-    );
-    assert!(
-        cleared.contains(
-            &"__Host-refresh_token=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Strict"
-        )
-    );
-    let after = api.get("/v1/users/me").bearer(&ada.access).send().await;
-    assert_eq!(after.status, 401);
-    assert_eq!(
-        api.database()
-            .owner_reads(
-                "SELECT resource_id::text FROM audit_entries WHERE action = 'session.ended'"
-            )
-            .await,
-        std::slice::from_ref(&ada.session_id)
-    );
-    let received: Vec<Value> = signals.received().await;
-    assert_eq!(received.len(), 1);
-    assert_eq!(received[0]["kind"], "session_ended");
-    assert_eq!(received[0]["user_id"], ada.user_id.as_str());
+        assert_eq!(response.status, 204, "{path}");
+        let cleared = response.headers("set-cookie");
+        assert!(
+            cleared.contains(
+                &"__Host-access_token=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Strict"
+            ),
+            "{path}"
+        );
+        assert!(
+            cleared.contains(
+                &"__Host-refresh_token=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Strict"
+            ),
+            "{path}"
+        );
+        let after = api.get("/v1/users/me").bearer(&ada.access).send().await;
+        assert_eq!(after.status, 401, "{path}");
+        assert_eq!(
+            api.database()
+                .owner_reads("SELECT count(*)::text FROM sessions")
+                .await,
+            ["0"],
+            "{path}: the session is deleted"
+        );
+        assert_eq!(
+            api.database()
+                .owner_reads(
+                    "SELECT resource_id::text FROM audit_entries WHERE action = 'session.ended'"
+                )
+                .await,
+            std::slice::from_ref(&ada.session_id),
+            "{path}"
+        );
+        let received: Vec<Value> = signals.received().await;
+        assert_eq!(received.len(), 1, "{path}");
+        assert_eq!(received[0]["kind"], "session_ended", "{path}");
+        assert_eq!(received[0]["user_id"], ada.user_id.as_str(), "{path}");
+    }
 }
 
 #[tokio::test]
@@ -425,6 +448,155 @@ async fn auth_015_a_browser_s_refresh_takes_cookies_even_with_its_token_in_the_b
     assert!(body.get("access_token").is_none());
     assert!(body.get("refresh_token").is_none());
     assert_ne!(cookie(&response, "refresh_token"), ada.refresh);
+}
+
+/// The `Set-Cookie` of the cookie `__Host-<name>` that `response` sets, which a browser's script
+/// can't read, and which a browser sends to the API's host alone.
+fn unreadable_cookie<'a>(response: &'a Response, name: &str) -> &'a str {
+    let prefix = format!("__Host-{name}=");
+    let set = response
+        .headers("set-cookie")
+        .into_iter()
+        .find(|set| set.starts_with(&prefix));
+    assert!(set.is_some(), "no {name} cookie");
+    let set = set.unwrap();
+    assert!(
+        set.ends_with("; Path=/; Secure; HttpOnly; SameSite=Strict"),
+        "{set}"
+    );
+    assert!(!set.contains("Domain"), "{set}");
+    set
+}
+
+/// Asserts that `response`, a browser's, holds no token in its body, and sets the access and
+/// refresh tokens of the session `session_id` in their cookies, each expiring with its token.
+async fn tokens_in_cookies(api: &Api, response: &Response, session_id: &str) {
+    let body = response.json();
+    assert!(body.get("access_token").is_none(), "{body}");
+    assert!(body.get("refresh_token").is_none(), "{body}");
+    for name in ["access_token", "refresh_token"] {
+        unreadable_cookie(response, name);
+    }
+    let stored = api
+        .database()
+        .owner_reads(&format!(
+            "SELECT (access_token_hash = sha256(convert_to('{}', 'UTF8')) \
+             AND refresh_token_hash = sha256(convert_to('{}', 'UTF8')))::text || '|' || \
+             to_char(access_token_expires_at AT TIME ZONE 'UTC', \
+             'Dy, DD Mon YYYY HH24:MI:SS \"GMT\"') || '|' || \
+             to_char(refresh_token_expires_at AT TIME ZONE 'UTC', \
+             'Dy, DD Mon YYYY HH24:MI:SS \"GMT\"') FROM sessions WHERE id = '{session_id}'",
+            cookie(response, "access_token"),
+            cookie(response, "refresh_token"),
+        ))
+        .await;
+    assert_eq!(
+        stored,
+        [format!(
+            "true|{}|{}",
+            expires(response, "access_token"),
+            expires(response, "refresh_token")
+        )]
+    );
+}
+
+#[tokio::test]
+async fn auth_015_a_browser_s_completion_of_a_sign_in_takes_its_tokens_in_cookies() {
+    let api = browsers_api().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let app = second_factors::add_app(&api, &ada).await;
+    let challenged = api
+        .post(
+            "/v1/sessions",
+            &json!({ "email": "ada@example.com", "password": PASSWORD }),
+        )
+        .header("origin", WEB)
+        .send()
+        .await;
+    assert_eq!(challenged.status, 200, "{}", challenged.json());
+    let challenge = cookie(&challenged, "sign_in_challenge");
+
+    let response = api
+        .post(
+            "/v1/sessions/second-factor",
+            &json!({ "code": second_factors::code(&api, &app.secret).await }),
+        )
+        .header("origin", WEB)
+        .header("cookie", &format!("__Host-sign_in_challenge={challenge}"))
+        .send()
+        .await;
+
+    assert_eq!(response.status, 201, "{}", response.json());
+    let session = response.json();
+    tokens_in_cookies(&api, &response, session["id"].as_str().unwrap()).await;
+    assert!(session.get("device_token").is_none(), "{session}");
+    let name = users::device_cookie(&response);
+    assert_eq!(name.len(), "device_token_".len() + 16, "{name}");
+    assert!(
+        name["device_token_".len()..]
+            .chars()
+            .all(|digit| digit.is_ascii_hexdigit()),
+        "{name}"
+    );
+    unreadable_cookie(&response, &name);
+    let device_token = api
+        .database()
+        .owner_reads(&format!(
+            "SELECT to_char(expires_at AT TIME ZONE 'UTC', 'Dy, DD Mon YYYY HH24:MI:SS \"GMT\"') \
+             FROM device_tokens WHERE token_hash = sha256(convert_to('{}', 'UTF8'))",
+            cookie(&response, &name)
+        ))
+        .await;
+    assert_eq!(device_token, [expires(&response, &name)]);
+}
+
+#[tokio::test]
+async fn auth_015_a_browser_s_proofs_take_the_session_s_new_tokens_in_cookies() {
+    let upstream = Upstream::start().await;
+    let api = Api::with(providers::stand_in(&upstream).set("CORS_ALLOWED_ORIGINS", WEB)).await;
+    let with_password = browser_sign_in(&api).await;
+    assert_eq!(with_password.status, 201, "{}", with_password.json());
+    gives(&upstream, identity("subject-1", "grace@example.com", true));
+    let through_provider = api
+        .post("/v1/sessions/provider", &grant())
+        .header("origin", WEB)
+        .send()
+        .await;
+    assert_eq!(through_provider.status, 201, "{}", through_provider.json());
+    // The cookies that each user's browser holds, which each proof's replace.
+    let mut jars = [
+        users::cookies(&with_password),
+        users::cookies(&through_provider),
+    ];
+    let sessions =
+        [&with_password, &through_provider].map(|signed_in| signed_in.json()["id"].clone());
+    let reauthenticate = json!({ "password": PASSWORD });
+    let change = json!({ "current_password": PASSWORD, "password": "walnut-harbor-77-brisk" });
+
+    for (path, body, user) in [
+        (
+            "/v1/users/me/sessions/current/reauthenticate",
+            reauthenticate,
+            0,
+        ),
+        ("/v1/users/me/password/change", change, 0),
+        (
+            "/v1/users/me/sessions/current/reauthenticate/provider",
+            grant(),
+            1,
+        ),
+    ] {
+        let response = api
+            .post(path, &body)
+            .header("origin", WEB)
+            .header("cookie", &jars[user])
+            .send()
+            .await;
+
+        assert_eq!(response.status, 200, "{path}: {}", response.json());
+        tokens_in_cookies(&api, &response, sessions[user].as_str().unwrap()).await;
+        jars[user] = users::cookies(&response);
+    }
 }
 
 #[tokio::test]

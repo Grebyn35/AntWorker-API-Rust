@@ -45,6 +45,7 @@ mod routes;
 mod rust;
 mod schema;
 mod server;
+mod services;
 mod shell;
 mod sql;
 mod sql_bans;
@@ -73,6 +74,14 @@ enum Command {
     /// a behavior or rule ID that exists.
     #[command(name = "check-test-map")]
     TestMap,
+    /// Fails on a route that a spec's Routes table lists a behavior for and that no integration
+    /// test named for the behavior sent to, as the file that the tests wrote says. `just test`
+    /// runs it once the tests pass.
+    #[command(name = "sent-routes")]
+    SentRoutes {
+        /// The file that `SENT_ROUTES` named for the tests.
+        file: std::path::PathBuf,
+    },
     /// Fails on a link, ID or named CI check that doesn't resolve, a history marker, an
     /// unfinished-work marker, a document outside the documentation set, an acronym not spelled out
     /// where a document first uses it, a spec, rule or tracker whose format breaks DOC-08 or
@@ -270,6 +279,10 @@ enum Command {
     /// value of the example's, which `just setup` and `just dev` run (OPS-20).
     #[command(name = "env-drift")]
     EnvDrift,
+    /// Restarts each running service of compose.yaml whose configuration, the files that it
+    /// mounts from `deploy/`, changed since it started. `just services` runs it first.
+    #[command(name = "stale-services")]
+    StaleServices,
     /// Measures one replica's capacity: the highest constant rate of requests it serves with
     /// none failed and the 99th percentile within the latency objective (OPS-16).
     #[command(name = "load-test")]
@@ -288,11 +301,16 @@ enum Command {
         platform: String,
     },
     /// Prints an identifier of the files under `directory` as they stand in the working tree,
-    /// which an image built from them carries (OPS-14).
+    /// or, without one, of the files that the API's image is built from, which an image built
+    /// from them carries (OPS-14).
     Inputs {
         /// The directory, as a path from the repository root.
-        directory: String,
+        directory: Option<String>,
     },
+    /// Fails unless the API's image in target/image is built from the files of the working
+    /// tree, as its label says. `just e2e` and `just load-test` run it first (OPS-20).
+    #[command(name = "image-inputs")]
+    ImageInputs,
     /// Fails unless `version` can be a new release after the repository's release tags. CI runs
     /// it before it releases a version (OPS-12).
     #[command(name = "release-check")]
@@ -353,9 +371,11 @@ fn main() -> ExitCode {
         Command::CheckRename => return rename::check(),
         Command::Release { version } => return release::run(version.as_deref()),
         Command::ReleaseCheck { version } => return release::check(&version),
-        Command::Inputs { directory } => return inputs::run(&directory),
+        Command::Inputs { directory } => return inputs::run(directory.as_deref()),
+        Command::ImageInputs => return inputs::check_image(),
         Command::LoadTest { route } => return load::run(&route),
         Command::EnvDrift => return env_drift::run(),
+        Command::StaleServices => return services::run(),
         Command::Mirror { platform } => return mirror::run(&platform),
         Command::RestorePlan {
             moment,
@@ -370,6 +390,7 @@ fn main() -> ExitCode {
     let catalog = catalog::Catalog::read(&repo);
     let outcome = match command {
         Command::TestMap => test_map::check(&repo, &catalog),
+        Command::SentRoutes { file } => test_map::sent::check_file(&repo, &file),
         Command::Docs => docs::check(&repo, &catalog),
         Command::Openapi => openapi::check(&repo),
         Command::Instrument => instrument::check(&repo),
@@ -405,10 +426,12 @@ fn main() -> ExitCode {
         | Command::Release { .. }
         | Command::ReleaseCheck { .. }
         | Command::Inputs { .. }
+        | Command::ImageInputs
         | Command::Server(_)
         | Command::RestorePlan { .. }
         | Command::LoadTest { .. }
         | Command::EnvDrift
+        | Command::StaleServices
         | Command::Mirror { .. } => Outcome::default(),
     };
     print(&outcome)

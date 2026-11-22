@@ -6,14 +6,19 @@ use std::{collections::BTreeMap, path::Path};
 use serde_json::{Value, json};
 
 use super::{USERS, client};
-use crate::load::{compose_id, docker, replica::database_url};
+use crate::load::{compose_id, docker, replica::OWNER_URL};
 
 /// The users whose streams the hub holds, each with an access token, and the data k6 publishes
 /// with: each user's workspace, of which they are the owner and the only member, with their token.
 /// Their addresses hold `run`. The workspaces are arranged in the database, as a test arranges
 /// its state, rather than through one of the parts that create workspaces, so the test runs
 /// whichever of them a fork keeps.
-pub(super) fn arrange(root: &Path, publisher: &str, run: &str) -> Result<Vec<String>, String> {
+pub(super) fn arrange(
+    root: &Path,
+    settings: &[String],
+    publisher: &str,
+    run: &str,
+) -> Result<Vec<String>, String> {
     let mut tokens = BTreeMap::new();
     for n in 0..USERS {
         let email = format!("load-{run}-{n}@example.com");
@@ -30,7 +35,7 @@ pub(super) fn arrange(root: &Path, publisher: &str, run: &str) -> Result<Vec<Str
         };
         tokens.insert(email, token);
     }
-    let owned = owned_workspaces(root, run)?;
+    let owned = owned_workspaces(root, settings, run)?;
     let mut workspaces = Vec::new();
     for (email, workspace) in owned {
         let token = tokens.get(&email).ok_or_else(|| {
@@ -50,11 +55,18 @@ pub(super) fn arrange(root: &Path, publisher: &str, run: &str) -> Result<Vec<Str
     Ok(tokens.into_values().collect())
 }
 
-/// Arranges a workspace in the development Postgres for each account whose address holds `run`,
-/// owned by that account alone, as the role that owns the schema, and returns each account's
-/// address with its workspace's ID.
-fn owned_workspaces(root: &Path, run: &str) -> Result<Vec<(String, String)>, String> {
-    let url = database_url("DATABASE_OWNER_URL")?;
+/// Arranges a workspace in the load test's database for each account whose address holds `run`,
+/// owned by that account alone, as the role that owns the schema, whose URL the replica's
+/// `settings` hold, and returns each account's address with its workspace's ID.
+fn owned_workspaces(
+    root: &Path,
+    settings: &[String],
+    run: &str,
+) -> Result<Vec<(String, String)>, String> {
+    let url = settings
+        .iter()
+        .find_map(|setting| setting.strip_prefix(OWNER_URL)?.strip_prefix('='))
+        .ok_or_else(|| format!("the replica's settings hold no {OWNER_URL}"))?;
     // Each workspace takes its ID from the column default (DATA-08), and the n-th of them, in
     // the order of their IDs, goes to the n-th account, in the order of their addresses.
     let statement = format!(
@@ -74,7 +86,7 @@ fn owned_workspaces(root: &Path, run: &str) -> Result<Vec<(String, String)>, Str
             "exec",
             &compose_id(root, "postgres"),
             "psql",
-            &url,
+            url,
             "-qAt",
             "-v",
             "ON_ERROR_STOP=1",

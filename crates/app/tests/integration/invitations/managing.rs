@@ -559,6 +559,59 @@ async fn invitations_015_the_email_sent_again_names_the_member_who_sent_it() {
 }
 
 #[tokio::test]
+async fn invitations_010_the_email_sent_again_names_its_inviter_its_workspace_its_role_and_its_expiry_in_both_parts()
+ {
+    let api = Api::with(Options::default().set("INVITATION_EXPIRY_DAYS", 3)).await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let bob = users::register(&api, "bob@example.com").await;
+    let workspace = workspaces::arrange(
+        api.database(),
+        "Acme & <Co>",
+        &[(&ada.user_id, "owner"), (&bob.user_id, "admin")],
+    )
+    .await;
+    let renamed = api
+        .patch("/v1/users/me", &json!({ "name": "Bob Jones" }))
+        .bearer(&bob.access)
+        .send()
+        .await;
+    assert_eq!(renamed.status, 200);
+    let invitee = mailbox::address("invitee");
+    let id = invited(&api, &ada, &workspace, &invitee, "member").await;
+    api.database().owner_executes("DELETE FROM jobs").await;
+
+    let response = resend(&api, &bob, &workspace, &id).await;
+    api.run_jobs().await;
+
+    assert_eq!(response.status, 200, "{}", response.json());
+    let emails = mailbox::to(&invitee).await;
+    assert_eq!(emails.len(), 1);
+    let email = &emails[0];
+    assert_eq!(
+        email.subject,
+        "Bob Jones invited you to Acme & <Co> on AntWorker"
+    );
+    for (part, workspace) in [
+        (&email.text, "Acme & <Co>"),
+        (&email.html, "Acme &#38; &#60;Co&#62;"),
+    ] {
+        assert!(part.contains("Bob Jones"), "{part}");
+        assert!(part.contains(workspace), "{part}");
+        assert!(part.contains("as a member"), "{part}");
+        assert!(part.contains("expires in 3 days"), "{part}");
+        assert!(
+            part.contains(&format!("sign in to AntWorker with {invitee}")),
+            "{part}"
+        );
+        assert!(
+            part.contains("or create an account with that address"),
+            "{part}"
+        );
+    }
+    assert!(!email.html.contains("<Co>"), "{}", email.html);
+}
+
+#[tokio::test]
 async fn invitations_009_sending_again_counts_in_the_member_s_bucket_of_inviting() {
     let options = Options::default()
         .set("INVITATION_LIMIT", 3)

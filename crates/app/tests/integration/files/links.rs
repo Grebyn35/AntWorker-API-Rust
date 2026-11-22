@@ -433,3 +433,71 @@ async fn files_021_a_list_links_each_private_file_for_the_caller_s_session() {
         assert_eq!(response.status, 200, "{url}");
     }
 }
+
+#[tokio::test]
+async fn files_021_a_read_of_one_file_links_it_for_the_caller_s_session() {
+    let api = Api::new().await;
+    let (workspace, ada, grace) = acme(&api, "member").await;
+    let private = uploaded(&api, &ada, &workspace, "").await;
+    let public = uploaded(&api, &ada, &workspace, "?visibility=public").await;
+    let own = upload_own(&api, &grace, "mine.txt", b"mine", "", None)
+        .await
+        .json();
+    let own_public = upload_own(
+        &api,
+        &grace,
+        "ours.txt",
+        b"ours",
+        "?visibility=public",
+        None,
+    )
+    .await
+    .json();
+    let id = |file: &Value| file["id"].as_str().unwrap().to_owned();
+
+    let mut reads = Vec::new();
+    for (path, public_path) in [
+        (
+            format!("/v1/workspaces/{workspace}/files/{}", id(&private)),
+            None,
+        ),
+        (
+            format!("/v1/workspaces/{workspace}/files/{}", id(&public)),
+            Some(format!("/v1/public/workspace-files/{}", id(&public))),
+        ),
+        (format!("/v1/users/me/files/{}", id(&own)), None),
+        (
+            format!("/v1/users/me/files/{}", id(&own_public)),
+            Some(format!("/v1/public/user-files/{}", id(&own_public))),
+        ),
+    ] {
+        let read = api.get(&path).bearer(&grace.access).send().await;
+        assert_eq!(read.status, 200, "{path}: {}", read.json());
+        reads.push((path, public_path, read.json()));
+    }
+
+    for (path, public_path, file) in &reads {
+        let url = file["content_url"].as_str().unwrap();
+        if let Some(public_path) = public_path {
+            assert_eq!(url, public_path, "{path}");
+            assert_eq!(file["content_url_expires_at"], Value::Null, "{path}");
+            continue;
+        }
+        assert!(
+            url.starts_with(&format!("{path}/content?")),
+            "{path}: {url}"
+        );
+        assert_eq!(parameter(url, "session"), grace.session_id, "{path}");
+        let expires = file["content_url_expires_at"].as_str().unwrap();
+        let lasting = api
+            .database()
+            .owner_reads(&format!(
+                "SELECT (abs(extract(epoch FROM '{expires}'::timestamptz - now())) \
+                 BETWEEN 3540 AND 3600)::text"
+            ))
+            .await;
+        assert_eq!(lasting, ["true"], "{path}: an hour after the response");
+        let downloaded = api.get(url).send().await;
+        assert_eq!(downloaded.status, 200, "{path}: {url}");
+    }
+}

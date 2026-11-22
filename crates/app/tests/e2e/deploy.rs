@@ -471,6 +471,26 @@ async fn ops_14_a_deploy_refuses_to_run_while_another_deploy_backup_or_restore_r
         .shell_ok(&format!("! flock -n {DEPLOYMENT}/state/lock true"));
 }
 
+#[test]
+fn ops_18_an_operator_s_subcommand_refuses_to_run_while_another_runs() {
+    let deployment = Deployment::managed(&[]);
+    // A subcommand that runs: a process that holds the lock that one holds.
+    deployment.server.shell_ok(&format!(
+        "mkdir -p {DEPLOYMENT}/state && cd {DEPLOYMENT}/state \
+         && exec 7>> operating && flock -n 7 \
+         && {{ sleep 600 < /dev/null > /dev/null 2>&1 & }}"
+    ));
+
+    let refused = deployment.server.deploy(&["end-sessions", "--all"]);
+
+    assert!(!refused.status.success(), "{}", lossy(&refused));
+    assert!(
+        lossy(&refused).contains("another of the operator's subcommands is running"),
+        "{}",
+        lossy(&refused)
+    );
+}
+
 #[tokio::test]
 async fn ops_14_the_task_after_a_deploy_killed_before_its_replicas_serve_puts_back_its_files() {
     let deployment = Deployment::managed(&[]);

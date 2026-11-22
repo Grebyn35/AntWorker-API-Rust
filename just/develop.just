@@ -50,10 +50,13 @@ setup: && env _env-drift
 env:
     if (-not (Test-Path .env)) { $text = Get-Content .env.example -Raw; foreach ($name in 'ADMIN', 'OWNER', 'APP') { $bytes = New-Object byte[] 16; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes); $text = $text.Replace("__$($name)_PASSWORD__", -join ($bytes | ForEach-Object { $_.ToString('x2') })) }; $key = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($key); $text = $text.Replace('__HMAC_KEY__', [Convert]::ToBase64String($key)); $key = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($key); $text = $text.Replace('__ENCRYPTION_KEYS__', '1:' + [Convert]::ToBase64String($key)); [IO.File]::WriteAllText((Join-Path $PWD '.env'), $text) }
 
-# Starts the services in compose.yaml, and waits until they are healthy.
+# Starts the services in compose.yaml, and waits until they are healthy. First it restarts each
+# running one whose configuration, the files that it mounts from deploy/, changed since it
+# started, the observability stack's among them, which `up` leaves as they are (OPS-20).
 [doc("Starts the services in compose.yaml, such as Postgres")]
 [group('develop')]
 services:
+    {{ xtask }} stale-services
     docker compose up --detach --wait
 
 # Creates the database roles and their grants (DATA-12).
@@ -121,8 +124,11 @@ fmt:
     cargo fmt --all
 
 # Runs every test. The integration tests use the services. A failing test binary doesn't stop
-# the others, so one run reports every failure.
+# the others, so one run reports every failure. Once the tests pass, it fails on a route that a
+# spec's Routes table lists a behavior for and that no integration test named for the behavior
+# sent a request to, as the file that the tests wrote says (TEST-01).
 [doc("Runs the tests, which start Postgres through Compose")]
 [group('develop')]
 test: bound-build services
     cargo test --workspace --locked --no-fail-fast
+    {{ xtask }} sent-routes {{ sent_routes }}

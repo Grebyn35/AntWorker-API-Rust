@@ -398,3 +398,44 @@ async fn platform_025_each_email_that_send_now_sends_carries_a_message_id_of_its
         );
     }
 }
+
+#[tokio::test]
+async fn sec_20_the_mail_library_encodes_a_header_s_value_whatever_it_holds() {
+    let (api, ada) = api(Options::default()).await;
+    let to = mailbox::address("encoded");
+    let subject = "Zo\u{eb}'s caf\u{e9}\r\nBcc: eve@example.com";
+    let response = api
+        .post("/v1/mail", &json!({ "to": to, "subject": subject }))
+        .bearer(&ada.access)
+        .send()
+        .await;
+    assert_eq!(response.status, 204, "{:?}", response.json());
+
+    api.run_jobs().await;
+
+    let raw = mailbox::raw_to(&to).await;
+    assert_eq!(raw.len(), 1);
+    let (head, _) = raw[0].split_once("\r\n\r\n").unwrap();
+    assert!(head.is_ascii(), "{head}");
+    assert!(
+        !head
+            .lines()
+            .any(|line| line.to_ascii_lowercase().starts_with("bcc:")),
+        "{head}"
+    );
+    let header = subject_of(head);
+    assert!(header.contains("=?utf-8?"), "an encoded word: {header}");
+    assert_eq!(mailbox::to(&to).await[0].subject, subject, "{header}");
+}
+
+/// The `Subject` header of `head`, a message's header lines, with its folded lines.
+fn subject_of(head: &str) -> String {
+    let mut lines = head
+        .split("\r\n")
+        .skip_while(|line| !line.starts_with("Subject:"));
+    let mut header = lines.next().expect("a Subject").to_owned();
+    for folded in lines.take_while(|line| line.starts_with([' ', '\t'])) {
+        header.push_str(folded);
+    }
+    header
+}

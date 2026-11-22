@@ -246,10 +246,14 @@ async fn files_012_a_bucket_that_doesn_t_answer_makes_a_public_download_answer_5
     files::publish(db, "workspace_files", &public).await;
     let own = files::arrange_own(db, &ada.user_id, "Own").await;
     files::publish(db, "user_files", &own).await;
+    let avatar = files::arrange_avatar(db, &ada.user_id).await;
+    let picture = files::arrange_picture(db, &workspace).await;
 
     for path in [
         format!("/v1/public/workspace-files/{public}"),
         format!("/v1/public/user-files/{own}"),
+        format!("/v1/public/avatars/{avatar}"),
+        format!("/v1/public/workspace-pictures/{picture}"),
     ] {
         let response = api.get(&path).send().await;
 

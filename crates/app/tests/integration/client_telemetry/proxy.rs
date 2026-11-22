@@ -408,6 +408,33 @@ async fn client_telemetry_008_a_replica_s_budget_counts_every_user_s_batches_tha
 }
 
 #[tokio::test]
+async fn client_telemetry_008_a_replica_s_budget_counts_the_batches_of_logs_and_of_metrics() {
+    for (first, second) in [(LOGS, METRICS), (METRICS, LOGS)] {
+        let collector = collector().await;
+        let whole = u32::try_from(MEBIBYTE).unwrap();
+        let api = Api::with(forwarding(&collector, whole, whole)).await;
+        let ada = consenting(&api, "ada@example.com").await;
+        let grace = consenting(&api, "grace@example.com").await;
+        let batch = vec![0; 600 * 1024];
+
+        let taken = send(&api, &ada, first, PROTOBUF, &batch).await;
+        let beyond = send(&api, &grace, second, PROTOBUF, &batch).await;
+        let afterwards = send(&api, &ada, first, PROTOBUF, &[0]).await;
+
+        assert_eq!(taken.status, 200, "{first}");
+        assert_refused_by(&beyond, "telemetry_replica", whole);
+        // The refused batch stays counted, so the window refuses the replica's later batches.
+        assert_refused_by(&afterwards, "telemetry_replica", whole);
+        let received: Vec<String> = collector
+            .received()
+            .into_iter()
+            .map(|request| request.path)
+            .collect();
+        assert_eq!(received.len(), 1, "{first} then {second}: {received:?}");
+    }
+}
+
+#[tokio::test]
 async fn client_telemetry_008_by_default_a_replica_s_budget_holds_four_users_full_budgets() {
     let collector = collector().await;
     let api = Api::with(collector.collector_options()).await;
@@ -460,25 +487,35 @@ async fn client_telemetry_008_without_its_setting_a_replica_s_budget_is_four_tim
     assert_refused_by(&fifth, "telemetry_replica", 4 * twice);
 }
 
+/// Each route that takes a batch, and the collector's path that its batches go to.
+const ROUTES: [(&str, &str); 3] = [
+    (TRACES, "/v1/traces"),
+    (LOGS, "/v1/logs"),
+    (METRICS, "/v1/metrics"),
+];
+
 #[tokio::test]
 async fn client_telemetry_009_a_batch_that_the_collector_refuses_answers_400() {
-    let collector = collector().await;
-    let whole = u32::try_from(MEBIBYTE).unwrap();
-    let api = Api::with(forwarding(&collector, whole, UNBOUNDED)).await;
-    let ada = consenting(&api, "ada@example.com").await;
+    for (route, at) in ROUTES {
+        let collector = collector().await;
+        let whole = u32::try_from(MEBIBYTE).unwrap();
+        let api = Api::with(forwarding(&collector, whole, UNBOUNDED)).await;
+        let ada = consenting(&api, "ada@example.com").await;
+        let batch = vec![0; 300 * 1024];
 
-    for status in [400, 413, 415] {
-        collector.set("POST", "/v1/traces", status, json!({ "code": 3 }));
+        for status in [400, 413, 415] {
+            collector.set("POST", at, status, json!({ "code": 3 }));
 
-        let refused = send_bytes(&api, &ada, 300 * 1024).await;
+            let refused = send(&api, &ada, route, PROTOBUF, &batch).await;
 
-        assert_eq!(refused.status, 400, "the collector's {status}");
-        assert_eq!(refused.json()["code"], "client_telemetry.batch_refused");
+            assert_eq!(refused.status, 400, "{route}: the collector's {status}");
+            assert_eq!(refused.json()["code"], "client_telemetry.batch_refused");
+        }
+        // The three refused batches counted in the user's budget, which holds no fourth.
+        collector.set("POST", at, 200, json!({}));
+        let fourth = send(&api, &ada, route, PROTOBUF, &batch).await;
+        assert_refused_by(&fourth, "telemetry_user", whole);
     }
-    // The three refused batches counted in the user's budget, which holds no fourth.
-    collector.set("POST", "/v1/traces", 200, json!({}));
-    let fourth = send_bytes(&api, &ada, 300 * 1024).await;
-    assert_refused_by(&fourth, "telemetry_user", whole);
 }
 
 #[tokio::test]
@@ -486,17 +523,19 @@ async fn client_telemetry_009_a_collector_that_doesn_t_take_a_batch_answers_503(
     let (collector, api) = standing().await;
     let ada = consenting(&api, "ada@example.com").await;
 
-    for status in [302, 404, 405, 429, 500, 503] {
-        collector.set("POST", "/v1/traces", status, json!({}));
+    for (route, at) in ROUTES {
+        for status in [302, 404, 405, 429, 500, 503] {
+            collector.set("POST", at, status, json!({}));
 
-        let unavailable = send_bytes(&api, &ada, 8).await;
+            let unavailable = send(&api, &ada, route, PROTOBUF, &[0; 8]).await;
 
-        assert_eq!(unavailable.status, 503, "the collector's {status}");
-        assert_eq!(
-            unavailable.json()["code"],
-            "client_telemetry.collector_unavailable"
-        );
-        assert_eq!(unavailable.header("retry-after"), "1");
+            assert_eq!(unavailable.status, 503, "{route}: the collector's {status}");
+            assert_eq!(
+                unavailable.json()["code"],
+                "client_telemetry.collector_unavailable"
+            );
+            assert_eq!(unavailable.header("retry-after"), "1");
+        }
     }
 }
 

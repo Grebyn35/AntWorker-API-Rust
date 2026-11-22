@@ -5,11 +5,17 @@
 # Runs the API's subcommand $1, which an operator runs against the accounts, with the arguments
 # that follow, in a one-off container of its service of the color that serves, which goes once
 # the subcommand ends; the arguments replace the service's command, so they name the subcommand
-# again. It takes no lock: the subcommand changes only the database's rows, in one transaction, as
-# a request does, so it runs beside a deploy or a backup.
+# again. It takes no lock of a deploy's: the subcommand changes only the database's rows, in one
+# transaction, as a request does, so it runs beside a deploy or a backup. It takes the
+# subcommands' own, state/operating, and refuses while another subcommand holds it, since a
+# deploy's budget of connections counts one for them (OPS-18); the kernel releases the lock once
+# the task's last process ends.
 operate() {
     subcommand=$1
     shift
+    mkdir -p "$state"
+    exec 7>> "$state/operating"
+    if ! flock -n 7; then fail "another of the operator's subcommands is running"; fi
     if [ ! -f "$state/deploy.env" ]; then fail "no deploy has run on this server, so no account exists"; fi
     read_settings
     color=$(live_color)

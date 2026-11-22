@@ -53,7 +53,7 @@ A registration through a provider hands the provider's picture of its user to `a
 | `POST /v1/users/me/email/change` | user, whose account may still have to prove its address | AUTH-048, AUTH-049 |
 | `POST /v1/users/me/email/change/confirm` | user, whose account may still have to prove its address | AUTH-026, AUTH-033, AUTH-051 to AUTH-053, AUTH-070 |
 | `POST /v1/users/me/sessions/current/reauthenticate` | user, whose account may still have to prove its address | AUTH-015, AUTH-021, AUTH-022, AUTH-026, AUTH-057, AUTH-061, AUTH-062, AUTH-065, AUTH-068, AUTH-070, AUTH-093, AUTH-095 |
-| `POST /v1/users/me/sessions/current/reauthenticate/provider` | user, whose account may still have to prove its address | AUTH-015, AUTH-022, AUTH-026, AUTH-057, AUTH-061, AUTH-062, AUTH-068, AUTH-070, AUTH-077 to AUTH-080, AUTH-095 |
+| `POST /v1/users/me/sessions/current/reauthenticate/provider` | user, whose account may still have to prove its address | AUTH-015, AUTH-026, AUTH-057, AUTH-061, AUTH-062, AUTH-068, AUTH-070, AUTH-077 to AUTH-080, AUTH-095 |
 | `DELETE /v1/users/me` | user | AUTH-023, AUTH-024, AUTH-046, AUTH-069 |
 | `POST /v1/password-resets` | public | AUTH-034, AUTH-035 |
 | `POST /v1/password-resets/confirm` | public | AUTH-037 to AUTH-039, AUTH-041, AUTH-046, AUTH-057, AUTH-061, AUTH-062, AUTH-068, AUTH-069 |
