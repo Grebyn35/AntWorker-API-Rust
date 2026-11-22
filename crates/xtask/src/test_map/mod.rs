@@ -1,7 +1,8 @@
 //! `check-test-map`: every test's name starts with a behavior or rule ID that exists
 //! (TEST-01), a rule whose `Check` names `test` has one, as `rules.rs` says, the tests name
-//! what `named.rs` says of the modules' declarations (SEC-18, SEC-19), and the report shows
-//! which behaviors tests prove (DOC-09).
+//! what `named.rs` says of the modules' declarations (SEC-18, SEC-19), no test's wait counts its
+//! polls as `waits.rs` reads one (TEST-06), and the report shows which behaviors tests prove
+//! (DOC-09).
 //!
 //! While `docs/MIGRATION.md` exists, specs are written ahead of their code, so a behavior that
 //! no test proves is reported. Once the migration closes, it fails the check.
@@ -9,6 +10,7 @@
 mod named;
 mod rules;
 pub mod sent;
+mod waits;
 
 use std::collections::BTreeSet;
 
@@ -29,6 +31,7 @@ pub fn check(repo: &Repo, catalog: &Catalog) -> Outcome {
     let proven = proven(repo, catalog, &mut outcome.findings);
     outcome.findings.extend(named::check(repo));
     outcome.findings.extend(rules::check(repo, &proven));
+    outcome.findings.extend(waits::check(repo));
     let strict = repo.file(TRACKER).is_none();
     let (mut proven_count, mut total) = (0, 0);
     for (prefix, behaviors) in catalog.behaviors() {

@@ -9,12 +9,12 @@ These names apply to the product schema: the tables, views, columns and constrai
 - Tables and views are plural `snake_case` (`workspace_memberships`).
 - A foreign-key column is named `<singular>_id`, after the table it references (`workspace_id`), or `<role>_id`, after the role of the row it references, with that singular where the role alone doesn't tell the table (`publisher_id`, `actor_user_id`). Timestamps are `<event>_at`.
 - Constraints and indexes are named explicitly:
-  - `<table>_<columns>_key` for unique constraints
+  - `<table>_<columns>_key` for unique constraints, and for the unique indexes that back no constraint, such as a partial one
   - `<table>_<columns>_fkey` for foreign keys
   - `<table>_<columns>_check` for checks
-  - `<table>_<columns>_idx` for indexes
+  - `<table>_<columns>_idx` for the other indexes
 - Why: ERR-05 maps constraint violations by name, and a predictable name needs no lookup.
-- Check: `ci: check-schema`, which reads of a foreign-key column's name only that it ends in `_id`, plus `review` (what that name is taken from).
+- Check: `ci: check-schema`, which reads of a foreign-key column's name only that it ends in `_id`, and of the name of an index on an expression only that it starts with its table's and ends in `_key` or `_idx`, plus `review` (what those names are taken from).
 
 ### DATA-02 Standard columns
 - Every table of the product schema (DATA-01) has `id uuid PRIMARY KEY DEFAULT uuidv7()` and `created_at timestamptz NOT NULL DEFAULT now()`.

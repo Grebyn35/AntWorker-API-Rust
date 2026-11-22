@@ -117,13 +117,14 @@ fn unused(repo: &Repo, dependencies: &[Dependency]) -> Vec<Finding> {
     findings
 }
 
-/// Whether the code of `text`, outside its `//` comments, holds `name` as a word of its own. A
-/// string counts inside an attribute, such as `#[serde(with = "time::serde::rfc3339")]`, which
-/// names a crate in one, and nowhere else, where a message such as "the time ran out" names none.
+/// Whether the code of `text`, outside its `//` comments as [`crate::text::comment`] finds them
+/// in Rust, holds `name` as a word of its own. A string counts inside an attribute, such as
+/// `#[serde(with = "time::serde::rfc3339")]`, which names a crate in one, and nowhere else, where
+/// a message such as "the time ran out" names none.
 fn names(text: &str, name: &str) -> bool {
     let mut depth = 0_usize;
     text.lines().any(|line| {
-        let code = line.split("//").next().unwrap_or_default();
+        let code = crate::text::rust_code(line);
         let trimmed = code.trim_start();
         let attribute = depth > 0 || trimmed.starts_with("#[") || trimmed.starts_with("#![");
         let read = if attribute {
@@ -224,5 +225,12 @@ mod tests {
                  dependency: remove it (CODE-12)",
             ]
         );
+    }
+
+    #[test]
+    fn code_12_a_name_after_a_string_that_holds_two_slashes_is_read() {
+        let code = "const HOME: &str = \"https://example.org\"; fn f() { url::parse(HOME); }\n";
+
+        assert!(names(code, "url"));
     }
 }

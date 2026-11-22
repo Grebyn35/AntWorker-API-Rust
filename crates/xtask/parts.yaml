@@ -50,6 +50,7 @@ parts:
       - docs/spec/invitations.md
     words:
       - invit
+      - offer of a role
       - teams shape # part: workspace_creation
       - one organization shape # part: workspace_setup
       - provisioned shape # part: superadmins

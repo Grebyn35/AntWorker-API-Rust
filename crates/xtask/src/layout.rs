@@ -301,10 +301,7 @@ fn modules(repo: &Repo) -> Vec<Finding> {
 /// attribute or an inner one, but on a test target's module that another target's support holds,
 /// which `#[path]` names: that target, which holds the module, checks its every item.
 fn dead_code(path: &str, text: &str) -> Vec<Finding> {
-    let lines: Vec<&str> = text
-        .lines()
-        .map(|line| line.split("//").next().unwrap_or_default())
-        .collect();
+    let lines: Vec<&str> = text.lines().map(crate::text::rust_code).collect();
     let test_target = path.split('/').nth(2) == Some("tests");
     let mut findings = Vec::new();
     let mut attribute: Option<bool> = None;
@@ -376,7 +373,7 @@ fn jobs(path: &str, text: &str) -> Vec<Finding> {
         && !text.contains("fn queued");
     let mut findings = Vec::new();
     for (index, line) in text.lines().enumerate() {
-        let code = line.split("//").next().unwrap_or_default();
+        let code = crate::text::rust_code(line);
         let declares = code.contains("impl Job for")
             || code.contains(".queued(")
             || code.contains(".periodic(");
@@ -597,6 +594,15 @@ mod tests {
     }
 
     #[test]
+    fn code_15_an_exception_to_dead_code_after_a_string_that_holds_two_slashes_is_found() {
+        let line = "const HOME: &str = \"https://example.org\"; #[expect(dead_code, reason = \"later\")] fn f() {}\n";
+
+        let found = messages(&[("crates/platform/src/a.rs", line)]);
+
+        assert_eq!(found.len(), 1, "{found:?}");
+    }
+
+    #[test]
     fn ops_09_a_job_is_declared_in_jobs_rs_with_its_module_s_kind() {
         let found = messages(&[
             ("crates/app/src/modules/things/error.rs", ""),
@@ -632,6 +638,25 @@ mod tests {
                  `platform.` (OPS-09)",
                 "crates/platform/src/jobs/sweeps.rs:4: the kind `sweeps.c` doesn't start with \
                  `platform.` (OPS-09)",
+            ]
+        );
+    }
+
+    #[test]
+    fn ops_09_a_job_declared_after_a_string_that_holds_two_slashes_is_found() {
+        let found = messages(&[
+            ("crates/app/src/modules/things/error.rs", ""),
+            (
+                "crates/app/src/modules/things/service.rs",
+                "const HOME: &str = \"https://example.org\"; impl Job for Thing {}\n",
+            ),
+        ]);
+
+        assert_eq!(
+            found,
+            [
+                "crates/app/src/modules/things/service.rs:1: a job is declared in its module's \
+              jobs.rs (OPS-09)"
             ]
         );
     }

@@ -256,7 +256,7 @@ impl Lengths<'_> {
             Value::Array(kinds) => kinds.iter().any(|kind| kind == "string"),
             _ => false,
         };
-        let bounded = ["maxLength", "enum", "const"]
+        let bounded = ["maxLength", "enum"]
             .iter()
             .any(|key| schema.get(*key).is_some());
         if is_string && !bounded {
@@ -417,6 +417,7 @@ mod tests {
             "Note": { "type": "string" },
             "Delivery": { "type": "string", "enum": ["body", "cookie"] },
             "Request": { "type": "object", "properties": {
+                "kind": { "type": "string", "const": "thing" },
                 "name": { "$ref": "#/components/schemas/Name" },
                 "note": { "oneOf": [{ "$ref": "#/components/schemas/Note" }, { "type": "null" }] },
                 "delivery": { "$ref": "#/components/schemas/Delivery" },
@@ -431,6 +432,7 @@ mod tests {
         assert_eq!(
             messages(&document(operation, schemas)),
             [
+                "POST /v1/things application/json request: the string at /kind has no maxLength (API-17)",
                 "POST /v1/things application/json request: the string at /note has no maxLength (API-17)",
                 "POST /v1/things application/json request: the string at /tags/* has no maxLength (API-17)",
             ]

@@ -1,7 +1,8 @@
 //! What `just remove`, `just keep` and `check-parts` refuse before they remove anything: a marker
-//! that names no part, a line that holds two markers, a block that no end marker closes, and a
-//! test that removing a part would take though its behavior stays, unless the test proves a
-//! clause that exists only with another part too (ARCH-07, TEST-04).
+//! that names no part, a line that holds two markers, a block that no end marker closes, a test
+//! that removing a part would take though its behavior stays, unless the test proves a clause
+//! that exists only with another part too (ARCH-07, TEST-04), and a row of the security map that
+//! cites in the cells that a removal keeps of it (`asvs`).
 
 use super::{Part, SPECS, markers, owned};
 use crate::{Finding, repo::Repo};
@@ -23,6 +24,7 @@ pub(super) fn validate(repo: &Repo, parts: &[Part]) -> Vec<Finding> {
                 .map(|(line, message)| Finding::new(&file.path, line, message))
         })
         .collect();
+    findings.extend(super::asvs::citing_cells(repo));
     for part in parts {
         let module = part.module.as_deref();
         let owned = owned(repo, part);

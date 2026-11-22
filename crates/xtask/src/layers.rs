@@ -253,7 +253,7 @@ struct Handlers<'a> {
 
 impl<'ast> Visit<'ast> for Handlers<'_> {
     fn visit_item_fn(&mut self, item: &'ast syn::ItemFn) {
-        let limits = typed(item, "RateLimits");
+        let limits = rate_limits(item);
         let states = states(item);
         let mut calls = Calls {
             limits: &limits,
@@ -304,8 +304,8 @@ impl<'ast> Visit<'ast> for Handlers<'_> {
     }
 }
 
-/// The names of `item`'s parameters whose type's last segment is `name`, such as `RateLimits`.
-fn typed(item: &syn::ItemFn, name: &str) -> Vec<String> {
+/// The names of `item`'s parameters whose type's last segment is `RateLimits`.
+fn rate_limits(item: &syn::ItemFn) -> Vec<String> {
     item.sig
         .inputs
         .iter()
@@ -316,7 +316,7 @@ fn typed(item: &syn::ItemFn, name: &str) -> Vec<String> {
                         .path
                         .segments
                         .last()
-                        .is_some_and(|last| last.ident == name) =>
+                        .is_some_and(|last| last.ident == "RateLimits") =>
                 {
                     Some(named.ident.to_string())
                 }

@@ -7,7 +7,10 @@
 //! matches `openapi.json` (DOC-08, in `routes`); the accounts spec's tables of the personal data
 //! contracts match the contracts that the composition root registers (DOC-07, in `contracts`);
 //! and test prefixes, paths to Rust files, the name of a codebase this one replaces, and paths
-//! into the inventory are named only where they resolve or DOC-13 allows (`references`).
+//! into the inventory are named only where they resolve or DOC-13 allows (`references`); and two
+//! lists that documents keep of the code hold what the code holds (ARCH-01, DOC-01, in `listings`).
+
+mod listings;
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -15,6 +18,7 @@ use crate::{
     Finding, Outcome, acronyms, catalog::Catalog, contracts, formats, markdown, references,
     repo::Repo, routes, text, words,
 };
+use listings::{composition, subcommands};
 
 /// Words that describe history instead of the current state (DOC-01).
 const HISTORY: [&str; 5] = ["previously", "no longer", "used to", "legacy", "now uses"];
@@ -52,6 +56,8 @@ pub fn check(repo: &Repo, catalog: &Catalog) -> Outcome {
     findings.extend(headings(&documents));
     findings.extend(ids(repo, catalog));
     findings.extend(named_checks(repo, catalog));
+    findings.extend(subcommands(repo));
+    findings.extend(composition(repo));
     findings.extend(prose_markers(&documents));
     findings.extend(comment_markers(repo));
     findings.extend(document_markers(repo));
@@ -59,6 +65,7 @@ pub fn check(repo: &Repo, catalog: &Catalog) -> Outcome {
     findings.extend(formats::check(repo));
     findings.extend(routes::check(repo));
     findings.extend(acronyms::check(repo, catalog));
+    findings.extend(acronyms::unused(repo));
     findings.extend(references::check(repo, catalog));
     findings.extend(contracts::check(repo));
     findings.extend(words::check(repo));
@@ -436,6 +443,52 @@ mod tests {
     const CI: &str = "# CI\n\n## Checks that exist\n\n| Check | `just` task | Enforces |\n|---|---|---|\n\
                       | Style | `check-style` | STYLE-01 |\n";
 
+    #[test]
+    fn doc_01_the_layout_of_app_names_each_file_of_the_composition_root() {
+        let architecture = "```\n  src/\n    composition/   the root, in mod.rs,\n\
+                            \x20                  and in tasks.rs\n    modules/       seed.rs\n```\n";
+        let repo = Repo::of(&[
+            ("docs/architecture.md", architecture),
+            ("crates/app/src/composition/mod.rs", ""),
+            ("crates/app/src/composition/tasks.rs", ""),
+            ("crates/app/src/composition/seed.rs", ""),
+            ("crates/app/src/composition/seed/accounts.rs", ""),
+        ]);
+
+        let found: Vec<String> = composition(&repo).iter().map(ToString::to_string).collect();
+
+        assert_eq!(
+            found,
+            [
+                "docs/architecture.md:3: the layout of `app` doesn't name composition/seed.rs (DOC-01)"
+            ]
+        );
+    }
+
+    #[test]
+    fn arch_01_the_list_of_xtask_s_subcommands_is_the_one_that_check_just_runs() {
+        let recipes = "check-a:\n    {{ xtask }} check-a\ncheck-b:\n    {{ xtask }} check-b --all\n\
+                       other:\n    cargo run --package app\n";
+        // The fixture's marker is built, so that this file holds none.
+        let ci = format!(
+            "# CI\n\n`check-a` and `check-c` are subcommands of the `xtask` crate (ARCH-01).\n\
+             So are `check-d`. <!-- {} gadgets -->\n\n`check-b` runs elsewhere.\n",
+            "part:"
+        );
+        let repo = Repo::of(&[("just/check.just", recipes), ("docs/operations/ci.md", &ci)]);
+
+        let found: Vec<String> = subcommands(&repo).iter().map(ToString::to_string).collect();
+
+        assert_eq!(
+            found,
+            [
+                "docs/operations/ci.md:3: `check-b`, which just/check.just runs through xtask, isn't in the list of xtask's subcommands (ARCH-01)",
+                "docs/operations/ci.md:3: the list of xtask's subcommands names `check-c`, which just/check.just doesn't run through xtask (ARCH-01)",
+                "docs/operations/ci.md:3: the list of xtask's subcommands names `check-d`, which just/check.just doesn't run through xtask (ARCH-01)",
+            ]
+        );
+    }
+
     fn findings(changes: &[(&'static str, &'static str)]) -> Vec<String> {
         let mut all = vec![("docs/operations/ci.md", CI)];
         all.extend_from_slice(changes);
@@ -458,7 +511,7 @@ mod tests {
                       [gone](docs/gone.md)\n\
                       [anchor](docs/architecture.md#nowhere)\n\
                       [out](../elsewhere.md) [site](https://example.com) [here](#readme)\n\
-                      # Readme\n";
+                      # Readme\n\nText.\n";
 
         assert_eq!(
             findings(&[("README.md", readme)]),
@@ -472,7 +525,8 @@ mod tests {
 
     #[test]
     fn doc_12_two_headings_of_one_text_are_reported_linked_or_not() {
-        let guide = "# Guide\n\n## Notes\n\nText.\n\n## Steps\n\n## Notes\n\n```\n## Notes\n```\n";
+        let guide =
+            "# Guide\n\n## Notes\n\nText.\n\n## Steps\nSteps.\n## Notes\n\n```\n## Notes\n```\n";
         let inventory = "# Old\n\n## Notes\n\n## Notes\n";
 
         assert_eq!(

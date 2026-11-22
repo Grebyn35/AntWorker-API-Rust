@@ -262,7 +262,7 @@ fn leftovers<'a>(
     Ok(())
 }
 
-/// The migration's timestamp: the time now, in UTC, as `YYYYMMDDhhmmss`, or one second after the
+/// The migration's timestamp: the time now, in UTC, as `YYYYMMDDhhmmss`, or the number after the
 /// newest migration's, if that comes later, so the module's migration runs after every other.
 fn timestamp(repo: &Repo) -> Result<String, String> {
     #[expect(

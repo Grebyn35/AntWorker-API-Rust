@@ -1,6 +1,10 @@
 //! `check-pins`: everything a build or a check uses is pinned (OPS-11), and the toolchain and the
 //! edition are the ones `rust-toolchain.toml` and the workspace name (CODE-01).
 
+mod forms;
+
+use forms::{has_digest, is_exact_version, is_required_variable, is_versioned_runner};
+
 use crate::{Finding, Outcome, repo::Repo};
 
 const WORKFLOWS: &str = ".github/workflows/";
@@ -253,6 +257,28 @@ fn dockerfile_pins(path: &str, text: &str, findings: &mut Vec<Finding>) {
                     stages.push((*stage).to_owned());
                 }
             }
+            Some("COPY" | "RUN") => {
+                // The image of a `COPY --from=` or of a `RUN --mount=` option's `from=`, among
+                // the options before the instruction's arguments, unless it names a stage.
+                let options = words[1..].iter().take_while(|word| word.starts_with("--"));
+                let named = options
+                    .flat_map(|option| option.split(','))
+                    .filter_map(|part| {
+                        part.strip_prefix("--from=")
+                            .or_else(|| part.strip_prefix("from="))
+                    });
+                for image in named.filter(|image| {
+                    !has_digest(image)
+                        && !names_stage(image, &stages)
+                        && image.parse::<usize>().is_err()
+                }) {
+                    findings.push(Finding::new(
+                        path,
+                        number,
+                        format!("the image {image} is pinned by digest (OPS-11)"),
+                    ));
+                }
+            }
             Some("ADD") => {
                 let remote = words
                     .iter()
@@ -448,52 +474,6 @@ fn has_line(text: &str, wanted: &str) -> bool {
     text.lines().any(|line| line.trim() == wanted)
 }
 
-/// Whether `value` is one variable that Compose requires, `${NAME}` or `${NAME:?message}`, with
-/// no default it could fall back to.
-fn is_required_variable(value: &str) -> bool {
-    let Some(inner) = value
-        .strip_prefix("${")
-        .and_then(|rest| rest.strip_suffix('}'))
-    else {
-        return false;
-    };
-    let (name, rest) = inner.split_at(
-        inner
-            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
-            .unwrap_or(inner.len()),
-    );
-    !name.is_empty() && (rest.is_empty() || rest.starts_with(":?") || rest.starts_with('?'))
-}
-
-fn has_digest(image: &str) -> bool {
-    image.rsplit_once("@sha256:").is_some_and(|(_, digest)| {
-        digest.len() == 64 && digest.bytes().all(|b| b.is_ascii_hexdigit())
-    })
-}
-
-/// Whether `version` is three whole numbers, such as `1.99.1`.
-fn is_exact_version(version: &str) -> bool {
-    let parts: Vec<&str> = version.split('.').collect();
-    parts.len() == 3
-        && parts
-            .iter()
-            .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
-}
-
-/// Whether `runner` is a hosted runner's versioned label, such as `ubuntu-24.04` or
-/// `ubuntu-24.04-arm`.
-fn is_versioned_runner(runner: &str) -> bool {
-    let runner = runner.strip_suffix("-arm").unwrap_or(runner);
-    ["ubuntu-", "windows-", "macos-"].iter().any(|os| {
-        runner.strip_prefix(os).is_some_and(|version| {
-            !version.is_empty()
-                && version
-                    .split('.')
-                    .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
-        })
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -574,6 +554,26 @@ mod tests {
         assert_eq!(
             compose,
             ["deploy/compose.yaml:3: the image caddy:2.11.7 is pinned by digest (OPS-11)"]
+        );
+    }
+
+    #[test]
+    fn ops_11_an_image_that_a_copy_or_a_mount_names_is_pinned_by_digest() {
+        let dockerfile = format!(
+            "# syntax=docker/dockerfile:1.27.1@sha256:{DIGEST}\nFROM alpine:3.24.3@sha256:{DIGEST} AS base\n\
+             COPY --from=base /a /a\nCOPY --from=0 /b /b\nCOPY --from=busybox:1.37@sha256:{DIGEST} /c /c\n\
+             COPY --from=busybox:1.37 /d /d\nRUN --mount=type=cache,from=base,target=/e true\n\
+             RUN --mount=type=bind,from=golang:1.26,target=/f true\nRUN tool --from=anything\n"
+        );
+
+        let findings = findings_with(DOCKERFILE, &dockerfile);
+
+        assert_eq!(
+            findings,
+            [
+                "Dockerfile:6: the image busybox:1.37 is pinned by digest (OPS-11)",
+                "Dockerfile:8: the image golang:1.26 is pinned by digest (OPS-11)",
+            ]
         );
     }
 

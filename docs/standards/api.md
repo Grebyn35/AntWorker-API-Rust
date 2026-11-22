@@ -7,7 +7,7 @@ The HTTP contract every route follows. The generated OpenAPI document is the aut
 ### API-01 Paths are versioned, plural and lowercase
 Every route lives under `/v1`, except the health probes `/health/live` and `/health/ready` (OPS-05), which load balancers call without a version, and the API reference that development serves at `/docs` (PLATFORM-052), which no client is built against. Collections are plural nouns, and segments of more than one word use kebab-case (`/order-items`). A path parameter is named `{<resource>_id}`, after the resource whose ID it holds, which the segment before it may name in other words: `/members/{user_id}` holds the ID of the member's user.
 - Why: a path reads as a predictable address for a resource (D8).
-- Check: `ci: check-openapi` (a path lint over the committed document).
+- Check: `ci: check-openapi` (each path of the committed document is under `/v1`, its segments are lowercase kebab-case, and its parameters are `snake_case` names that end in `_id`), plus `review` (a collection is a plural noun, and a parameter is named after the resource whose ID it holds).
 
 ### API-02 The scope of a resource is in its path
 Workspace resources live under `/v1/workspaces/{workspace_id}/`, and the caller's own resources under `/v1/users/me/`.
@@ -157,7 +157,7 @@ Within `/v1`, changes are additive: new routes, new optional request fields, new
 - Check: `ci: check-openapi` (a breaking-change diff against the last final release, which reads of the two documents what the comment of [`breaking`](../../crates/xtask/src/openapi/breaking/mod.rs) says), plus `review` (what the documents don't hold, such as what a route does with a request that it takes).
 
 ### API-19 Event names and payloads
-Server-sent events (SSE) are named `<resource>.<past-tense verb>`, for example `member.removed`. A payload carries IDs and non-sensitive fields only, and is a type that its event declares, whose schema the event catalog documents (REALTIME-008). Clients fetch details over REST.
+Server-sent events (SSE) are named `<resource>.<past-tense verb>`, for example `member.removed`, and so are the frames that the stream sends of its own, such as `stream.closed` (REALTIME-008). The verb may name what changed before it, as `member.role_changed` does. A payload carries IDs and non-sensitive fields only, and is a type that its event declares, whose schema the event catalog documents (REALTIME-008). Clients fetch details over REST.
 - Why: events never leak data that the REST permission checks would withhold (D7), and a client knows each payload's shape from the document (D8).
 - Check: `compiler` (an event is published only with the payload type it declares), `ci: check-openapi` (each frame type's shape, `<resource>.<verb>` in `snake_case`), `review` (the verb's tense, and what a payload holds), plus `test` (TEST-08 covers the REST side, and REALTIME-008 the payloads' schemas).
 

@@ -32,7 +32,7 @@ use crate::{
 };
 
 /// The deployment's directory on the server, in the home of the user SSH signs in as.
-const DEPLOYMENT: &str = "$HOME/deployment";
+pub const DEPLOYMENT: &str = "$HOME/deployment";
 
 /// The version of the release that `requested` names, as its tag `v<version>` and its images
 /// write it, given whether a tag exists; or why it can't be deployed.
@@ -108,7 +108,8 @@ pub fn deploy(host: &str, requested: Option<&str>, allow_restart: bool) -> ExitC
         note(&format!("Deploying {version}, the latest release."));
     }
     let release = format!("{DEPLOYMENT}/releases/{version}");
-    if let Err(error) = send_files(&root, host, &version, &release) {
+    let unpack = format!("set -e; rm -rf {release}; mkdir -p {release}; tar -x -C {release}");
+    if let Err(error) = send_files(&root, host, &version, &unpack) {
         return refuse(&format!(
             "Can't copy the release's files to {host}: {error}"
         ));
@@ -314,9 +315,10 @@ pub fn logs(host: &str, arguments: &[String]) -> ExitCode {
     on_server_with(host, &command, follows && io::stdin().is_terminal())
 }
 
-/// Copies the files of deploy/ at the tag of `version` to the directory `release` on `host`,
-/// replacing what it held.
-fn send_files(root: &Path, host: &str, version: &str, release: &str) -> Result<(), String> {
+/// Sends the files of deploy/ at the tag of `version` to `host`, as a tar archive on the input of
+/// `unpack`, a command of the server's shell that writes them out, and returns what `unpack`
+/// wrote on its standard output. Its standard error goes to this process's.
+pub fn send_files(root: &Path, host: &str, version: &str, unpack: &str) -> Result<String, String> {
     let mut archive = archive(root, &format!("v{version}:deploy"))
         .stdout(Stdio::piped())
         .spawn()
@@ -324,11 +326,10 @@ fn send_files(root: &Path, host: &str, version: &str, release: &str) -> Result<(
     let stdout = archive.stdout.take().ok_or("git archive has no output")?;
     let unpacked = Command::new("ssh")
         .arg(host)
-        .arg(format!(
-            "set -e; rm -rf {release}; mkdir -p {release}; tar -x -C {release}"
-        ))
+        .arg(unpack)
         .stdin(Stdio::from(stdout))
-        .status()
+        .stderr(Stdio::inherit())
+        .output()
         .map_err(|error| format!("can't run ssh: {error}"))?;
     let archived = archive
         .wait()
@@ -336,10 +337,13 @@ fn send_files(root: &Path, host: &str, version: &str, release: &str) -> Result<(
     if !archived.success() {
         return Err("git archive failed".to_owned());
     }
-    if !unpacked.success() {
-        return Err(format!("unpacking them on the server failed ({unpacked})"));
+    if !unpacked.status.success() {
+        return Err(format!(
+            "unpacking them on the server failed ({})",
+            unpacked.status
+        ));
     }
-    Ok(())
+    Ok(String::from_utf8_lossy(&unpacked.stdout).into_owned())
 }
 
 /// The command that writes the files of `tree` in `root` as a tar archive, as the repository

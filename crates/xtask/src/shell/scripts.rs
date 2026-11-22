@@ -8,36 +8,60 @@ use std::collections::BTreeSet;
 use crate::{repo::Repo, tenancy::words};
 
 /// Each line of `script` whose `echo`, the word `echo ` where a command starts, writes a value: an
-/// argument with an expansion, as [`writes_expansion`] reads it on the `echo`'s line. A server's
-/// sh, such as Ubuntu's dash, reads a backslash in echo's arguments as an escape, and `\c` ends
-/// the output, while printf's `%s` writes the value as it is. Alpine's sh, the tests' server's,
-/// writes it as it is, so no test would find one.
+/// argument with an expansion, as [`writes_expansion`] reads it on the `echo`'s line, or whose
+/// arguments go on past the line, which the check doesn't read. A server's sh, such as Ubuntu's
+/// dash, reads a backslash in echo's arguments as an escape, and `\c` ends the output, while
+/// printf's `%s` writes the value as it is. Alpine's sh, the tests' server's, writes it as it is,
+/// so no test would find one.
 pub fn echo_problems(script: &str) -> Vec<(usize, &'static str)> {
     let mut problems = Vec::new();
     for (index, line) in script.lines().enumerate() {
         if line.trim_start().starts_with('#') {
             continue;
         }
-        let writes_value = line.match_indices("echo ").any(|(start, _)| {
+        let written = line.match_indices("echo ").map(|(start, _)| {
             let command = start == 0
                 || line[..start].ends_with(|c: char| c.is_whitespace() || "(;|&{".contains(c));
-            command && writes_expansion(&line[start + 5..])
+            if command {
+                writes_expansion(&line[start + 5..])
+            } else {
+                Echoed::Text
+            }
         });
-        if writes_value {
+        let written: Vec<Echoed> = written.collect();
+        if written.contains(&Echoed::Expansion) {
             problems.push((
                 index + 1,
                 "echo writes a value, whose backslashes a server's sh reads as escapes; write it with printf '%s\\n' (CODE-07)",
+            ));
+        } else if written.contains(&Echoed::Unread) {
+            problems.push((
+                index + 1,
+                "echo's arguments go on past its line, where check-shell reads them: end them there (CODE-07)",
             ));
         }
     }
     problems
 }
 
+/// What an `echo`'s arguments write, as [`writes_expansion`] reads them.
+#[derive(PartialEq, Eq)]
+enum Echoed {
+    /// An expansion.
+    Expansion,
+    /// Text alone.
+    Text,
+    /// What the check doesn't read: arguments that go on past their line.
+    Unread,
+}
+
 /// Whether `arguments`, the text after an `echo `, holds a `$` or a backtick outside single
 /// quotes, which no backslash escapes, before the command ends at a `;`, `|`, `&`, `)` or a `#`
-/// that starts a word, outside quotes. The `&` of a redirection, as in `>&2`, ends nothing, and
-/// the word after a `>` or a `<` is the redirection's, no argument.
-fn writes_expansion(arguments: &str) -> bool {
+/// that starts a word, outside quotes; or whether, with neither before the line ends, a quote
+/// that the line doesn't close, or a backslash that ends the line, carries them on to the next.
+/// The `&` of a redirection, as in `>&2`, ends nothing, and the word after a `>` or a `<` is the
+/// redirection's, no argument.
+fn writes_expansion(arguments: &str) -> Echoed {
     let mut quote = None;
     // Whether the next word, or the one being read, is a redirection's.
     let mut redirected = false;
@@ -48,19 +72,23 @@ fn writes_expansion(arguments: &str) -> bool {
             Some('\'') if c == '\'' => quote = None,
             Some('\'') => {}
             _ if c == '\\' => {
-                chars.next();
+                if chars.next().is_none() {
+                    return Echoed::Unread;
+                }
             }
             Some(_) if c == '"' => quote = None,
             None if c == '\'' || c == '"' => quote = Some(c),
             _ if c == '$' || c == '`' => {
                 if !redirected {
-                    return true;
+                    return Echoed::Expansion;
                 }
             }
             Some(_) => {}
             None if c == '>' || c == '<' => redirected = true,
             None if c == '&' && (previous == '>' || previous == '<') => {}
-            None if ";|&)".contains(c) || (c == '#' && previous.is_whitespace()) => return false,
+            None if ";|&)".contains(c) || (c == '#' && previous.is_whitespace()) => {
+                return Echoed::Text;
+            }
             None if c.is_whitespace()
                 && !(previous.is_whitespace() || "<>&".contains(previous)) =>
             {
@@ -70,13 +98,18 @@ fn writes_expansion(arguments: &str) -> bool {
         }
         previous = c;
     }
-    false
+    if quote.is_some() {
+        Echoed::Unread
+    } else {
+        Echoed::Text
+    }
 }
 
-/// Each line of `script` whose `psql` takes no statement with `-c`, so a statement it reads from
-/// its input would go unchecked, whose statement, the text between the quotes after its ` -c `,
-/// holds a `$` or a backtick inside double quotes, whose value the check can't read, or whose
-/// statement holds a word, outside its strings and in any case, that is one of `tables` (ARCH-14).
+/// Each line of `script` whose `psql` takes no statement with `-c` on that line, so a statement it
+/// reads from its input would go unchecked, whose statement, the text between the quotes after
+/// its ` -c `, goes on past the line, or holds a `$` or a backtick inside double quotes, whose
+/// value the check can't read, or whose statement holds a word, outside its strings and in any
+/// case, that is one of `tables` (ARCH-14).
 pub fn psql_problems(script: &str, tables: &[String]) -> Vec<(usize, String)> {
     let mut problems = Vec::new();
     for (index, line) in script.lines().enumerate() {
@@ -96,12 +129,26 @@ pub fn psql_problems(script: &str, tables: &[String]) -> Vec<(usize, String)> {
                     .chars()
                     .next()
                     .filter(|c| *c == '\'' || *c == '"')?;
-                Some((quote, argument[1..].split(quote).next()?))
+                Some((
+                    quote,
+                    argument[1..]
+                        .split_once(quote)
+                        .map(|(statement, _)| statement),
+                ))
             });
             let Some((quote, statement)) = statement else {
                 problems.push((
                     index + 1,
                     "psql takes its statement with -c, where check-shell reads it (ARCH-14)"
+                        .to_owned(),
+                ));
+                continue;
+            };
+            let Some(statement) = statement else {
+                problems.push((
+                    index + 1,
+                    "psql's statement goes on past its line, where check-shell reads it: end it \
+                     there (ARCH-14)"
                         .to_owned(),
                 ));
                 continue;
@@ -559,6 +606,27 @@ mod tests {
     }
 
     #[test]
+    fn code_07_an_echo_whose_arguments_go_on_past_its_line_is_found() {
+        let script = "#!/bin/sh\n\
+            echo \"two\n\
+            $lines\"\n\
+            echo done \\\n\
+            \"$x\"\n\
+            echo 'one line' \"and another\"\n\
+            echo 'it'\\''s'\n";
+
+        let problems: Vec<(usize, &str)> = echo_problems(script);
+
+        let lines: Vec<usize> = problems.iter().map(|(line, _)| *line).collect();
+        assert_eq!(lines, [2, 4]);
+        assert!(
+            problems
+                .iter()
+                .all(|(_, problem)| problem.contains("past its line"))
+        );
+    }
+
+    #[test]
     fn code_07_a_function_of_any_form_names_its_variables_apart_from_the_top_level() {
         let script = "#!/bin/sh\n\
                       state=/var/lib\n\
@@ -621,5 +689,22 @@ mod tests {
             .collect();
 
         assert_eq!(problems, [4, 5]);
+    }
+
+    #[test]
+    fn arch_14_a_script_s_psql_statement_that_goes_on_past_its_line_is_found() {
+        let script = "#!/bin/sh\n\
+                      psql -qAt -c 'SELECT 1\n\
+                      FROM users'\n\
+                      psql -qAt \\\n\
+                      -c 'TRUNCATE sessions'\n\
+                      psql -qAt -c 'SELECT 1'\n";
+        let tables = ["sessions".to_owned(), "users".to_owned()];
+
+        let problems = psql_problems(script, &tables);
+
+        let lines: Vec<usize> = problems.iter().map(|(line, _)| *line).collect();
+        assert_eq!(lines, [2, 4]);
+        assert!(problems[0].1.contains("past its line"), "{problems:?}");
     }
 }

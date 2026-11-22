@@ -80,14 +80,14 @@ impl Repo {
         self.files.iter().find(|file| file.path == path)
     }
 
-    /// Whether `path` is a file of the repository, or a directory that holds one.
+    /// Whether `path` is a file of the repository, text or not, or a directory that holds one.
     pub fn has(&self, path: &str) -> bool {
         let directory = format!("{}/", path.trim_end_matches('/'));
         path.is_empty()
             || self
-                .files
+                .paths
                 .iter()
-                .any(|file| file.path == path || file.path.starts_with(&directory))
+                .any(|held| held == path || held.starts_with(&directory))
     }
 }
 
@@ -190,5 +190,18 @@ mod tests {
             unreadable.is_some_and(|error| error.to_string().contains("locked.md")),
             "a file that exists but can't be read must fail the checks"
         );
+    }
+
+    #[test]
+    fn doc_12_a_file_that_isn_t_text_is_one_of_the_repository_s() {
+        let read = |path: &str| match path {
+            "docs/logo.png" => Ok(vec![0x89, b'P', b'N', b'G', 0xff]),
+            _ => Ok(b"# Text\n".to_vec()),
+        };
+
+        let repo = Repo::from_listing(b"docs/a.md\0docs/logo.png\0", read).unwrap();
+
+        assert!(repo.file("docs/logo.png").is_none());
+        assert!(repo.has("docs/logo.png"));
     }
 }

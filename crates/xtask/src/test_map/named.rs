@@ -90,6 +90,18 @@ fn is_tests_file(path: &str) -> bool {
     inside.is_some_and(|(_, inside)| inside.starts_with("tests/") && inside.ends_with(".rs"))
 }
 
+/// Whether `attribute`, the tokens in an attribute's brackets, marks a test, as the test map
+/// reads one: its path's last segment is `test`, with or without arguments after it, such as
+/// `#[test]`, `#[tokio::test]` or `#[tokio::test(flavor = "multi_thread")]`.
+fn marks_a_test(attribute: &proc_macro2::Group) -> bool {
+    let tokens: Vec<TokenTree> = attribute.stream().into_iter().collect();
+    let path = match tokens.split_last() {
+        Some((TokenTree::Group(_), path)) => path,
+        _ => &tokens,
+    };
+    matches!(path.last(), Some(TokenTree::Ident(ident)) if ident == "test")
+}
+
 /// Adds to `strings` each string that the body of a test named `sec_19_*` among `tokens` holds.
 fn sec_19_strings(tokens: &[TokenTree], strings: &mut BTreeSet<String>) {
     // Whether the item being read carries a test's attribute, such as `#[tokio::test]`.
@@ -99,9 +111,7 @@ fn sec_19_strings(tokens: &[TokenTree], strings: &mut BTreeSet<String>) {
             TokenTree::Punct(punct) if punct.as_char() == '#' => {
                 if let Some(TokenTree::Group(attribute)) = tokens.get(at + 1)
                     && attribute.delimiter() == Delimiter::Bracket
-                    && attribute.stream().into_iter().last().is_some_and(
-                        |last| matches!(last, TokenTree::Ident(ident) if ident == "test"),
-                    )
+                    && marks_a_test(attribute)
                 {
                     tested = true;
                 }
@@ -205,6 +215,28 @@ mod tests {
             ),
             "{findings:?}"
         );
+    }
+
+    #[test]
+    fn sec_19_a_test_whose_attribute_takes_arguments_names_its_events_too() {
+        let declared = "const A: WorkspaceEvent<P, A> = WorkspaceEvent::new(\"thing.made\");\n";
+        let tests = "#[tokio::test(flavor = \"multi_thread\")]\n\
+                     async fn sec_19_thing_events_reach_the_members() {\n\
+                     \x20   assert_eq!(event.name(), Some(\"thing.made\"));\n\
+                     }\n";
+
+        let outcome = run_with(&[
+            ("crates/app/src/modules/things/events.rs", declared),
+            ("crates/app/tests/integration/things.rs", tests),
+        ]);
+
+        let findings: Vec<String> = outcome
+            .findings
+            .iter()
+            .map(ToString::to_string)
+            .filter(|finding| finding.ends_with("(SEC-19)"))
+            .collect();
+        assert!(findings.is_empty(), "{findings:?}");
     }
 
     #[test]

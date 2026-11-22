@@ -62,7 +62,8 @@ fn problems(
     let here = format!("{} {path}", method.to_ascii_uppercase());
     let mut messages = scope(document, path, operation, shared, &here);
     messages.extend(meaning(path, method, operation, &here));
-    messages.extend(statuses(method, operation, &here));
+    let parameters = parameters(document, operation, shared);
+    messages.extend(statuses(method, operation, &parameters, &here));
     messages
         .into_iter()
         .map(|message| (quoted(path), message))
@@ -209,9 +210,9 @@ fn allowed(method: &str, status: &str) -> bool {
     }
 }
 
-/// API-04 and API-17: a 206 serves a range's bytes with `Content-Range`, and its operation
-/// documents the `Range` that asks for it.
-fn ranged(operation: &Value, response: &Value, content: bool, here: &str) -> Vec<String> {
+/// API-04 and API-17: a 206 serves a range's bytes with `Content-Range`, and its operation, or its
+/// path item, among `parameters`, documents the `Range` that asks for it.
+fn ranged(parameters: &[&Value], response: &Value, content: bool, here: &str) -> Vec<String> {
     let mut messages = Vec::new();
     let range = response["headers"].as_object().is_some_and(|headers| {
         headers
@@ -223,16 +224,12 @@ fn ranged(operation: &Value, response: &Value, content: bool, here: &str) -> Vec
             "{here} answers 206 without the range's bytes and its Content-Range (API-04)"
         ));
     }
-    let asked = operation["parameters"]
-        .as_array()
-        .is_some_and(|parameters| {
-            parameters.iter().any(|parameter| {
-                parameter["in"] == "header"
-                    && parameter["name"]
-                        .as_str()
-                        .is_some_and(|name| name.eq_ignore_ascii_case("range"))
-            })
-        });
+    let asked = parameters.iter().any(|parameter| {
+        parameter["in"] == "header"
+            && parameter["name"]
+                .as_str()
+                .is_some_and(|name| name.eq_ignore_ascii_case("range"))
+    });
     if !asked {
         messages.push(format!(
             "{here} answers 206 without documenting the Range that asks for it (API-17)"
@@ -243,8 +240,9 @@ fn ranged(operation: &Value, response: &Value, content: bool, here: &str) -> Vec
 
 /// API-04: a read answers 200, a create 201 with `Location` and the resource, a delete or an
 /// action with nothing to return 204 with no body, and accepted work 202. A read of a range of
-/// its bytes answers 206 with `Content-Range`.
-fn statuses(method: &str, operation: &Value, here: &str) -> Vec<String> {
+/// its bytes answers 206 with `Content-Range`, and `parameters`, the operation's and its path
+/// item's, document the `Range` that asks for it.
+fn statuses(method: &str, operation: &Value, parameters: &[&Value], here: &str) -> Vec<String> {
     let empty = Map::new();
     let responses = operation["responses"].as_object().unwrap_or(&empty);
     let successes: Vec<(&String, &Value)> = responses
@@ -289,7 +287,7 @@ fn statuses(method: &str, operation: &Value, here: &str) -> Vec<String> {
             "204" if content => {
                 messages.push(format!("{here} answers 204 with a body (API-04)"));
             }
-            "206" => messages.extend(ranged(operation, response, content, here)),
+            "206" => messages.extend(ranged(parameters, response, content, here)),
             "200" if !content => {
                 messages.push(format!(
                     "{here} answers 200 with no body: an outcome with nothing to return answers 204 (API-04)"
@@ -566,6 +564,24 @@ mod tests {
                 "GET /v1/things/{thing_id}/content answers 206 without documenting the Range that asks for it (API-17)",
             ]
         );
+    }
+
+    #[test]
+    fn api_04_a_range_that_the_path_item_or_a_reference_documents_is_read() {
+        let document = json!({ "components": { "parameters": {
+            "Range": { "name": "Range", "in": "header" },
+        } } });
+        let ranged = |parameters: Value| json!({ "parameters": parameters, "responses": { "206": { "description": "x", "headers": { "Content-Range": {} }, "content": { "application/octet-stream": {} } } } });
+        let path = "/v1/things/{thing_id}/content";
+        let by_reference = ranged(json!([{ "$ref": "#/components/parameters/Range" }]));
+        let shared = json!([{ "name": "Range", "in": "header" }]);
+
+        let found = [
+            problems(&document, path, "get", &by_reference, &Value::Null),
+            problems(&document, path, "get", &ranged(json!([])), &shared),
+        ];
+
+        assert_eq!(found, [Vec::new(), Vec::new()]);
     }
 
     /// The success statuses of API-04's table, in `docs/standards/api.md`.

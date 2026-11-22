@@ -1,9 +1,12 @@
 //! `check-openapi`: the committed `openapi.json` follows the rules for the HTTP contract. Each
 //! operation's scope, method and statuses are in `operations`, the shape of lists and their
-//! `search` in `lists`, the formats and request strings' lengths in `schemas`, the event catalog
-//! in `events`, the action catalog in `actions`, the codes that no route lists in `codes`, and
-//! the names the document keys its operations and schemas by in `names`, each with the rules it
-//! reads, and the schema names it reads in the code in `schema_names`.
+//! `search` in `lists`, the fields that a response always holds in `presence`, the formats and
+//! request strings' lengths in `schemas`, the event catalog in `events`, the action catalog in
+//! `actions`, the codes that no route lists in `codes`, and the names the document keys its
+//! operations and schemas by in `names`, each with the rules it reads, the schema names it reads
+//! in the code in `schema_names`, and what the document breaks of the last final release's in
+//! `breaking`. This file reads the paths' shape, each operation's access level and responses'
+//! descriptions, the codes of the error responses, the properties' names, and the references.
 
 pub mod actions;
 mod breaking;

@@ -17,7 +17,8 @@
 //! file's. An
 //! interpolation becomes a word of its own, since `just` writes its value into the line before
 //! the shell reads it. shellcheck runs from the image that `compose.yaml` pins. The check reads
-//! the directives itself, since shellcheck applies any directive it finds.
+//! the directives itself, since shellcheck applies any directive it finds, in the one form that
+//! the doc of `directive_problems` names, and refuses a comment that looks like one in another.
 
 mod recipes;
 mod scripts;
@@ -138,13 +139,28 @@ fn outcome(findings: Vec<Finding>) -> Outcome {
 /// The directives of `script` that disable a finding where CODE-07 doesn't allow it, each with its
 /// line, counted from 1: one before the script's first command, which shellcheck applies to the
 /// whole script; one with no command on the line after it; and one with no comment after it that
-/// states its reason.
+/// states its reason. The check reads a directive as `# shellcheck disable=` at the start of a
+/// line's text, so a comment whose first word is `shellcheck`, in any case, is a problem in any
+/// other form, such as `#shellcheck`, another directive, or one after a command.
 fn directive_problems(script: &str) -> Vec<(usize, &'static str)> {
     let mut problems = Vec::new();
     let mut commanded = false;
     let lines: Vec<&str> = script.lines().collect();
     for (index, line) in lines.iter().enumerate() {
         let content = line.trim_start();
+        let directive_like = line.match_indices('#').any(|(at, _)| {
+            (at == 0 || line[..at].ends_with(char::is_whitespace))
+                && line[at + 1..]
+                    .trim_start()
+                    .get(..10)
+                    .is_some_and(|word| word.eq_ignore_ascii_case("shellcheck"))
+        });
+        if directive_like && !content.starts_with("# shellcheck disable=") {
+            problems.push((
+                index + 1,
+                "check-shell reads a directive only as `# shellcheck disable=<codes> # <reason>` on a line of its own, so it can't tell what this comment disables: write it so, or reword the comment (CODE-07)",
+            ));
+        }
         let Some(directive) = content.strip_prefix("# shellcheck disable=") else {
             if !content.is_empty() && !content.starts_with('#') {
                 commanded = true;
@@ -267,6 +283,25 @@ mod tests {
         );
         assert_eq!(directive_problems(unexplained).len(), 1);
         assert!(directive_problems(unexplained)[0].1.contains("its reason"));
+    }
+
+    #[test]
+    fn code_07_a_shellcheck_comment_in_a_form_the_check_doesn_t_read_fails() {
+        let read = "#!/bin/sh\nset -eu\n# shellcheck disable=SC2086 # $a splits.\nls $a\n\
+                    # The shellcheck image runs this.\nls \"$#\"\n";
+        let unread = "#!/bin/sh\nset -eu\n#shellcheck disable=SC2086\nls $a\n\
+                      #   shellcheck disable=SC2086 # $a splits.\nls $a\n\
+                      # ShellCheck shell=bash\nls $a\n\
+                      ls $a # shellcheck disable=SC2086\n";
+
+        let lines: Vec<usize> = directive_problems(unread)
+            .iter()
+            .filter(|(_, problem)| problem.contains("on a line of its own"))
+            .map(|(line, _)| *line)
+            .collect();
+
+        assert_eq!(directive_problems(read), []);
+        assert_eq!(lines, [3, 5, 7, 9]);
     }
 
     #[test]
