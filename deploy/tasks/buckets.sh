@@ -197,8 +197,10 @@ bucket_send() {
 # Writes again each object of the files bucket whose version at the moment $1 isn't its current
 # one, from the version that the bucket kept, through the API's subcommand restore-files, in a
 # one-off container of its service of the color that serves, which goes once the subcommand ends
-# (FILES-028, OPS-22). It takes no lock, as the subcommands on the accounts take none: it changes
-# nothing on the server, and writes objects to the bucket as a replica's upload does.
+# (FILES-028, OPS-22). It takes no lock, neither a deploy's nor state/operating, which the
+# subcommands on the accounts take for the connection that a deploy's budget counts for them
+# (OPS-18): it connects to no database, changes nothing on the server, and writes objects to the
+# bucket as a replica's upload does.
 restore_files() {
     if [ ! -f "$state/deploy.env" ]; then fail "no deploy has run on this server, so it has no image of the API to run; deploy first"; fi
     read_settings

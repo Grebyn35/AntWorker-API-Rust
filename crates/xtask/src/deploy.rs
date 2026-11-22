@@ -1,7 +1,7 @@
-//! `deploy`, `backup`, `restore`, `status`, `logs`, `remove-second-factor` and `end-sessions`,
-//! which the `just` recipes of the same names run on a developer's machine: they run the
-//! reference deployment's deploy/deploy.sh on its server over SSH (OPS-14, OPS-15, OPS-19,
-//! AUTH-072, AUTH-094). A deploy takes a release by its version: it refuses
+//! `deploy`, `backup`, `restore`, `status`, `logs`, `replace-key`, `remove-second-factor` and
+//! `end-sessions`, which the `just` recipes of the same names run on a developer's machine: they
+//! run the reference deployment's deploy/deploy.sh on its server over SSH (OPS-14, OPS-15,
+//! OPS-19, AUTH-072, AUTH-094). A deploy takes a release by its version: it refuses
 //! a version that no release has, sends the server the deployment's files from the release's tag,
 //! and runs that release's deploy.sh, which verifies the release's images before it pulls them.
 //! The other tasks run the deploy.sh of the release that the last deploy installed. The server

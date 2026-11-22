@@ -101,7 +101,7 @@ The argument is the server as SSH names it, signed in as `root`, or as a user th
     `google_client_secret`, with `GOOGLE_CLIENT_ID`, and `google_desktop_client_secret`, with `GOOGLE_DESKTOP_CLIENT_ID`. <!-- part: google -->
     `openid_connect_client_secret`, with `OPENID_CONNECT_CLIENT_ID`. <!-- part: openid_connect -->
 - For the certificate of a private authority, as a file on your machine, when one signed the certificate of a managed database, of a bucket of your own or of a managed backend.
-- For a token that can read the repository's packages, through which the server pulls the release's images, and for its user, the owner that `IMAGE_REPOSITORY` names unless you type another; a public repository's images need none.
+- For a token that can read the repository's packages, through which the server pulls the release's images, and for its user, the owner that `IMAGE_REPOSITORY` names, if it names one, unless you type another; a public repository's images need none.
 
 Then, on the server, it:
 
@@ -129,7 +129,7 @@ just server-check production
 
 checks what a deploy of the latest release, or of the release a second argument names, needs, and changes nothing of the deployment but an object that it writes to each bucket and deletes. It runs that release's files, as the deploy will. On the server, it:
 
-- reads the settings and the secrets as a deploy does, and refuses what a deploy would refuse, the connection budget included (OPS-18);
+- reads the settings and the secrets as a deploy does, and refuses what a deploy would refuse, the connection budget included (OPS-18); the checks of the buckets and of a managed backend, below, run once both passed;
 - checks that Docker 29 or later runs, with both plugins;
 - verifies the release, as a deploy does first ([release.md](release.md#verifying-a-release)), and pulls its images;
 - checks the server's memory against the services the settings choose;

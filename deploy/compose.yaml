@@ -41,8 +41,9 @@ x-api: &api
     SHUTDOWN_DELAY_SECONDS: "5"
     # No shorter than the longest timeout of a route, so a deploy cuts no request short (OPS-06).
     SHUTDOWN_DRAIN_SECONDS: "60"
-    # Only the deployment's own containers reach a replica, on its private networks, so every
-    # private peer is Caddy, and the proxies Caddy trusts are trusted too (PLATFORM-053).
+    # Only the deployment's own containers reach a replica, on its private networks: Caddy and the
+    # deployment's other services. A replica takes the client IP from the X-Forwarded-For of any
+    # peer there, and the proxies Caddy trusts are trusted too (PLATFORM-053).
     TRUSTED_PROXIES: "10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, fc00::/7, ${TRUSTED_PROXIES:-}"
     CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
     RATE_LIMIT_IP_REQUESTS: ${RATE_LIMIT_IP_REQUESTS:-600}

@@ -304,8 +304,19 @@ fn ask_certs(
     Ok(certs)
 }
 
+/// The owner that `repository` names: the first component after its registry, such as owner for
+/// ghcr.io/owner/name and for owner/name, or nothing for registry:5000/image.
+fn owner_of(repository: &str) -> &str {
+    let path = repository
+        .strip_prefix(registry_of(repository))
+        .and_then(|path| path.strip_prefix('/'))
+        .unwrap_or(repository);
+    path.split_once('/').map_or("", |(owner, _)| owner)
+}
+
 /// Asks for the server's login to the registry that holds the images of `repository`: a token,
-/// whose empty answer keeps the server's login, and its user.
+/// whose empty answer keeps the server's login, and its user, which an empty answer gives the
+/// owner that `repository` names.
 fn ask_login(repository: &str, prompt: &mut impl Prompt) -> Result<Option<Login>, String> {
     let registry = registry_of(repository).to_owned();
     prompt.show("");
@@ -319,9 +330,14 @@ fn ask_login(repository: &str, prompt: &mut impl Prompt) -> Result<Option<Login>
     if token.is_empty() {
         return Ok(None);
     }
-    let owner = repository.split('/').nth(1).unwrap_or_default();
+    let owner = owner_of(repository);
+    let question = if owner.is_empty() {
+        "Its user: ".to_owned()
+    } else {
+        format!("Its user [{owner}]: ")
+    };
     loop {
-        let answer = prompt.ask(&format!("Its user [{owner}]: "))?;
+        let answer = prompt.ask(&question)?;
         let user = if answer.is_empty() {
             owner.to_owned()
         } else {
@@ -879,5 +895,31 @@ mod tests {
             ))
         );
         assert_eq!(github_defaults("https://gitlab.com/owner/name"), None);
+    }
+
+    #[test]
+    fn ops_19_the_registry_s_login_offers_the_owner_that_the_repository_names_as_its_user() {
+        // The user that the login takes, and the last question it asked, for `repository` and
+        // the answers: a token, then Enter, and for a name without an owner, a user.
+        let login = |repository: &str, answers: &[&'static str]| {
+            let mut script = Script::new(answers);
+            let login = ask_login(repository, &mut script).unwrap();
+            (login.map(|login| login.user), script.asked.last().cloned())
+        };
+
+        let ghcr = login("ghcr.io/owner/name", &["ghp_token", ""]);
+        let docker_hub = login("owner/name", &["token", ""]);
+        let no_owner = login("registry:5000/image", &["token", "", "e2e"]);
+
+        let owner = (
+            Some("owner".to_owned()),
+            Some("Its user [owner]: ".to_owned()),
+        );
+        assert_eq!(ghcr, owner);
+        assert_eq!(docker_hub, owner);
+        assert_eq!(
+            no_owner,
+            (Some("e2e".to_owned()), Some("Its user: ".to_owned()))
+        );
     }
 }

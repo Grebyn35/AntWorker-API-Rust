@@ -133,18 +133,32 @@ impl Drop for Server {
     /// its kill, and the removal fails with "did not receive an exit event".
     ///
     /// A test on whose server the memory limit ended a process fails, if nothing failed it
-    /// already.
+    /// already, and so does one whose removal fails, with what the server's Docker said.
     fn drop(&mut self) {
-        let _removed = Command::new("docker")
+        let removed = Command::new("docker")
             .args(["exec", self.container.id(), "sh", "-c"])
             .arg("docker ps --all --quiet | xargs -r docker rm --force --volumes > /dev/null")
             .output();
-        if let Some(reason) = self.out_of_memory() {
-            // A test that panicked already reports its own failure, which a second panic would
-            // abort. When the command that failed ran through `shell` or `deploy`, as most of a
-            // test's commands on the server do, its output says why (`explained`).
-            assert!(std::thread::panicking(), "{reason}");
+        // A test that panicked already reports its own failure, which a second panic would
+        // abort. When the command that failed ran through `shell` or `deploy`, as most of a
+        // test's commands on the server do, its output says why (`explained`).
+        if std::thread::panicking() {
+            return;
         }
+        // What the memory limit ended comes first: when it is the server itself, the removal
+        // fails too.
+        let out_of_memory = self.out_of_memory();
+        assert!(
+            out_of_memory.is_none(),
+            "{}",
+            out_of_memory.unwrap_or_default()
+        );
+        let removed = removed.expect("run docker exec");
+        assert!(
+            removed.status.success(),
+            "remove the containers on the server: {}",
+            lossy(&removed)
+        );
     }
 }
 

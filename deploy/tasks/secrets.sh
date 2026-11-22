@@ -71,11 +71,6 @@ write_secrets() {
     for name in database_url database_owner_url database_admin_url; do
         if [ ! -f "$secrets/$name" ]; then fail "$secrets/$name is missing (docs/operations/deploy.md)"; fi
     done
-    # part: files
-    for name in files_s3_key files_s3_key_secret; do
-        if [ ! -s "$secrets/$name" ]; then fail "$secrets/$name is missing (docs/operations/deploy.md#the-files-bucket)"; fi
-    done
-    # end part: files
     # Compose checks every secret file it declares, so the ones this choice of services doesn't
     # use exist empty.
     for name in postgres_password backup_s3_key backup_s3_key_secret backup_cipher_pass grafana_admin_password grafana_secret_key managed_otlp_token; do
@@ -141,6 +136,11 @@ check_secrets() {
             if [ ! -s "$secrets/$name" ]; then fail "$secrets/$name is missing (docs/operations/deploy.md)"; fi
         done
     fi
+    # part: files
+    for name in files_s3_key files_s3_key_secret; do
+        if [ ! -s "$secrets/$name" ]; then fail "$secrets/$name is missing (docs/operations/deploy.md#the-files-bucket)"; fi
+    done
+    # end part: files
     # The password of Grafana's administrator, which its operator chooses: the deployment
     # generates none, since nothing would make its holder change it (SEC-14). A file that exists
     # empty stands in for a secret the services didn't use before, so it counts as missing.

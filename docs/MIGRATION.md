@@ -121,6 +121,7 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 | From | Proposal | Decided in |
 |---|---|---|
 | Conformance review of 13b5891..e6d2a02 | ARCH-07: whether the tracker's rows of D1 to D36 that decide one part alone carry its marker, as a later decision's row does, such as D34's, of `invitations` | 6, with the ADRs <!-- part: removal --> |
+| Pass 1 of the review of the whole codebase (A10#7) | SEC-13: whether the replicas of the reference deployment trust Caddy alone as a proxy. As it is, a replica takes the client IP from the `X-Forwarded-For` of any peer on the deployment's private networks, which Grafana, the collectors, Postgres and the other services join, so one of them that an attacker took could name any client IP to the rate limits and the audit entries. It would take a network that only Caddy and the replicas join, with a subnet that a setting fixes, and `TRUSTED_PROXIES` of that subnet | 6.3, with the review of the whole codebase; the owner's, since it changes what the deployment trusts |
 
 ## Conformance reviews
 

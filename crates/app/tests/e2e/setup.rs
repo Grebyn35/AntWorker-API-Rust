@@ -16,8 +16,10 @@ const LOST_PASSWORD: &str = "a lost server's / + @ ? # % : password";
 /// Runs the setup as `just server-setup` does: copies the release's files to a temporary
 /// directory, and runs its server-setup.sh there with the settings in /root/setup/settings.env,
 /// and with `secrets` as its argument, the bucket's key pair, its authority, the registry's
-/// login, and the superuser's password in /root/setup/postgres_password if there is one, in the
-/// form that server-setup.sh's comment describes.
+/// login, the password of Grafana's administrator and an alert integration's credential, which
+/// the questions ask for with the self-hosted stack, and the superuser's password in
+/// /root/setup/postgres_password if there is one, in the form that server-setup.sh's comment
+/// describes.
 const SET_UP: &str = concat!(
     r#"set -e
 encode() { base64 < "$1" | tr -d '\n'; }
@@ -29,6 +31,8 @@ encode() { base64 < "$1" | tr -d '\n'; }
         printf 'e2e-token' > /root/setup/token
         printf 'secret backup_s3_key %s\n' "$(encode /root/setup/key)"
         printf 'secret backup_s3_key_secret %s\n' "$(encode /root/setup/key_secret)"
+        printf 'e2e-grafana-password' > /root/setup/grafana_admin_password
+        printf 'secret grafana_admin_password %s\n' "$(encode /root/setup/grafana_admin_password)"
         printf 'https://hooks.example.invalid/page' > /root/setup/page_url
         printf 'secret alertmanager/page_url %s\n' "$(encode /root/setup/page_url)"
         printf 'cert backup-ca.crt %s\n' "$(encode /root/bucket/ca.crt)"
@@ -118,6 +122,7 @@ fn assert_set_up(
         "added deploy to the docker group",
         "wrote /home/deploy/deployment/secrets/backup_s3_key_secret",
         "wrote /home/deploy/deployment/certs/backup-ca.crt",
+        "wrote /home/deploy/deployment/secrets/grafana_admin_password",
         "wrote /home/deploy/deployment/secrets/alertmanager/page_url",
         "logged in to registry:5000 as e2e",
         "generated these secrets",
@@ -271,10 +276,32 @@ async fn ops_19_the_check_finds_what_a_deploy_would_refuse_of_the_buckets_and_th
         )
     };
 
+    // Whether the secret file `name` is still missing, as the check found it: nothing in its
+    // place, of any kind.
+    let missing = |name: &str| {
+        server
+            .shell(&format!("test ! -e {DEPLOYMENT}/secrets/{name}"))
+            .status
+            .success()
+    };
+
     server.shell_ok(&format!(
         "printf wrong > {DEPLOYMENT}/secrets/backup_s3_key_secret"
     ));
     let refused_key = check();
+    server.shell_ok(&format!(
+        "mv {DEPLOYMENT}/secrets/backup_s3_key /root/setup/backup_s3_key"
+    ));
+    let missing_key = check();
+    let key_left_missing = missing("backup_s3_key");
+    // part: files
+    server.shell_ok(&format!(
+        "mv /root/setup/backup_s3_key {DEPLOYMENT}/secrets/backup_s3_key \
+         && mv {DEPLOYMENT}/secrets/files_s3_key /root/setup/files_s3_key"
+    ));
+    let missing_files_key = check();
+    let files_key_left_missing = missing("files_s3_key");
+    // end part: files
     server.shell_ok(&format!(
         "sed -i /^API_ADDRESS=/d {DEPLOYMENT}/settings.env"
     ));
@@ -288,6 +315,27 @@ async fn ops_19_the_check_finds_what_a_deploy_would_refuse_of_the_buckets_and_th
             "1 of the checks on the server failed",
         ],
     );
+    // A missing key file fails the check of the secrets, and no check of a bucket mounts it.
+    assert_found(
+        &missing_key,
+        false,
+        &[
+            "check: FAIL  /home/deploy/deployment/secrets/backup_s3_key is missing",
+            "1 of the checks on the server failed",
+        ],
+    );
+    assert!(key_left_missing, "{}", lossy(&missing_key));
+    // part: files
+    assert_found(
+        &missing_files_key,
+        false,
+        &[
+            "check: FAIL  /home/deploy/deployment/secrets/files_s3_key is missing",
+            "1 of the checks on the server failed",
+        ],
+    );
+    assert!(files_key_left_missing, "{}", lossy(&missing_files_key));
+    // end part: files
     assert_found(
         &missing_setting,
         false,
