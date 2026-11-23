@@ -55,9 +55,9 @@ Inbound W3C `traceparent` from clients is accepted. Every job and event row stor
 - Check: `test` (the inbound `traceparent` by PLATFORM-041's tests, the link of a job's run by PLATFORM-020's, and the rest by the rule's own).
 
 ### OBS-08 Errors and slow requests are always kept
-The SDK samples every trace except the health probes (OBS-15). The collector's tail sampling keeps every trace with `http.response.status_code >= 400` or an error status, every trace slower than the latency objective, and a configured share of the rest. Logs are never sampled. The dashboard of request latency lists kept traces slower than the objective in the time range it shows, as many as its limit holds, each leading to its trace.
+The SDK samples every trace except the health probes (OBS-15). The collector's tail sampling keeps every trace with `http.response.status_code >= 400` or an error status, every trace slower than the latency objective, and a configured share of the rest. It decides a trace once its wait, 15 seconds in the reference deployment, has passed since the trace's first span arrived, on the spans that have arrived, and a span that arrives later takes that decision: a request or a job's run whose failure comes after the wait leaves a trace only when the decision kept it, and its log lines and its counts stay (D222). Logs are never sampled. The dashboard of request latency lists kept traces slower than the objective in the time range it shows, as many as its limit holds, each leading to its trace.
 The spans that users' clients send through the telemetry proxy pass no tail sampling: the collector keeps each one that it admits (CLIENT_TELEMETRY-011). <!-- part: client_telemetry -->
-- Why: every trace ID a user can report as a problem resolves to a trace, a latency spike leads to the requests behind it, and every request's logs are kept (D10).
+- Why: every trace ID a user can report as a problem resolves to a trace, or, for a failure that came after the collector's wait, to its log lines; a latency spike leads to the requests behind it, and every request's logs are kept (D10).
 - Check: `ci: check-telemetry-config` (the sampling policies in the collector's configuration, and the same objective in them, the alerts and the dashboard), plus `test` (end to end).
 
 ### OBS-09 Identity on the API's spans comes from the server
