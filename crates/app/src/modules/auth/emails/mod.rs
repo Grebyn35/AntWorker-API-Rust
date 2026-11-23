@@ -586,14 +586,34 @@ mod tests {
                 part.contains("has changed from ada@example.com to ada@new.example.com"),
                 "{part}"
             );
-            assert!(part.contains("Sign in with ada@new.example.com"), "{part}");
+            assert!(
+                part.contains("once you sign in again, with ada@new.example.com"),
+                "{part}"
+            );
             assert!(
                 part.contains(
-                    "change the address back to ada@example.com, then change your password"
+                    "change the address back to ada@example.com, then reset your password"
                 ),
                 "{part}"
             );
             assert!(!part.contains("http"), "{part}");
+        }
+    }
+
+    #[test]
+    fn auth_053_the_email_holds_for_an_account_without_a_password() {
+        // An account that signs in through a provider alone has no password (AUTH-074), and a
+        // change needs only a session's recent proof, which a provider's sign-in gives (AUTH-048),
+        // so the email names no password but in the reset that it advises, which serves such an
+        // account too (AUTH-034, AUTH-037).
+        let to = EmailAddress::parse("ada@example.com").unwrap();
+        let new = EmailAddress::parse("ada@new.example.com").unwrap();
+
+        let email = EmailChangedEmail { to, new }.render().unwrap();
+
+        for part in [&email.subject, &email.text, &email.html] {
+            let said = part.replace("reset your password", "");
+            assert!(!said.contains("password"), "{part}");
         }
     }
 

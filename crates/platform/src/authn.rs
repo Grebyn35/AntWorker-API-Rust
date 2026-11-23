@@ -41,8 +41,8 @@ use crate::{
 /// The name of the cookie that holds a browser's access token, after `__Host-` (AUTH-015).
 pub const ACCESS_COOKIE: &str = "access_token";
 
-/// The authenticated caller of a request: a user, through one of their sessions. Only `auth`
-/// builds one, after a successful credential check or a registration; clippy bans
+/// The authenticated caller of a request: a user, through one of their sessions. Outside tests,
+/// only `auth` builds one, after a successful credential check or a registration; clippy bans
 /// [`Principal::new`] elsewhere.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Principal {

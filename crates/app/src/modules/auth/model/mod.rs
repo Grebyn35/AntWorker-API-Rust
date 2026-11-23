@@ -59,7 +59,9 @@ pub(crate) fn load_breached_passwords() {
     LazyLock::force(&BREACHED);
 }
 
-/// A password that AUTH-003 allows, kept exactly as the user typed it (ASVS 6.2.8).
+/// A password, kept exactly as the user typed it (ASVS 6.2.8): one that AUTH-003 allows, from
+/// [`Password::parse`], one that is checked against its hash, from [`Password::presented`], or
+/// one that the API chose, from [`Password::generated`].
 #[derive(Clone, Debug)]
 pub(crate) struct Password(Secret<String>);
 
@@ -107,9 +109,9 @@ impl Password {
         Ok(Self(Secret::new(value)))
     }
 
-    /// A password as the user typed it at sign-in, of 1 to 128 characters, which is checked
-    /// against its hash rather than the policy, so a password that was allowed when it was set
-    /// still signs in.
+    /// A password as the user typed it at sign-in, at re-authentication or as the current
+    /// password of a change, of 1 to 128 characters, which is checked against its hash rather
+    /// than the policy, so a password that was allowed when it was set still signs in.
     pub(crate) fn presented(value: String) -> Result<Self, Invalid> {
         let length = value.chars().count();
         if length == 0 {

@@ -103,7 +103,7 @@ impl Auth {
         // one on a device ends the session the other just started there (DATA-20).
         let Some(identity) = repo::password_identity_for_update(&mut uow, user_id).await? else {
             verify_in(hashing, self.dummy_hash.clone(), input.password).await?;
-            return Err(AuthError::InvalidCredentials);
+            return Err(failed(uow, user_id).await?);
         };
         let ((matches, password), hashing) =
             verify_in(hashing, identity.hash.clone(), input.password).await?;
@@ -117,14 +117,7 @@ impl Auth {
             None
         };
         if !matches {
-            audit_log::record(
-                &mut uow,
-                AuditScope::attempt(user_id),
-                Entry::new(audit::SIGN_IN_FAILED, audit::USER, user_id.uuid()),
-            )
-            .await?;
-            uow.commit().await?;
-            return Err(AuthError::InvalidCredentials);
+            return Err(failed(uow, user_id).await?);
         }
         // An account with an app gets a challenge, which its code completes, rather than a
         // session; its password's new hash is stored now, since no later step holds it.
@@ -204,4 +197,18 @@ impl Auth {
         .await?;
         Ok(())
     }
+}
+
+/// Records in `uow` that a sign-in to `user_id`'s account failed, with a wrong password or with
+/// any password for an account that has none, a security failure, which commits before the
+/// answer, and returns the answer (AUTH-005, DATA-22, ARCH-11).
+async fn failed(mut uow: UnitOfWork, user_id: UserId) -> Result<AuthError, AuthError> {
+    audit_log::record(
+        &mut uow,
+        AuditScope::attempt(user_id),
+        Entry::new(audit::SIGN_IN_FAILED, audit::USER, user_id.uuid()),
+    )
+    .await?;
+    uow.commit().await?;
+    Ok(AuthError::InvalidCredentials)
 }

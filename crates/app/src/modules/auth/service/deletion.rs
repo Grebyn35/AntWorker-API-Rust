@@ -23,8 +23,10 @@ impl Auth {
     /// unit of work finds the address, and the unit of work reads it again once it holds the
     /// user's row. When the account holds another address then, the unit of work ends with
     /// nothing written, and the deletion counts in that address's bucket and reads again in a new
-    /// one (ARCH-11). An account that another deletion took before either read is deleted
-    /// already, as the deletion asked (ACCOUNTS-019).
+    /// one (ARCH-11). An account that another deletion took before the first read, or once the
+    /// unit of work read the session's proof, is deleted already, as the deletion asked
+    /// (ACCOUNTS-019); one that it took in between took the session too, which the proof's read
+    /// answers with 401 (AUTH-023).
     pub(crate) async fn delete_account(
         &self,
         limits: &RateLimits,

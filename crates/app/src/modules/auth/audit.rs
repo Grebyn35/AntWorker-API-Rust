@@ -24,7 +24,8 @@ pub(super) const SESSION_CREATED: Action<ThroughProvider> = Action::new(
     &[SESSION],
 )
 .in_own_log();
-/// A sign-in to an existing account gave the wrong password (AUTH-005).
+/// A sign-in to an existing account gave the wrong password, or any password for an account
+/// without one (AUTH-005).
 pub(super) const SIGN_IN_FAILED: Action = Action::new(
     "sign_in.failed",
     "A sign-in to the account gave a wrong password.",
@@ -52,9 +53,11 @@ pub(super) const SESSION_REUSE_DETECTED: Action = Action::new(
     &[SESSION],
 )
 .in_own_log();
-/// A session ended, by signing out, by a sign-in on its device, by a reset or a change of its
-/// user's password, or as its user ended it from another of their sessions (AUTH-008, AUTH-013,
-/// AUTH-037, AUTH-040, AUTH-044, AUTH-045).
+/// A session ended, by signing out, by a sign-in on its device or a session started in place of
+/// its browser's, by a reset or a change of its user's password, by a removal of one of its
+/// user's identities, as its user ended it from another of their sessions, or as the operator
+/// removed its user's second factor or ended its user's sessions (AUTH-008, AUTH-013, AUTH-037,
+/// AUTH-040, AUTH-044, AUTH-045, AUTH-072, AUTH-088, AUTH-094, AUTH-096).
 pub(super) const SESSION_ENDED: Action = Action::new(
     "session.ended",
     "A session ended: its user signed out or ended it, or a change ended it, such as a new \

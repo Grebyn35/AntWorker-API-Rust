@@ -130,7 +130,7 @@ async fn auth_004_signing_in_creates_a_session() {
 #[tokio::test]
 async fn auth_005_every_failed_sign_in_answers_the_same_401() {
     let api = Api::new().await;
-    let ada = users::register(&api, "ada@example.com").await;
+    users::register(&api, "ada@example.com").await;
     users::without_password(api.database(), "nopassword@example.com").await;
 
     let wrong = users::sign_in(&api, "ada@example.com", "wrong-password-123").await;
@@ -152,14 +152,29 @@ async fn auth_005_every_failed_sign_in_answers_the_same_401() {
             })
         );
     }
+}
+
+#[tokio::test]
+async fn auth_005_a_wrong_password_and_a_password_for_an_account_without_one_record_sign_in_failed_in_its_log()
+ {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let without = users::without_password(api.database(), "nopassword@example.com").await;
+
+    users::sign_in(&api, "ada@example.com", "wrong-password-123").await;
+    users::sign_in(&api, "nobody@example.com", PASSWORD).await;
+    users::sign_in(&api, "nopassword@example.com", PASSWORD).await;
+
     let failures = api
         .database()
-        .owner_reads(
-            "SELECT user_id || ' ' || coalesce(actor_user_id::text, 'none') FROM audit_entries \
-             WHERE action = 'sign_in.failed'",
-        )
+        .owner_reads(&format!(
+            "SELECT CASE user_id WHEN '{}' THEN 'ada' WHEN '{without}' THEN 'without' END \
+             || ' ' || coalesce(actor_user_id::text, 'none') FROM audit_entries \
+             WHERE action = 'sign_in.failed' ORDER BY 1",
+            ada.user_id
+        ))
         .await;
-    assert_eq!(failures, [format!("{} none", ada.user_id)]);
+    assert_eq!(failures, ["ada none", "without none"]);
 }
 
 #[tokio::test]

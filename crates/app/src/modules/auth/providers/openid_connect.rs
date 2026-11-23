@@ -69,6 +69,10 @@ fn build(settings: &[String]) -> Built {
     else {
         return Err(ConfigError::missing(NAME));
     };
+    // Before `one_line`, which collapses a control character that is white space, such as a tab.
+    if name.contains(char::is_control) {
+        return Err(ConfigError::invalid(NAME, NAME_EXPECTED));
+    }
     let name = one_line(name, NAME_MAX_CHARS, NAME_EXPECTED, NAME_EXPECTED)
         .map_err(|_| ConfigError::invalid(NAME, NAME_EXPECTED))?;
     if !https(issuer, false) {

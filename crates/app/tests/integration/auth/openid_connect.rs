@@ -271,11 +271,19 @@ async fn auth_084_startup_refuses_a_name_that_is_longer_than_100_characters_or_h
 {
     let named = |name: &str| settings(Options::default(), ISSUER).set("OPENID_CONNECT_NAME", name);
 
-    for refused in ["n".repeat(101), "Example\u{1b}Login".to_owned()] {
+    // A tab, a line feed and U+0085 are white space as well as control characters.
+    for refused in [
+        "n".repeat(101),
+        "Example\u{1b}Login".to_owned(),
+        "Example\tLogin".to_owned(),
+        "Example\nLogin".to_owned(),
+        "Example\u{85}Login".to_owned(),
+    ] {
         assert_eq!(
             api::refusal(&named(&refused)),
             "OPENID_CONNECT_NAME must be a name of 1 to 100 characters, with no control character \
-             (AUTH-084)"
+             (AUTH-084)",
+            "{refused:?}"
         );
     }
     api::configuration(&named(&"n".repeat(100)));

@@ -59,7 +59,8 @@ pub(crate) enum AuthError {
     /// No sign-in waits for its second factor with the challenge (AUTH-060).
     #[error("the challenge completes no sign-in")]
     InvalidChallenge,
-    /// The code that completes a sign-in isn't its user's (AUTH-060).
+    /// The app's code or the recovery code that completes a sign-in, or that a reset's
+    /// confirmation carries, isn't its user's (AUTH-060, AUTH-098).
     #[error("the second factor's code is wrong")]
     InvalidSecondFactor,
     /// The signed-in user's account has an authenticator app, whose code the request lacks
