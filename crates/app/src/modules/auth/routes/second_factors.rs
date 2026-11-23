@@ -69,8 +69,9 @@ pub(super) fn routes() -> Routes<Arc<Auth>> {
 
 /// The second factor that a request gives, `code`, the app's code at the JSON Pointer `code_at`,
 /// or `recovery_code`, or `None` when it gives neither and `required` is false, or `None` with the
-/// refusals in `errors`, which name `code_at` when it gives both, or neither while `required`
-/// (AUTH-060, AUTH-065, AUTH-098).
+/// refusals in `errors`, which name `code_at` when it gives both, or neither while `required`,
+/// and `/recovery_code` beside it when AUTH-062 refuses the recovery code of a body that gives
+/// both (AUTH-060, AUTH-065, AUTH-098).
 pub(super) fn factor_proof(
     errors: &mut FieldErrors,
     (code_at, code): (&'static str, Option<&str>),
@@ -85,13 +86,21 @@ pub(super) fn factor_proof(
             .check("/recovery_code", RecoveryCode::parse(code))
             .map(|code| Some(FactorProof::Recovery(code))),
         (None, None) if !required => Some(None),
-        _ => errors.check(
-            code_at,
-            Err(Invalid::new(
-                "invalid_code",
-                "Send the app's code or a recovery code, one of them.",
-            )),
-        ),
+        (_, recovery_code) => {
+            let refused = errors.check(
+                code_at,
+                Err(Invalid::new(
+                    "invalid_code",
+                    "Send the app's code or a recovery code, one of them.",
+                )),
+            );
+            // The recovery code beside the app's is checked too, so that its refusal names its
+            // field (API-10).
+            if let Some(code) = recovery_code {
+                errors.check("/recovery_code", RecoveryCode::parse(code));
+            }
+            refused
+        }
     }
 }
 

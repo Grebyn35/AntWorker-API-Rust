@@ -15,7 +15,7 @@ use utoipa::{
     openapi::{ObjectBuilder, RefOr, Schema, Type},
 };
 
-use super::RecoveryCode;
+use super::{RecoveryCode, codes::SPACE_CLASS};
 
 /// How many bytes an app's secret holds: the 160 bits that RFC 4226 recommends (AUTH-055).
 pub(crate) const SECRET_BYTES: usize = 20;
@@ -151,7 +151,9 @@ impl PartialSchema for AppCode {
             .schema_type(Type::String)
             .min_length(Some(usize::from(APP_CODE_DIGITS)))
             .max_length(Some(APP_CODE_MAX_INPUT))
-            .pattern(Some("^\\s*[0-9]{6}\\s*$"))
+            .pattern(Some(format!(
+                "^[{SPACE_CLASS}]*[0-9]{{6}}[{SPACE_CLASS}]*$"
+            )))
             .description(Some(
                 "The 6 digits that the authenticator app shows, which spaces around them may \
                  surround.",

@@ -491,6 +491,7 @@ async fn auth_065_both_codes_or_a_malformed_one_answer_400_at_its_field() {
         json!({ "password": PASSWORD, "code": padded }),
         json!({ "password": PASSWORD, "code": "424242", "recovery_code": app.recovery_codes[0] }),
         json!({ "password": PASSWORD, "recovery_code": "ABCD-EFGH" }),
+        json!({ "password": PASSWORD, "code": "424242", "recovery_code": "ABCD-EFGH" }),
     ];
 
     let mut refused = Vec::new();
@@ -501,12 +502,23 @@ async fn auth_065_both_codes_or_a_malformed_one_answer_400_at_its_field() {
             .send()
             .await;
         assert_eq!(answer.status, 400, "{body}");
-        refused.push(answer.json()["errors"][0]["field"].clone());
+        let fields: Vec<String> = answer
+            .refused_fields()
+            .into_iter()
+            .map(|(field, _)| field)
+            .collect();
+        refused.push(fields.join(" "));
     }
 
     assert_eq!(
         refused,
-        ["/code", "/code", "/code", "/recovery_code"].map(Value::from)
+        [
+            "/code",
+            "/code",
+            "/code",
+            "/recovery_code",
+            "/code /recovery_code"
+        ]
     );
 }
 

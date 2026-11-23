@@ -29,6 +29,12 @@ use crate::modules::auth::{
 /// The longest code that a request carries (AUTH-100).
 const CODE_MAX_CHARS: usize = 2_048;
 
+/// The longest redirect URI that a request carries (AUTH-100).
+const REDIRECT_URI_MAX_CHARS: usize = 2_048;
+
+/// The longest key of a provider that a request names (AUTH-100).
+const KEY_MAX_CHARS: usize = 64;
+
 /// The shortest and longest verifier of a PKCE challenge, as RFC 7636 allows them (AUTH-100).
 const VERIFIER_CHARS: std::ops::RangeInclusive<usize> = 43..=128;
 
@@ -162,15 +168,36 @@ pub(crate) struct ProviderLinkRequest {
     redirect_uri: String,
 }
 
-/// The grant of `code`, `verifier` and `redirect_uri` at `provider`, or `None` when the code or
-/// the verifier is malformed, or the provider's clients don't list the redirect URI, which
-/// `errors` then holds, so one 400 names every field (AUTH-078, AUTH-100, API-10).
+/// Whether `provider` is a provider's key as a request's schema gives one: 1 to
+/// [`KEY_MAX_CHARS`] lowercase ASCII letters, digits and underscores, the first a letter
+/// (AUTH-100).
+fn is_key(provider: &str) -> bool {
+    let mut characters = provider.chars();
+    provider.len() <= KEY_MAX_CHARS
+        && characters.next().is_some_and(|c| c.is_ascii_lowercase())
+        && characters.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+}
+
+/// The grant of `code`, `verifier` and `redirect_uri` at `provider`, or `None` when the provider's
+/// key, the code, the verifier or the redirect URI is malformed, or the clients of a provider that
+/// the deployment configures don't list the redirect URI, which `errors` then holds, so one 400
+/// names every field (AUTH-078, AUTH-100, API-10).
 fn grant(
     errors: &mut FieldErrors,
     providers: &Providers,
     provider: &str,
     (code, verifier, redirect_uri): (String, String, String),
 ) -> Option<Grant> {
+    let key = errors.check(
+        "/provider",
+        is_key(provider).then_some(()).ok_or_else(|| {
+            Invalid::new(
+                "invalid_provider",
+                "A provider's key is 1 to 64 lowercase letters, digits and underscores, the \
+                 first a letter.",
+            )
+        }),
+    );
     let code_valid = !code.is_empty()
         && code.chars().count() <= CODE_MAX_CHARS
         && code.chars().all(|c| c.is_ascii_graphic());
@@ -197,21 +224,27 @@ fn grant(
             )
         }),
     );
+    let bounded = (1..=REDIRECT_URI_MAX_CHARS).contains(&redirect_uri.chars().count());
     let listed = errors.check(
         "/redirect_uri",
-        providers
-            .lists(provider, &redirect_uri)
-            .then_some(())
-            .ok_or_else(|| {
-                Invalid::new(
-                    "invalid_redirect_uri",
-                    "The redirect URI is none that the provider's clients list.",
-                )
-            }),
+        if !bounded {
+            Err(Invalid::new(
+                "invalid_redirect_uri",
+                "A redirect URI has 1 to 2,048 characters.",
+            ))
+        } else if providers.lists(provider, &redirect_uri) {
+            Ok(())
+        } else {
+            Err(Invalid::new(
+                "invalid_redirect_uri",
+                "The redirect URI is none that the provider's clients list.",
+            ))
+        },
     );
-    code.zip(verifier)
+    key.zip(code)
+        .zip(verifier)
         .zip(listed)
-        .map(|((code, verifier), ())| Grant {
+        .map(|((((), code), verifier), ())| Grant {
             code: Secret::new(code),
             verifier: Secret::new(verifier),
             redirect_uri,

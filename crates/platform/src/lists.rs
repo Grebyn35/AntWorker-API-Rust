@@ -187,9 +187,10 @@ fn decode(value: &str, tag: [u8; 4]) -> Result<Cursor, Invalid> {
     Ok(Cursor { at, id })
 }
 
-/// What a list's items must contain, in one of the fields its route names, ignoring case:
-/// trimmed, with each run of whitespace inside collapsed to one space, in Unicode Normalization
-/// Form C, of 1 to 100 characters, with no control character (PLATFORM-047).
+/// What a list's items must contain, in one of the fields its route names, ignoring case: text of
+/// at most 100 characters as given, trimmed, with each run of whitespace inside collapsed to one
+/// space, in Unicode Normalization Form C, of 1 to 100 characters, with no control character
+/// (PLATFORM-047).
 #[derive(Clone, PartialEq, Eq)]
 pub struct Search(String);
 
@@ -380,6 +381,25 @@ mod tests {
         assert_eq!(
             Search::parse(&"a".repeat(101)).unwrap_err().code,
             "too_long"
+        );
+    }
+
+    #[test]
+    fn platform_047_a_search_holds_at_most_100_characters_as_given() {
+        // Of the bound's length, then once more with white space after it, which was taken once
+        // trimmed.
+        let longest = "a".repeat(100);
+        assert!(Search::parse(&longest).is_ok());
+        assert_eq!(
+            Search::parse(&format!("{longest} ")).unwrap_err().code,
+            "too_long"
+        );
+        // Within the bound, with white space around it and inside it, which normalizing removes.
+        let padded = format!(" {}  {} ", "a".repeat(48), "b".repeat(48));
+        assert_eq!(padded.chars().count(), 100);
+        assert_eq!(
+            Search::parse(&padded).unwrap().0,
+            format!("{} {}", "a".repeat(48), "b".repeat(48))
         );
     }
 

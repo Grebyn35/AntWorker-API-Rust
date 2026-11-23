@@ -62,6 +62,16 @@ pub fn grant() -> Value {
     })
 }
 
+/// Keys outside the schema of a request's `provider`: none, 65 characters, and keys with a
+/// capital, a digit first, a hyphen, and a space after the stand-in's key (AUTH-100).
+pub fn keys_outside_the_schema() -> Vec<String> {
+    ["", "Stand_in", "9lives", "stand-in", "stand_in "]
+        .map(str::to_owned)
+        .into_iter()
+        .chain([format!("a{}", "b".repeat(64))])
+        .collect()
+}
+
 pub async fn sign_in(api: &Api, body: &Value) -> Response {
     api.post("/v1/sessions/provider", body).send().await
 }

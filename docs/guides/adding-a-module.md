@@ -119,7 +119,7 @@ A provider whose addresses differ between deployments, such as an organization's
 The template has one, which a deployment names with no code, and a product that signs in through a second copies `providers/openid_connect.rs` under a key of its own. <!-- part: openid_connect -->
 
 A provider is an optional part, so each line that exists only for it carries its marker, a comment that reads `part: <key>`, in the forms that ARCH-07 gives for each kind of file, and `just remove <key>` deletes them all. <!-- part: removal -->
-The provider's key is in `snake_case`, such as `acme`, and its settings start with the key in capitals, such as `ACME_`. These are its pieces:
+The provider's key is in `snake_case`, such as `acme`, of at most 64 characters, the first a letter, as a sign-in's `provider` takes it (AUTH-100), and its settings start with the key in capitals, such as `ACME_`. These are its pieces:
 
 | Piece | File | Rules |
 |---|---|---|

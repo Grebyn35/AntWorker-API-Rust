@@ -86,6 +86,11 @@ const CODES: u32 = 1_000_000;
 /// around them, as its schema gives (API-17).
 const CODE_MAX_INPUT: usize = 32;
 
+/// The white space that a typed code may hold, as a class of its schema's pattern writes it:
+/// ECMA-262's `\s`, and U+0085, so the class takes each character that `char::is_whitespace`
+/// takes, which a code's conversion reads as white space, and U+FEFF, which it doesn't (API-10).
+pub(super) const SPACE_CLASS: &str = "\\s\\u0085";
+
 /// A verification code: 6 digits (AUTH-030), as the user typed it, or as the API drew it. Its
 /// `Debug` shows no digit (SEC-01).
 #[derive(Clone, Debug)]
@@ -129,7 +134,9 @@ impl PartialSchema for VerificationCode {
             .schema_type(Type::String)
             .min_length(Some(CODE_DIGITS))
             .max_length(Some(CODE_MAX_INPUT))
-            .pattern(Some("^\\s*[0-9]{6}\\s*$"))
+            .pattern(Some(format!(
+                "^[{SPACE_CLASS}]*[0-9]{{6}}[{SPACE_CLASS}]*$"
+            )))
             .description(Some(
                 "The 6 digits of the code, which spaces around them may surround.",
             ))
@@ -291,7 +298,7 @@ impl<P: LongKind> PartialSchema for LongCode<P> {
             .min_length(Some(P::CHARS))
             .max_length(Some(LONG_CODE_MAX_INPUT))
             .pattern(Some(format!(
-                "^[\\s-]*(?:[0-9A-TV-Za-tv-z][\\s-]*){{{}}}$",
+                "^[{SPACE_CLASS}-]*(?:[0-9A-TV-Za-tv-z][{SPACE_CLASS}-]*){{{}}}$",
                 P::CHARS
             )))
             .description(Some(format!(
@@ -311,7 +318,7 @@ impl<P: LongKind> ToSchema for LongCode<P> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{super::AppCode, *};
 
     #[test]
     fn auth_030_a_code_is_6_digits_of_any_value() {
@@ -506,5 +513,55 @@ mod tests {
     fn sec_01_a_code_s_debug_shows_no_digit() {
         let code = VerificationCode::parse("424242").unwrap();
         assert!(!format!("{code:?}").contains("4242"));
+    }
+
+    /// Whether `value` fits `schema`, a type's, read as JSON Schema.
+    fn fits(schema: RefOr<Schema>, value: &str) -> bool {
+        let schema = serde_json::to_value(schema).unwrap();
+        jsonschema::validator_for(&schema)
+            .unwrap()
+            .is_valid(&serde_json::json!(value))
+    }
+
+    #[test]
+    fn api_10_each_white_space_that_a_typed_code_may_hold_is_one_its_pattern_takes() {
+        let spaces = (0..=u32::from(char::MAX))
+            .filter_map(char::from_u32)
+            .filter(|c| c.is_whitespace());
+
+        for space in spaces {
+            let six = format!("{space}424242{space}");
+            let long = format!("{space}7KQM{space}2XWD-9RTB{space}H4NP{space}");
+            let recovery = format!("{long}1100{space}ABCD");
+            assert!(
+                VerificationCode::parse(&six).is_ok(),
+                "U+{:04X}",
+                u32::from(space)
+            );
+            assert!(
+                fits(VerificationCode::schema(), &six),
+                "U+{:04X}",
+                u32::from(space)
+            );
+            assert!(AppCode::parse(&six).is_ok());
+            assert!(fits(AppCode::schema(), &six), "U+{:04X}", u32::from(space));
+            assert!(ResetCode::parse(&long).is_ok() && ChangeCode::parse(&long).is_ok());
+            assert!(
+                fits(ResetCode::schema(), &long),
+                "U+{:04X}",
+                u32::from(space)
+            );
+            assert!(
+                fits(ChangeCode::schema(), &long),
+                "U+{:04X}",
+                u32::from(space)
+            );
+            assert!(RecoveryCode::parse(&recovery).is_ok());
+            assert!(
+                fits(RecoveryCode::schema(), &recovery),
+                "U+{:04X}",
+                u32::from(space)
+            );
+        }
     }
 }

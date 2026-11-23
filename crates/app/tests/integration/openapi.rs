@@ -287,6 +287,208 @@ async fn api_10_every_parameter_of_a_list_refuses_a_value_that_is_none_by_its_na
     assert!(sent >= 6, "only {sent} parameters");
 }
 
+/// `schema`, a request body's or a field's, with its `$ref` followed, and, of a `oneOf` of two
+/// members, one of them `null`, as utoipa writes an `Option` of a type of its own, the other.
+fn resolved<'a>(document: &'a Value, schema: &'a Value) -> &'a Value {
+    let schema = match schema["oneOf"].as_array() {
+        Some(members) => {
+            let others: Vec<&Value> = members.iter().filter(|m| m["type"] != "null").collect();
+            assert!(members.len() == 2 && others.len() == 1, "{schema}");
+            others[0]
+        }
+        None => schema,
+    };
+    match schema["$ref"].as_str() {
+        Some(reference) => {
+            let name = reference.trim_start_matches("#/components/schemas/");
+            &document["components"]["schemas"][name]
+        }
+        None => schema,
+    }
+}
+
+/// The values that API-10's generated test sends a field of a JSON request body whose schema is
+/// `field`: `a` repeated once more than its `maxLength`, a value of its `maxLength` followed by a
+/// space, which a type that trims would take, `a` repeated, or, for the format `email`, an
+/// address at `example.com`, and `a` repeated once fewer than its `minLength`, when that is above
+/// 0, and, for a `pattern` or an `enum`, U+0001 repeated as often as its `minLength`, or once. The
+/// test checks that the field's schema refuses each.
+fn outside_its_bounds(field: &Value) -> Vec<String> {
+    let length = |key: &str| field[key].as_u64().map(|n| usize::try_from(n).unwrap());
+    let mut values = Vec::new();
+    if let Some(max) = length("maxLength") {
+        values.push("a".repeat(max + 1));
+        let at_bound = if field["format"] == "email" {
+            format!("{}@example.com", "a".repeat(max - "@example.com".len()))
+        } else {
+            "a".repeat(max)
+        };
+        values.push(format!("{at_bound} "));
+    }
+    if let Some(min) = length("minLength").filter(|min| *min > 0) {
+        values.push("a".repeat(min - 1));
+    }
+    if !field["pattern"].is_null() || !field["enum"].is_null() {
+        values.push("\u{1}".repeat(length("minLength").unwrap_or(1).max(1)));
+    }
+    values
+}
+
+/// A field of a JSON request body of the document, with what a request to it needs.
+struct BodyField {
+    method: Method,
+    template: String,
+    access: Value,
+    media: String,
+    /// The body's schema.
+    body: Value,
+    name: String,
+    /// The field's schema.
+    field: Value,
+}
+
+/// Each property of the schema of each request body of `document` whose media type, without its
+/// parameters, ends in `json`, the body's schema and the property's as [`resolved`] reads them.
+/// It fails on a body's schema that holds a keyword of [`UNREAD_FORMS`], and on a property's that
+/// holds one of those or of [`UNREAD_BOUNDS`].
+fn json_body_fields(document: &Value) -> Vec<BodyField> {
+    let mut fields = Vec::new();
+    for (template, item) in document["paths"].as_object().unwrap() {
+        for (method, operation) in item.as_object().unwrap() {
+            let contents = operation["requestBody"]["content"].as_object();
+            let json = contents.into_iter().flatten().filter(|(media, _)| {
+                media
+                    .split(';')
+                    .next()
+                    .unwrap_or_default()
+                    .trim()
+                    .ends_with("json")
+            });
+            for (media, content) in json {
+                let body = resolved(document, &content["schema"]);
+                for unread in UNREAD_FORMS {
+                    assert!(body[unread].is_null(), "{template}: {unread}");
+                }
+                for (name, field) in body["properties"].as_object().into_iter().flatten() {
+                    let field = resolved(document, field);
+                    for unread in UNREAD_FORMS.iter().chain(&UNREAD_BOUNDS) {
+                        assert!(field[unread].is_null(), "{template} {name}: {unread}");
+                    }
+                    fields.push(BodyField {
+                        method: Method::from_bytes(method.to_ascii_uppercase().as_bytes()).unwrap(),
+                        template: template.clone(),
+                        access: operation["x-access"].clone(),
+                        media: media.clone(),
+                        body: body.clone(),
+                        name: name.clone(),
+                        field: field.clone(),
+                    });
+                }
+            }
+        }
+    }
+    fields
+}
+
+/// The keywords of a schema that [`resolved`] leaves, and that [`json_body_fields`] doesn't read.
+const UNREAD_FORMS: [&str; 5] = ["$ref", "allOf", "anyOf", "oneOf", "not"];
+
+/// The keywords of a field's schema that [`outside_its_bounds`] doesn't read: a number's bounds,
+/// `const`, an array's bounds and items, and an object's properties.
+const UNREAD_BOUNDS: [&str; 9] = [
+    "minimum",
+    "maximum",
+    "exclusiveMinimum",
+    "exclusiveMaximum",
+    "const",
+    "minItems",
+    "maxItems",
+    "items",
+    "properties",
+];
+
+/// The body that gives `field` the value `value`, and each other field that its body requires
+/// `false`, if its schema's type is `boolean`, or else `""`, which the conversion may refuse too.
+fn body_with(document: &Value, field: &BodyField, value: &str) -> String {
+    let required = field.body["required"].as_array().into_iter().flatten();
+    let mut body: serde_json::Map<String, Value> = required
+        .filter_map(Value::as_str)
+        .map(|other| {
+            let kind = &resolved(document, &field.body["properties"][other])["type"];
+            let blank = if *kind == "boolean" {
+                Value::Bool(false)
+            } else {
+                Value::from("")
+            };
+            (other.to_owned(), blank)
+        })
+        .collect();
+    body.insert(field.name.clone(), Value::from(value));
+    Value::Object(body).to_string()
+}
+
+#[tokio::test]
+async fn api_10_every_bound_of_a_json_body_s_field_refuses_a_value_outside_it_at_the_field() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let workspace = workspaces::arrange(api.database(), "Acme", &[(&ada.user_id, "owner")]).await;
+    let mut sent = 0;
+
+    for field in json_body_fields(api.document()) {
+        let path = field
+            .template
+            .split('/')
+            .map(|part| match part {
+                "{workspace_id}" => workspace.as_str(),
+                _ if part.starts_with('{') => "01900000-0000-7000-8000-000000000000",
+                _ => part,
+            })
+            .collect::<Vec<_>>()
+            .join("/");
+        for value in outside_its_bounds(&field.field) {
+            let schema = jsonschema::validator_for(&field.field).unwrap();
+            assert!(
+                !schema.is_valid(&Value::from(value.as_str())),
+                "{} {value:?}",
+                field.name
+            );
+            let call = api
+                .request(field.method.clone(), &path)
+                .header("content-type", &field.media)
+                .body(body_with(api.document(), &field, &value));
+            let call = if field.access == "public" {
+                call
+            } else {
+                call.bearer(&ada.access)
+            };
+
+            let response = call.send().await;
+
+            let at = format!(
+                "{} {} /{} {value:?}",
+                field.method, field.template, field.name
+            );
+            assert_eq!(
+                response.status,
+                StatusCode::BAD_REQUEST,
+                "{at}: {}",
+                String::from_utf8_lossy(&response.body)
+            );
+            let refused: Vec<String> = response
+                .refused_fields()
+                .into_iter()
+                .map(|(refused, _)| refused)
+                .collect();
+            assert!(
+                refused.contains(&format!("/{}", field.name)),
+                "{at}: {refused:?}"
+            );
+            sent += 1;
+        }
+    }
+    assert!(sent >= 100, "only {sent} values");
+}
+
 #[tokio::test]
 async fn platform_088_the_pattern_that_documents_a_moment_takes_the_forms_that_a_filter_takes() {
     let api = Api::new().await;

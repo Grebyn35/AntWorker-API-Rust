@@ -270,9 +270,11 @@ async fn auth_084_startup_refuses_a_name_that_is_longer_than_100_characters_or_h
 {
     let named = |name: &str| settings(Options::default(), ISSUER).set("OPENID_CONNECT_NAME", name);
 
-    // A tab, a line feed and U+0085 are white space as well as control characters.
+    // A tab, a line feed and U+0085 are white space as well as control characters. A name is
+    // counted as set, before its white space is collapsed.
     for refused in [
         "n".repeat(101),
+        format!("Example{}Login", " ".repeat(89)),
         "Example\u{1b}Login".to_owned(),
         "Example\tLogin".to_owned(),
         "Example\nLogin".to_owned(),
@@ -286,6 +288,7 @@ async fn auth_084_startup_refuses_a_name_that_is_longer_than_100_characters_or_h
         );
     }
     api::configuration(&named(&"n".repeat(100)));
+    api::configuration(&named(&format!("Example{}Login", " ".repeat(88))));
 }
 
 // part: files

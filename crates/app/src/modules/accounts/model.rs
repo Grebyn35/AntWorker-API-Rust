@@ -24,9 +24,9 @@ pub(crate) struct Address {
 /// The most characters a display name has (ACCOUNTS-003).
 const NAME_MAX_CHARS: usize = 100;
 
-/// How a user appears to others: trimmed, with each run of whitespace inside collapsed to one
-/// space, in Unicode Normalization Form C, of 1 to 100 characters, with no control character
-/// (ACCOUNTS-003). It is personal data, so `Debug` doesn't show it (OBS-04).
+/// How a user appears to others: text of at most 100 characters as given, trimmed, with each run
+/// of whitespace inside collapsed to one space, in Unicode Normalization Form C, of 1 to 100
+/// characters, with no control character (ACCOUNTS-003). It is personal data, so `Debug` doesn't show it (OBS-04).
 #[derive(Clone, PartialEq, Eq, Serialize)]
 #[serde(transparent)]
 pub(crate) struct DisplayName(String);
@@ -215,6 +215,25 @@ mod tests {
         assert_eq!(
             DisplayName::parse(&"a".repeat(101)).unwrap_err().code,
             "too_long"
+        );
+    }
+
+    #[test]
+    fn accounts_003_a_display_name_holds_at_most_100_characters_as_given() {
+        // Of the bound's length, then once more with white space after it, which was taken once
+        // trimmed.
+        let longest = "a".repeat(100);
+        assert!(DisplayName::parse(&longest).is_ok());
+        assert_eq!(
+            DisplayName::parse(&format!("{longest} ")).unwrap_err().code,
+            "too_long"
+        );
+        // Within the bound, with white space around it and inside it, which normalizing removes.
+        let padded = format!(" {}  {} ", "a".repeat(48), "b".repeat(48));
+        assert_eq!(padded.chars().count(), 100);
+        assert_eq!(
+            DisplayName::parse(&padded).unwrap().as_str(),
+            format!("{} {}", "a".repeat(48), "b".repeat(48))
         );
     }
 }

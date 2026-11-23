@@ -14,8 +14,9 @@ use super::{DeviceId, StoredSession};
 /// The most characters a device's name has (AUTH-042).
 const DEVICE_NAME_MAX_CHARS: usize = 100;
 
-/// The name a client gives its device, such as `Ada's laptop`: one line of 1 to 100 characters,
-/// with no control character, normalized as a user's name is (AUTH-042). It is personal data, so its `Debug` shows nothing
+/// The name a client gives its device, such as `Ada's laptop`: text of at most 100 characters as
+/// given, as one line of 1 to 100 characters, with no control character, normalized as a user's
+/// name is (AUTH-042). It is personal data, so its `Debug` shows nothing
 /// of it (OBS-04).
 #[derive(Clone, PartialEq, Eq, Serialize)]
 #[serde(transparent)]
@@ -128,6 +129,25 @@ mod tests {
         assert_eq!(
             DeviceName::parse(&"é".repeat(101)).unwrap_err().code,
             "too_long"
+        );
+    }
+
+    #[test]
+    fn auth_042_a_device_s_name_holds_at_most_100_characters_as_given() {
+        // Of the bound's length, then once more with white space after it, which was taken once
+        // trimmed.
+        let longest = "a".repeat(100);
+        assert!(DeviceName::parse(&longest).is_ok());
+        assert_eq!(
+            DeviceName::parse(&format!("{longest} ")).unwrap_err().code,
+            "too_long"
+        );
+        // Within the bound, with white space around it and inside it, which normalizing removes.
+        let padded = format!(" {}  {} ", "a".repeat(48), "b".repeat(48));
+        assert_eq!(padded.chars().count(), 100);
+        assert_eq!(
+            DeviceName::parse(&padded).unwrap().as_str(),
+            format!("{} {}", "a".repeat(48), "b".repeat(48))
         );
     }
 

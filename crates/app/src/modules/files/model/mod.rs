@@ -24,8 +24,8 @@ pub(in crate::modules::files) use exported::{
 };
 pub(crate) use kinds::Kind;
 
-/// A file's name: one line of text of 1 to 255 characters, normalized as `one_line` says, with no
-/// control character (FILES-002). A name is personal data, so `Debug` doesn't show it (OBS-04).
+/// A file's name: one line of text of at most 255 characters as given, normalized as `one_line`
+/// says, of 1 to 255 characters, with no control character (FILES-002). A name is personal data, so `Debug` doesn't show it (OBS-04).
 /// `Deserialize` only reads back a stored result that an idempotency key replays (PLATFORM-036),
 /// which held a parsed name.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -314,6 +314,25 @@ mod tests {
         assert_eq!(
             FileName::parse(&"a".repeat(256)).unwrap_err().code,
             "too_long"
+        );
+    }
+
+    #[test]
+    fn files_002_a_name_holds_at_most_255_characters_as_given() {
+        // Of the bound's length, then once more with white space after it, which was taken once
+        // trimmed.
+        let longest = "a".repeat(255);
+        assert!(FileName::parse(&longest).is_ok());
+        assert_eq!(
+            FileName::parse(&format!("{longest} ")).unwrap_err().code,
+            "too_long"
+        );
+        // Within the bound, with white space around it and inside it, which normalizing removes.
+        let padded = format!(" {}  {} ", "a".repeat(125), "b".repeat(126));
+        assert_eq!(padded.chars().count(), 255);
+        assert_eq!(
+            FileName::parse(&padded).unwrap().as_str(),
+            format!("{} {}", "a".repeat(125), "b".repeat(126))
         );
     }
 }

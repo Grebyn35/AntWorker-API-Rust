@@ -611,6 +611,70 @@ async fn auth_100_a_malformed_code_verifier_or_redirect_uri_answers_400_before_t
 }
 
 #[tokio::test]
+async fn auth_100_a_provider_outside_its_schema_answers_400_at_its_field_before_the_exchange() {
+    let (upstream, api) = providers::standing().await;
+
+    for key in providers::keys_outside_the_schema() {
+        let response = api
+            .post_raw(
+                "/v1/sessions/provider",
+                &with_fields(grant(), json!({ "provider": key })),
+            )
+            .send()
+            .await;
+
+        assert_eq!(response.status, 400, "{key:?}: {}", response.json());
+        assert_eq!(
+            response.refused_fields(),
+            [("/provider".to_owned(), "invalid_provider".to_owned())],
+            "{key:?}"
+        );
+    }
+    assert!(upstream.received().is_empty());
+    // The longest key that the schema allows, which names no provider.
+    let longest = sign_in(
+        &api,
+        &with_fields(grant(), json!({ "provider": "a".repeat(64) })),
+    )
+    .await;
+    assert_eq!(longest.status, 404);
+    assert_eq!(longest.json()["code"], "auth.provider_not_found");
+}
+
+#[tokio::test]
+async fn auth_100_a_redirect_uri_beyond_2048_characters_answers_400_whatever_its_provider() {
+    let (upstream, api) = providers::standing().await;
+    upstream.set("POST", "/token", 400, json!({ "error": "invalid_grant" }));
+    // The listed loopback URI without a port, with ports of 2,022 and 2,023 digits, which AUTH-078
+    // matches: 2,048 characters, and 2,049.
+    let loopback = |zeros: usize| format!("http://127.0.0.1:{}1/callback", "0".repeat(zeros));
+    let unknown = json!({
+        "provider": "nobody",
+        "redirect_uri": format!("https://app.example.com/{}", "a".repeat(2_025)),
+    });
+
+    for refused in [
+        json!({ "redirect_uri": loopback(2_022) }),
+        unknown,
+        json!({ "redirect_uri": "" }),
+    ] {
+        let body = with_fields(grant(), refused);
+        let response = api.post_raw("/v1/sessions/provider", &body).send().await;
+        assert_eq!(response.status, 400, "{}", response.json());
+        assert_eq!(
+            response.refused_fields(),
+            [(
+                "/redirect_uri".to_owned(),
+                "invalid_redirect_uri".to_owned()
+            )]
+        );
+    }
+    assert!(upstream.received().is_empty());
+    let longest = with_fields(grant(), json!({ "redirect_uri": loopback(2_021) }));
+    assert_eq!(sign_in(&api, &longest).await.status, 401);
+}
+
+#[tokio::test]
 async fn auth_100_a_code_of_2048_characters_and_verifiers_of_43_and_128_reach_the_exchange() {
     let (upstream, api) = providers::standing().await;
     upstream.set("POST", "/token", 400, json!({ "error": "invalid_grant" }));
@@ -1786,6 +1850,56 @@ const REAUTHENTICATE: &str = "/v1/users/me/sessions/current/reauthenticate/provi
 
 /// The path of a link of a provider.
 const LINK: &str = "/v1/users/me/identities/provider";
+
+/// What `path`, a re-authentication's or a link's, answers `caller` for each key outside the
+/// schema of `provider`, as the fields that each answer refuses, once each answered 400.
+async fn refusals_of_keys_outside_the_schema(
+    api: &Api,
+    path: &str,
+    caller: &SignedIn,
+) -> Vec<Vec<(String, String)>> {
+    let mut refusals = Vec::new();
+    for key in providers::keys_outside_the_schema() {
+        let response = api
+            .post_raw(path, &with_fields(grant(), json!({ "provider": key })))
+            .bearer(&caller.access)
+            .send()
+            .await;
+        assert_eq!(response.status, 400, "{key:?}: {}", response.json());
+        refusals.push(response.refused_fields());
+    }
+    refusals
+}
+
+#[tokio::test]
+async fn auth_100_a_re_authentication_refuses_a_provider_outside_its_schema_at_its_field() {
+    let (upstream, api) = providers::standing().await;
+    let bob = users::register(&api, "bob@example.com").await;
+
+    let refusals = refusals_of_keys_outside_the_schema(&api, REAUTHENTICATE, &bob).await;
+
+    let provider = vec![("/provider".to_owned(), "invalid_provider".to_owned())];
+    assert_eq!(
+        refusals,
+        vec![provider; providers::keys_outside_the_schema().len()]
+    );
+    assert!(upstream.received().is_empty(), "before the exchange");
+}
+
+#[tokio::test]
+async fn auth_100_a_link_refuses_a_provider_outside_its_schema_at_its_field() {
+    let (upstream, api) = providers::standing().await;
+    let bob = users::register(&api, "bob@example.com").await;
+
+    let refusals = refusals_of_keys_outside_the_schema(&api, LINK, &bob).await;
+
+    let provider = vec![("/provider".to_owned(), "invalid_provider".to_owned())];
+    assert_eq!(
+        refusals,
+        vec![provider; providers::keys_outside_the_schema().len()]
+    );
+    assert!(upstream.received().is_empty(), "before the exchange");
+}
 
 /// The access token of a caller of `path`: `ada`'s, for a re-authentication, whose subject the
 /// stand-in gives, and, for a link, that of a new user, the `n`th, for whom the stand-in gives a

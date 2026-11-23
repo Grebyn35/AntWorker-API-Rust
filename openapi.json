@@ -163,7 +163,7 @@
         "description": "The 6 digits that the authenticator app shows, which spaces around them may surround.",
         "maxLength": 32,
         "minLength": 6,
-        "pattern": "^\\s*[0-9]{6}\\s*$",
+        "pattern": "^[\\s\\u0085]*[0-9]{6}[\\s\\u0085]*$",
         "type": "string"
       },
       "AppResponse": {
@@ -518,7 +518,7 @@
         "description": "The 16 characters of the code, of Crockford's base32 alphabet, without regard to case, which hyphens and spaces may separate.",
         "maxLength": 64,
         "minLength": 16,
-        "pattern": "^[\\s-]*(?:[0-9A-TV-Za-tv-z][\\s-]*){16}$",
+        "pattern": "^[\\s\\u0085-]*(?:[0-9A-TV-Za-tv-z][\\s\\u0085-]*){16}$",
         "type": "string"
       },
       "ChangeConfirmationRequest": {
@@ -4609,7 +4609,7 @@
         "description": "The 24 characters of the code, of Crockford's base32 alphabet, without regard to case, which hyphens and spaces may separate.",
         "maxLength": 64,
         "minLength": 24,
-        "pattern": "^[\\s-]*(?:[0-9A-TV-Za-tv-z][\\s-]*){24}$",
+        "pattern": "^[\\s\\u0085-]*(?:[0-9A-TV-Za-tv-z][\\s\\u0085-]*){24}$",
         "type": "string"
       },
       "RecoveryCodeUsedEntry": {
@@ -4768,7 +4768,7 @@
         "description": "The 16 characters of the code, of Crockford's base32 alphabet, without regard to case, which hyphens and spaces may separate.",
         "maxLength": 64,
         "minLength": 16,
-        "pattern": "^[\\s-]*(?:[0-9A-TV-Za-tv-z][\\s-]*){16}$",
+        "pattern": "^[\\s\\u0085-]*(?:[0-9A-TV-Za-tv-z][\\s\\u0085-]*){16}$",
         "type": "string"
       },
       "ResetConfirmationRequest": {
@@ -6494,7 +6494,7 @@
         "description": "The 6 digits of the code, which spaces around them may surround.",
         "maxLength": 32,
         "minLength": 6,
-        "pattern": "^\\s*[0-9]{6}\\s*$",
+        "pattern": "^[\\s\\u0085]*[0-9]{6}[\\s\\u0085]*$",
         "type": "string"
       },
       "VerificationCodeCheckFailedEntry": {

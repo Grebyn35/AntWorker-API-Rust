@@ -70,13 +70,14 @@ impl Invalid {
     }
 }
 
-/// `value` as one line of text, such as a name or a search: trimmed, with each run of whitespace
-/// inside it collapsed to one space, in Unicode Normalization Form C (NFC), of 1 to `max_chars`
-/// characters, and with no control character left, such as U+0000, which Postgres stores in no
-/// text; or why it isn't one: `required`, explained by `empty`, `too_long`, explained by
-/// `too_long`, or `control_character` (D25). A control character that is whitespace, such as a
-/// tab, is collapsed with the whitespace around it. A domain type of text a user writes wraps
-/// what it returns.
+/// `value`, of at most `max_chars` characters as given, as one line of text, such as a name or a
+/// search: trimmed, with each run of whitespace inside it collapsed to one space, in Unicode
+/// Normalization Form C (NFC), of 1 to `max_chars` characters, and with no control character
+/// left, such as U+0000, which Postgres stores in no text; or why it isn't one: `required`,
+/// explained by `empty`, when the line holds no character, `too_long`, explained by `too_long`,
+/// when `value` or the line holds more than `max_chars`, or `control_character` (D25, API-10). A
+/// control character that is whitespace, such as a tab, is collapsed with the whitespace around
+/// it. A domain type of text a user writes wraps what it returns.
 pub fn one_line(
     value: &str,
     max_chars: usize,
@@ -88,7 +89,7 @@ pub fn one_line(
     if line.is_empty() {
         return Err(Invalid::new("required", empty));
     }
-    if line.chars().count() > max_chars {
+    if value.chars().count() > max_chars || line.chars().count() > max_chars {
         return Err(Invalid::new("too_long", too_long));
     }
     if line.chars().any(char::is_control) {
@@ -366,8 +367,9 @@ impl Version {
 /// The most characters an email address has (ACCOUNTS-002).
 const EMAIL_MAX_CHARS: usize = 254;
 
-/// An email address, trimmed and lowercased, of 1 to 254 characters, that is valid as the HTML
-/// standard defines one for `<input type="email">` (ACCOUNTS-002). It is personal data, so
+/// An email address, of at most 254 characters as given, trimmed and lowercased, of 1 to 254
+/// characters, that is valid as the HTML standard defines one for `<input type="email">`
+/// (ACCOUNTS-002). It is personal data, so
 /// `Debug` doesn't show it (OBS-04). `Deserialize` reads it back through [`EmailAddress::parse`],
 /// such as from a job's payload.
 #[derive(Clone, PartialEq, Eq, Hash, Serialize)]
@@ -394,7 +396,7 @@ impl EmailAddress {
         if address.is_empty() {
             return Err(Invalid::new("required", "Enter an email address."));
         }
-        if address.chars().count() > EMAIL_MAX_CHARS {
+        if value.chars().count() > EMAIL_MAX_CHARS || address.chars().count() > EMAIL_MAX_CHARS {
             return Err(Invalid::new(
                 "too_long",
                 "An email address has at most 254 characters.",
@@ -580,6 +582,41 @@ mod tests {
         assert!(EmailAddress::parse(&longest).is_ok());
         let too_long = format!("a{longest}");
         assert_eq!(EmailAddress::parse(&too_long).unwrap_err().code, "too_long");
+    }
+
+    #[test]
+    fn accounts_002_an_email_address_holds_at_most_254_characters_as_given() {
+        // Of the bound's length, then once more with white space before or after it, which was
+        // taken once trimmed.
+        let longest = format!("{}@example.com", "a".repeat(254 - "@example.com".len()));
+        assert!(EmailAddress::parse(&longest).is_ok());
+        for padded in [format!(" {longest}"), format!("{longest}\n")] {
+            assert_eq!(EmailAddress::parse(&padded).unwrap_err().code, "too_long");
+        }
+        // Within the bound, with white space around it, which trimming removes.
+        let padded = format!(" {}@Example.com ", "a".repeat(240));
+        assert_eq!(padded.chars().count(), 254);
+        let expected = format!("{}@example.com", "a".repeat(240));
+        assert_eq!(EmailAddress::parse(&padded).unwrap().as_str(), expected);
+    }
+
+    #[test]
+    fn api_10_one_line_holds_at_most_its_bound_as_given_and_once_normalized() {
+        assert_eq!(one_line(" a  b ", 6, "", "").unwrap(), "a b");
+        // Trailing white space, inner white space, and an e and a combining accent, which NFC
+        // makes one character: each normalizes to fewer than 6 characters, from 7 as given.
+        for over in ["abcdef ", "a     b", "e\u{301}e\u{301}e\u{301}e"] {
+            assert_eq!(
+                one_line(over, 6, "", "").unwrap_err().code,
+                "too_long",
+                "{over:?}"
+            );
+        }
+        // White space alone is no line, whatever its length.
+        assert_eq!(
+            one_line(&" ".repeat(9), 6, "", "").unwrap_err().code,
+            "required"
+        );
     }
 
     #[test]

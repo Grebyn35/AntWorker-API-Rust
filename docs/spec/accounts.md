@@ -60,8 +60,8 @@ A new account for whose user a sign-in provider gives a picture gets that pictur
 | ID | Behavior | Rules | Test prefix |
 |---|---|---|---|
 | ACCOUNTS-001 | `GET /v1/users/me` returns the caller's own `id`, `email`, `name` and `email_verified`, with the record's `ETag` (PLATFORM-071), and nothing about any other user. | API-05, API-13, DATA-16 | `accounts_001_` |
-| ACCOUNTS-002 | An email address is trimmed and lowercased, must be 1 to 254 characters, and must be a valid email address as the HTML standard defines one for `<input type="email">`. | D25, API-10 | `accounts_002_` |
-| ACCOUNTS-003 | A display name is trimmed, has internal whitespace collapsed to single spaces, is normalized to Unicode Normalization Form C (NFC), and must be 1 to 100 characters and not only whitespace, with no control character. | D25, API-10 | `accounts_003_` |
+| ACCOUNTS-002 | An email address may hold at most 254 characters as given. It is trimmed and lowercased, must then be 1 to 254 characters, and must be a valid email address as the HTML standard defines one for `<input type="email">`. | D25, API-10 | `accounts_002_` |
+| ACCOUNTS-003 | A display name may hold at most 100 characters as given. It is trimmed, has internal whitespace collapsed to single spaces, is normalized to Unicode Normalization Form C (NFC), and must then be 1 to 100 characters and not only whitespace, with no control character. | D25, API-10 | `accounts_003_` |
 | ACCOUNTS-004 | No two users have the same email. A second insert is refused by the unique index, and `create` reports that the email is in use, which its caller answers with a code of its own, such as `auth.email_in_use` (AUTH-002). | DATA-05, ERR-05 | `accounts_004_` |
 | ACCOUNTS-005 | `profiles` returns the profile of each requested user. | DATA-16 | `accounts_005_` |
 | ACCOUNTS-006 | `matching` returns a requested user when their name or their email contains the search, ignoring case, and no requested user whose name and email both miss it. | DATA-16, API-20 | `accounts_006_` |
