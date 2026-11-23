@@ -104,11 +104,12 @@ impl UploadTurns {
     }
 }
 
-/// The body of an upload route: a file's bytes, sent as `application/octet-stream`, the one kind
-/// of body that isn't JSON (API-08), which the handler reads once it has refused what it refuses without them, such as a caller
-/// who may not upload (PLATFORM-073), up to the limit its module sets, in one of the replica's
-/// turns, with the request's `Idempotency-Key`, if it is a `POST` that sent one (PLATFORM-074). An upload route's
-/// group sets no body limit of its own, so nothing reads the body before the handler does.
+/// The body of an upload route: a file's bytes, sent as `application/octet-stream`, a body that
+/// isn't JSON (API-08), which the handler reads once it has refused what it refuses without them,
+/// such as a caller who may not upload (PLATFORM-073), up to the limit its module sets, in one of
+/// the replica's turns, with the request's `Idempotency-Key`, if it is a `POST` that sent one
+/// (PLATFORM-074). An upload route's group sets no body limit of its own, so nothing reads the
+/// body before the handler does.
 #[derive(Debug)]
 pub struct Upload {
     body: Body,
@@ -137,11 +138,6 @@ impl<S: Send + Sync> FromRequest<S> for Upload {
                 Internal::new("the request carries no upload turns").into(),
             ));
         };
-        if !is_media_type(request.headers().get(header::CONTENT_TYPE), OCTET_STREAM) {
-            return Err(Problem(
-                RequestError::InvalidBody(BodyFault::ContentType(OCTET_STREAM)).into(),
-            ));
-        }
         // Only a `POST` takes a key (API-12): an upload by another method, such as setting an
         // avatar by `PUT`, reads none, as a route that takes no key reads none.
         let key = if request.method() == axum::http::Method::POST {
@@ -149,11 +145,17 @@ impl<S: Send + Sync> FromRequest<S> for Upload {
         } else {
             None
         };
+        // A key that isn't one is refused before the body's media type (API-10).
         if key
             .as_ref()
             .is_some_and(|value| !IdempotencyKey::is_key(value.as_bytes()))
         {
             return Err(Problem(RequestError::InvalidIdempotencyKey.into()));
+        }
+        if !is_media_type(request.headers().get(header::CONTENT_TYPE), OCTET_STREAM) {
+            return Err(Problem(
+                RequestError::InvalidBody(BodyFault::ContentType(OCTET_STREAM)).into(),
+            ));
         }
         let declared = request.headers().get(header::CONTENT_LENGTH).map(|length| {
             length
@@ -327,6 +329,27 @@ mod tests {
                 ),
             }
         }
+    }
+
+    #[tokio::test]
+    async fn api_10_an_upload_refuses_a_key_that_is_not_one_before_the_body() {
+        use crate::errors::ErrorCode;
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("/v1/uploads")
+            .header(header::CONTENT_TYPE, "text/plain")
+            .header(IDEMPOTENCY_KEY, "not a key")
+            .extension(turns())
+            .body(Body::from("x"))
+            .unwrap();
+
+        let refused = Upload::from_request(request, &()).await;
+
+        assert_eq!(
+            refused.unwrap_err().0.code(),
+            "request.invalid_idempotency_key"
+        );
     }
 
     /// The user numbered `number`.

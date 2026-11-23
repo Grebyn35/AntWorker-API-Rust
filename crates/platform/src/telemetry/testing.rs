@@ -29,7 +29,9 @@ use tracing_subscriber::{Layer, filter::LevelFilter, fmt::MakeWriter, layer::Sub
 use super::{Service, TelemetryError, names};
 use crate::config::Environment;
 
-/// Every line the process's logger has written, and the watches of the tests that run.
+/// Every line the process's logger has written, and the watches of the tests that run. A lock
+/// that a panic poisoned still holds whole lines and watches, since each change of them is one
+/// call or one assignment, so it is taken as it is.
 static LOGGED: Mutex<Logged> = Mutex::new(Logged {
     lines: Vec::new(),
     watches: Vec::new(),

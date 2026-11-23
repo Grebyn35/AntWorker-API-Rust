@@ -138,6 +138,8 @@ pub struct Collector {
 }
 
 struct Shared {
+    /// What the stand-in received. A lock that a panic poisoned still holds whole exports, since
+    /// each change of them is one push, so it is taken as it is.
     received: Mutex<Received>,
     changed: Notify,
     logs: Logs,

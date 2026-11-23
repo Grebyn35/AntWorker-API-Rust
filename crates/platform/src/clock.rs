@@ -70,6 +70,9 @@ mod testing {
     #[derive(Debug)]
     pub struct TestClock {
         start: Instant,
+        /// The time that has passed, and the sleeps that wait. A lock that a panic poisoned still
+        /// holds a whole state, since no change of it can panic once it has written a part of it,
+        /// so it is taken as it is.
         state: Mutex<State>,
         slept: Notify,
     }

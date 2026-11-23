@@ -95,9 +95,10 @@ impl JobContext {
         self.attempt
     }
 
-    /// The scope of an entry that the run records, of a job enqueued for a user: their own log,
-    /// with no actor, since no request of theirs acts, or `None` for a job of a workspace or of
-    /// no one (DATA-22).
+    /// The scope of an entry that the run records: the own log of the user the job runs for,
+    /// with no actor, since no request of theirs acts, also of a job of a workspace, whose scope
+    /// holds the member whose operation enqueued it (PLATFORM-013), or `None` for a job that runs
+    /// for no user (DATA-22).
     pub fn audit_scope(&self) -> Option<AuditScope> {
         self.scope
             .user()

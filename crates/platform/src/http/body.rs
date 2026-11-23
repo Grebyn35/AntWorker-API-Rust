@@ -84,6 +84,13 @@ where
         let path = request.uri().path().to_owned();
         let query = request.uri().query().unwrap_or_default().to_owned();
         let header = request.headers().get(IDEMPOTENCY_KEY).cloned();
+        // A key that isn't one is refused before the body is read (API-10).
+        if header
+            .as_ref()
+            .is_some_and(|value| !IdempotencyKey::is_key(value.as_bytes()))
+        {
+            return Err(Problem(RequestError::InvalidIdempotencyKey));
+        }
         let bytes = read(request, JSON).await?;
         let digest: [u8; 32] = Sha256::digest(&bytes).into();
         let key = header
@@ -320,6 +327,24 @@ mod tests {
                 "{fault:?}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn api_10_a_keyed_body_refuses_a_key_that_is_not_one_before_the_body() {
+        let request = Request::builder()
+            .method("POST")
+            .uri("/v1/things")
+            .header(header::CONTENT_TYPE, "text/plain")
+            .header(IDEMPOTENCY_KEY, "not a key")
+            .body(axum::body::Body::from("{}"))
+            .unwrap();
+
+        let refused = Idempotent::<serde_json::Value>::from_request(request, &()).await;
+
+        assert!(
+            matches!(refused, Err(Problem(RequestError::InvalidIdempotencyKey))),
+            "{refused:?}"
+        );
     }
 
     #[test]

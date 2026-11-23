@@ -95,7 +95,8 @@ pub(super) async fn dispatch(
 
 /// Runs `job` in a span of its own, linked to the span that enqueued it (OBS-07), renewing its
 /// lease while it runs and cancelling it at its time limit (PLATFORM-017), then writes its
-/// outcome by its claim, so a run whose lease ran out changes nothing.
+/// outcome by its claim, so a run whose lease ran out, while another replica claimed the job,
+/// changes nothing.
 pub(super) async fn run_job(
     queued: Queued,
     job: ClaimedJob,

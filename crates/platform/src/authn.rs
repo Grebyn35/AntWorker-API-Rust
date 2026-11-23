@@ -209,7 +209,8 @@ pub struct Verified {
 
 /// Where a request keeps the caller whom its session proved, for the pipeline's check of a
 /// request that failed on a foreign key: whether the caller's session still lasts
-/// (PLATFORM-097).
+/// (PLATFORM-097). A lock that a panic poisoned still holds a whole caller, or none, since each
+/// change of it is one assignment, so it is taken as it is.
 #[derive(Clone, Default)]
 pub(crate) struct Proved(Arc<Mutex<Option<Principal>>>);
 

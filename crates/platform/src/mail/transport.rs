@@ -1,6 +1,7 @@
 //! The SMTP transport (the platform spec's Sending email): one per process, with a pool of connections,
-//! whose TLS verifies the server's certificate against the system's certificates (D38), and whose
-//! every send is a client span (OBS-06), counted by how it ended (PLATFORM-105).
+//! whose TLS verifies the server's certificate against the system's certificates (D38), whose
+//! every send is a client span (OBS-06), and whose every send to the server counts by how it
+//! ended (PLATFORM-105).
 
 use std::time::Duration;
 

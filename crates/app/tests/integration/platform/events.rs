@@ -1188,6 +1188,48 @@ async fn platform_033_a_load_that_fails_is_tried_again_at_the_next_check() {
 }
 
 #[tokio::test]
+async fn platform_033_a_load_that_fails_is_tried_again_after_a_reconnect_that_cannot_read_the_log()
+{
+    let api = announcements::api().await;
+    let clock = api.clock();
+    let ada = users::register(&api, "ada@example.com").await;
+    let mut stream = streams::opened(&api, &ada).await;
+    clock.sleeping(CHECK_INTERVAL).await;
+
+    // Every pooled connection is held, so the hub's load waits out the pool and fails, and so
+    // does its read of the log's head once its listener connects again.
+    let mut held = Vec::new();
+    for _ in 0..crate::support::TestDatabase::POOL_SIZE {
+        held.push(api.pool().begin(&client(), None).await.unwrap());
+    }
+    api.database()
+        .owner_executes(&events::statement(
+            &[Event::to_user(&ada.user_id, "note.made", "{}")],
+            true,
+        ))
+        .await;
+    while !logged("the hub couldn't load events") {
+        tokio::task::yield_now().await;
+    }
+    lose_the_connection(&api, "SELECT 1").await;
+    stream.closed().await;
+    while !logged("the hub couldn't read the log's head") {
+        tokio::task::yield_now().await;
+    }
+    drop(held);
+    clock.advance(CHECK_INTERVAL);
+    clock.sleeping(CHECK_INTERVAL).await;
+    let name = api.database().name().to_owned();
+    let unloaded = testing::recorded("platform.events_unloaded")
+        .into_iter()
+        .find(|point| point.labels.get("db.namespace") == Some(&name))
+        .map(|point| point.value);
+
+    // The hub owes nothing once its load has reached the event (PLATFORM-035).
+    assert_eq!(unloaded, Some(0.0));
+}
+
+#[tokio::test]
 async fn platform_035_the_hub_records_the_events_it_owes_while_its_loads_fail() {
     let api = announcements::api().await;
     let clock = api.clock();

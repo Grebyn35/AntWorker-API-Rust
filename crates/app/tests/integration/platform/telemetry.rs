@@ -329,6 +329,8 @@ async fn obs_15_the_health_probes_record_no_request_metric() {
         assert_eq!(api.get(path).send().await.status, StatusCode::OK);
     }
 
+    // A probe is a `GET` or a `HEAD`: another test's request of another method to a probe's path
+    // is no probe, and records its point (PLATFORM-043).
     let probes: Vec<Point> = durations()
         .into_iter()
         .filter(|point| {
@@ -336,6 +338,10 @@ async fn obs_15_the_health_probes_record_no_request_metric() {
                 .labels
                 .get("http.route")
                 .is_some_and(|route| route.starts_with("/health"))
+                && point
+                    .labels
+                    .get("http.request.method")
+                    .is_some_and(|method| method == "GET" || method == "HEAD")
         })
         .collect();
     assert!(probes.is_empty(), "{probes:#?}");
@@ -366,8 +372,10 @@ async fn platform_044_a_health_probe_writes_no_line() {
         assert_eq!(api.get(path).send().await.status, StatusCode::OK);
     }
 
-    // A line of a probe's would hold its route, as every completion line does.
-    let lines: Vec<serde_json::Value> = testing::all_logged()
+    // A line of a probe's would hold its route, as every completion line does, and be written on
+    // the test's own thread, which serves its requests: another test's request of another method
+    // to a probe's path is no probe, and writes its line (PLATFORM-043).
+    let lines: Vec<serde_json::Value> = testing::logged_on_this_thread()
         .into_iter()
         .filter(|line| {
             line["http.route"]

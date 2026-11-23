@@ -431,7 +431,11 @@ pub fn app(routes: Routes, pipeline: Pipeline) -> Router {
         Some(document) => reference::mount(api, document),
         None => api,
     };
+    // Each probe's path takes a route here, inside the stack, so that a method that no probe
+    // serves gets the 405 problem, with `Allow` (PLATFORM-043).
     let api = api
+        .route("/health/live", MethodRouter::new())
+        .route("/health/ready", MethodRouter::new())
         .fallback(not_found)
         .method_not_allowed_fallback(method_not_allowed);
     let limits = pipeline.rate_limits;
@@ -474,11 +478,12 @@ pub fn app(routes: Routes, pipeline: Pipeline) -> Router {
             // end part: files
         },
     );
-    let app = Router::new()
-        .route("/health/live", get(lifecycle::live))
-        .route("/health/ready", get(lifecycle::ready))
-        .with_state(pipeline.readiness)
-        .merge(api);
+    // Each probe joins its path's route once the stack wraps the route, so the stack never
+    // sees a probe (OPS-05).
+    let app = api.route("/health/live", get(lifecycle::live)).route(
+        "/health/ready",
+        get(lifecycle::ready).with_state(pipeline.readiness),
+    );
     stack::security_headers(app)
 }
 

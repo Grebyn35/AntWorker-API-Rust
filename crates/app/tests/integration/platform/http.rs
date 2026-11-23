@@ -155,6 +155,22 @@ async fn platform_043_a_method_the_path_does_not_serve_answers_405_with_allow() 
 }
 
 #[tokio::test]
+async fn platform_043_a_method_that_a_health_probe_does_not_serve_answers_405_with_allow() {
+    let api = Api::new().await;
+
+    for path in ["/health/live", "/health/ready"] {
+        let response = api.request(Method::POST, path).send().await;
+
+        problem(
+            &response,
+            StatusCode::METHOD_NOT_ALLOWED,
+            "request.method_not_allowed",
+        );
+        assert_eq!(response.header("allow"), "GET,HEAD", "{path}");
+    }
+}
+
+#[tokio::test]
 async fn platform_045_an_undocumented_query_parameter_answers_400() {
     let api = Api::new().await;
 

@@ -187,16 +187,19 @@ impl Task {
     /// events in between to.
     async fn reconnected(&mut self) {
         self.streams.interrupt();
-        self.owed = Owed::default();
+        // No stream is left for a re-check to close.
+        self.owed.recheck = false;
         match self.log_head().await {
             Ok(latest) if latest > self.streams.head() => {
                 self.streams.set_head(latest);
                 self.notified = self.notified.max(latest);
+                self.owed.load = false;
                 self.record_unloaded();
             }
             Ok(_) => {}
-            // The head stays: the next notification's load reaches the events in between, from
-            // it, for the streams that open meanwhile.
+            // The head stays, and so does a load that the hub owes, which the next check makes
+            // (PLATFORM-033): that load, or else the next notification's, reaches the events in
+            // between, from the head, for the streams that open meanwhile.
             Err(error) => tracing::warn!(
                 { names::EXCEPTION_MESSAGE } = errors::chain(&error),
                 "the hub couldn't read the log's head"

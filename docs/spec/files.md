@@ -64,7 +64,7 @@ What `workspaces` uses to keep a workspace's picture (Design: Workspace pictures
 | `GET /v1/public/avatars/{avatar_id}` | public | FILES-012, FILES-024 |
 | `GET /v1/public/workspace-pictures/{picture_id}` | public | FILES-012, FILES-027 |
 
-Both upload routes accept an `Idempotency-Key` (API-12). Each one's body is the file's bytes, the only kind of request body that isn't JSON (API-08), which it reads through `Upload` with a limit of `FILE_MAX_BYTES` (PLATFORM-074), and which count in the caller's budget of a day's uploads (PLATFORM-093). A workspace's upload route is added through `Routes::workspace_upload`, and a user's through `Routes::user_upload`. A private file's download route is added through `Routes::workspace_signed_download` or `Routes::user_signed_download`, which let a signed URL authenticate it (PLATFORM-080), and a public file's through `Routes::public_download`. Each documents what PLATFORM-081 serves.
+Both upload routes accept an `Idempotency-Key` (API-12). Each one's body is the file's bytes, a body that isn't JSON (API-08), which it reads through `Upload` with a limit of `FILE_MAX_BYTES` (PLATFORM-074), and which count in the caller's budget of a day's uploads (PLATFORM-093). A workspace's upload route is added through `Routes::workspace_upload`, and a user's through `Routes::user_upload`. A private file's download route is added through `Routes::workspace_signed_download` or `Routes::user_signed_download`, which let a signed URL authenticate it (PLATFORM-080), and a public file's through `Routes::public_download`. Each documents what PLATFORM-081 serves.
 
 ## Behaviors
 

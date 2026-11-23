@@ -14,7 +14,9 @@ use tracing_subscriber::{
     registry::LookupSpan,
 };
 
-/// The spans that opened under [`OpenSpans::dispatch`] and haven't closed, by their names.
+/// The spans that opened under [`OpenSpans::dispatch`] and haven't closed, by their names. A
+/// lock that a panic poisoned still holds whole spans, since each change of them is one call, so
+/// it is taken as it is.
 #[derive(Clone, Default)]
 pub struct OpenSpans(Arc<Mutex<Vec<(Id, &'static str)>>>);
 

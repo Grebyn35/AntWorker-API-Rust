@@ -25,8 +25,9 @@ const STATEMENT_TIMEOUT: &str = "30s";
 /// unit of work holds its locks (DATA-19).
 const IDLE_IN_TRANSACTION_TIMEOUT: &str = "15s";
 
-/// The isolation level of every transaction of the `app` role (DATA-20). Set on the role, it
-/// holds whatever the server or the database defaults to.
+/// The default isolation level of the `app` role's transactions, which one keeps unless it sets
+/// another, as `Database::for_snapshot_job`'s does (DATA-20). Set on the role, it holds whatever
+/// the server or the database defaults to.
 const ISOLATION: &str = "read committed";
 
 /// The attributes both roles are created with: they can log in, and hold no power beyond what
