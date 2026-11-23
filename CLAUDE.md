@@ -49,7 +49,7 @@ This is a Rust API built as a template to fork. Read these before changing anyth
 ```
 just setup           # checks the tools' pinned versions, and writes .env, with generated passwords
 just dev             # the API with auto-reload; `just dev observe` adds the observability stack
-just ci              # every check CI runs, the image's included
+just ci              # the checks CI runs before it publishes, but setup-smoke, the image's on this platform
 just checks          # the checks of the code that need neither the image nor a copy of the repository: what a change runs before its commit, while the push's CI run does the rest
 just image           # the image, for both platforms, into target/image
 just e2e             # the end-to-end tests, against the image in target/image; `just e2e obs_13` runs those whose names hold obs_13
