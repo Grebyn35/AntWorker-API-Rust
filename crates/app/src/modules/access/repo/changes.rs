@@ -1,5 +1,9 @@
 //! The SQL that changes a membership's role or ends memberships (ARCH-10). Every statement
 //! filters by the workspace or the user the operation's proof names (DATA-16).
+// part: superadmins
+//! `delete_role` is an exception: it also ends the memberships of the workspace that a
+//! superadmin deletes, under a proof that names none (ACCESS-011).
+// end part: superadmins
 
 use platform::{
     db::UnitOfWork,

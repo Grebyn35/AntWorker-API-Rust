@@ -13,7 +13,7 @@ A superadmin lists every workspace of the deployment here, deletes any of them, 
 | Table | Holds |
 |---|---|
 | `workspaces` | `id`, `name`, `created_at`, `updated_at`, `version`. The database generates the `id` (DATA-08). |
-| `workspace_setups` | The workspaces that the subcommand `setup-workspace` created: `id`, `workspace_id`, which is unique, `name`, the normalized name that its run was given (personal data), which is unique too (WORKSPACES-027), and `created_at`. Rows are never edited, and `app` may not update them (DATA-19). <!-- part: workspace_setup --> |
+| `workspace_setups` | The workspaces that the subcommand `setup-workspace` created, or, in development, `seed` through the subcommand's operation (SYSTEM-009): `id`, `workspace_id`, which is unique, `name`, the normalized name that its run was given (personal data), which is unique too (WORKSPACES-027), and `created_at`. Rows are never edited, and `app` may not update them (DATA-19). <!-- part: workspace_setup --> |
 
 ## Interface
 

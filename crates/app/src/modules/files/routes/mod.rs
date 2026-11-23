@@ -74,10 +74,11 @@ pub(super) struct UploadQuery {
     visibility: Option<String>,
 }
 
-/// What an upload's request gives before its body is read: its visibility, from the query, and
-/// its name, from `Content-Disposition`, once `upload` has refused a body that declares more than
-/// `limit` (FILES-002, FILES-004, FILES-020). A workspace's upload authorizes its caller between
-/// the two, so it takes them one at a time.
+/// An upload's visibility, from the query, once `upload` has refused a body that declares more
+/// than `limit` (FILES-004, FILES-020). With its name, which [`name`] reads from
+/// `Content-Disposition` (FILES-002), it is what an upload's request gives before its body is
+/// read. A workspace's upload authorizes its caller between the two, so it takes them one at a
+/// time.
 pub(super) fn visibility(
     upload: &Upload,
     limit: usize,

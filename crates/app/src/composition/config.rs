@@ -106,8 +106,8 @@ where
 /// batch, so that a window holds any batch (CLIENT_TELEMETRY-007, CLIENT_TELEMETRY-008). A
 /// user's is the largest batch unless a setting says otherwise, and a replica's four times a
 /// user's, whatever that is set to, and the most that a budget takes at most, so that no one
-/// user's batches spend it unless its own setting says otherwise (the client_telemetry spec's
-/// "The budgets").
+/// user's batches spend it unless a setting says otherwise: its own, or a user's of 536,870,912,
+/// half the most, or more (the client_telemetry spec's "The budgets").
 fn client_telemetry_budgets<E, F>(
     settings: &Settings<E, F>,
 ) -> Result<client_telemetry::Settings, ConfigError>

@@ -119,41 +119,35 @@ async fn events(
     State(realtime): State<Realtime>,
     principal: Principal,
     headers: HeaderMap,
-) -> Response {
+) -> Result<Response, Problem<RealtimeError>> {
     // A header that isn't text names no event the API holds, so its replay is truncated
     // (REALTIME-004).
     let last_event_id = headers
         .get(LAST_EVENT_ID)
         .map(|value| String::from_utf8_lossy(value.as_bytes()).into_owned());
-    match realtime
+    // A replica that has stopped accepting connections answers with `Retry-After`, which the
+    // conversion of every unavailable error sets, so the next request reaches another (OPS-07).
+    let subscription = realtime
         .hub
         .subscribe(&principal, last_event_id.as_deref())
         .await
-    {
-        Ok(subscription) => {
-            let frames = Frames {
-                beat: realtime.clock.sleep(realtime.heartbeat),
-                subscription,
-                user: principal.user_id(),
-                clock: realtime.clock,
-                heartbeat: realtime.heartbeat,
-                trace_id: telemetry::trace_id(),
-                opened: false,
-                ended: false,
-            };
-            let mut response = Sse::new(frames.into_stream()).into_response();
-            // In place of the `no-cache` that `Sse` sets, which lets a cache keep the stream
-            // (SEC-12).
-            response
-                .headers_mut()
-                .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-            response
-        }
-        // A replica that has stopped accepting connections answers with `Retry-After`, which the
-        // conversion of every unavailable error sets, so the next request reaches another
-        // (OPS-07).
-        Err(error) => Problem(RealtimeError::from(error)).into_response(),
-    }
+        .map_err(RealtimeError::from)?;
+    let frames = Frames {
+        beat: realtime.clock.sleep(realtime.heartbeat),
+        subscription,
+        user: principal.user_id(),
+        clock: realtime.clock,
+        heartbeat: realtime.heartbeat,
+        trace_id: telemetry::trace_id(),
+        opened: false,
+        ended: false,
+    };
+    let mut response = Sse::new(frames.into_stream()).into_response();
+    // In place of the `no-cache` that `Sse` sets, which lets a cache keep the stream (SEC-12).
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Ok(response)
 }
 
 /// A stream's frames: what the subscription delivers, and `stream.beat` at every heartbeat.

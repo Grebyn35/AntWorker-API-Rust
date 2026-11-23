@@ -83,8 +83,9 @@ pub(crate) async fn find_by_email_for_key_share(
     Ok(repo::find_by_email_for_key_share(uow, email).await?)
 }
 
-/// `user_id`'s address, or `None` once the account is gone. Callers pass the ID of the caller,
-/// or of the user a job runs for (DATA-16).
+/// `user_id`'s address, or `None` once the account is gone. Callers pass the ID of the caller, of
+/// the user a job runs for, of the account that a reset's address names, or of the account that
+/// a sign-in or a registration starts a session for (DATA-16).
 pub(crate) async fn address(
     uow: &mut UnitOfWork,
     user_id: UserId,
@@ -95,7 +96,9 @@ pub(crate) async fn address(
 /// `user_id`'s address, as [`address`] gives it, with the user's row locked against every other
 /// change until the unit of work ends, as a deletion of the account locks it first, so a check of
 /// a code and a deletion take turns, and of two checks the second reads what the first left
-/// (AUTH-031, DATA-20). Callers pass the caller's ID (DATA-16).
+/// (AUTH-031, DATA-20). Callers pass the ID of the caller, of the account that a reset's address
+/// names, of the account whose provider identity holds a sign-in's subject, or of each user that
+/// holds a session as the operator ends every account's sessions (DATA-16).
 pub(crate) async fn address_for_update(
     uow: &mut UnitOfWork,
     user_id: UserId,
@@ -140,7 +143,9 @@ pub(crate) async fn change_email(
 }
 
 /// Records that `user_id`'s account proved its email address (AUTH-031): its record's
-/// `email_verified` becomes true (ACCOUNTS-001). Callers pass the caller's ID (DATA-16).
+/// `email_verified` becomes true (ACCOUNTS-001). Callers pass the ID of the caller, of the
+/// account that a reset's address names, or of the account that a sign-in or a registration
+/// through a provider starts a session for (DATA-16).
 pub(crate) async fn verify_email(
     uow: &mut UnitOfWork,
     user_id: UserId,

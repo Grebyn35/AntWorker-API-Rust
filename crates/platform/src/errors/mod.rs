@@ -118,8 +118,8 @@ impl FieldError {
     }
 }
 
-/// The response that reports `E` as an RFC 9457 problem (API-07). A handler returns
-/// `Result<T, Problem<E>>`, and `?` converts an `E` into its problem.
+/// The response that reports `E` as an RFC 9457 problem (API-07). A module's handler that can
+/// fail returns `Result<T, Problem<E>>`, and `?` converts an `E` into its problem.
 #[derive(Debug)]
 pub struct Problem<E>(pub E);
 

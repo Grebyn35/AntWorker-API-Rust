@@ -58,7 +58,7 @@ When a service calls another module, it converts that module's error into its ow
 - Check: `ci: check-deps` (error types of other modules don't appear in public signatures).
 
 ### ERR-07 One conversion produces every error response
-Errors become HTTP responses in exactly one function in `platform::errors`, which produces the problem format in API-07. Handlers return `Result<_, Problem<E>>` where `E: ErrorCode`, and `?` converts an `E` into its `Problem<E>`.
+Errors become HTTP responses in exactly one function in `platform::errors`, which produces the problem format in API-07. A module's handler that can fail returns `Result<_, Problem<E>>` where `E: ErrorCode`, and `?` converts an `E` into its `Problem<E>`.
 - Why: one path means one format, everywhere (D17).
 - Check: `compiler`.
 

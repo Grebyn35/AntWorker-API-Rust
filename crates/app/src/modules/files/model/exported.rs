@@ -22,8 +22,9 @@ pub(crate) struct ExportedFile {
 }
 
 impl ExportedFile {
-    /// Its entry in the archive: its bytes, stored as they are, since the kinds that files
-    /// accepts are compressed already, or small (the accounts spec's "Exporting").
+    /// Its entry in the archive: its bytes, stored as they are, which its row's size and CRC-32
+    /// describe, so the archive's layout is known before any of them is read (the accounts
+    /// spec's "Exporting").
     pub(crate) fn entry(&self) -> archive::Entry {
         archive::Entry {
             path: self.path.clone(),

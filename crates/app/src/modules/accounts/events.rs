@@ -25,8 +25,8 @@ pub(super) const MEMBER_UPDATED: WorkspaceEvent<MembersRead, MemberUpdated> =
 /// The user's export is ready to download, sent to their own streams (ACCOUNTS-023).
 pub(super) const EXPORT_COMPLETED: UserEvent<ExportChanged> = UserEvent::new("export.completed");
 
-/// The last attempt of the job of the user's export failed, sent to their own streams
-/// (ACCOUNTS-023).
+/// The user's export failed: the last attempt of its job failed (ACCOUNTS-023), or it was still
+/// pending 24 hours after its request (ACCOUNTS-027). Sent to their own streams.
 pub(super) const EXPORT_FAILED: UserEvent<ExportChanged> = UserEvent::new("export.failed");
 
 /// The payload of `user.updated`: the user's record changed, which a client reads through

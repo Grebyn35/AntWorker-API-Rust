@@ -1,8 +1,13 @@
 //! The SQL of `workspace_memberships` (ARCH-10), with the statements that change a membership's
 //! role, or end memberships, in `changes.rs`. Every query filters by the workspace or the user the
 //! operation's proof names (DATA-16).
+// part: invitations
+//! `hold_owner`, `has_owner` and `insert_unless_member` are an exception: they take the workspace
+//! that accepting or declining an invitation reads from the invitation addressed to the caller
+//! (DATA-16).
+// end part: invitations
 // part: superadmins
-//! The statements in `superadmin.rs` are the exception: they read the workspaces that a
+//! The statements in `superadmin.rs` are an exception: they read the workspaces that a
 //! superadmin's list read, and lock the owner of the workspace that a superadmin deletes, under
 //! a proof that names none.
 // end part: superadmins

@@ -140,6 +140,44 @@ async fn files_009_if_none_match_of_its_tag_answers_304_with_no_body() {
 }
 
 #[tokio::test]
+async fn files_009_a_request_that_if_none_match_answers_304_asks_the_bucket_nothing() {
+    let bucket = bucket::giving("hello").await;
+    let api = Api::with(Options::default().set("S3_ENDPOINT", &bucket.endpoint)).await;
+    let (workspace, ada, _) = acme(&api, "member").await;
+    let id = files::arrange_row(api.database(), &workspace, "Blue").await;
+    let path = format!("/v1/workspaces/{workspace}/files/{id}/content");
+
+    let mut answered = Vec::new();
+    for method in [http::Method::GET, http::Method::HEAD] {
+        let response = api
+            .request(method, &path)
+            .header("if-none-match", &format!("\"{id}\""))
+            .bearer(&ada.access)
+            .send()
+            .await;
+        answered.push(response.status);
+    }
+
+    assert_eq!(answered, [304, 304]);
+    assert!(bucket.methods().is_empty(), "{:?}", bucket.methods());
+}
+
+#[tokio::test]
+async fn files_012_a_download_that_if_none_match_answers_304_needs_no_bucket_that_answers() {
+    // Nothing listens on port 9 of the loopback address.
+    let api = Api::with(Options::default().set("S3_ENDPOINT", "http://127.0.0.1:9")).await;
+    let (workspace, ada, _) = acme(&api, "member").await;
+    let id = files::arrange_row(api.database(), &workspace, "Blue").await;
+    let path = format!("/v1/workspaces/{workspace}/files/{id}/content");
+    let tag = format!("\"{id}\"");
+
+    let held = ranged(&api, &ada, &path, &[("if-none-match", tag.as_str())]).await;
+
+    assert_eq!(held.status, 304);
+    assert!(held.body.is_empty());
+}
+
+#[tokio::test]
 async fn files_009_head_answers_as_get_does_without_the_bytes() {
     let api = Api::new().await;
     let (workspace, ada, _) = acme(&api, "member").await;
