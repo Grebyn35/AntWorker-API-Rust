@@ -62,8 +62,9 @@ processors:
     spike_limit_percentage: 25
   # The wait is longer than the timeout of 10 seconds of the public, user and workspace route
   # groups, plus the export delay of 1 second, the API's and the proxy's, so a trace of such a
-  # request is decided once its spans have had time to arrive. A job's run, which lasts up to its
-  # time limit, can last longer.
+  # request is decided once its spans have had time to arrive, while the pipeline's own waits for
+  # the database outside that timeout, of up to 5 seconds before it and 5 after it (OPS-07),
+  # stay under 4 seconds together. A job's run, which lasts up to its time limit, can last longer.
   # part: files
   # So can an upload's request, whose timeout is 60 seconds.
   # end part: files

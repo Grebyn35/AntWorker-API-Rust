@@ -98,9 +98,9 @@ pub struct TelemetryConfig {
     pub otlp_endpoint: Option<OtlpEndpoint>,
 }
 
-/// The drain's default deadline, and its least, in seconds: no shorter than the longest timeout of
-/// a route, so a deploy cuts short no request that its route would let finish (OPS-06).
-const DRAIN: u32 = 60;
+/// The drain's default deadline, and its least, in seconds, as the request pipeline gives it, so
+/// a deploy cuts short no request that its route would let finish (OPS-06).
+const DRAIN: u32 = crate::http::DRAIN_SECONDS;
 
 /// The settings `serve` reads.
 #[derive(Clone, Debug)]
@@ -726,15 +726,19 @@ mod tests {
         assert_eq!(config.database_max_connections, 10);
         assert_eq!(config.max_concurrent_requests, 100);
         assert_eq!(config.shutdown_delay, Duration::from_secs(5));
-        assert_eq!(config.shutdown_drain, Duration::from_secs(60));
+        assert_eq!(config.shutdown_drain, Duration::from_secs(70));
     }
 
     #[test]
     fn ops_06_the_drain_s_deadline_is_no_shorter_than_the_longest_timeout_of_a_route() {
+        // Outside its route's timeout, a request waits for the database twice, each within the
+        // stack's bound: in the IP limit's count, before it, and in the check of a caller who is
+        // gone, after it.
+        let waits = crate::http::DATABASE_WAIT * 2;
         let least = Duration::from_secs(u64::from(DRAIN));
-        assert!(least >= crate::http::GROUP_TIMEOUT);
+        assert!(least >= crate::http::GROUP_TIMEOUT + waits);
         // part: files
-        assert!(least >= crate::http::UPLOAD_TIMEOUT);
+        assert_eq!(least, crate::http::UPLOAD_TIMEOUT + waits);
         // end part: files
         let config = settings(&server_vars(), &[]).server().unwrap();
         assert_eq!(config.shutdown_drain, least);
@@ -750,8 +754,9 @@ mod tests {
             error.to_string(),
             format!("SHUTDOWN_DRAIN_SECONDS must be a whole number from {DRAIN} to 300")
         );
+        let exact: &'static str = DRAIN.to_string().leak();
         let config = settings(
-            &with(&server_vars(), &[("SHUTDOWN_DRAIN_SECONDS", "60")]),
+            &with(&server_vars(), &[("SHUTDOWN_DRAIN_SECONDS", exact)]),
             &[],
         )
         .server()
@@ -782,7 +787,7 @@ mod tests {
             ("MAX_CONCURRENT_REQUESTS", "0", "1 to 100000"),
             ("MAX_CONCURRENT_REQUESTS", "100001", "1 to 100000"),
             ("SHUTDOWN_DELAY_SECONDS", "301", "0 to 300"),
-            ("SHUTDOWN_DRAIN_SECONDS", "301", "60 to 300"),
+            ("SHUTDOWN_DRAIN_SECONDS", "301", "70 to 300"),
         ] {
             let error = settings(&with(&server_vars(), &[(name, value)]), &[])
                 .server()

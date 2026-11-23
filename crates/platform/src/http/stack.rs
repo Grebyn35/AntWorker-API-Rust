@@ -43,6 +43,7 @@ use crate::{
     authn::{Authenticator, Enrolling, Verifying},
     authz::Authorizer,
     clock::SharedClock,
+    db::ACQUIRE_TIMEOUT,
     errors::{self, ErrorCode, ErrorReport, FieldError, Internal, Problem, RequestError},
     telemetry::{
         self,
@@ -58,11 +59,33 @@ pub(crate) const GROUP_TIMEOUT: Duration = Duration::from_secs(10);
 /// The largest body a request of those groups may carry (API-08).
 const GROUP_BODY_LIMIT: usize = 64 * 1024;
 
+/// The longest timeout that a route may have, which no route group's exceeds.
+const LONGEST_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// The longest that a layer of this stack waits for the database, outside every route's timeout:
+/// the IP limit's count, before it, and the check of a caller who is gone, after it, each with its
+/// wait for a pooled connection (OPS-07). It is the pool's own wait for one, so a count that the
+/// pool keeps waiting fails no sooner than the pool would fail it.
+pub(crate) const DATABASE_WAIT: Duration = ACQUIRE_TIMEOUT;
+
+/// The drain's least deadline, and its default, in seconds: the longest timeout that a route may
+/// have, plus [`DATABASE_WAIT`] for each of the two waits for the database that a request makes
+/// outside that timeout, so a deploy cuts short no request that its route would let finish
+/// (OPS-06). The other layers above a route's wait for nothing: load shedding refuses a request
+/// that the concurrency limit has no room for.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "a few minutes in seconds, far below u32::MAX"
+)]
+pub(crate) const DRAIN_SECONDS: u32 = LONGEST_TIMEOUT
+    .saturating_add(DATABASE_WAIT)
+    .saturating_add(DATABASE_WAIT)
+    .as_secs() as u32;
+
 // part: files
 /// How long an upload may run, its body's transfer, its scan and its write included, as the files
-/// spec's "Scanning" shares it out (PLATFORM-074). The longest timeout of a route, which the
-/// drain's deadline is no shorter than (OPS-06).
-pub(crate) const UPLOAD_TIMEOUT: Duration = Duration::from_secs(60);
+/// spec's "Scanning" shares it out (PLATFORM-074): the longest timeout that a route may have.
+pub(crate) const UPLOAD_TIMEOUT: Duration = LONGEST_TIMEOUT;
 // end part: files
 
 /// The method of a request whose method HTTP's specifications don't define, and the error type
@@ -141,7 +164,7 @@ pub(super) struct Stack {
 pub(super) fn request(router: Router, stack: Stack) -> Router {
     let layers = ServiceBuilder::new()
         .layer(middleware::from_fn(trace))
-        .layer(middleware::from_fn_with_state(stack.clock, log))
+        .layer(middleware::from_fn_with_state(stack.clock.clone(), log))
         .layer(CatchPanicLayer::custom(panicked))
         .layer(middleware::from_fn_with_state(
             stack.trusted_proxies,
@@ -155,7 +178,7 @@ pub(super) fn request(router: Router, stack: Stack) -> Router {
         .layer(middleware::from_fn_with_state(stack.origins, cross_site))
         .layer(Extension(stack.authenticator))
         .layer(Extension(stack.authorizer))
-        .layer(middleware::from_fn(caller_gone));
+        .layer(middleware::from_fn_with_state(stack.clock, caller_gone));
     // part: files
     let layers = layers.layer(Extension(UploadTurns::new(stack.upload_bytes)));
     // end part: files

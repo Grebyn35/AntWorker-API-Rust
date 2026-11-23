@@ -39,8 +39,10 @@ x-api: &api
     # Caddy stops sending requests to a draining replica within its health checks' interval and
     # timeout (deploy/caddy/sites/api.caddy), so the replica keeps serving for longer (OPS-06).
     SHUTDOWN_DELAY_SECONDS: "5"
-    # No shorter than the longest timeout of a route, so a deploy cuts no request short (OPS-06).
-    SHUTDOWN_DRAIN_SECONDS: "60"
+    # No shorter than the longest timeout of a route plus the bounds of the waits for the database
+    # before and after it, so a deploy cuts no request short (OPS-06): the API's least, which the
+    # platform spec's Readiness and shutdown derives.
+    SHUTDOWN_DRAIN_SECONDS: "70"
     # A replica takes the client IP from the X-Forwarded-For of a peer in the subnet of the
     # network `proxy`, which only Caddy and the replicas join, or at an address that Caddy trusts
     # in turn (SEC-13, PLATFORM-053).
@@ -152,7 +154,7 @@ x-api: &api
     - files_s3_key
     - files_s3_key_secret
     # end part: files
-  # The shutdown delay and the drain take at most 65 seconds, and writing out telemetry the 9 that
+  # The shutdown delay and the drain take at most 75 seconds, and writing out telemetry the 9 that
   # the platform spec's Telemetry export bounds it to, which fit in the rest.
   stop_grace_period: 90s
   deploy:

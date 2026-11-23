@@ -1,7 +1,7 @@
 //! The request pipeline, through the API's routes and a few fixture routes registered the way
 //! a module registers its own.
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use http::{Method, StatusCode};
 use platform::telemetry::testing;
@@ -12,7 +12,7 @@ use crate::support::{
     api::Response,
     execute_on,
     fixtures::{self, Gate},
-    queries_wait_on_locks, streams, users, workspaces,
+    queries_wait_on_locks, query_waits_on_a_lock, streams, users, workspaces,
 };
 
 /// A valid inbound trace context, sampled.
@@ -723,6 +723,74 @@ async fn platform_097_a_foreign_key_s_failure_stays_an_internal_error_while_the_
         .map(|line| line["level"].clone())
         .collect();
     assert_eq!(levels, ["ERROR", "INFO"]);
+}
+
+/// How many failed checks of a session the process has counted as ignored errors (ERR-11).
+fn ignored_rechecks() -> f64 {
+    testing::recorded("platform.errors_ignored")
+        .into_iter()
+        .filter(|point| {
+            point.labels.get("error.type").map(String::as_str) == Some("session_recheck_failed")
+        })
+        .map(|point| point.value)
+        .sum()
+}
+
+#[tokio::test]
+async fn platform_097_a_check_of_the_session_that_outlasts_its_bound_leaves_the_internal_error() {
+    let api = Api::with(Options::routes(fixtures::routes(Arc::default()))).await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    // The orphan's insert waits for the events that the test holds, so that the test holds the
+    // sessions too before the insert fails, and the check of the session waits for them.
+    let mut events = db
+        .holding("LOCK TABLE events IN ACCESS EXCLUSIVE MODE")
+        .await;
+    let orphan = tokio::spawn({
+        let (api, access) = (api.clone(), ada.access.clone());
+        async move {
+            api.request(Method::POST, "/v1/orphan")
+                .bearer(&access)
+                .send()
+                .await
+        }
+    });
+    query_waits_on_a_lock(db, "INSERT INTO events").await;
+    let mut sessions = db
+        .holding("LOCK TABLE sessions IN ACCESS EXCLUSIVE MODE")
+        .await;
+    execute_on(&mut events, "ROLLBACK").await;
+    query_waits_on_a_lock(db, "FROM sessions").await;
+    let before = ignored_rechecks();
+
+    // The bound is 5 seconds: short of it, the check still waits. Past it, the test frees the
+    // sessions, which lets the check answer, too late.
+    api.clock().advance(Duration::from_millis(4_999));
+    tokio::task::yield_now().await;
+    let waited = !orphan.is_finished();
+    api.clock().advance(Duration::from_millis(1));
+    execute_on(&mut sessions, "ROLLBACK").await;
+    let response = orphan.await.unwrap();
+
+    assert!(
+        waited,
+        "the request answered before its check's bound passed"
+    );
+    problem(
+        &response,
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "request.internal_error",
+    );
+    let (trace, _, _) = trace_context(&response);
+    let lines = testing::logged(&trace);
+    let levels: Vec<&Value> = lines.iter().map(|line| &line["level"]).collect();
+    assert_eq!(levels, ["WARN", "ERROR", "INFO"], "{lines:#?}");
+    assert_eq!(lines[0]["error.type"], "session_recheck_failed");
+    assert_eq!(
+        lines[0]["exception.message"],
+        "internal error: the check of the session wasn't answered within 5 seconds"
+    );
+    assert_eq!(ignored_rechecks(), before + 1.0);
 }
 
 #[tokio::test]

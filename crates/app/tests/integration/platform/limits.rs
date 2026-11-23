@@ -1,8 +1,8 @@
-//! The client IP and the rate limits (PLATFORM-011, PLATFORM-053 to PLATFORM-057), and the
-//! budgets, through a route of the tests' own that counts the bytes its request names in its
-//! caller's budget (PLATFORM-089).
+//! The client IP and the rate limits (PLATFORM-011, PLATFORM-053 to PLATFORM-057), the bound of
+//! the IP limit's count (OPS-07), and the budgets, through a route of the tests' own that counts
+//! the bytes its request names in its caller's budget (PLATFORM-089).
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use serde_json::json;
 
@@ -10,7 +10,9 @@ use crate::support::{
     Api, Options,
     api::Response,
     budgets::assert_refused_by,
+    execute_on,
     fixtures::{self, Gate, SPENDING},
+    query_waits_on_a_lock,
     users::{self, SignedIn},
 };
 
@@ -239,6 +241,36 @@ async fn platform_054_a_request_beyond_the_concurrency_limit_counts_in_no_bucket
         ["1"],
         "the held request alone counted"
     );
+}
+
+#[tokio::test]
+async fn ops_07_the_ip_limit_answers_an_internal_error_once_its_count_outlasts_its_bound() {
+    let api = Api::new().await;
+    let db = api.database();
+    // The client's bucket, whose row the test then holds, so that the next count waits for it.
+    assert_eq!(api.get("/v1/capabilities").send().await.status, 200);
+    let mut held = db
+        .holding("SELECT 1 FROM rate_limit_buckets FOR UPDATE")
+        .await;
+    let counted = tokio::spawn({
+        let api = api.clone();
+        async move { api.get("/v1/capabilities").send().await }
+    });
+    query_waits_on_a_lock(db, "rate_limit_buckets").await;
+
+    // The bound is 5 seconds: short of it, the count still waits. Past it, the test frees the
+    // row, which lets the count answer, too late.
+    api.clock().advance(Duration::from_millis(4_999));
+    tokio::task::yield_now().await;
+    let waited = !counted.is_finished();
+    api.clock().advance(Duration::from_millis(1));
+    execute_on(&mut held, "ROLLBACK").await;
+    let response = counted.await.unwrap();
+
+    assert!(waited, "the request answered before its bound passed");
+    assert_eq!(response.status, 500);
+    assert_eq!(response.json()["code"], "request.internal_error");
+    assert!(response.headers.get("retry-after").is_none());
 }
 
 #[tokio::test]

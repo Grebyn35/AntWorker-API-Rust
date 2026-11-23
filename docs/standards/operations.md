@@ -49,8 +49,8 @@ The instance installs its handlers for the shutdown signals before it connects t
 1. Turn readiness off.
 2. Wait one health-check interval, so the load balancer stops sending traffic.
 3. Stop accepting connections, and close the open streams, so their clients reconnect to another instance.
-4. Drain requests, up to a deadline no shorter than the longest timeout of a route, so a request that its route lets finish isn't cut short.
-   An upload's is the longest. <!-- part: files -->
+4. Drain requests, up to a deadline no shorter than the longest timeout of a route plus the bounds of the waits that a request makes outside it, before and after (OPS-07), so a request that its route lets finish isn't cut short.
+   An upload's timeout is the longest. <!-- part: files -->
    A download's bytes stream for as long as its client takes to read them, so the deadline may cut one short, which its client resumes from another instance, asking for the bytes it lacks with a `Range` (PLATFORM-081).
 5. Cancel jobs and release their leases.
 6. Flush telemetry.
@@ -61,9 +61,9 @@ The end-to-end deploy scenario also holds an upload whose body is still coming w
 - Check: `ci: e2e` (the deploy scenario), `test` (the sequence through `platform::lifecycle::serve`, and the deadline's default), plus `review` (the handlers are installed before anything connects, because no test can make installing them fail).
 
 ### OPS-07 Overload sheds load
-Every request that a route serves, except the health probes, has a timeout. Each route group has a default, and a module spec may override it. A request that no route serves has no route group's timeout: once the IP limit has counted it and let it pass (PLATFORM-054, D64), a wait that the pool's and the database's own timeouts bound, it gets its 404 or 405 problem, or the cross-site check's 403 (PLATFORM-059). A listed origin's preflight is answered 204 before the IP limit, uncounted (PLATFORM-058). A concurrency limit rejects excess requests with the 503 problem and `Retry-After`. The health probes are exempt from it. CPU-heavy work, such as a password's hash, waits for one of the instance's turns, one per processor it may use (PLATFORM-060), so a burst of it takes no more memory than that many works do.
+Every request that a route serves, except the health probes, has a timeout. Each route group has a default, and a module spec may override it. A request that no route serves has no route group's timeout: once the IP limit has counted it and let it pass (PLATFORM-054, D64), it gets its 404 or 405 problem, or the cross-site check's 403 (PLATFORM-059). The pipeline's own waits for the database outside a route's timeout, the IP limit's count and the check of a caller who is gone, each have a bound of their own ([platform spec](../spec/platform.md#rate-limits), PLATFORM-097). A listed origin's preflight is answered 204 before the IP limit, uncounted (PLATFORM-058). A concurrency limit rejects excess requests with the 503 problem and `Retry-After`. The health probes are exempt from it. CPU-heavy work, such as a password's hash, waits for one of the instance's turns, one per processor it may use (PLATFORM-060), so a burst of it takes no more memory than that many works do.
 - Why: an overloaded instance degrades predictably, instead of queuing until it falls over (D20).
-- Check: `test` (PLATFORM-042, a route's timeout; PLATFORM-039 and PLATFORM-038, the concurrency limit and the probes' exemption from it; PLATFORM-054, the IP limit's count of a request that no route serves; PLATFORM-060, the turns of CPU-heavy work).
+- Check: `test` (PLATFORM-042, a route's timeout; PLATFORM-039 and PLATFORM-038, the concurrency limit and the probes' exemption from it; PLATFORM-054, the IP limit's count of a request that no route serves; the IP limit's bound, and PLATFORM-097, the bound of the check of a caller who is gone; PLATFORM-060, the turns of CPU-heavy work).
 
 ### OPS-08 Postgres is the only shared state
 Replicas share nothing except Postgres.

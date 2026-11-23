@@ -10,7 +10,9 @@ use axum::{
     response::{IntoResponse, Response},
 };
 
+use super::stack::DATABASE_WAIT;
 use crate::{
+    clock::SharedClock,
     errors::{self, Internal, Problem, RequestError},
     rate_limit::{self, Bucket, Count, Counted, RateLimiter, RateLimits},
     types::Client,
@@ -22,6 +24,8 @@ use crate::{
 // end part: files
 pub(super) struct IpLimit {
     pub(super) limiter: RateLimiter,
+    /// The clock that bounds the count's wait for the database.
+    pub(super) clock: SharedClock,
     /// The bucket of every request that the IP limit counts.
     pub(super) bucket: Bucket,
     // part: files
@@ -33,7 +37,9 @@ pub(super) struct IpLimit {
 
 /// Counts the request in its client IP's bucket, refuses it with 429 once the bucket is full, and
 /// describes on the response the bucket closest to refusing it, of every bucket that counted it
-/// (PLATFORM-054).
+/// (PLATFORM-054). A count that fails, or that the database hasn't answered within
+/// [`DATABASE_WAIT`], its wait for a pooled connection included, answers the internal error, and
+/// nothing after it runs (OPS-07).
 pub(super) async fn ip_limit(
     State(limit): State<Arc<IpLimit>>,
     mut request: Request,
@@ -53,7 +59,17 @@ pub(super) async fn ip_limit(
         bucket
     };
     // end part: files
-    let count = match limit.limiter.count(bucket, &rate_limit::address(ip)).await {
+    let address = rate_limit::address(ip);
+    // Once the bound has passed, the count is late, whatever it answers then.
+    let count = tokio::select! {
+        biased;
+        () = limit.clock.sleep(DATABASE_WAIT) => Err(Internal::new(format!(
+            "the IP limit's count wasn't answered within {} seconds",
+            DATABASE_WAIT.as_secs()
+        ))),
+        count = limit.limiter.count(bucket, &address) => count,
+    };
+    let count = match count {
         Ok(count) => count,
         Err(error) => return Problem(error).into_response(),
     };

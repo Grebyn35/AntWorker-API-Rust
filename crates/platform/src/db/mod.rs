@@ -53,7 +53,7 @@ const CLAIM_WAITS_AT_MOST: Duration = Duration::from_secs(1);
 const LOCK_NOT_AVAILABLE: &str = "55P03";
 
 /// How long an operation waits for a free connection before it fails.
-const ACQUIRE_TIMEOUT: Duration = Duration::from_secs(5);
+pub(crate) const ACQUIRE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// The API's connection pool, as the role `app`. A value exists only once the startup checks
 /// have passed, so a server never runs against an unsafe role, or against a schema that lacks

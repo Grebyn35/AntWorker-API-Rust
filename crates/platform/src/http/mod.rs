@@ -44,8 +44,9 @@ pub use download::{Download, FileBytes};
 pub use precondition::IfMatch;
 pub use query::Query;
 pub use resource::{PathIds, ResourceResponse};
+pub(crate) use stack::DRAIN_SECONDS;
 #[cfg(test)]
-pub(crate) use stack::GROUP_TIMEOUT;
+pub(crate) use stack::{DATABASE_WAIT, GROUP_TIMEOUT};
 // part: files
 pub use files::disposition_name;
 #[cfg(test)]
@@ -442,12 +443,13 @@ pub fn app(routes: Routes, pipeline: Pipeline) -> Router {
     let api = stack::request(
         api,
         stack::Stack {
-            clock: pipeline.clock,
+            clock: pipeline.clock.clone(),
             max_concurrent: pipeline.max_concurrent_requests,
             trusted_proxies: Arc::new(pipeline.trusted_proxies),
             origins: pipeline.origins,
             ip_limit: Arc::new(limits::IpLimit {
                 limiter: pipeline.limiter,
+                clock: pipeline.clock,
                 bucket: Bucket {
                     name: IP_BUCKET,
                     limit: limits.ip_requests,
