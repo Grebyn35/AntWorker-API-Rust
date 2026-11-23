@@ -67,9 +67,8 @@ REVOKE UPDATE ON recovery_codes FROM app;
 -- completes within 5 minutes (AUTH-058, AUTH-059). Its token is stored only as its SHA-256 hash,
 -- which a completion looks it up by (SEC-03, DATA-16). It holds what the session it starts needs:
 -- its device's ID and name, and the hash of the device token that the sign-in brought, when that
--- was valid for the email (AUTH-019). A row is never edited: a completion, a reset, a change of
--- the password, a removal of the app and the hourly job delete it, so app may not update one
--- (DATA-19).
+-- was valid for the email (AUTH-019). A row is inserted and deleted, never edited, so app may not
+-- update one (DATA-19).
 CREATE TABLE sign_in_challenges (
     id uuid PRIMARY KEY DEFAULT uuidv7(),
     user_id uuid NOT NULL,

@@ -1,6 +1,7 @@
--- The workspaces that the subcommand setup-workspace created, each with the name its run was
--- given, which no later run may use (WORKSPACES-027). A row is inserted and read, never updated.
--- Deleting the workspace deletes its row, so its name can be given again.
+-- The workspaces that the subcommand setup-workspace created, or, in development, seed through
+-- the subcommand's operation, each with the name its run was given, which no later run may use
+-- (WORKSPACES-027). A row is inserted and read, never updated. Deleting the workspace deletes its
+-- row, so its name can be given again.
 CREATE TABLE workspace_setups (
     id uuid PRIMARY KEY DEFAULT uuidv7(),
     workspace_id uuid NOT NULL,

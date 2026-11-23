@@ -46,7 +46,7 @@ Where step 6 above set areas, each pass goes as above, with these differences:
 - Act on each area by its own outcome, as step 5 above says for a review.
 - A fix that changes a file of an area that has ended is checked by itself before its commit, against the statements that the change touches.
 
-The review is complete once every area has ended.
+The review is complete once every area has ended. Its last row then reads `clean` when every area ended `clean`, and otherwise `stopped`, with the number of areas that ended each way.
 
 ## When the review is complete
 
