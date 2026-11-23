@@ -245,7 +245,7 @@ x-backups: &backups
 
 services:
   caddy:
-    image: caddy:2.11.9@sha256:0c2243efcf437ab7f7a978f1027fcf0d4f9be8a75df27b1b3fbc5dbe0ffa8cf0
+    image: caddy:2.11.9@sha256:4851e54a46b206517c574821bb5cc67f170d2156041e9fbc4c9193b45e84a75b
     logging: *logging
     environment:
       API_ADDRESS: ${API_ADDRESS:?the API's address, in settings.env}
@@ -360,7 +360,7 @@ services:
   # collector runs as. Docker creates a volume for root, and the collector's image holds no
   # directory to start one from.
   collector-state:
-    image: caddy:2.11.9@sha256:0c2243efcf437ab7f7a978f1027fcf0d4f9be8a75df27b1b3fbc5dbe0ffa8cf0
+    image: caddy:2.11.9@sha256:4851e54a46b206517c574821bb5cc67f170d2156041e9fbc4c9193b45e84a75b
     logging: *logging
     profiles: [tasks]
     user: root
