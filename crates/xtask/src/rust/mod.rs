@@ -103,9 +103,10 @@ impl<'a> Source<'a> {
         }
     }
 
-    /// `segments` as a path from `crate`, when it starts with `crate`, `self`, `super` or a
-    /// name this file imports from the crate; otherwise as written, for a path that starts
-    /// with an external crate.
+    /// `segments` with its first name replaced by the path that `imports` gives it, when it is a
+    /// name there other than `crate`, `self` and `super`; otherwise, in `app`'s library, as a path
+    /// from `crate` when it starts with `crate`, `self` or `super`, or, in the crate's root, with
+    /// `modules`; and otherwise as written.
     pub fn absolute(&self, segments: &[String]) -> Vec<String> {
         let Some(first) = segments.first() else {
             return Vec::new();

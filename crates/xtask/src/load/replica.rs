@@ -10,7 +10,7 @@ use std::{
 
 use serde_json::Value;
 
-use super::{compose_id, docker, read, report};
+use super::{docker, postgres_id, read, report};
 use crate::migrated::Database;
 
 /// Prepares `database`, the load test's own on the development Postgres, for a replica of
@@ -27,7 +27,7 @@ pub(super) fn prepare(
             "inspect",
             "--format",
             "{{range $name, $_ := .NetworkSettings.Networks}}{{$name}}{{end}}",
-            &compose_id(root, "postgres"),
+            &postgres_id(root),
         ],
     )
     .map_err(|error| format!("Postgres isn't running; run `just services`: {error}"))?;
@@ -162,7 +162,8 @@ fn hold(path: &Path) -> Result<File, String> {
 }
 
 /// The image for this machine's platform, of the index in target/image, which it pushes to the
-/// registry that Compose runs, emptied first, as this machine reaches it there.
+/// registry that Compose runs, emptied first, as this machine reaches it there, once it has
+/// removed every other image that this machine pulled from the registry (OPS-21).
 pub(super) fn image(root: &Path) -> Result<String, String> {
     docker(
         root,
@@ -219,7 +220,41 @@ pub(super) fn image(root: &Path) -> Result<String, String> {
         ],
     )?;
     let registry = docker(root, &["compose", "port", "registry", "5000"])?;
-    Ok(format!("{registry}/image@{digest}"))
+    let image = format!("{registry}/image@{digest}");
+    remove_earlier_images(root, &registry, &image)?;
+    Ok(image)
+}
+
+/// Removes each image that a run of the load test or of the end-to-end tests pulled onto this
+/// machine from the registry at `registry`, but `under_test`, as a run of the end-to-end tests
+/// does (crates/app/tests/e2e/machine.rs).
+fn remove_earlier_images(root: &Path, registry: &str, under_test: &str) -> Result<(), String> {
+    let pulled = docker(
+        root,
+        &[
+            "images",
+            "--digests",
+            "--filter",
+            &format!("reference={registry}/*"),
+            "--format",
+            "{{.Repository}}@{{.Digest}}",
+        ],
+    )?;
+    let earlier = earlier(&pulled, under_test);
+    if !earlier.is_empty() {
+        docker(root, &[&["image", "rm", "--force"][..], &earlier].concat()).map_err(|error| {
+            format!("can't remove the images that earlier runs pulled: {error}")
+        })?;
+    }
+    Ok(())
+}
+
+/// The images of `pulled`, a line for each as `<repository>@<digest>`, but `under_test`.
+fn earlier<'a>(pulled: &'a str, under_test: &str) -> Vec<&'a str> {
+    pulled
+        .lines()
+        .filter(|image| *image != under_test)
+        .collect()
 }
 
 /// The CPUs and the memory of one replica, as deploy/settings.env.example sets them by default.
@@ -316,6 +351,26 @@ mod tests {
                 .split_once('=')
                 .is_some_and(|(name, _)| !name.is_empty())),
             "{settings:?}"
+        );
+    }
+
+    #[test]
+    fn ops_21_a_load_test_removes_each_image_that_earlier_runs_pulled_but_the_one_under_test() {
+        let under_test = "127.0.0.1:5001/image@sha256:c";
+        // What `docker images` lists of the registry's images: an earlier build's, the one under
+        // test, and the Postgres image that a run of the end-to-end tests pulled.
+        let pulled = "127.0.0.1:5001/image@sha256:a\n\
+                      127.0.0.1:5001/image@sha256:c\n\
+                      127.0.0.1:5001/image-postgres@sha256:b";
+
+        let removed = earlier(pulled, under_test);
+
+        assert_eq!(
+            removed,
+            [
+                "127.0.0.1:5001/image@sha256:a",
+                "127.0.0.1:5001/image-postgres@sha256:b"
+            ]
         );
     }
 

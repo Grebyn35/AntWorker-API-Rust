@@ -45,12 +45,7 @@ fn overlay_keeps_sampling(repo: &Repo, findings: &mut Vec<Finding>) {
     let source = repo
         .file(stack::MANAGED)
         .map_or("", |file| file.text.as_str());
-    let pipelines = overlay["service"]["pipelines"]
-        .as_object()
-        .into_iter()
-        .flatten();
-    for (name, pipeline) in pipelines.filter(|(name, _)| name.split('/').next() == Some("traces")) {
-        let set = ["processors", "receivers"].map(|key| !pipeline[key].is_null());
+    for (name, set) in traces_pipelines(&overlay) {
         if set.contains(&true) {
             findings.push(Finding::new(
                 stack::MANAGED,
@@ -79,10 +74,27 @@ fn overlay_keeps_sampling(repo: &Repo, findings: &mut Vec<Finding>) {
     }
 }
 
+/// Each traces pipeline that `overlay` names, `traces` or one whose name starts with `traces/`,
+/// with whether it sets the pipeline's processors and its receivers.
+fn traces_pipelines(overlay: &Value) -> Vec<(&str, [bool; 2])> {
+    overlay["service"]["pipelines"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(name, _)| name.split('/').next() == Some("traces"))
+        .map(|(name, pipeline)| {
+            let set = ["processors", "receivers"].map(|key| !pipeline[key].is_null());
+            (name.as_str(), set)
+        })
+        .collect()
+}
+
 /// Checks that the proxy's configuration, which every collector of a deployment merges over its
-/// own, keeps the collector's processors: the merge replaces a list it sets, so each pipeline's
-/// list of processors that it sets holds the collector's own, in their order, tail sampling among
-/// them (OBS-08), and it defines no tail sampling of its own.
+/// own, keeps the collector's processors: the merge replaces a list it sets, so the list of
+/// processors that it sets for the pipeline `traces`, `logs` or `metrics` holds the collector's
+/// own, in their order, tail sampling among them (OBS-08). It sets no receivers for a traces
+/// pipeline whose name starts with `traces/`, as a pipeline of its own takes, which could carry
+/// the API's spans past the sampling, and it defines no tail sampling of its own.
 fn proxy_keeps_processors(repo: &Repo, findings: &mut Vec<Finding>) {
     if repo.file(stack::PROXY).is_none() {
         return;
@@ -122,6 +134,18 @@ fn proxy_keeps_processors(repo: &Repo, findings: &mut Vec<Finding>) {
                     "the proxy's configuration replaces the {pipeline} pipeline's processors \
                      without the collector's own, {}, in their order (OBS-08)",
                     own.join(", ")
+                ),
+            ));
+        }
+    }
+    for (name, [_, receivers]) in traces_pipelines(&proxy) {
+        if name != "traces" && receivers {
+            findings.push(Finding::new(
+                stack::PROXY,
+                text::line_of(source, &format!("{name}:")),
+                format!(
+                    "the proxy's configuration sets the receivers of the pipeline {name}, which \
+                     takes spans that the collector's tail sampling doesn't read (OBS-08)"
                 ),
             ));
         }
@@ -462,6 +486,39 @@ mod tests {
         assert!(check_with(keeps).is_empty(), "{:?}", check_with(keeps));
         assert!(check_with(drops)[0].contains("without the collector's own, tail_sampling"));
         assert!(check_with(redefines)[0].contains("defines tail sampling of its own"));
+    }
+
+    #[test]
+    fn obs_08_the_proxy_s_configuration_adds_no_traces_pipeline_that_takes_spans() {
+        // The proxy's own receivers of a pipeline of logs, as deploy/observability/collector/
+        // proxy.yaml sets them, beside a traces pipeline that keeps the sampling.
+        let keeps = "service:\n  pipelines:\n    traces:\n      processors: [tail_sampling]\n    \
+                     logs:\n      receivers: [otlp, file_log/proxy]\n";
+        let adds = "service:\n  pipelines:\n    traces:\n      processors: [tail_sampling]\n    \
+                    traces/x:\n      receivers: [otlp]\n      exporters: [otlp_http/tempo]\n";
+        let check_with = |proxy: &str| {
+            let repo = Repo::of(&[
+                (stack::COLLECTOR, collector(POLICIES).as_str()),
+                (stack::PROXY, proxy),
+                (stack::RULES, RULES),
+                (
+                    "deploy/observability/grafana/dashboards/a.json",
+                    dashboard("{ duration > 500ms }").as_str(),
+                ),
+            ]);
+            check(&repo)
+                .findings
+                .into_iter()
+                .map(|f| f.message)
+                .collect::<Vec<_>>()
+        };
+
+        assert!(check_with(keeps).is_empty(), "{:?}", check_with(keeps));
+        let added = check_with(adds);
+        assert!(
+            added.len() == 1 && added[0].contains("sets the receivers of the pipeline traces/x,"),
+            "{added:?}"
+        );
     }
 
     #[test]

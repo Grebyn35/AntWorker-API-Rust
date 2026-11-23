@@ -81,8 +81,9 @@ impl Catalog {
     }
 
     /// Problems in how the IDs are defined: an ID defined twice, a behavior in the spec of
-    /// another module, a behavior that takes a number its spec retired, or a number below its
-    /// spec's highest that is neither a behavior nor retired.
+    /// another module, a spec's line of retired IDs that isn't the first line of text of its
+    /// Behaviors or follows another, a behavior that takes a number its spec retired, or a number
+    /// below its spec's highest that is neither a behavior nor retired.
     pub fn findings(&self) -> &[Finding] {
         &self.findings
     }

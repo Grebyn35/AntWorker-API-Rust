@@ -61,12 +61,11 @@ pub fn quoted(text: &str) -> String {
 /// The version of the release that `requested` names, or of the latest release, once the
 /// release tags are fetched from GitHub; or why no release can be taken.
 pub fn released(root: &Path, requested: Option<&str>) -> Result<String, String> {
-    run(root, "git", &["fetch", "--quiet", "--tags", "origin"])
+    git(root, &["fetch", "--quiet", "--tags", "origin"])
         .map_err(|error| format!("Can't fetch the release tags from GitHub: {error}"))?;
     chosen(requested, &releases(root)?, |tag| {
-        run(
+        git(
             root,
-            "git",
             &[
                 "rev-parse",
                 "--verify",
@@ -378,13 +377,13 @@ fn on_server_with(host: &str, command: &str, terminal: bool) -> ExitCode {
     }
 }
 
-/// Runs `program` with `args` in `root`, and returns what it wrote on stdout, or why it failed.
-fn run(root: &Path, program: &str, args: &[&str]) -> Result<String, String> {
-    let output = Command::new(program)
+/// Runs git with `args` in `root`, and returns what it wrote on stdout, or why it failed.
+fn git(root: &Path, args: &[&str]) -> Result<String, String> {
+    let output = Command::new("git")
         .args(args)
         .current_dir(root)
         .output()
-        .map_err(|error| format!("can't run {program}: {error}"))?;
+        .map_err(|error| format!("can't run git: {error}"))?;
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).trim().to_owned());
     }

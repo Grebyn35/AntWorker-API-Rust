@@ -75,9 +75,9 @@ enum Command {
     /// a behavior or rule ID that exists, and on the rest that the doc of `test_map` names.
     #[command(name = "check-test-map")]
     TestMap,
-    /// Fails on a route that a spec's Routes table lists a behavior for and that no integration
-    /// test named for the behavior sent to, as the file that the tests wrote says. `just test`
-    /// runs it once the tests pass.
+    /// Fails on a route that a spec's Routes table lists a behavior for, when a test that sent a
+    /// request is named for the behavior and none that sent to the route is, as the file that the
+    /// tests wrote says and `test_map/sent.rs` details. `just test` runs it once the tests pass.
     #[command(name = "sent-routes")]
     SentRoutes {
         /// The file that `SENT_ROUTES` named for the tests.

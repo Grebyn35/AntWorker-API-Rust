@@ -127,8 +127,9 @@ fmt:
 # newest release where the test that applies the migrations on top of them reads them (DATA-11).
 # A failing test binary doesn't stop
 # the others, so one run reports every failure. Once the tests pass, it fails on a route that a
-# spec's Routes table lists a behavior for and that no integration test named for the behavior
-# sent a request to, as the file that the tests wrote says (TEST-01).
+# spec's Routes table lists a behavior for, when an integration test that sent a request is named
+# for the behavior and none that sent one to the route is, as the file that the tests wrote says
+# and the doc of crates/xtask/src/test_map/sent.rs details (TEST-01).
 [doc("Runs the tests, which start Postgres through Compose")]
 [group('develop')]
 test: bound-build services

@@ -6,7 +6,7 @@ use std::{collections::BTreeMap, path::Path};
 use serde_json::{Value, json};
 
 use super::{USERS, client};
-use crate::load::{compose_id, docker, replica::OWNER_URL};
+use crate::load::{docker, postgres_id, replica::OWNER_URL};
 
 /// The users whose streams the hub holds, each with an access token, and the data k6 publishes
 /// with: each user's workspace, of which they are the owner and the only member, with their token.
@@ -84,7 +84,7 @@ fn owned_workspaces(
         root,
         &[
             "exec",
-            &compose_id(root, "postgres"),
+            &postgres_id(root),
             "psql",
             url,
             "-qAt",

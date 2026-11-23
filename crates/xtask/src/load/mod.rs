@@ -113,9 +113,12 @@ impl Step {
     }
 }
 
-/// The rate to try after `steps`, each a rate and whether it passed, or none once the highest
-/// passing rate and the lowest failing one are within a tenth of each other: the rate starts at
-/// `first`, doubles until a step fails, then the search halves the gap.
+/// The rate to try after `steps`, each a rate and whether it passed, or none once the search
+/// ends: the rate starts at `first`, doubles until a step fails, then the search halves the gap
+/// between the highest passing rate and the lowest failing one, and ends once that gap is at most
+/// a tenth of the passing rate, or 10 requests a second where that is more. While no step has
+/// passed, it halves the lowest failing rate instead, and ends with none passed once that rate is
+/// 10 or less.
 pub fn next_rate(first: u64, steps: &[(u64, bool)]) -> Option<u64> {
     let passed = steps
         .iter()
@@ -375,9 +378,9 @@ fn step(
         .ok_or_else(|| format!("k6 reported no outcome: {output}"))
 }
 
-/// The ID of the container of Compose's service `service`.
-fn compose_id(root: &Path, service: &str) -> String {
-    docker(root, &["compose", "ps", "--quiet", service]).unwrap_or_default()
+/// The ID of the container of Compose's service `postgres`, the development Postgres.
+fn postgres_id(root: &Path) -> String {
+    docker(root, &["compose", "ps", "--quiet", "postgres"]).unwrap_or_default()
 }
 
 /// Runs docker with `args` in `root`, and returns what it wrote on stdout, trimmed.
@@ -452,6 +455,32 @@ mod tests {
             .map(|step| step.rate)
             .max();
         assert_eq!(capacity, Some(1000));
+    }
+
+    #[test]
+    fn ops_16_below_100_requests_a_second_the_search_ends_at_a_gap_of_10() {
+        let mut steps = Vec::new();
+        let mut tried = Vec::new();
+        // A replica that serves up to 35 sign-ins a second.
+        while let Some(rate) = next_rate(FIRST_SIGN_INS, &outcomes(&steps)) {
+            tried.push(rate);
+            steps.push(step(rate, rate <= 35));
+        }
+
+        assert_eq!(tried, [20, 40, 30]);
+    }
+
+    #[test]
+    fn ops_16_a_search_whose_every_step_fails_ends_once_the_rate_is_10_or_less() {
+        let mut steps = Vec::new();
+        let mut tried = Vec::new();
+        // A replica that serves no rate.
+        while let Some(rate) = next_rate(FIRST_SIGN_INS, &outcomes(&steps)) {
+            tried.push(rate);
+            steps.push(step(rate, false));
+        }
+
+        assert_eq!(tried, [20, 10]);
     }
 
     #[test]

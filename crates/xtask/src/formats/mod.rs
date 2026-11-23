@@ -169,8 +169,9 @@ struct Outline<'a> {
 }
 
 impl Outline<'_> {
-    /// Each level-2 heading of `file` that the outline doesn't list or that comes out of order,
-    /// then each section the outline requires that `file` lacks.
+    /// Each level-2 heading of `file` that the outline doesn't list, that repeats the section
+    /// furthest along the outline of the headings before it, or that the outline lists before that
+    /// section, then each section the outline requires that `file` lacks.
     fn findings(&self, file: &File) -> Vec<Finding> {
         let headings = markdown::sections(&file.text);
         let mut findings = Vec::new();
