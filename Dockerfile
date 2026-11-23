@@ -19,7 +19,7 @@ FROM zig-$BUILDARCH AS zig
 # (CODE-01). cargo-zigbuild builds with zig, cargo-auditable records the crates in the binary for
 # the scans and the software bill of materials (SBOM), and cargo-chef builds the dependencies in a
 # layer of their own, which a change to the API's own code leaves cached.
-FROM --platform=$BUILDPLATFORM rust:1.99.1-slim-trixie@sha256:f6c4a35d21dbb3c89d7a8d056c193e94fc09037f2b58dd858b09c39a47dd02d7 AS tools
+FROM --platform=$BUILDPLATFORM rust:1.100.0-slim-trixie@sha256:6f14b2b4b278ec0d50aa1d69541c304ce0f95e0f6268487aa9924af1c2e9aebe AS tools
 COPY --from=zig /zig /opt/zig
 ENV PATH=/opt/zig:$PATH
 WORKDIR /src
