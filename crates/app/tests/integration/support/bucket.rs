@@ -268,6 +268,8 @@ pub struct Written {
 pub struct Keeping {
     /// Its endpoint, for `S3_ENDPOINT`.
     pub endpoint: String,
+    /// Each object that it was asked to write. A lock that a panic poisoned still holds whole
+    /// objects, since each change of them is one push, so it is taken as it is.
     written: Arc<Mutex<Vec<Written>>>,
     server: JoinHandle<()>,
 }
@@ -449,6 +451,8 @@ fn kept_answer(
 pub struct Scripted {
     /// Its endpoint, for `S3_ENDPOINT`.
     pub endpoint: String,
+    /// The method and the path of each request that it has read. A lock that a panic poisoned
+    /// still holds whole requests, since each change of them is one push, so it is taken as it is.
     requests: Arc<Mutex<Vec<(String, String)>>>,
     server: JoinHandle<()>,
 }
@@ -495,7 +499,8 @@ impl Drop for Scripted {
 }
 
 /// A bucket that reads each request whole and answers it with `status` and no body, or, with
-/// `None`, never answers, holding each connection open until the bucket is dropped.
+/// `None`, never answers, holding each connection open until the test's runtime ends: dropping
+/// the bucket only stops it taking connections.
 pub async fn scripted(status: Option<u16>) -> Scripted {
     serve(status.map(|status| Answer::of(status, String::new()))).await
 }

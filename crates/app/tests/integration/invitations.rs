@@ -280,6 +280,28 @@ async fn invitations_001_the_role_must_rank_below_the_inviters() {
 }
 
 #[tokio::test]
+async fn api_10_every_field_an_invitation_refuses_is_named() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let workspace = acme(&api, &ada, &[]).await;
+
+    let refused = api
+        .post_raw(
+            &format!("/v1/workspaces/{workspace}/invitations"),
+            &json!({ "email": "carol", "role": "boss" }),
+        )
+        .bearer(&ada.access)
+        .send()
+        .await;
+
+    assert_eq!(
+        refused.refused_fields(),
+        [("/email", "invalid_email"), ("/role", "invalid")]
+            .map(|(field, code)| (field.to_owned(), code.to_owned()))
+    );
+}
+
+#[tokio::test]
 async fn invitations_001_a_retry_with_the_same_key_answers_the_same_invitation_and_sends_one_email()
 {
     let api = Api::new().await;

@@ -71,6 +71,9 @@ struct Answers {
 /// The stand-in, which answers until the test ends.
 pub struct Upstream {
     origin: String,
+    /// What each route answers, and the requests received. A lock that a panic poisoned still
+    /// holds whole answers and requests, since each change of them is one insert or one push, so
+    /// it is taken as it is.
     answers: Arc<Mutex<Answers>>,
 }
 

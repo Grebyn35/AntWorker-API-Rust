@@ -1412,9 +1412,7 @@ async fn workspaces_012_a_changed_role_closes_the_member_s_streams_which_open_ag
     .await;
     // An announcement to those who may remove members, which a member may not, or to everyone.
     let announce = |restricted: bool| {
-        let path = format!("/v1/workspaces/{workspace}/announcements");
-        let call = api.post(&path, &json!({ "count": 1, "restricted": restricted }));
-        call.bearer(&ada.access).send()
+        crate::support::announcements::announce_in(&api, &ada, &workspace, 1, restricted)
     };
     let mut stream = streams::opened(&api, &grace).await;
     announce(true).await;

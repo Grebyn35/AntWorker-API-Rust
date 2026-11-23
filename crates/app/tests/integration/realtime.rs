@@ -17,24 +17,6 @@ use crate::support::{
 /// How often a stream sends its heartbeat, by default (REALTIME-003).
 const HEARTBEAT: Duration = Duration::from_secs(15);
 
-/// Publishes `count` events to the members of `workspace`, in one unit of work, as `user`.
-async fn post(api: &Api, user: &SignedIn, workspace: &str, count: u32) {
-    let response = api
-        .post(
-            &format!("/v1/workspaces/{workspace}/announcements"),
-            &json!({ "count": count }),
-        )
-        .bearer(&user.access)
-        .send()
-        .await;
-    assert_eq!(
-        response.status,
-        StatusCode::NO_CONTENT,
-        "{}",
-        response.json()
-    );
-}
-
 /// Has `user` leave `workspace`, which changes their access.
 async fn leave(api: &Api, user: &SignedIn, workspace: &str) -> crate::support::api::Response {
     api.request(
@@ -71,7 +53,7 @@ async fn realtime_001_a_stream_delivers_its_caller_s_events_and_their_workspaces
     let opened = stream.opened().await;
 
     announcements::announce(&api, &ada, 2).await;
-    post(&api, &ada, &workspace, 1).await;
+    announcements::announce_in(&api, &ada, &workspace, 1, false).await;
     announcements::announce(&api, &ada, 1).await;
 
     assert_eq!(
@@ -509,12 +491,7 @@ async fn realtime_005_a_lost_connection_closes_the_stream_with_interrupted() {
     api.database().cut_off_app().await;
     clock.advance(CHECK_INTERVAL);
     clock.sleeping(CHECK_INTERVAL).await;
-    api.database()
-        .admin_executes(&format!(
-            "GRANT CONNECT ON DATABASE \"{}\" TO app",
-            api.database().name()
-        ))
-        .await;
+    api.database().let_app_in().await;
     clock.advance(CHECK_INTERVAL);
     let (_, reason) = stream.closed().await;
 
@@ -722,7 +699,7 @@ async fn realtime_004_a_stream_resumes_after_an_event_its_caller_may_not_receive
     .await;
     let mut stream = streams::connect(&api, &grace.access, None).await;
     stream.opened().await;
-    post(&api, &ada, &workspace, 1).await;
+    announcements::announce_in(&api, &ada, &workspace, 1, false).await;
     stream.event().await;
     // Her last event is of the workspace that removes her next.
     let last = stream.last_event_id.clone();

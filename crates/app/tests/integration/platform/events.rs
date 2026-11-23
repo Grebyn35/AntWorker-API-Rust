@@ -14,8 +14,7 @@ use crate::support::{
     events::{self, Event},
     hex,
     streams::{self, Stream},
-    users::{self, SignedIn},
-    workspaces,
+    users, workspaces,
 };
 
 /// How often the hub re-checks its streams, by default (PLATFORM-031).
@@ -26,25 +25,6 @@ fn note(label: &str) -> Note {
     Note {
         label: Some(label.to_owned()),
     }
-}
-
-/// Publishes `count` events to the members of `workspace` as `user`, to every member, or only to
-/// those who may remove members when `restricted`.
-async fn post(api: &Api, user: &SignedIn, workspace: &str, count: u32, restricted: bool) {
-    let response = api
-        .post(
-            &format!("/v1/workspaces/{workspace}/announcements"),
-            &json!({ "count": count, "restricted": restricted }),
-        )
-        .bearer(&user.access)
-        .send()
-        .await;
-    assert_eq!(
-        response.status,
-        StatusCode::NO_CONTENT,
-        "{}",
-        response.json()
-    );
 }
 
 /// The name of each of the next `count` events of `stream`.
@@ -72,8 +52,8 @@ async fn platform_029_a_workspace_event_reaches_only_the_members_whose_role_hold
     let mut member = streams::opened(&api, &grace).await;
     let mut outsider = streams::opened(&api, &alan).await;
 
-    post(&api, &ada, &workspace, 1, true).await;
-    post(&api, &ada, &workspace, 1, false).await;
+    announcements::announce_in(&api, &ada, &workspace, 1, true).await;
+    announcements::announce_in(&api, &ada, &workspace, 1, false).await;
     // Each user's own events come last, numbered from 1, so another's would show as a number
     // out of its place.
     for (user, count) in [(&ada, 1), (&grace, 2), (&alan, 3)] {
@@ -121,9 +101,9 @@ async fn platform_029_a_replay_leaves_out_a_workspace_s_events_from_before_its_m
     let last = first.last_event_id.clone();
     drop(first);
 
-    post(&api, &ada, &workspace, 1, false).await;
+    announcements::announce_in(&api, &ada, &workspace, 1, false).await;
     workspaces::join(api.database(), &workspace, &grace.user_id, "member").await;
-    post(&api, &ada, &workspace, 2, false).await;
+    announcements::announce_in(&api, &ada, &workspace, 2, false).await;
     let mut again = streams::connect(&api, &grace.access, last.as_deref()).await;
     again.opened().await;
     let replayed = [again.event().await, again.event().await];
@@ -167,7 +147,7 @@ async fn platform_027_each_event_is_loaded_once_whatever_the_streams_it_reaches(
     };
     let before = loaded();
 
-    post(&api, &users[0], &workspace, 2, false).await;
+    announcements::announce_in(&api, &users[0], &workspace, 2, false).await;
     let mut orders = Vec::new();
     for stream in &mut open {
         let frames = [stream.event().await, stream.event().await];
@@ -193,7 +173,7 @@ async fn platform_031_a_signal_closes_its_streams_before_any_event_that_commits_
         .bearer(&ada.access)
         .send()
         .await;
-    post(&api, &other, &workspace, 1, false).await;
+    announcements::announce_in(&api, &other, &workspace, 1, false).await;
     announcements::announce(&api, &other, 1).await;
     let (before, reason) = ended.closed().await;
 
@@ -334,7 +314,7 @@ async fn platform_031_the_recheck_closes_a_stream_whose_session_stopped_lasting_
     // The hub sleeps again once its re-check has ended; an event that commits after it reaches
     // each stream that stayed open.
     clock.sleeping(RECHECK).await;
-    post(&api, &grace, &workspace, 1, false).await;
+    announcements::announce_in(&api, &grace, &workspace, 1, false).await;
     let closed = ended.closing().await;
     let still = lasting.event().await;
 
@@ -364,7 +344,7 @@ async fn workspaces_005_removing_a_member_closes_their_stream_before_the_next_ev
         .bearer(&ada.access)
         .send()
         .await;
-    post(&api, &ada, &workspace, 1, false).await;
+    announcements::announce_in(&api, &ada, &workspace, 1, false).await;
     let (before, reason) = removed.closed().await;
 
     assert_eq!(response.status, StatusCode::NO_CONTENT);
@@ -419,9 +399,9 @@ async fn access_007_a_stream_holds_each_workspace_s_permissions_of_its_role_ther
     .await;
     let mut stream = streams::opened(&api, &ada).await;
 
-    post(&api, &grace, &joined, 1, true).await;
-    post(&api, &grace, &owned, 1, true).await;
-    post(&api, &grace, &joined, 1, false).await;
+    announcements::announce_in(&api, &grace, &joined, 1, true).await;
+    announcements::announce_in(&api, &grace, &owned, 1, true).await;
+    announcements::announce_in(&api, &grace, &joined, 1, false).await;
 
     let frames = [stream.event().await, stream.event().await];
     let reached: Vec<_> = frames
@@ -454,7 +434,7 @@ async fn access_007_a_stream_holds_a_workspace_from_the_transaction_that_added_t
     first.event().await;
     let before = first.last_event_id.clone();
     drop(first);
-    post(&api, &grace, &workspace, 1, false).await;
+    announcements::announce_in(&api, &grace, &workspace, 1, false).await;
     workspaces::join(api.database(), &workspace, &ada.user_id, "member").await;
 
     let mut resumed = streams::connect(&api, &ada.access, before.as_deref()).await;
@@ -524,12 +504,7 @@ async fn lose_the_connection(api: &Api, meanwhile: &str) -> crate::support::api:
     clock.sleeping(CHECK_INTERVAL).await;
     let unavailable = api.get("/health/ready").send().await;
     api.database().owner_executes(meanwhile).await;
-    api.database()
-        .admin_executes(&format!(
-            "GRANT CONNECT ON DATABASE \"{}\" TO app",
-            api.database().name()
-        ))
-        .await;
+    api.database().let_app_in().await;
     clock.advance(CHECK_INTERVAL);
     unavailable
 }
@@ -642,10 +617,7 @@ async fn platform_033_a_re_check_that_fails_is_tried_again_at_the_next_check() {
         .await;
 
     // Every pooled connection is held, so the re-check waits out the pool and fails.
-    let mut held = Vec::new();
-    for _ in 0..crate::support::TestDatabase::POOL_SIZE {
-        held.push(api.pool().begin(&client(), None).await.unwrap());
-    }
+    let held = api.every_connection().await;
     clock.sleeping(RECHECK).await;
     clock.advance(RECHECK);
     while !logged("the hub couldn't re-check its streams") {
@@ -678,10 +650,7 @@ async fn ops_18_checks_that_time_out_open_no_connection_beyond_the_pool_and_the_
     let proxy = Proxy::to(database.app_url().address()).await;
     let api = Api::through(database, &proxy, Options::default()).await;
     let clock = api.clock();
-    let mut held = Vec::new();
-    for _ in 0..crate::support::TestDatabase::POOL_SIZE {
-        held.push(api.pool().begin(&client(), None).await.unwrap());
-    }
+    let held = api.every_connection().await;
     clock.sleeping(CHECK_INTERVAL).await;
     let budget = connections(&api).await;
 
@@ -937,26 +906,6 @@ async fn sec_19_member_removed_reaches_every_member_and_no_replay_from_before_jo
     assert_eq!(after_joining.event.as_deref(), Some("announcement.made"));
 }
 
-/// Publishes one event to every member of `workspace` as `user`, and returns the trace ID of
-/// the request that did.
-async fn published(api: &Api, user: &SignedIn, workspace: &str) -> String {
-    let response = api
-        .post(
-            &format!("/v1/workspaces/{workspace}/announcements"),
-            &json!({ "count": 1 }),
-        )
-        .bearer(&user.access)
-        .send()
-        .await;
-    assert_eq!(
-        response.status,
-        StatusCode::NO_CONTENT,
-        "{}",
-        response.json()
-    );
-    response.trace_id().to_owned()
-}
-
 #[tokio::test]
 async fn platform_095_an_event_s_trace_id_reaches_its_publisher_s_streams_alone_live_and_replayed()
 {
@@ -977,7 +926,7 @@ async fn platform_095_an_event_s_trace_id_reaches_its_publisher_s_streams_alone_
         live.push(streams::opened(&api, caller).await);
     }
 
-    let first = published(&api, &ada, &workspace).await;
+    let first = announcements::announce_in(&api, &ada, &workspace, 1, false).await;
     let mut delivered = Vec::new();
     let mut resume = Vec::new();
     for stream in &mut live {
@@ -986,7 +935,7 @@ async fn platform_095_an_event_s_trace_id_reaches_its_publisher_s_streams_alone_
         resume.push(frame.id.unwrap());
     }
     // A second event, which each caller's reconnect after the first replays.
-    let second = published(&api, &ada, &workspace).await;
+    let second = announcements::announce_in(&api, &ada, &workspace, 1, false).await;
     let mut replayed = Vec::new();
     for (caller, after) in callers.iter().zip(&resume) {
         let mut stream = streams::connect(&api, &caller.access, Some(after)).await;
@@ -1039,7 +988,7 @@ async fn platform_095_deleting_a_publisher_s_account_leaves_their_events_to_othe
         &[(&ada.user_id, "member"), (&grace.user_id, "admin")],
     )
     .await;
-    published(&api, &ada, &workspace).await;
+    announcements::announce_in(&api, &ada, &workspace, 1, false).await;
     let publishers = async || {
         api.database()
             .owner_reads(
@@ -1134,9 +1083,9 @@ async fn platform_029_an_event_that_commits_while_its_member_joins_reaches_them_
         ),
     )
     .await;
-    post(&api, &ada, &workspace, 1, false).await;
+    announcements::announce_in(&api, &ada, &workspace, 1, false).await;
     crate::support::execute_on(&mut joining, "COMMIT").await;
-    post(&api, &ada, &workspace, 2, false).await;
+    announcements::announce_in(&api, &ada, &workspace, 2, false).await;
     let mut again = streams::connect(&api, &alan.access, before.as_deref()).await;
     again.opened().await;
     let replayed = [again.event().await, again.event().await];
@@ -1163,10 +1112,7 @@ async fn platform_033_a_load_that_fails_is_tried_again_at_the_next_check() {
     clock.sleeping(CHECK_INTERVAL).await;
 
     // Every pooled connection is held, so the hub's load waits out the pool and fails.
-    let mut held = Vec::new();
-    for _ in 0..crate::support::TestDatabase::POOL_SIZE {
-        held.push(api.pool().begin(&client(), None).await.unwrap());
-    }
+    let held = api.every_connection().await;
     api.database()
         .owner_executes(&events::statement(
             &[Event::to_user(
@@ -1198,10 +1144,7 @@ async fn platform_033_a_load_that_fails_is_tried_again_after_a_reconnect_that_ca
 
     // Every pooled connection is held, so the hub's load waits out the pool and fails, and so
     // does its read of the log's head once its listener connects again.
-    let mut held = Vec::new();
-    for _ in 0..crate::support::TestDatabase::POOL_SIZE {
-        held.push(api.pool().begin(&client(), None).await.unwrap());
-    }
+    let held = api.every_connection().await;
     api.database()
         .owner_executes(&events::statement(
             &[Event::to_user(&ada.user_id, "note.made", "{}")],
@@ -1245,10 +1188,7 @@ async fn platform_035_the_hub_records_the_events_it_owes_while_its_loads_fail() 
     clock.sleeping(CHECK_INTERVAL).await;
 
     // Every pooled connection is held, so the hub's load waits out the pool and fails.
-    let mut held = Vec::new();
-    for _ in 0..crate::support::TestDatabase::POOL_SIZE {
-        held.push(api.pool().begin(&client(), None).await.unwrap());
-    }
+    let held = api.every_connection().await;
     api.database()
         .owner_executes(&events::statement(
             &[Event::to_user(&ada.user_id, "note.made", "{}")],

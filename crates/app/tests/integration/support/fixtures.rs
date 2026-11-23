@@ -72,6 +72,10 @@ struct KeyedRequest {
     /// Whether the operation fails after it published its event, so its unit of work rolls back.
     #[serde(default)]
     fail: bool,
+    /// Whether the operation publishes its event before it claims the key, a claim that follows
+    /// another statement of its unit of work (PLATFORM-036).
+    #[serde(default)]
+    late: bool,
 }
 
 /// What `POST /v1/keyed` answers: the value, and which fresh run of the route answered it.
@@ -95,7 +99,8 @@ const KEYED_RAN: UserEvent<Ran> = UserEvent::new("keyed.ran");
 struct Ran {}
 
 /// A keyed operation, as a module's keyed route runs one: it claims the key, publishes an event
-/// to its caller, and commits with its result (PLATFORM-026, PLATFORM-036).
+/// to its caller, and commits with its result (PLATFORM-026, PLATFORM-036). A `late` one
+/// publishes the event before it claims the key, which the claim then refuses.
 #[utoipa::path(
     post,
     path = "/v1/keyed",
@@ -115,6 +120,11 @@ async fn keyed(
         .begin(&client, Some(&principal))
         .await
         .map_err(PlatformError::from)?;
+    if request.body.late {
+        uow.publish_to_user(&KEYED_RAN, principal.user_id(), &Ran {})
+            .await
+            .map_err(PlatformError::from)?;
+    }
     if let Claimed::Replay(keyed) = uow.claim(principal.user_id(), request.key.as_ref()).await? {
         return Ok(Json(keyed));
     }

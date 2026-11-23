@@ -3,7 +3,7 @@
 use http::Method;
 use serde_json::json;
 
-use crate::support::{Api, api::Response, users};
+use crate::support::{Api, users};
 
 #[tokio::test]
 async fn platform_049_a_body_that_isn_t_the_route_s_json_answers_400() {
@@ -56,24 +56,6 @@ async fn platform_050_a_body_that_grows_past_the_limit_answers_413() {
     assert_eq!(response.json()["code"], "request.payload_too_large");
 }
 
-/// The field and code of each error of `response`, a 400 `request.invalid_fields`.
-fn named(response: &Response) -> Vec<(String, String)> {
-    assert_eq!(response.status, 400);
-    let problem = response.json();
-    assert_eq!(problem["code"], "request.invalid_fields");
-    problem["errors"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|error| {
-            (
-                error["field"].as_str().unwrap().to_owned(),
-                error["code"].as_str().unwrap().to_owned(),
-            )
-        })
-        .collect()
-}
-
 #[tokio::test]
 async fn platform_051_every_field_its_domain_type_refuses_is_named() {
     let api = Api::new().await;
@@ -82,7 +64,7 @@ async fn platform_051_every_field_its_domain_type_refuses_is_named() {
     let response = api.post_raw("/v1/users", &body).send().await;
 
     assert_eq!(
-        named(&response),
+        response.refused_fields(),
         [
             ("/email", "invalid_email"),
             ("/password", "too_short"),
@@ -101,7 +83,7 @@ async fn platform_051_every_field_a_sign_in_refuses_is_named() {
     let response = api.post_raw("/v1/sessions", &body).send().await;
 
     assert_eq!(
-        named(&response),
+        response.refused_fields(),
         [
             ("/email", "invalid_email"),
             ("/password", "required"),
@@ -118,17 +100,27 @@ async fn platform_051_every_field_a_re_authentication_refuses_is_named() {
     let path = "/v1/users/me/sessions/current/reauthenticate";
 
     let empty = api
-        .post_raw(path, &json!({ "password": "" }))
+        .post_raw(path, &json!({ "password": "", "code": "12345" }))
         .bearer(&ada.access)
         .send()
         .await;
     let long = api
-        .post_raw(path, &json!({ "password": "p".repeat(129) }))
+        .post_raw(
+            path,
+            &json!({ "password": "p".repeat(129), "recovery_code": "ABCD-EFGH" }),
+        )
         .bearer(&ada.access)
         .send()
         .await;
 
-    for (response, code) in [(&empty, "required"), (&long, "too_long")] {
-        assert_eq!(named(response), [("/password".to_owned(), code.to_owned())]);
+    for (response, password, code_at) in [
+        (&empty, "required", "/code"),
+        (&long, "too_long", "/recovery_code"),
+    ] {
+        assert_eq!(
+            response.refused_fields(),
+            [("/password", password), (code_at, "invalid_code")]
+                .map(|(field, code)| (field.to_owned(), code.to_owned()))
+        );
     }
 }

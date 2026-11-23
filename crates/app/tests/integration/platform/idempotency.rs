@@ -74,6 +74,18 @@ async fn platform_036_a_claim_that_follows_another_statement_of_its_unit_of_work
 }
 
 #[tokio::test]
+async fn platform_036_a_claim_of_a_key_that_follows_another_statement_fails() {
+    let api = fixtures::api().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let body = json!({ "value": "a", "late": true });
+
+    let late = keyed(&api, &ada, &body, Some("\"k-1\"")).await;
+
+    assert_eq!(late.status, 500);
+    assert_eq!(late.json()["code"], "request.internal_error");
+}
+
+#[tokio::test]
 async fn platform_036_the_key_with_another_request_answers_422() {
     let api = fixtures::api().await;
     let ada = users::register(&api, "ada@example.com").await;

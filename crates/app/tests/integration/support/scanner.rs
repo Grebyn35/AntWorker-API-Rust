@@ -58,7 +58,8 @@ pub fn client(address: &str, clock: Arc<TestClock>) -> Scanner {
 pub enum Script {
     /// With this line, ended by a zero byte, as clamd ends its answers.
     Answer(&'static str),
-    /// Never, holding the connection open until the stand-in is dropped.
+    /// Never, holding the connection open until the test's runtime ends: dropping the stand-in
+    /// only stops it taking connections.
     Never,
     /// By closing the connection.
     Close,

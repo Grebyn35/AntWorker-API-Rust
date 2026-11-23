@@ -78,7 +78,8 @@ async fn obs_02_a_json_line_carries_the_service_and_its_trace_context() {
     assert_eq!(completed["span_id"].as_str().unwrap().len(), 16);
 }
 
-/// What a watch printed.
+/// What a watch printed. A lock that a panic poisoned still holds whole writes, since each change
+/// of it is one call that appends a write's bytes, so it is taken as it is.
 #[derive(Clone, Default)]
 struct Printed(Arc<Mutex<Vec<u8>>>);
 

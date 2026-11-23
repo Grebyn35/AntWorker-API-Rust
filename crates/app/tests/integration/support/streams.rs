@@ -271,7 +271,8 @@ impl Stream {
         frame
     }
 
-    /// The next frame, which must be `stream.closed`, after which the response must end.
+    /// The next frame that isn't a heartbeat, which must be `stream.closed`, after which the
+    /// response must end, with no frame, not even a heartbeat.
     pub async fn closing(&mut self) -> Frame {
         let frame = self.next().await;
         assert_eq!(frame.event.as_deref(), Some("stream.closed"), "{frame:?}");
@@ -279,8 +280,8 @@ impl Stream {
         frame
     }
 
-    /// The events up to `stream.closed`, which must come, and the reason it gives, after which
-    /// the response must end.
+    /// The frames that aren't heartbeats up to `stream.closed`, which must come, and the reason it
+    /// gives, after which the response must end, with no frame, not even a heartbeat.
     pub async fn closed(&mut self) -> (Vec<Frame>, String) {
         let mut before = Vec::new();
         loop {

@@ -132,6 +132,8 @@ static NEXT: AtomicU32 = AtomicU32::new(0);
 pub struct TestDatabase {
     name: String,
     settings: BootstrapConfig,
+    /// The roles the test created. A lock that a panic poisoned still holds whole names, since
+    /// each change of them is one push or one take, so it is taken as it is.
     roles: Mutex<Vec<String>>,
     // part: files
     /// The bucket of files' bytes that the test's API uses, once it has created it.
@@ -349,7 +351,8 @@ impl TestDatabase {
         )
     }
 
-    /// Runs `sql` as `owner`, to arrange what a migration would create.
+    /// Runs `sql` as `owner`, through which a test arranges the database (TEST-05), such as the
+    /// rows of the API's tables, or a privilege that `app` holds on one of them.
     pub async fn owner_executes(&self, sql: &str) {
         let mut owner = connect(&self.owner_url()).await;
         execute(&mut owner, sql).await;
@@ -395,8 +398,16 @@ impl TestDatabase {
         .await;
     }
 
-    /// The first column of every row `sql` returns, read as `owner` (TEST-05), for tables a
-    /// test created itself.
+    /// Lets `app` connect to the database again after [`TestDatabase::cut_off_app`]: it grants
+    /// `app` the right to connect, which a pool's next connection meets.
+    pub async fn let_app_in(&self) {
+        let name = self.name();
+        self.admin_executes(&format!("GRANT CONNECT ON DATABASE \"{name}\" TO app"))
+            .await;
+    }
+
+    /// The first column of every row `sql` returns, run as `owner` (TEST-05), such as the stored
+    /// state that a test asserts on, or the ID of a row that it inserts.
     pub async fn owner_reads(&self, sql: &str) -> Vec<String> {
         reads(&self.owner_url(), sql).await
     }

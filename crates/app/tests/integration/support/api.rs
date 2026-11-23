@@ -11,7 +11,7 @@ use platform::{
     blocking::{Turn, Workers},
     clock::{SharedClock, TestClock},
     config::{ConfigError, ServerConfig, Settings},
-    db::Database,
+    db::{Database, UnitOfWork},
     events::Hub,
     hashing::HmacKey,
     http::Routes,
@@ -349,6 +349,16 @@ impl Api {
             turns.push(self.workers.turn().await.unwrap());
         }
         turns
+    }
+
+    /// Takes every connection of the API's pool, each in a unit of work that the test holds, so
+    /// that the API's own units of work find none free until the test drops them.
+    pub async fn every_connection(&self) -> Vec<UnitOfWork> {
+        let mut held = Vec::new();
+        for _ in 0..TestDatabase::POOL_SIZE {
+            held.push(self.pool.begin(&super::client(), None).await.unwrap());
+        }
+        held
     }
 
     /// Waits until the API's hub has loaded every event that committed so far, so that a stream
@@ -786,6 +796,25 @@ impl Response {
             .get_all(name)
             .iter()
             .map(|value| value.to_str().unwrap())
+            .collect()
+    }
+
+    /// The field and the code of each error of the response, which must be a 400
+    /// `request.invalid_fields` (PLATFORM-051), in their order.
+    pub fn refused_fields(&self) -> Vec<(String, String)> {
+        assert_eq!(self.status, 400);
+        let problem = self.json();
+        assert_eq!(problem["code"], "request.invalid_fields");
+        problem["errors"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|error| {
+                (
+                    error["field"].as_str().unwrap().to_owned(),
+                    error["code"].as_str().unwrap().to_owned(),
+                )
+            })
             .collect()
     }
 }

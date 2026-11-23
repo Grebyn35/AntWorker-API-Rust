@@ -745,17 +745,22 @@ async fn platform_052_development_serves_the_api_reference_of_the_running_code()
     ] {
         assert!(html.contains(pinned), "{pinned}");
     }
-    // The page's policy, which names the page's own script by a SHA-256 hash, of 44 characters
-    // in base64.
-    let policy = page.header("content-security-policy");
-    let (before, after) = (
-        "default-src 'none'; script-src https://cdn.jsdelivr.net 'sha256-",
-        "'; style-src https://cdn.jsdelivr.net 'unsafe-inline'; img-src 'self' data:; \
-         connect-src 'self'; base-uri 'none'; frame-ancestors 'none'",
+    // The page's policy, which names the page's own script, the one inline, by the base64 of its
+    // SHA-256 hash.
+    let script = html
+        .rsplit_once("<script>")
+        .and_then(|(_, rest)| rest.split_once("</script>"))
+        .map(|(script, _)| script)
+        .unwrap();
+    let hash = data_encoding::BASE64.encode(&platform::hashing::sha256(script.as_bytes()));
+    assert_eq!(
+        page.header("content-security-policy"),
+        format!(
+            "default-src 'none'; script-src https://cdn.jsdelivr.net 'sha256-{hash}'; \
+             style-src https://cdn.jsdelivr.net 'unsafe-inline'; img-src 'self' data:; \
+             connect-src 'self'; base-uri 'none'; frame-ancestors 'none'"
+        )
     );
-    assert!(policy.starts_with(before), "{policy}");
-    assert!(policy.ends_with(after), "{policy}");
-    assert_eq!(policy.len(), before.len() + 44 + after.len(), "{policy}");
     assert!(page.header("server-timing").starts_with("trace;desc="));
     assert_eq!(document.status, StatusCode::OK);
     assert_eq!(document.header("content-type"), "application/json");

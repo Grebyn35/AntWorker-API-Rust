@@ -1,11 +1,25 @@
 //! The archive of an export that a contract writes, and the unit of work of an export's job
 //! (PLATFORM-084, PLATFORM-085).
 
-use std::io::Read;
+use std::{
+    io::Read,
+    sync::{Arc, Mutex, PoisonError},
+};
 
 use flate2::read::DeflateDecoder;
-use platform::{db::UnitOfWork, jobs::JobContext, personal_data::CHUNK};
+use platform::{
+    archive,
+    authn::BoxFuture,
+    blocking::Workers,
+    db::UnitOfWork,
+    errors::Internal,
+    jobs::JobContext,
+    personal_data::{CHUNK, ExportArchive, ExportStore, PAGE},
+    random,
+    types::UserId,
+};
 use serde_json::Value;
+use uuid::Uuid;
 
 use crate::{
     accounts::exports::built,
@@ -101,6 +115,85 @@ async fn platform_084_a_document_is_a_json_array_a_record_to_a_line_deflated_in_
     let deflated: Vec<u8> = chunks.into_iter().flat_map(|(_, bytes)| bytes).collect();
     assert_eq!(inflated(&deflated), b"[]\n");
     assert!(entry.starts_with("3 "), "{entry}");
+}
+
+/// A store that keeps what an archive hands it, in its order: each chunk as its offset and its
+/// size, and each entry as `entry` and its path. A lock that a panic poisoned still holds whole
+/// items, since each change of them is one push, so it is taken as it is.
+#[derive(Default)]
+struct Handed(Mutex<Vec<String>>);
+
+impl Handed {
+    /// What the archive has handed so far.
+    fn so_far(&self) -> Vec<String> {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Keeps `item`, as a store's write that succeeds.
+    fn keep(&self, item: String) -> BoxFuture<'_, Result<(), Internal>> {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(item);
+        Box::pin(async { Ok(()) })
+    }
+}
+
+impl ExportStore for Handed {
+    fn chunk<'a>(
+        &'a self,
+        _: &'a mut UnitOfWork,
+        _: Uuid,
+        _: u32,
+        offset: u64,
+        bytes: Vec<u8>,
+    ) -> BoxFuture<'a, Result<(), Internal>> {
+        self.keep(format!("{offset} {}", bytes.len()))
+    }
+
+    fn entry<'a>(
+        &'a self,
+        _: &'a mut UnitOfWork,
+        _: Uuid,
+        _: u32,
+        entry: archive::Entry,
+    ) -> BoxFuture<'a, Result<(), Internal>> {
+        self.keep(format!("entry {}", entry.path))
+    }
+}
+
+#[tokio::test]
+async fn platform_084_the_store_gets_each_chunk_as_it_fills_before_the_document_ends() {
+    let db = TestDatabase::migrated().await;
+    let database = db.app().await;
+    let mut uow = database.for_job(&JobContext::for_tests()).await.unwrap();
+    let store = Arc::new(Handed::default());
+    let user = UserId::from_uuid(Uuid::nil());
+    let mut archive = ExportArchive::new(Uuid::nil(), user, store.clone(), Workers::new());
+    let mut document = archive.document("noise.json");
+    // A page of records random enough that its deflated bytes pass a chunk: 64 tokens of 43
+    // characters each, which deflate to about three quarters of their size.
+    let page: Vec<Vec<String>> = (0..PAGE)
+        .map(|_| (0..64).map(|_| random::token().unwrap()).collect())
+        .collect();
+
+    archive.write(&mut uow, &mut document, &page).await.unwrap();
+    let before_the_end = store.so_far();
+    archive.finish(&mut uow, document).await.unwrap();
+
+    // Full chunks, from the first byte on, and no entry.
+    assert!(!before_the_end.is_empty());
+    let full: Vec<String> = (0..before_the_end.len())
+        .map(|n| format!("{} {CHUNK}", n * CHUNK))
+        .collect();
+    assert_eq!(before_the_end, full);
+    assert_eq!(
+        store.so_far().last().map(String::as_str),
+        Some("entry noise.json")
+    );
 }
 
 #[tokio::test]

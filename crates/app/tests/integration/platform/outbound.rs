@@ -270,6 +270,8 @@ async fn sec_10_the_untrusted_client_gives_up_an_answer_that_doesn_t_come_in_tim
 
 #[tokio::test]
 async fn sec_10_the_configured_client_follows_no_redirect() {
+    // The path of each request that the server read. A lock that a panic poisoned still holds
+    // whole paths, since each change of them is one push, so it is taken as it is.
     let asked = Arc::new(Mutex::new(Vec::new()));
     let paths = asked.clone();
     let client = configured(move |path| {
@@ -338,6 +340,8 @@ async fn sec_10_the_configured_client_gives_up_an_answer_that_doesn_t_come_in_ti
 async fn obs_07_neither_client_sends_the_trace_context_to_the_server_it_calls() {
     // The tests' tracer, which gives a span a trace context.
     telemetry::testing::install(crate::support::api::SERVICE).unwrap();
+    // The head of each request that the server read, in lowercase. A lock that a panic poisoned
+    // still holds whole heads, since each change of them is one push, so it is taken as it is.
     let heads = Arc::new(Mutex::new(Vec::new()));
     let (config, origin) = reading({
         let heads = heads.clone();

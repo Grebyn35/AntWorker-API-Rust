@@ -186,6 +186,33 @@ pub async fn announce(api: &Api, user: &SignedIn, count: u32) {
     );
 }
 
+/// Publishes `count` events to the members of `workspace` as `user`, in one unit of work,
+/// through the announcing route: to every member, or only to those who may remove members when
+/// `restricted`. Returns the trace ID of the request.
+pub async fn announce_in(
+    api: &Api,
+    user: &SignedIn,
+    workspace: &str,
+    count: u32,
+    restricted: bool,
+) -> String {
+    let response = api
+        .post(
+            &format!("/v1/workspaces/{workspace}/announcements"),
+            &serde_json::json!({ "count": count, "restricted": restricted }),
+        )
+        .bearer(&user.access)
+        .send()
+        .await;
+    assert_eq!(
+        response.status,
+        StatusCode::NO_CONTENT,
+        "{}",
+        response.json()
+    );
+    response.trace_id().to_owned()
+}
+
 /// The announcing routes, which the tests of the stream add to the API's.
 pub fn routes() -> Routes {
     Routes::new()

@@ -46,12 +46,7 @@ async fn platform_061_readiness_follows_the_instance_s_own_database_connection()
     clock.sleeping(CHECK_INTERVAL).await;
     let unavailable = api.get("/health/ready").send().await;
 
-    database
-        .admin_executes(&format!(
-            "GRANT CONNECT ON DATABASE \"{}\" TO app",
-            database.name()
-        ))
-        .await;
+    database.let_app_in().await;
     clock.advance(CHECK_INTERVAL);
     clock.sleeping(CHECK_INTERVAL).await;
     let recovered = api.get("/health/ready").send().await;
@@ -70,13 +65,9 @@ async fn platform_061_readiness_follows_the_instance_s_own_database_connection()
 async fn platform_061_a_pool_with_every_connection_in_use_stays_ready() {
     let api = Api::new().await;
     let clock = api.clock();
-    let pool = api.pool();
     clock.sleeping(CHECK_INTERVAL).await;
 
-    let mut held = Vec::new();
-    for _ in 0..TestDatabase::POOL_SIZE {
-        held.push(pool.begin(&crate::support::client(), None).await.unwrap());
-    }
+    let held = api.every_connection().await;
     clock.advance(CHECK_INTERVAL);
     clock.sleeping(CHECK_INTERVAL).await;
     let response = api.get("/health/ready").send().await;

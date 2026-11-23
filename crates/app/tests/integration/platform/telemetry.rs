@@ -322,6 +322,37 @@ async fn platform_067_query_is_a_method_http_defines() {
 }
 
 #[tokio::test]
+async fn platform_067_a_request_that_the_http_server_refuses_itself_records_no_duration() {
+    let collector = Collector::start().await.unwrap();
+    let database = TestDatabase::migrated().await;
+    let server = database.exporting_to(&collector, &[]).await;
+    // With the two headers that every request of the test support carries, 101.
+    let crowd = [("x-crowd", "1"); 99];
+
+    let unread = server
+        .request("GET", "/v1/capabilities and more", &[])
+        .await;
+    let crowded = server.request("GET", "/v1/capabilities", &crowd).await;
+    let lengthy = server
+        .request("GET", &format!("/{}", "a".repeat(65_534)), &[])
+        .await;
+    let served = server.request("GET", "/v1/capabilities", &[]).await;
+    server.stop().await;
+
+    for (answer, status) in [(&unread, "400"), (&crowded, "431"), (&lengthy, "414")] {
+        assert!(
+            answer.starts_with(&format!("HTTP/1.1 {status} ")),
+            "{answer}"
+        );
+    }
+    assert!(served.starts_with("HTTP/1.1 200"), "{served}");
+    assert_eq!(
+        requests_counted(&collector),
+        ["http.request.method=GET http.response.status_code=200 http.route=/v1/capabilities 1"]
+    );
+}
+
+#[tokio::test]
 async fn obs_15_the_health_probes_record_no_request_metric() {
     let api = Api::new().await;
 
@@ -488,12 +519,7 @@ async fn platform_069_the_database_gauge_follows_each_check() {
     clock.sleeping(CHECK_INTERVAL).await;
     let unanswered = reachable();
 
-    database
-        .admin_executes(&format!(
-            "GRANT CONNECT ON DATABASE \"{}\" TO app",
-            database.name()
-        ))
-        .await;
+    database.let_app_in().await;
     clock.advance(CHECK_INTERVAL);
     clock.sleeping(CHECK_INTERVAL).await;
     let recovered = reachable();

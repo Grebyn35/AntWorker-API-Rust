@@ -57,7 +57,9 @@ pub(super) struct Leftover {
 /// Where the tests' leftovers go, once [`start`] has started the thread that drops them.
 static LEFT: OnceCell<mpsc::UnboundedSender<Leftover>> = OnceCell::const_new();
 
-/// Why the thread that drops the leftovers stopped, if it did.
+/// Why the thread that drops the leftovers stopped, if it did. A lock that a panic poisoned, such
+/// as the one of the assertion in [`check`], still holds a whole reason or none, since each change
+/// of it is one assignment, so it is taken as it is.
 static FAILED: Mutex<Option<String>> = Mutex::new(None);
 
 /// The databases that the tests of this process left and the thread has yet to drop.
