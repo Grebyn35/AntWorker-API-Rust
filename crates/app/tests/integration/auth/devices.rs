@@ -6,7 +6,7 @@ use serde_json::json;
 use crate::support::{
     Api, Options,
     api::{PEER, Response},
-    execute_on, mailbox,
+    email_change, execute_on, mailbox,
     providers::{self, gives, grant, identity},
     queries_wait_on_locks, second_factors,
     upstream::Upstream,
@@ -184,26 +184,10 @@ async fn auth_006_a_valid_device_token_counts_only_in_its_own_limit() {
 /// Changes the address of `user`'s account to `email`, with the code that the API's jobs send
 /// there (AUTH-048, AUTH-051).
 async fn change_address(api: &Api, user: &SignedIn, email: &str) {
-    let asked = api
-        .post("/v1/users/me/email/change", &json!({ "email": email }))
-        .bearer(&user.access)
-        .send()
-        .await;
+    let asked = email_change::ask(api, user, email).await;
     assert_eq!(asked.status, 202, "{}", asked.json());
-    api.run_jobs().await;
-    let code = mailbox::to(email)
-        .await
-        .iter()
-        .find_map(|sent| mailbox::grouped_code_in(&sent.text));
-    assert!(code.is_some(), "a change code sent to {email}");
-    let confirmed = api
-        .post(
-            "/v1/users/me/email/change/confirm",
-            &json!({ "email": email, "code": code }),
-        )
-        .bearer(&user.access)
-        .send()
-        .await;
+    let code = email_change::code_sent(api, email).await;
+    let confirmed = email_change::confirm(api, user, email, &code).await;
     assert_eq!(confirmed.status, 200, "{}", confirmed.json());
 }
 

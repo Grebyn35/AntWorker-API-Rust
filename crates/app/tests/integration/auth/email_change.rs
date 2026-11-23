@@ -6,42 +6,11 @@ use serde_json::json;
 
 use crate::support::{
     Api, Options,
-    api::Response,
+    email_change::{ask, code_sent, confirm},
     execute_on, mailbox, queries_wait_on_locks,
     users::{self, PASSWORD, SignedIn},
     workspaces,
 };
-
-/// Asks to change `user`'s address to `email`.
-async fn ask(api: &Api, user: &SignedIn, email: &str) -> Response {
-    api.post("/v1/users/me/email/change", &json!({ "email": email }))
-        .bearer(&user.access)
-        .send()
-        .await
-}
-
-/// Confirms the change of `user`'s address to `email` with `code`.
-async fn confirm(api: &Api, user: &SignedIn, email: &str, code: &str) -> Response {
-    api.post(
-        "/v1/users/me/email/change/confirm",
-        &json!({ "email": email, "code": code }),
-    )
-    .bearer(&user.access)
-    .send()
-    .await
-}
-
-/// The change code in the newest email with one that `address` received, once the API's jobs
-/// have run.
-async fn code_sent(api: &Api, address: &str) -> String {
-    api.run_jobs().await;
-    let emails = mailbox::to(address).await;
-    let email = emails
-        .iter()
-        .find(|email| email.subject.contains("email change code"))
-        .expect("an email with a change code");
-    mailbox::grouped_code_in(&email.text).expect("a change code in the email")
-}
 
 /// `user`'s address and whether they proved it, as `address|true`.
 async fn address_of(api: &Api, user: &SignedIn) -> String {
@@ -865,32 +834,20 @@ async fn auth_048_a_session_that_another_request_ended_before_its_proof_is_read_
     let api = Api::new().await;
     let ada = users::register(&api, &mailbox::address("ada")).await;
     let new = mailbox::address("ada-new");
-    let db = api.database();
     // Every bucket of Ada's requests but the change's, which a first request then adds.
     api.get("/v1/users/me").bearer(&ada.access).send().await;
     let change_bucket = users::added_bucket(&api, ask(&api, &ada, &new)).await;
+
     // The request waits at its bucket, once it is authenticated, while another request ends its
     // session.
-    let mut ender = db
-        .holding(&format!(
-            "SELECT 1 FROM rate_limit_buckets WHERE id = '{change_bucket}' FOR UPDATE"
-        ))
-        .await;
-
-    let asked = api.spawn(
-        http::Method::POST,
-        "/v1/users/me/email/change",
-        &ada.access,
+    let (status, body) = users::after_its_session_ended(
+        &api,
+        &ada,
+        &change_bucket,
+        (http::Method::POST, "/v1/users/me/email/change"),
         Some(json!({ "email": new })),
-    );
-    queries_wait_on_locks(db, 1).await;
-    execute_on(
-        &mut ender,
-        &format!("DELETE FROM sessions WHERE id = '{}'", ada.session_id),
     )
     .await;
-    execute_on(&mut ender, "COMMIT").await;
-    let (status, body) = asked.await.unwrap();
 
     assert_eq!(status, 401);
     assert_eq!(body["code"], "request.unauthenticated");

@@ -36,13 +36,6 @@ async fn current(api: &Api, access: &str) -> u16 {
         .as_u16()
 }
 
-/// Refreshes with the refresh token `refresh`.
-async fn refresh(api: &Api, refresh: &str) -> Response {
-    api.post("/v1/sessions/refresh", &json!({ "refresh_token": refresh }))
-        .send()
-        .await
-}
-
 /// Asserts that `response` answers `user`'s session with a new pair of tokens, that the pair it
 /// had stops working, and that the new pair works; returns the session with the new pair.
 async fn renewed(api: &Api, user: &SignedIn, response: &Response) -> SignedIn {
@@ -85,7 +78,7 @@ async fn auth_095_a_reauthentication_gives_the_session_new_tokens_as_a_refresh_d
         ["true"]
     );
     // The new refresh token refreshes the session.
-    let refreshed = refresh(&api, &after.refresh).await;
+    let refreshed = users::refresh(&api, &after.refresh).await;
     assert_eq!(refreshed.status, 200, "{}", refreshed.json());
 }
 
@@ -96,7 +89,7 @@ async fn auth_095_the_refresh_token_that_a_proof_replaced_ends_the_session_when_
     let response = users::reauthenticate(&api, &ada, PASSWORD).await;
     let after = renewed(&api, &ada, &response).await;
 
-    let reused = refresh(&api, &ada.refresh).await;
+    let reused = users::refresh(&api, &ada.refresh).await;
 
     assert_eq!(reused.status, 401, "{}", reused.json());
     assert_eq!(reused.json()["code"], "auth.invalid_refresh_token");
@@ -131,7 +124,7 @@ async fn auth_095_a_change_of_the_password_gives_the_caller_s_session_new_tokens
     .await;
     assert_eq!(session["authenticated_at"], stored[0].as_str());
     // The pair that the change replaced, presented, ends the session, as after a refresh.
-    let reused = refresh(&api, &ada.refresh).await;
+    let reused = users::refresh(&api, &ada.refresh).await;
     assert_eq!(reused.status, 401, "{}", reused.json());
     assert_eq!(current(&api, &after.access).await, 401);
 }

@@ -96,6 +96,26 @@ async fn auth_054_reading_one_s_second_factors_shows_the_app_and_the_codes_left_
 }
 
 #[tokio::test]
+async fn auth_054_the_codes_left_leave_out_a_recovery_code_that_was_used() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let app = add_app(&api, &ada).await;
+    let proved = reauthenticate(
+        &api,
+        &ada,
+        &json!({ "password": PASSWORD, "recovery_code": app.recovery_codes[0] }),
+    )
+    .await;
+    assert_eq!(proved.status, 200, "{}", proved.json());
+
+    // The proof gave the session new tokens (AUTH-095).
+    let factors = read(&api, &SignedIn::from(&proved)).await;
+
+    assert_eq!(factors.status, 200);
+    assert_eq!(factors.json()["recovery_codes_left"], 9);
+}
+
+#[tokio::test]
 async fn auth_055_a_setup_needs_a_recent_proof_and_answers_the_secret_once() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
@@ -131,6 +151,13 @@ async fn auth_055_a_setup_needs_a_recent_proof_and_answers_the_secret_once() {
     )
     .await;
     assert_eq!(lasts, ["00:15:00 1"]);
+    let expires = reads(
+        &api,
+        "SELECT to_char(expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') \
+         FROM totp_setups",
+    )
+    .await;
+    assert_eq!(setup["expires_at"], expires[0].as_str());
     let id = reads(&api, "SELECT id::text FROM totp_setups")
         .await
         .remove(0);
@@ -251,6 +278,31 @@ async fn auth_056_a_wrong_code_records_it_and_leaves_the_setup_and_none_answers_
     let expired = confirm(&api, &ada, &code(&api, &secret).await).await;
     assert_eq!(expired.status, 422);
     assert_eq!(expired.json()["code"], "auth.setup_expired");
+}
+
+#[tokio::test]
+async fn auth_056_a_code_of_more_than_32_characters_answers_400_at_its_field() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let secret = start_setup(&api, &ada).await.json()["secret"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    // The right code, which the spaces before it take past 32 characters.
+    let long = format!("{}{}", " ".repeat(27), code(&api, &secret).await);
+
+    let refused = api
+        .post_raw(
+            "/v1/users/me/second-factors/totp/setup/confirm",
+            &json!({ "code": long }),
+        )
+        .bearer(&ada.access)
+        .send()
+        .await;
+
+    assert_eq!(refused.status, 400, "{}", refused.json());
+    assert_eq!(refused.json()["errors"][0]["field"], "/code");
+    assert_eq!(refused.json()["errors"][0]["code"], "invalid_code");
 }
 
 #[tokio::test]

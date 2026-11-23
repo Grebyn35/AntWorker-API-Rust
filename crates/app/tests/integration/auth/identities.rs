@@ -987,7 +987,7 @@ async fn auth_088_a_removal_whose_session_ended_once_it_was_authenticated_answer
 }
 
 #[tokio::test]
-async fn auth_069_a_removal_of_an_identity_deletes_the_challenges_that_its_sign_ins_issued() {
+async fn auth_069_a_removal_of_the_password_deletes_the_challenges_that_its_sign_ins_issued() {
     let (upstream, api) = providers::standing().await;
     let ada = users::register(&api, "ada@example.com").await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
@@ -1004,11 +1004,50 @@ async fn auth_069_a_removal_of_an_identity_deletes_the_challenges_that_its_sign_
     let removed = remove(&api, &ada, &password_id(&api, &ada).await).await;
 
     assert_eq!(removed.status, 204);
+    // A completion refuses the challenge of a sign-in with a password once the account has none,
+    // deleted or not, so the rows show the deletion.
+    assert_eq!(
+        reads(
+            &api,
+            "SELECT coalesce(provider, '-') FROM sign_in_challenges"
+        )
+        .await,
+        ["stand_in"]
+    );
     let code = second_factors::code(&api, &app.secret).await;
     let gone = second_factors::complete(&api, &with_password, json!({ "code": code })).await;
     assert_eq!(gone.status, 401);
     assert_eq!(gone.json()["code"], "auth.invalid_challenge");
     let kept = second_factors::complete(&api, &through_provider, json!({ "code": code })).await;
+    assert_eq!(kept.status, 201, "{}", kept.json());
+}
+
+#[tokio::test]
+async fn auth_069_a_removal_of_a_provider_identity_deletes_the_challenges_that_its_sign_ins_issued()
+{
+    let (upstream, api) = providers::standing().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    gives(&upstream, identity("subject-1", "ada@example.com", true));
+    assert_eq!(link(&api, &ada, &grant()).await.status, 200);
+    let app = second_factors::add_app(&api, &ada).await;
+    let with_password = second_factors::challenge(&api, "ada@example.com").await;
+    let through_provider = sign_in(&api, &grant()).await;
+    assert_eq!(through_provider.status, 200, "{}", through_provider.json());
+    let through_provider = through_provider.json()["challenge"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let removed = remove(&api, &ada, &provider_id(&api, &ada).await).await;
+
+    assert_eq!(removed.status, 204);
+    let code = second_factors::code(&api, &app.secret).await;
+    // The account keeps its password, so only the deletion keeps this challenge from starting a
+    // session through the provider whose identity the removal took.
+    let gone = second_factors::complete(&api, &through_provider, json!({ "code": code })).await;
+    assert_eq!(gone.status, 401, "{}", gone.json());
+    assert_eq!(gone.json()["code"], "auth.invalid_challenge");
+    let kept = second_factors::complete(&api, &with_password, json!({ "code": code })).await;
     assert_eq!(kept.status, 201, "{}", kept.json());
 }
 

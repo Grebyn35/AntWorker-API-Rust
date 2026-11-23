@@ -159,6 +159,13 @@ pub async fn new_session(api: &Api, email: &str) -> SignedIn {
     SignedIn::from(&response)
 }
 
+/// Refreshes the session whose refresh token is `token`, in the body.
+pub async fn refresh(api: &Api, token: &str) -> Response {
+    api.post("/v1/sessions/refresh", &json!({ "refresh_token": token }))
+        .send()
+        .await
+}
+
 /// The API with [`WEB`] among the origins of its web clients.
 pub async fn browsers_api() -> Api {
     Api::with(Options::default().set("CORS_ALLOWED_ORIGINS", WEB)).await

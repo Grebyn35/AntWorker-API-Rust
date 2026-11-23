@@ -9,7 +9,7 @@ use crate::support::{
     Api, Options, api,
     api::Response,
     api::reads,
-    audit, execute_on, mailbox,
+    audit, email_change, execute_on, mailbox,
     operator::{self, EMAIL_OFF, SENDS_EMAIL, printed},
     providers::{self, gives, grant, identity},
     query_waits_on_a_lock,
@@ -186,13 +186,7 @@ async fn auth_070_every_answer_that_holds_a_session_says_whether_its_account_mus
     let signed_in = users::sign_in(&api, "ada@example.com", PASSWORD).await;
     assert_eq!(signed_in.status, 201);
     assert_eq!(signed_in.json()["second_factor_setup_required"], true);
-    let refreshed = api
-        .post(
-            "/v1/sessions/refresh",
-            &json!({ "refresh_token": ada.refresh }),
-        )
-        .send()
-        .await;
+    let refreshed = users::refresh(&api, &ada.refresh).await;
     assert_eq!(refreshed.status, 200);
     assert_eq!(refreshed.json()["second_factor_setup_required"], true);
     let ada = SignedIn {
@@ -273,28 +267,11 @@ async fn auth_070_the_confirmations_of_a_code_and_of_a_change_of_the_address_say
     assert_eq!(verified.json()["second_factor_setup_required"], true);
 
     let new = mailbox::address("ada-new");
-    let asked = api
-        .post("/v1/users/me/email/change", &json!({ "email": new }))
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let asked = email_change::ask(&api, &ada, &new).await;
     assert_eq!(asked.status, 202, "{}", asked.json());
-    api.run_jobs().await;
-    let code = mailbox::to(&new)
-        .await
-        .iter()
-        .find(|email| email.subject.contains("email change code"))
-        .and_then(|email| mailbox::grouped_code_in(&email.text))
-        .expect("a change code");
+    let code = email_change::code_sent(&api, &new).await;
 
-    let changed = api
-        .post(
-            "/v1/users/me/email/change/confirm",
-            &json!({ "email": new, "code": code }),
-        )
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let changed = email_change::confirm(&api, &ada, &new, &code).await;
 
     assert_eq!(changed.status, 200, "{}", changed.json());
     assert_eq!(changed.json()["second_factor_setup_required"], true);
@@ -516,14 +493,7 @@ async fn auth_072_the_subcommand_removes_the_app_and_the_codes_and_ends_every_se
             .map(|session| format!("{ada_id} {session}"))
             .collect::<Vec<_>>()
     );
-    let mut closed: Vec<String> = signals
-        .received()
-        .await
-        .iter()
-        .map(|signal| signal["session_id"].as_str().unwrap().to_owned())
-        .collect();
-    closed.sort();
-    assert_eq!(closed, sessions);
+    assert_eq!(signals.ended_sessions().await, sessions);
     assert_eq!(
         audit::with_a_client(api.database(), "second_factor.removed").await,
         0,

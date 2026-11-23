@@ -86,13 +86,7 @@ async fn auth_094_the_subcommand_ends_every_session_of_the_account_that_holds_th
     ];
     events.sort();
     assert_eq!(users::session_events(&api, "session.ended").await, events);
-    let mut closed: Vec<String> = signals
-        .received()
-        .await
-        .iter()
-        .map(|signal| signal["session_id"].as_str().unwrap().to_owned())
-        .collect();
-    closed.sort();
+    let closed = signals.ended_sessions().await;
     let mut ended_ids = vec![ada.session_id.clone(), second.session_id.clone()];
     ended_ids.sort();
     assert_eq!(closed, ended_ids);
@@ -149,13 +143,7 @@ async fn auth_094_with_all_the_subcommand_ends_every_session_of_every_account() 
         .await,
         ["0"]
     );
-    let mut closed: Vec<String> = signals
-        .received()
-        .await
-        .iter()
-        .map(|signal| signal["session_id"].as_str().unwrap().to_owned())
-        .collect();
-    closed.sort();
+    let closed = signals.ended_sessions().await;
     let mut ended_ids = vec![
         ada.session_id.clone(),
         second.session_id.clone(),

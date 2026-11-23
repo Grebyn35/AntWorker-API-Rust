@@ -972,9 +972,18 @@ async fn auth_080_re_authenticating_counts_in_the_bucket_of_the_user_s_checks() 
     for _ in 0..5 {
         assert_eq!(reauthenticate(&api, &ada, json!({})).await.status, 403);
     }
+    let counted = users::counted_in(&api, "password_check", &ada).await;
     let limited = reauthenticate(&api, &ada, json!({})).await;
 
+    assert_eq!(counted, Some(5), "the bucket of her password's checks");
     assert_eq!(limited.status, 429, "AUTH-022's 5 checks in 15 minutes");
+    assert!(
+        limited
+            .header("ratelimit-policy")
+            .starts_with("\"password_check\";q=5;w=900"),
+        "{}",
+        limited.header("ratelimit-policy")
+    );
 }
 
 #[tokio::test]

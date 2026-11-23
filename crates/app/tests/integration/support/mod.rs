@@ -26,6 +26,7 @@ pub mod budgets;
 pub mod cleanup;
 mod contract;
 pub mod counts;
+pub mod email_change;
 pub mod events;
 // part: files
 pub mod files;
@@ -1000,6 +1001,22 @@ impl Signals {
             received.push(serde_json::from_str(notification.payload()).unwrap());
         }
         received
+    }
+
+    /// The IDs of the sessions whose ends the signals sent since the last call tell, sorted, once
+    /// it has asserted that each of them tells a session's end.
+    pub async fn ended_sessions(&mut self) -> Vec<String> {
+        let mut ended: Vec<String> = self
+            .received()
+            .await
+            .iter()
+            .map(|signal| {
+                assert_eq!(signal["kind"], "session_ended", "{signal}");
+                signal["session_id"].as_str().unwrap().to_owned()
+            })
+            .collect();
+        ended.sort();
+        ended
     }
 }
 

@@ -136,13 +136,7 @@ async fn auth_010_refreshing_rotates_the_pair_and_keeps_the_old_refresh_hash() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
 
-    let response = api
-        .post(
-            "/v1/sessions/refresh",
-            &json!({ "refresh_token": ada.refresh }),
-        )
-        .send()
-        .await;
+    let response = users::refresh(&api, &ada.refresh).await;
 
     assert_eq!(response.status, 200);
     let body = response.json();
@@ -186,13 +180,7 @@ async fn auth_010_a_refresh_slides_the_refresh_expiry() {
     )
     .await;
 
-    let response = api
-        .post(
-            "/v1/sessions/refresh",
-            &json!({ "refresh_token": ada.refresh }),
-        )
-        .send()
-        .await;
+    let response = users::refresh(&api, &ada.refresh).await;
 
     assert_eq!(response.status, 200);
     assert_eq!(
@@ -239,13 +227,7 @@ async fn auth_010_a_refresh_never_slides_the_expiry_past_the_absolute_lifetime()
         )
         .await;
 
-    let response = api
-        .post(
-            "/v1/sessions/refresh",
-            &json!({ "refresh_token": ada.refresh }),
-        )
-        .send()
-        .await;
+    let response = users::refresh(&api, &ada.refresh).await;
 
     let body = response.json();
     assert_eq!(body["refresh_token_expires_at"], body["expires_at"]);
@@ -268,13 +250,7 @@ async fn auth_011_an_expired_refresh_token_or_session_answers_401_and_rotates_no
             .owner_reads("SELECT encode(refresh_token_hash, 'hex') FROM sessions")
             .await;
 
-        let response = api
-            .post(
-                "/v1/sessions/refresh",
-                &json!({ "refresh_token": ada.refresh }),
-            )
-            .send()
-            .await;
+        let response = users::refresh(&api, &ada.refresh).await;
 
         assert_eq!(response.status, 401, "{expired}");
         assert_eq!(response.json()["code"], "auth.session_expired");
@@ -289,30 +265,11 @@ async fn auth_011_an_expired_refresh_token_or_session_answers_401_and_rotates_no
 async fn auth_012_presenting_a_rotated_refresh_token_ends_the_session() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
-    let refreshed = api
-        .post(
-            "/v1/sessions/refresh",
-            &json!({ "refresh_token": ada.refresh }),
-        )
-        .send()
-        .await
-        .json();
+    let refreshed = users::refresh(&api, &ada.refresh).await.json();
     let mut signals = api.database().signals().await;
 
-    let reused = api
-        .post(
-            "/v1/sessions/refresh",
-            &json!({ "refresh_token": ada.refresh }),
-        )
-        .send()
-        .await;
-    let unknown = api
-        .post(
-            "/v1/sessions/refresh",
-            &json!({ "refresh_token": "unknown" }),
-        )
-        .send()
-        .await;
+    let reused = users::refresh(&api, &ada.refresh).await;
+    let unknown = users::refresh(&api, "unknown").await;
 
     for response in [&reused, &unknown] {
         assert_eq!(response.status, 401);
@@ -342,13 +299,7 @@ async fn auth_012_presenting_a_rotated_refresh_token_ends_the_session() {
 async fn auth_012_a_reused_token_whose_session_a_deletion_ended_first_records_nothing() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
-    let rotated = api
-        .post(
-            "/v1/sessions/refresh",
-            &json!({ "refresh_token": ada.refresh }),
-        )
-        .send()
-        .await;
+    let rotated = users::refresh(&api, &ada.refresh).await;
     assert_eq!(rotated.status, 200);
     let db = api.database();
     // A deletion of the account that holds the session's row while the reuse waits for it.
@@ -358,9 +309,9 @@ async fn auth_012_a_reused_token_whose_session_a_deletion_ended_first_records_no
 
     let reuse = tokio::spawn({
         let api = api.clone();
-        let body = json!({ "refresh_token": ada.refresh });
+        let token = ada.refresh.clone();
         async move {
-            let response = api.post("/v1/sessions/refresh", &body).send().await;
+            let response = users::refresh(&api, &token).await;
             (response.status, response.json())
         }
     });
@@ -686,36 +637,18 @@ async fn auth_015_a_browser_s_proofs_take_the_session_s_new_tokens_in_cookies() 
 async fn auth_016_a_session_that_another_request_ended_meanwhile_answers_401() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
-    let db = api.database();
     // The user bucket, which every request of Ada's counts in once it is authenticated.
     let bucket =
         users::added_bucket(&api, api.get("/v1/users/me").bearer(&ada.access).send()).await;
-    let mut ender = db
-        .holding(&format!(
-            "SELECT 1 FROM rate_limit_buckets WHERE id = '{bucket}' FOR UPDATE"
-        ))
-        .await;
 
-    let read = tokio::spawn({
-        let api = api.clone();
-        let access = ada.access.clone();
-        async move {
-            let response = api
-                .get("/v1/users/me/sessions/current")
-                .bearer(&access)
-                .send()
-                .await;
-            (response.status, response.json())
-        }
-    });
-    queries_wait_on_locks(db, 1).await;
-    execute_on(
-        &mut ender,
-        &format!("DELETE FROM sessions WHERE id = '{}'", ada.session_id),
+    let (status, body) = users::after_its_session_ended(
+        &api,
+        &ada,
+        &bucket,
+        (http::Method::GET, "/v1/users/me/sessions/current"),
+        None,
     )
     .await;
-    execute_on(&mut ender, "COMMIT").await;
-    let (status, body) = read.await.unwrap();
 
     assert_eq!(status, 401);
     assert_eq!(body["code"], "request.unauthenticated");

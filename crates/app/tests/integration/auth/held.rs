@@ -85,13 +85,7 @@ async fn auth_096_a_sign_in_from_a_browser_that_holds_a_session_ends_it() {
         users::session_events(&api, "session.ended").await,
         [format!("{} {held}", ada.user_id)]
     );
-    let closed: Vec<String> = signals
-        .received()
-        .await
-        .iter()
-        .map(|signal| signal["session_id"].as_str().unwrap().to_owned())
-        .collect();
-    assert_eq!(closed, [held]);
+    assert_eq!(signals.ended_sessions().await, [held]);
 }
 
 #[tokio::test]

@@ -242,13 +242,7 @@ async fn auth_026_the_session_says_whether_its_account_must_still_verify() {
     let ada = SignedIn::from(&registered);
     let signed_in = users::sign_in(&api, &address, users::PASSWORD).await;
     assert_eq!(signed_in.json()["email_verification_required"], true);
-    let refreshed = api
-        .post(
-            "/v1/sessions/refresh",
-            &json!({ "refresh_token": ada.refresh }),
-        )
-        .send()
-        .await;
+    let refreshed = users::refresh(&api, &ada.refresh).await;
     assert_eq!(refreshed.json()["email_verification_required"], true);
     let ada = SignedIn::from(&refreshed);
     let current = api
@@ -598,12 +592,18 @@ async fn auth_030_the_job_stores_only_the_code_s_hmac_and_sends_the_code() {
     assert_eq!(fields[1].len(), 64);
     assert!(!fields[1].contains(&code));
     assert_eq!(fields[2], "00:10:00");
+    let id = api
+        .database()
+        .owner_reads("SELECT id::text FROM verification_codes")
+        .await
+        .remove(0);
     assert_eq!(
         api.database().owner_reads("SELECT user_id || ' ' || coalesce(actor_user_id::text, '-') || ' ' || resource_type \
+             || ' ' || resource_id || ' ' || details::text \
              FROM audit_entries WHERE action = 'verification_code.issued'"
         )
         .await,
-        [format!("{} - verification_code", ada.user_id)]
+        [format!("{} - verification_code {id} {{}}", ada.user_id)]
     );
     assert!(
         api.database()
@@ -939,10 +939,10 @@ async fn auth_031_the_right_code_proves_the_address_once() {
     );
     assert_eq!(
         api.database().owner_reads("SELECT user_id || ' ' || actor_user_id || ' ' || resource_type || ' ' || resource_id \
-             FROM audit_entries WHERE action = 'email.verified'"
+             || ' ' || details::text FROM audit_entries WHERE action = 'email.verified'"
         )
         .await,
-        [format!("{0} {0} user {0}", ada.user_id)]
+        [format!("{0} {0} user {0} {{}}", ada.user_id)]
     );
     let again = confirm(&api, &ada, &code).await;
     assert_eq!(again.status, 409);
@@ -1000,11 +1000,11 @@ async fn auth_032_a_wrong_code_is_recorded_and_leaves_the_code() {
         .await;
     assert_eq!(
         api.database().owner_reads("SELECT user_id || ' ' || actor_user_id || ' ' || resource_type || ' ' || resource_id \
-             FROM audit_entries WHERE action = 'verification_code.check_failed'"
+             || ' ' || details::text FROM audit_entries WHERE action = 'verification_code.check_failed'"
         )
         .await,
         [format!(
-            "{0} {0} verification_code {1}",
+            "{0} {0} verification_code {1} {{}}",
             ada.user_id, issued[0]
         )]
     );
@@ -1044,11 +1044,13 @@ async fn auth_032_an_expired_code_or_none_answers_code_expired() {
 }
 
 #[tokio::test]
-async fn auth_032_a_code_that_isn_t_6_digits_answers_400() {
+async fn auth_032_a_code_of_more_than_32_characters_or_that_isn_t_6_digits_answers_400() {
     let api = Api::new().await;
     let ada = users::register_unverified(&api, &mailbox::address("ada")).await;
+    // Six digits that the spaces before them take past 32 characters.
+    let long = format!("{}123456", " ".repeat(27));
 
-    for code in ["12345", "1234567", "12a456", ""] {
+    for code in ["12345", "1234567", "12a456", "", long.as_str()] {
         let refused = api
             .post_raw(
                 "/v1/users/me/email/verification/confirm",

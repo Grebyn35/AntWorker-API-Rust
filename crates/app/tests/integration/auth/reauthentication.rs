@@ -6,7 +6,7 @@ use serde_json::json;
 use crate::support::{
     Api,
     api::Response,
-    execute_on, queries_wait_on_locks, query_waits_on_a_lock,
+    execute_on, query_waits_on_a_lock,
     users::{self, PASSWORD, SignedIn},
 };
 
@@ -156,36 +156,19 @@ async fn auth_021_a_session_that_another_request_ended_meanwhile_answers_401() {
         users::added_bucket_of(&api, users::reauthenticate(&api, &ada, PASSWORD)).await;
     // The proof gave the session new tokens (AUTH-095).
     let ada = SignedIn::from(&first);
-    // The re-authentication waits at that bucket while another request ends its session.
-    let mut ender = db
-        .holding(&format!(
-            "SELECT 1 FROM rate_limit_buckets WHERE id = '{checks}' FOR UPDATE"
-        ))
-        .await;
 
-    let again = tokio::spawn({
-        let api = api.clone();
-        let access = ada.access.clone();
-        async move {
-            let response = api
-                .post(
-                    "/v1/users/me/sessions/current/reauthenticate",
-                    &json!({ "password": PASSWORD }),
-                )
-                .bearer(&access)
-                .send()
-                .await;
-            (response.status, response.json())
-        }
-    });
-    queries_wait_on_locks(db, 1).await;
-    execute_on(
-        &mut ender,
-        &format!("DELETE FROM sessions WHERE id = '{}'", ada.session_id),
+    // The re-authentication waits at that bucket while another request ends its session.
+    let (status, body) = users::after_its_session_ended(
+        &api,
+        &ada,
+        &checks,
+        (
+            http::Method::POST,
+            "/v1/users/me/sessions/current/reauthenticate",
+        ),
+        Some(json!({ "password": PASSWORD })),
     )
     .await;
-    execute_on(&mut ender, "COMMIT").await;
-    let (status, body) = again.await.unwrap();
 
     assert_eq!(status, 401);
     assert_eq!(body["code"], "request.unauthenticated");
@@ -241,34 +224,17 @@ async fn auth_023_a_deletion_whose_session_another_request_ended_before_its_chec
     users::authenticated_ago(&api, &ada, 10).await;
     let deletion_bucket = users::added_bucket(&api, users::delete(&api, &ada)).await;
     users::authenticated_ago(&api, &ada, 0).await;
+
     // The deletion waits at its bucket, once its request is authenticated, while another request
     // ends its session.
-    let mut ender = db
-        .holding(&format!(
-            "SELECT 1 FROM rate_limit_buckets WHERE id = '{deletion_bucket}' FOR UPDATE"
-        ))
-        .await;
-
-    let deletion = tokio::spawn({
-        let api = api.clone();
-        let access = ada.access.clone();
-        async move {
-            let response = api
-                .request(http::Method::DELETE, "/v1/users/me")
-                .bearer(&access)
-                .send()
-                .await;
-            (response.status, response.json())
-        }
-    });
-    queries_wait_on_locks(db, 1).await;
-    execute_on(
-        &mut ender,
-        &format!("DELETE FROM sessions WHERE id = '{}'", ada.session_id),
+    let (status, body) = users::after_its_session_ended(
+        &api,
+        &ada,
+        &deletion_bucket,
+        (http::Method::DELETE, "/v1/users/me"),
+        None,
     )
     .await;
-    execute_on(&mut ender, "COMMIT").await;
-    let (status, body) = deletion.await.unwrap();
 
     assert_eq!(status, 401);
     assert_eq!(body["code"], "request.unauthenticated");

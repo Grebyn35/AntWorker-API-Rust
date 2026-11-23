@@ -71,10 +71,11 @@ async fn auth_058_signing_in_to_an_account_with_an_app_answers_a_challenge_and_n
         reads(
             &api,
             "SELECT user_id || ' ' || coalesce(actor_user_id::text, '-') || ' ' || resource_type \
-             || ' ' || resource_id FROM audit_entries WHERE action = 'sign_in.challenged'"
+             || ' ' || resource_id || ' ' || details::text FROM audit_entries \
+             WHERE action = 'sign_in.challenged'"
         )
         .await,
-        [format!("{ada_id} - user {ada_id}")]
+        [format!("{ada_id} - user {ada_id} {{}}")]
     );
 }
 
@@ -390,6 +391,28 @@ async fn auth_060_a_wrong_code_answers_401_records_it_and_leaves_the_challenge()
     }
     let completed = complete(&api, &token, json!({ "code": right })).await;
     assert_eq!(completed.status, 201, "{}", completed.json());
+}
+
+#[tokio::test]
+async fn auth_060_a_code_of_more_than_32_characters_answers_400_at_its_field() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let app = add_app(&api, &ada).await;
+    let token = challenge(&api, "ada@example.com").await;
+    // The right code, which the spaces before it take past 32 characters.
+    let long = format!("{}{}", " ".repeat(27), code(&api, &app.secret).await);
+
+    let refused = api
+        .post_raw(
+            "/v1/sessions/second-factor",
+            &json!({ "challenge": token, "code": long }),
+        )
+        .send()
+        .await;
+
+    assert_eq!(refused.status, 400, "{}", refused.json());
+    assert_eq!(refused.json()["errors"][0]["field"], "/code");
+    assert_eq!(refused.json()["errors"][0]["code"], "invalid_code");
 }
 
 #[tokio::test]

@@ -67,13 +67,6 @@ async fn sessions_of(api: &Api, user: &SignedIn) -> Vec<String> {
         .await
 }
 
-/// Refreshes the session whose refresh token is `token`.
-async fn refresh(api: &Api, token: &str) -> Response {
-    api.post("/v1/sessions/refresh", &json!({ "refresh_token": token }))
-        .send()
-        .await
-}
-
 /// Whether `user`'s access token still authenticates a request.
 async fn signed_in(api: &Api, user: &SignedIn) -> bool {
     let response = api.get("/v1/users/me").bearer(&user.access).send().await;
@@ -335,12 +328,7 @@ async fn auth_044_ending_another_session_needs_a_recent_proof_then_ends_it_and_i
 
     let refused = end(&api, &ada, &phone.session_id).await;
     let still = signed_in(&api, &phone).await;
-    api.database()
-        .owner_executes(&format!(
-            "UPDATE sessions SET authenticated_at = now() WHERE id = '{}'",
-            ada.session_id
-        ))
-        .await;
+    users::authenticated_ago(&api, &ada, 0).await;
     let mut signals = api.database().signals().await;
     let ended = end(&api, &ada, &phone.session_id).await;
 
@@ -474,12 +462,7 @@ async fn auth_045_ending_the_other_sessions_needs_a_recent_proof_and_keeps_the_c
 
     let refused = end_others(&api, &ada).await;
     let still = signed_in(&api, &phone).await;
-    api.database()
-        .owner_executes(&format!(
-            "UPDATE sessions SET authenticated_at = now() WHERE id = '{}'",
-            ada.session_id
-        ))
-        .await;
+    users::authenticated_ago(&api, &ada, 0).await;
     let mut signals = api.database().signals().await;
     let ended = end_others(&api, &ada).await;
     let again = end_others(&api, &ada).await;
@@ -700,13 +683,13 @@ async fn auth_046_each_way_a_session_starts_or_ends_publishes_and_a_refresh_publ
         .database()
         .owner_reads("SELECT count(*)::text FROM events")
         .await;
-    assert_eq!(refresh(&api, &reused.refresh).await.status, 200);
+    assert_eq!(users::refresh(&api, &reused.refresh).await.status, 200);
     let after_refresh = api
         .database()
         .owner_reads("SELECT count(*)::text FROM events")
         .await;
     // Presenting the rotated token again ends its session (AUTH-012).
-    assert_eq!(refresh(&api, &reused.refresh).await.status, 401);
+    assert_eq!(users::refresh(&api, &reused.refresh).await.status, 401);
     let other = users::new_session(&api, "ada@example.com").await;
     assert_eq!(end(&api, &ada, &other.session_id).await.status, 204);
     let rest = users::new_session(&api, "ada@example.com").await;
@@ -861,9 +844,9 @@ async fn auth_011_an_expired_refresh_token_whose_session_the_job_deleted_answers
     let old = users::new_session(&api, "ada@example.com").await;
     users::stopped_lasting(&api, &old).await;
 
-    let before = refresh(&api, &old.refresh).await;
+    let before = users::refresh(&api, &old.refresh).await;
     api.run_periodic("auth.expire_sessions").await;
-    let after = refresh(&api, &old.refresh).await;
+    let after = users::refresh(&api, &old.refresh).await;
 
     assert_eq!(before.status, 401);
     assert_eq!(before.json()["code"], "auth.session_expired");

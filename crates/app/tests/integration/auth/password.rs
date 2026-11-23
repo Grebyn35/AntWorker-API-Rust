@@ -879,10 +879,20 @@ async fn auth_039_confirmations_count_per_email_from_each_client_address_before_
     for _ in 0..5 {
         statuses.push(from("[2001:db8:1:2::1]:50000", wrong.clone()).await.status);
     }
-    let refused = from("[2001:db8:1:2::2]:50000", code.clone()).await;
+    // Every turn of the CPU-heavy work, which a hash waits for.
+    let turns = api.every_turn().await;
+    let refusing = tokio::spawn(from("[2001:db8:1:2::2]:50000", code.clone()));
+    // It answers, or it waits for a turn, to hash its password.
+    while api.workers().waiting() == 0 && !refusing.is_finished() {
+        tokio::task::yield_now().await;
+    }
+    let hashing = api.workers().waiting();
+    drop(turns);
+    let refused = refusing.await.unwrap();
     let elsewhere = from("[2001:db8:1:3::1]:50000", code.clone()).await;
 
     assert_eq!(statuses, [401; 5]);
+    assert_eq!(hashing, 0, "the refused confirmation hashed no password");
     assert_eq!(refused.status, 429, "the same /64");
     assert_eq!(refused.json()["code"], "request.rate_limited");
     assert!(
@@ -1411,12 +1421,15 @@ async fn auth_098_a_code_that_the_job_deleted_as_it_expired_while_the_factor_was
 async fn auth_038_a_malformed_second_factor_answers_400_at_its_field() {
     let api = Api::new().await;
     let code = "7KQM-2XWD-9RTB-H4NP";
+    // Six digits that the spaces before them take past 32 characters.
+    let long = format!("{}123456", " ".repeat(27));
 
     for (factor, field) in [
         (
             json!({ "second_factor_code": "12345" }),
             "/second_factor_code",
         ),
+        (json!({ "second_factor_code": long }), "/second_factor_code"),
         (
             json!({ "second_factor_code": "123456", "recovery_code": "AAAA-AAAA-AAAA-AAAA-AAAA-AAAA" }),
             "/second_factor_code",
