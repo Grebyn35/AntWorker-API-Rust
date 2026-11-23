@@ -169,15 +169,28 @@ impl Database {
     }
 
     /// Opens a unit of work of `client` and `publisher`, with its span, which begins before the
-    /// wait for a pooled connection (PLATFORM-104).
+    /// wait for a pooled connection (PLATFORM-104). A caller that stops waiting leaves no
+    /// transaction open on the connection (PLATFORM-107).
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the unit of work's own transaction, with sqlx's `BEGIN`, as `Pool::begin` opens it"
+    )]
     async fn open(
         &self,
         client: Option<Client>,
         publisher: Option<UserId>,
     ) -> Result<UnitOfWork, Internal> {
         let span = self.transaction();
+        let connection = self.pool.acquire().await?;
+        // sqlx counts a transaction only once Postgres has answered its `BEGIN`, and a dropped
+        // one rolls back only if counted, so the `BEGIN` runs to its end in a task of its own:
+        // a transaction that no one waits for then drops there, and rolls back. `Pool::begin`
+        // runs this `Transaction::begin` after its own wait for a connection.
+        let begun = tokio::spawn(
+            Transaction::<'static, Postgres>::begin(connection, None).in_current_span(),
+        );
         Ok(UnitOfWork {
-            tx: self.pool.begin().await?,
+            tx: begun.await.map_err(Internal::new)??,
             client,
             publisher,
             claimed: None,
