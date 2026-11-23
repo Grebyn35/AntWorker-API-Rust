@@ -20,7 +20,7 @@ An error that only a subcommand reports, such as `seed`'s, implements no `ErrorC
 - Check: `compiler` (the conversion to a response requires `ErrorCode`), plus `ci: check-openapi` (its breaking-change diff against the last final release, by an operation's codes and their statuses, as the comment of [`breaking`](../../crates/xtask/src/openapi/breaking/mod.rs) says what it takes for a changed code), plus `review` (an error that only a subcommand reports implements no `ErrorCode`).
 
 ### ERR-03 The category alone sets the HTTP status
-`platform` defines the categories and their statuses. A module never sets a status directly.
+`platform` defines the categories and their statuses. A module never sets an error's status directly.
 
 | Category | Status | Use |
 |---|---|---|

@@ -2,7 +2,7 @@
 
 How to see what the API does: its logs, traces and metrics, the dashboards that answer an operator's questions, and the alerts that say when to act. A trace records one request, or one run of a background job, as spans: one for each step, such as the proxy's handling of the request, the API's, and each database transaction inside it, each with its duration and its attributes. It is written for someone who hasn't used these tools before. An ID in parentheses names what a sentence follows: a rule of the [standards](../standards/README.md), such as OBS-08, a behavior of a [spec](../spec/README.md), such as PLATFORM-099, or a decision, such as D10, whose records [architecture.md](../architecture.md) says where to find. The [glossary](../architecture.md#11-glossary) defines the terms these documents share.
 
-Everything here serves D10's guarantee: any trace ID the API returns leads to that request's logs, and to its trace whenever the request ended in an error within the collector's wait (OBS-08).
+Everything here serves D10's guarantee: any trace ID the API returns leads to that request's logs, and to its trace whenever the request ended in an error, but for a failure that came after the collector's wait (OBS-08).
 
 ## The questions it answers
 
@@ -139,7 +139,7 @@ Once `just setup` has checked the tools, watchexec among them, and written `.env
 
 The API forwards its clients' telemetry to that receiver once `.env` sets `CLIENT_TELEMETRY_ENDPOINT=http://127.0.0.1:4319`; `.env.example` leaves it unset, so `just dev` without the stack forwards none, and tells its clients so (CLIENT_TELEMETRY-010). <!-- part: client_telemetry -->
 
-To see a trace, send a request that fails, such as `curl -i http://127.0.0.1:8080/v1/no-such-resource`, which answers 404 with its trace ID, and follow it as [Following a request](#following-a-request-from-its-trace-id) says once tail sampling's 15 seconds have passed: the collector keeps every trace of a response of 400 or above, and a successful fast request's one time in ten.
+To see a trace, send a request that fails, such as `curl -i http://127.0.0.1:8080/v1/no-such-resource`, which answers 404 with its trace ID, and follow it as [Following a request](#following-a-request-from-its-trace-id) says once tail sampling's 15 seconds have passed: the collector keeps the trace of a response of 400 or above that comes within them, and a successful fast request's one time in ten.
 
 Grafana opens without signing in, as a viewer who can explore. On a server, it answers on an address of its own behind Caddy, where every viewer signs in ([deploy.md](deploy.md#grafana)). Its dashboards are read-only: each is a file in [deploy/observability/grafana/dashboards](../../deploy/observability/grafana/dashboards), and changing one means changing its file. A running collector or Prometheus keeps the configuration that it started with: after a change of its file, `docker compose --profile observability restart collector prometheus` has it read the new one. `docker compose stop collector prometheus alertmanager loki tempo grafana` stops the stack and leaves Postgres running. `docker compose --profile observability down` stops every service, Postgres among them, and adding `--volumes` deletes what each stored, the development database included.
 
@@ -155,7 +155,7 @@ Of the caller, the API's span of the request carries `user.id` once authenticati
 
 Without telemetry (`TELEMETRY=off`), the request's lines are only in the services' output on the server: `just logs production api caddy | grep <trace ID>` finds the API's, or, for a request that no replica answered, the proxy's ([deploy.md](deploy.md#checking-on-a-deployment)).
 
-A trace is kept when the request failed, answered 400 or above, or took longer than the latency objective, and a successful fast request's trace only sometimes. Its logs are never sampled.
+A trace is kept when the request failed, answered 400 or above, or took longer than the latency objective, unless it ended after the collector's wait (OBS-08), and a successful fast request's trace only sometimes. Its logs are never sampled.
 
 To find the slow requests of a time range instead, the API requests dashboard lists them under "Which requests took longer than the latency objective?", each opening its trace.
 

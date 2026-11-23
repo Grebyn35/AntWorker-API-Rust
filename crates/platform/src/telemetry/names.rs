@@ -1,5 +1,6 @@
-//! Every name that logs and spans give a field, and that metrics give a label (OBS-05). Code
-//! uses no other name, and `check-instrument` checks that it doesn't.
+//! Every name that logs and spans give a field, and that metrics give a label (OBS-05). The code
+//! in the `src/` of `platform` and `app` uses no other name, and `check-instrument` checks that it
+//! doesn't.
 //!
 //! A name that OpenTelemetry's semantic conventions define is declared with `convention`, which
 //! fails compilation when the name differs from the one the conventions publish. The

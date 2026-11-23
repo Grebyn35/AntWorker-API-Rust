@@ -234,7 +234,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_06_a_recording_before_telemetry_is_set_up_leaves_no_instrument() {
+    fn platform_108_a_recording_before_telemetry_is_set_up_leaves_no_instrument() {
         static EARLY: Counter<0> = Counter::new("platform.early", "{event}", "Early.", []);
 
         EARLY.add(1, []);

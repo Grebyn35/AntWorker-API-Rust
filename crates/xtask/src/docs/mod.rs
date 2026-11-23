@@ -444,7 +444,7 @@ mod tests {
                       | Style | `check-style` | STYLE-01 |\n";
 
     #[test]
-    fn doc_01_the_layout_of_app_names_each_file_of_the_composition_root() {
+    fn doc_01_the_layout_of_app_names_each_rust_file_directly_in_the_composition_root() {
         let architecture = "```\n  src/\n    composition/   the root, in mod.rs,\n\
                             \x20                  and in tasks.rs\n    modules/       seed.rs\n```\n";
         let repo = Repo::of(&[

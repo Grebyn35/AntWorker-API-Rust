@@ -181,7 +181,7 @@ What a deploy refuses, and what to do:
 | A managed database's URL doesn't set `sslmode=verify-full` | Give the URL again with `just server-setup`, with `sslmode=verify-full` in its query, and `sslrootcert` for a provider whose authority is its own ([above](#setting-up-a-server)) |
 | The connections wouldn't fit | Lower `API_REPLICAS` or `DATABASE_MAX_CONNECTIONS`, or raise `POSTGRES_MAX_CONNECTIONS`, with `just server-setup` ([Scaling](#scaling)) |
 | The deploy changes a service that runs once, such as Postgres or Caddy, through the release, a setting, a secret or a file it reads | Deploy it again with `--allow-restart` when what its restart interrupts is acceptable (below) |
-| `PROXY_SUBNET` names another subnet than the one that the network of Caddy and the replicas has | Deploy it again with `--allow-restart` when a deployment that answers no request until the release's replicas serve is acceptable (below) |
+| `PROXY_SUBNET` names another subnet than the one that the network of Caddy and the replicas has | Deploy it again with `--allow-restart` when a deployment that serves no request until the release's replicas serve is acceptable (below) |
 | Docker can't create the network `deployment_proxy`, whose pool overlaps another | Set `PROXY_SUBNET` to a range that none of the server's networks uses, with `just server-setup` ([TLS and proxies](#tls-and-proxies)) |
 | The new replicas don't become ready | Nothing to undo: the deploy removed them, and the replicas that served before it, if any, never stopped. Its output holds their last log lines |
 | Another deploy, backup or restore runs | Wait for it. Its lock goes when its processes end, however they end, so a task stopped by force leaves none |
@@ -196,7 +196,7 @@ A deploy restarts them only when you allow it: when a release changes the Postgr
 A change to a file of `scanner/` is one such change of the scanner. <!-- part: files -->
 Caddy reads `API_ADDRESS`, `GRAFANA_ADDRESS`, `TRUSTED_PROXIES`, and `TELEMETRY`, which says whether it exports its spans, so a change of one of the first three, or a move of `TELEMETRY` to or from `off`, restarts it. A release whose Postgres image is built from the same files as the running one leaves Postgres running, since such an image runs the same Postgres and pgBackRest, at the versions it pins ([release.md](release.md#the-images)). Changes to Caddy's sites or to the replicas it names reload Caddy, which drops no connection.
 
-A change of `PROXY_SUBNET` interrupts more: Docker changes no network's subnet, so a deploy that finds the network of Caddy and the replicas with another subnet than the setting's refuses, and with `--allow-restart` it stops Caddy and every replica, removes the network, and goes on as a first deploy does, so the deployment answers no request until the release's replicas serve ([TLS and proxies](#tls-and-proxies)).
+A change of `PROXY_SUBNET` interrupts more: Docker changes no network's subnet, so a deploy that finds the network of Caddy and the replicas with another subnet than the setting's refuses, and with `--allow-restart` it stops Caddy and every replica, removes the network, and goes on as a first deploy does, so a request gets no answer until the deploy starts Caddy again, and Caddy's 503 from then until the release's replicas serve ([TLS and proxies](#tls-and-proxies)).
 
 ## Rolling back
 

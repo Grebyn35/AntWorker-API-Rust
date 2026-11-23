@@ -1,6 +1,6 @@
 //! Two lists that documents keep of the code, which `check-docs` holds to it: the subcommands
-//! of `xtask` in `docs/operations/ci.md` (ARCH-01), and the files of the composition root in the
-//! layout of `app` in `docs/architecture.md` (DOC-01).
+//! of `xtask` in `docs/operations/ci.md` (ARCH-01), and the Rust files directly in the
+//! composition root's directory in the layout of `app` in `docs/architecture.md` (DOC-01).
 
 use std::collections::BTreeSet;
 

@@ -202,9 +202,9 @@ apply() {
     if [ -n "$running_subnet" ] && [ "$running_subnet" != "$proxy_subnet" ]; then
         if [ "$allow_restart" != yes ]; then
             cp "$state/deploy.env.previous" "$state/deploy.env"
-            fail "PROXY_SUBNET is $proxy_subnet, and the network of Caddy and the replicas has the subnet $running_subnet: this deploy replaces the network, for which it stops Caddy and every replica, so no request is answered until the release's replicas serve. Deploy again with --allow-restart when that's acceptable"
+            fail "PROXY_SUBNET is $proxy_subnet, and the network of Caddy and the replicas has the subnet $running_subnet: this deploy replaces the network, for which it stops Caddy and every replica, so no request is served until the release's replicas serve. Deploy again with --allow-restart when that's acceptable"
         fi
-        say "replacing the network of Caddy and the replicas, whose subnet was $running_subnet; no request is answered until the release's replicas serve"
+        say "replacing the network of Caddy and the replicas, whose subnet was $running_subnet; no request is served until the release's replicas serve"
         compose rm --stop --force caddy api-blue api-green > /dev/null
         docker network rm "${project}_proxy" > /dev/null
         live=""

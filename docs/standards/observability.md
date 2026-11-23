@@ -1,6 +1,6 @@
 # Observability rules (`OBS`)
 
-Logs, traces, metrics, dashboards and alerts. The design is built from the operator questions in D19. The guarantee everything serves is D10's: any trace ID the API returns leads to that request's logs, and to its trace whenever the request ended in an error within the collector's wait (OBS-08).
+Logs, traces, metrics, dashboards and alerts. The design is built from the operator questions in D19. The guarantee everything serves is D10: any trace ID the API returns leads to that request's logs, and to its trace whenever the request ended in an error, but for a failure that came after the collector's wait (OBS-08).
 
 ## Logs
 
@@ -28,13 +28,13 @@ Module code writes events only at `DEBUG`. Every `INFO`, `WARN` and `ERROR` even
 
 ### OBS-04 No personal data or secrets in telemetry
 Logs, spans and metric labels never contain personal data or secrets. `EmailAddress` redacts itself when formatted, as `Secret` does (SEC-01), and a type that holds a client's IP address or user agent either redacts its `Debug`, as `platform::types::Client` does, or has none, as an audit entry's types have none. Every `#[instrument]` uses `skip_all` and lists its fields explicitly. The reference deployment's proxy writes no field of a log line that holds personal data, and the collector keeps only the attributes of its spans whose names `platform::telemetry` lists (D53). The deployment's bundled Postgres writes an error to its log without the error's detail, which holds the values that a constraint refused, such as an address that another account holds.
-A file's name is personal data: `FileName` redacts it in its `Debug`, and the records of an export's files, whose paths hold names, have no `Debug`. <!-- part: files -->
+A file's name is personal data: `FileName` redacts it in its `Debug`, and `files`' records of an export's files, `ExportedFile`, `OwnRecord` and `WorkspaceRecord`, whose paths hold names, have no `Debug`. <!-- part: files -->
 Of the telemetry that a user's client sends through the telemetry proxy, the collector keeps of the resource of a span or of a log record only what names the client, its version and, on spans, its installation (CLIENT_TELEMETRY-011), and of its metrics only the client's name and the attributes and values that its configuration lists (CLIENT_TELEMETRY-015); what its spans and its log records hold besides is the client's to keep free of personal data, and its user's to consent to (D7). <!-- part: client_telemetry -->
 - Why: telemetry is copied widely and kept for a long time (D7).
 - Check: `compiler` (the redacting types), `ci: check-instrument` (every `#[instrument]` has `skip_all`), plus `ci: e2e` (the proxy's span, its log line and its own log hold no client address or user agent, under any name, and the bundled Postgres's log holds no value that a unique constraint refused), plus `review`.
 
 ### OBS-05 Telemetry names come from one list
-Every field name in logs and spans, and every metric label name, comes from the list in `platform::telemetry`, and code uses no other name. The list declares no field for personal data or secrets (OBS-04).
+Every field name in the logs and spans that the code of `crates/platform/src/` and `crates/app/src/` writes, and every metric label name, comes from the list in `platform::telemetry`, and that code uses no other name. The list declares no field for personal data or secrets (OBS-04).
 - A name is OpenTelemetry's wherever a semantic convention names the same thing, such as `http.request.method` or `http.route`. The list pins the conventions' version.
 - Any other name is `<term>.<property>` in lowercase, using the glossary's term for the concept (CODE-11), and never starts with a namespace the conventions define. Where the conventions use the term with another meaning, the owning module's name goes first: `auth.session.id`, since OpenTelemetry's `session` is a client application's session, and `realtime.event.id`, since its `event` names log records.
 - `trace_id` and `span_id` are top-level fields, as OpenTelemetry names trace context in JSON logs.
@@ -54,7 +54,7 @@ Inbound W3C `traceparent` from clients is accepted. Every job and event row stor
 - Why: background work leads back to the request that caused it (D10).
 - Check: `test` (the inbound `traceparent` by PLATFORM-041's tests, the link of a job's run by PLATFORM-020's, and the rest by the rule's own).
 
-### OBS-08 Tail sampling keeps errors and slow requests
+### OBS-08 Errors and slow requests are kept
 The SDK samples every trace except the health probes (OBS-15). The collector's tail sampling keeps every trace with `http.response.status_code >= 400` or an error status, every trace slower than the latency objective, and a configured share of the rest. It decides a trace once its wait, 15 seconds in the reference deployment, has passed since the trace's first span arrived, on the spans that have arrived, and a span that arrives later takes that decision: a request or a job's run whose failure comes after the wait leaves a trace only when the decision kept it, and its log lines and its counts stay (D222). Logs are never sampled. The dashboard of request latency lists kept traces slower than the objective in the time range it shows, as many as its limit holds, each leading to its trace.
 The spans that users' clients send through the telemetry proxy pass no tail sampling: the collector keeps each one that it admits (CLIENT_TELEMETRY-011). <!-- part: client_telemetry -->
 - Why: every trace ID a user can report as a problem resolves to a trace, or, for a failure that came after the collector's wait, to its log lines; a latency spike leads to the requests behind it, and every request's logs are kept (D10).
