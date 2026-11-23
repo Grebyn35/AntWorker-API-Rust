@@ -338,7 +338,7 @@ async fn sec_14_a_server_publishes_only_the_proxy_and_grafana_signs_every_viewer
     assert_eq!(as_default, 401);
     assert_the_session_s_cookie_is_this_host_s_alone(&cookies);
     assert_a_browser_guards_grafana_s_pages(&page_headers);
-    assert_grafana_lists_no_directory_and_echoes_no_trace(&deployment, &root);
+    assert_grafana_lists_no_directory_and_echoes_no_trace(&deployment, &root, &cookies);
     assert_the_stores_answer_the_collector_and_grafana_alone(&deployment);
     assert_the_proxy_answers_no_other_host(&deployment, &root);
 }
@@ -404,23 +404,41 @@ fn assert_the_session_s_cookie_is_this_host_s_alone(cookies: &[String]) {
     }
 }
 
-/// Asserts that Grafana answers the directories of its own assets with 404, and a `TRACE`, which
-/// Caddy passes on to it, with neither a success nor an echo of the request (SEC-14).
-fn assert_grafana_lists_no_directory_and_echoes_no_trace(deployment: &Deployment, root: &str) {
-    let listings = ["/public/", "/public/build/"].map(|directory| {
-        get(
-            root.to_owned(),
-            deployment.url_at(GRAFANA_ADDRESS, "https", 443, directory),
-        )
-        .0
+/// Asserts that Grafana lists neither directory of its own assets: a request for one without a
+/// session goes to the sign-in page, and one with the cookies of a sign-in, `cookies`, gets 404.
+/// Asserts too that a `TRACE`, which Caddy passes on to Grafana, gets neither a success nor an
+/// echo of the request (SEC-14).
+fn assert_grafana_lists_no_directory_and_echoes_no_trace(
+    deployment: &Deployment,
+    root: &str,
+    cookies: &[String],
+) {
+    // The cookies as a browser sends them back: each one's name and value.
+    let session = cookies
+        .iter()
+        .filter_map(|cookie| cookie.split(';').next())
+        .collect::<Vec<_>>()
+        .join("; ");
+    let directories = ["/public/", "/public/build/"]
+        .map(|directory| deployment.url_at(GRAFANA_ADDRESS, "https", 443, directory));
+    let signed_out = directories.clone().map(|url| {
+        let (status, headers) = get(root.to_owned(), url);
+        let location = headers
+            .get("location")
+            .and_then(|location| location.to_str().ok())
+            .unwrap_or_default();
+        let page = location.split('?').next().unwrap_or_default().to_owned();
+        (status, page.ends_with("/login"))
     });
+    let signed_in = directories.map(|url| get_with_cookie(root.to_owned(), url, session.clone()));
     let (traced, echo) = send(
         root.to_owned(),
         reqwest::Method::TRACE,
         deployment.url_at(GRAFANA_ADDRESS, "https", 443, "/login"),
     );
 
-    assert_eq!(listings, [404, 404]);
+    assert_eq!(signed_out, [(302, true), (302, true)]);
+    assert_eq!(signed_in, [404, 404]);
     assert!(!(200..300).contains(&traced), "{traced}: {echo}");
     assert!(!echo.contains("TRACE"), "{echo}");
 }

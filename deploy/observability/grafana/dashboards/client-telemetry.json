@@ -39,7 +39,7 @@
     {
       "type": "timeseries",
       "title": "How do the clients' batches end?",
-      "description": "The batches that the telemetry proxy's three routes answered in the last 5 minutes, by status and error code: 200 for a batch that the collector took, 403 client_telemetry.consent_required for a user who doesn't consent, 429 request.rate_limited for a rate limit or a budget, and 400 client_telemetry.batch_refused or 503 client_telemetry.collector_unavailable for a batch that the collector refused or didn't take (CLIENT_TELEMETRY-004 to CLIENT_TELEMETRY-010). \"Which rate limits refuse requests?\" on the API platform dashboard tells a user's budget from a replica's.",
+      "description": "The batches that the telemetry proxy's three routes answered in the last 5 minutes, by status and error code: 200 for a batch that the collector took, 403 client_telemetry.consent_required for a user who doesn't consent, 429 request.rate_limited for a rate limit or a budget, and 400 client_telemetry.batch_refused or 503 client_telemetry.collector_unavailable for a batch that the collector refused or didn't take (CLIENT_TELEMETRY-004 to CLIENT_TELEMETRY-010), and the batches whose request ended before any answer, without a status, as ended_before_response (PLATFORM-067). \"Which rate limits refuse requests?\" on the API platform dashboard tells a user's budget from a replica's.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
