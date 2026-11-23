@@ -834,16 +834,16 @@ tests:
       - series: 'file_mtime_seconds{file_name="backup-completed"}'
         values: "0x1700"
     alert_rule_test:
-      - eval_time: 25h
+      - eval_time: 26h10m
         alertname: BaseBackupTooOld
         exp_alerts: []
-      - eval_time: 27h
+      - eval_time: 26h11m
         alertname: BaseBackupTooOld
         exp_alerts:
           - exp_labels:
               severity: ticket
             exp_annotations:
-              summary: The bundled database's newest base backup completed more than 26 hours ago, though one runs every day.
+              summary: The bundled database's newest base backup completed more than 26 hours and 10 minutes ago, though one runs every day.
               runbook: docs/operations/runbooks.md#basebackuptooold
 
   # part: files
@@ -854,16 +854,16 @@ tests:
       - series: 'file_mtime_seconds{file_name="daily.cld"}'
         values: "0x3000"
     alert_rule_test:
-      - eval_time: 47h
+      - eval_time: 48h10m
         alertname: ScannerSignaturesOutdated
         exp_alerts: []
-      - eval_time: 49h
+      - eval_time: 48h11m
         alertname: ScannerSignaturesOutdated
         exp_alerts:
           - exp_labels:
               severity: ticket
             exp_annotations:
-              summary: The malware scanner's daily signatures are more than 2 days old, though ClamAV publishes new ones several times a day.
+              summary: The malware scanner's daily signatures are more than 2 days and 10 minutes old, though ClamAV publishes new ones several times a day.
               runbook: docs/operations/runbooks.md#scannersignaturesoutdated
   # end part: files
 

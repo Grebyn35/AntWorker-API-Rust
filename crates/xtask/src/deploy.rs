@@ -512,22 +512,31 @@ mod tests {
             "BACKUP_S3_REGION=region",
             "BACKUP_S3_BUCKET=backups",
             "TELEMETRY=off",
+            "EMAIL=off",
         ];
 
         /// What `read_settings` writes to stderr as it refuses settings.env holding the required
         /// settings, then `settings`, whose values replace theirs, or `None` when it takes them.
         fn refusal(settings: &[&str]) -> Option<String> {
+            refusal_of("read_settings", settings)
+        }
+
+        /// What the functions of common.sh that `steps` runs write to stderr as they refuse
+        /// settings.env holding the required settings, then `settings`, or `None` when they take
+        /// them.
+        fn refusal_of(steps: &str, settings: &[&str]) -> Option<String> {
             let lines: Vec<&str> = REQUIRED.iter().chain(settings).copied().collect();
             let output = Command::new("sh")
                 .args([
                     "-c",
                     "deployment=$(mktemp -d) && printf '%s\\n' \"$1\" > \"$deployment/settings.env\" \
-                     && . \"$2\" && (read_settings); refused=$?; rm -rf \"$deployment\"; \
+                     && . \"$2\" && (eval \"$3\"); refused=$?; rm -rf \"$deployment\"; \
                      exit $refused",
                     "sh",
                 ])
                 .arg(lines.join("\n"))
                 .arg(root().join("deploy/tasks/common.sh"))
+                .arg(steps)
                 .output()
                 .unwrap();
             (!output.status.success()).then(|| String::from_utf8_lossy(&output.stderr).into_owned())
@@ -573,6 +582,42 @@ mod tests {
                     "BACKUP_S3_URI_STYLE=virtual"
                 ]),
                 None
+            );
+        }
+
+        #[test]
+        fn ops_14_a_deploy_refuses_an_email_setting_that_its_type_line_excludes() {
+            refuses("EMAIL", &["", "sendmail", "SMTP"], &["off", "smtp"]);
+        }
+
+        #[test]
+        fn ops_14_a_deploy_refuses_a_whole_number_with_a_leading_zero_or_beyond_the_shell_s_range()
+        {
+            refuses(
+                "BACKUP_HOUR",
+                &["03", "00", "99999999999999999999", "24"],
+                &["", "0", "3", "23"],
+            );
+        }
+
+        #[test]
+        fn ops_18_a_deploy_refuses_connections_that_wouldn_t_fit_however_the_settings_write_their_numbers()
+         {
+            // 2 colors of 10 replicas, of 5 connections each, and 2 beside them: 102 of the 97
+            // that 100 leaves, which a shell's arithmetic reads as 82 of 010.
+            let settings = [
+                "API_REPLICAS=010",
+                "DATABASE_MAX_CONNECTIONS=4",
+                "POSTGRES_MAX_CONNECTIONS=100",
+            ];
+
+            let refused = refusal_of("read_settings && check_connections", &settings);
+
+            assert!(
+                refused
+                    .as_deref()
+                    .is_some_and(|message| message.contains("deploy: API_REPLICAS is ")),
+                "{refused:?}"
             );
         }
 

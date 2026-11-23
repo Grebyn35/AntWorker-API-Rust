@@ -91,7 +91,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (instance) (increase(platform_panics_total[5m]))",
+          "expr": "sum by (instance) ((increase(platform_panics_total[5m]) and platform_panics_total offset 5m) or (platform_panics_total unless platform_panics_total offset 5m))",
           "legendFormat": "{{instance}}"
         }
       ],
@@ -131,7 +131,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (error_type) (increase(platform_errors_ignored_total[5m]))",
+          "expr": "sum by (error_type) ((increase(platform_errors_ignored_total[5m]) and platform_errors_ignored_total offset 5m) or (platform_errors_ignored_total unless platform_errors_ignored_total offset 5m))",
           "legendFormat": "{{error_type}}"
         }
       ],
@@ -211,7 +211,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (rate_limit_bucket) (increase(platform_rate_limit_refusals_total[5m]))",
+          "expr": "sum by (rate_limit_bucket) ((increase(platform_rate_limit_refusals_total[5m]) and platform_rate_limit_refusals_total offset 5m) or (platform_rate_limit_refusals_total unless platform_rate_limit_refusals_total offset 5m))",
           "legendFormat": "{{rate_limit_bucket}}"
         }
       ],
@@ -251,7 +251,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (authorization_reason) (increase(platform_authorization_refusals_total[5m]))",
+          "expr": "sum by (authorization_reason) ((increase(platform_authorization_refusals_total[5m]) and platform_authorization_refusals_total offset 5m) or (platform_authorization_refusals_total unless platform_authorization_refusals_total offset 5m))",
           "legendFormat": "{{authorization_reason}}"
         }
       ],
@@ -291,7 +291,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (idempotency_outcome) (increase(platform_idempotent_requests_total[5m]))",
+          "expr": "sum by (idempotency_outcome) ((increase(platform_idempotent_requests_total[5m]) and platform_idempotent_requests_total offset 5m) or (platform_idempotent_requests_total unless platform_idempotent_requests_total offset 5m))",
           "legendFormat": "{{idempotency_outcome}}"
         }
       ],
@@ -371,7 +371,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (job_kind, job_outcome) (increase(platform_job_runs_total[5m]))",
+          "expr": "sum by (job_kind, job_outcome) ((increase(platform_job_runs_total[5m]) and platform_job_runs_total offset 5m) or (platform_job_runs_total unless platform_job_runs_total offset 5m))",
           "legendFormat": "{{job_kind}} {{job_outcome}}"
         }
       ],
@@ -491,7 +491,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (stream_close_reason) (increase(platform_stream_closes_total[5m]))",
+          "expr": "sum by (stream_close_reason) ((increase(platform_stream_closes_total[5m]) and platform_stream_closes_total offset 5m) or (platform_stream_closes_total unless platform_stream_closes_total offset 5m))",
           "legendFormat": "{{stream_close_reason}}"
         }
       ],
@@ -620,7 +620,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (mail_outcome) (increase(platform_mail_sends_total[5m]))",
+          "expr": "sum by (mail_outcome) ((increase(platform_mail_sends_total[5m]) and platform_mail_sends_total offset 5m) or (platform_mail_sends_total unless platform_mail_sends_total offset 5m))",
           "legendFormat": "{{mail_outcome}}"
         }
       ],

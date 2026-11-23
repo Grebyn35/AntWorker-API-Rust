@@ -120,10 +120,14 @@ caddy_finds_ready() {
     done
 }
 
-# Removes the replicas of the color $1, after a deploy that failed.
+# Removes the replicas of the color $1, after a deploy that failed: those that served before it
+# go on serving, unless it stopped them to replace the network.
 roll_back() {
     compose logs --tail 20 "api-$1" >&2 || true
     compose rm --stop --force "api-$1" > /dev/null 2>&1 || true
+    if [ "$replaced" = yes ]; then
+        fail "$1's replicas of $api_image didn't become ready, so the deploy removed them; it stopped the replicas that served before it, if any, to replace the network, so none serves until a deploy's replicas become ready"
+    fi
     fail "$1's replicas of $api_image didn't become ready, so the deploy removed them; the replicas that served before it, if any, never stopped"
 }
 
@@ -199,6 +203,7 @@ apply() {
     # the settings': Docker changes no network's subnet, so the deploy removes the network, once
     # it has stopped what joins it, and Compose creates it again.
     running_subnet=$(docker network inspect --format '{{ range .IPAM.Config }}{{ .Subnet }}{{ end }}' "${project}_proxy" 2> /dev/null || true)
+    replaced=no
     if [ -n "$running_subnet" ] && [ "$running_subnet" != "$proxy_subnet" ]; then
         if [ "$allow_restart" != yes ]; then
             cp "$state/deploy.env.previous" "$state/deploy.env"
@@ -207,7 +212,7 @@ apply() {
         say "replacing the network of Caddy and the replicas, whose subnet was $running_subnet; no request is served until the release's replicas serve"
         compose rm --stop --force caddy api-blue api-green > /dev/null
         docker network rm "${project}_proxy" > /dev/null
-        live=""
+        live="" replaced=yes
     fi
     if [ -n "$changed" ] && [ "$allow_restart" != yes ]; then
         cp "$state/deploy.env.previous" "$state/deploy.env"

@@ -80,8 +80,9 @@ groups:
   # A series of a metric that the API declares appears with its first recording in a process,
   # whose metrics carry an instance of their own, such as with a replica's first send that the
   # mail server doesn't answer, and increase() counts nothing of a series' first value. So an
-  # alert that counts such a metric's events within a window with increase() counts a series that
-  # existed at the window's start by its increase, and a newer one by its value:
+  # alert, or a dashboard's panel, that counts such a metric's events within a window with
+  # increase() counts a series that existed at the window's start by its increase, and a newer
+  # one by its value:
   # (increase(x[w]) and x offset w) or (x unless x offset w).
   - name: alerts
     rules:
@@ -453,7 +454,7 @@ groups:
         labels:
           severity: ticket
         annotations:
-          summary: The bundled database's newest base backup completed more than 26 hours ago, though one runs every day.
+          summary: The bundled database's newest base backup completed more than 26 hours and 10 minutes ago, though one runs every day.
           runbook: docs/operations/runbooks.md#basebackuptooold
 
       # part: files
@@ -463,7 +464,7 @@ groups:
         labels:
           severity: ticket
         annotations:
-          summary: The malware scanner's daily signatures are more than 2 days old, though ClamAV publishes new ones several times a day.
+          summary: The malware scanner's daily signatures are more than 2 days and 10 minutes old, though ClamAV publishes new ones several times a day.
           runbook: docs/operations/runbooks.md#scannersignaturesoutdated
       # end part: files
 

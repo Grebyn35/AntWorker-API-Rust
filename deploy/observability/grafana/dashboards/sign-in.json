@@ -51,7 +51,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (auth_outcome) (increase(auth_sign_ins_total[5m]))",
+          "expr": "sum by (auth_outcome) ((increase(auth_sign_ins_total[5m]) and auth_sign_ins_total offset 5m) or (auth_sign_ins_total unless auth_sign_ins_total offset 5m))",
           "legendFormat": "{{auth_outcome}}"
         }
       ],
@@ -91,7 +91,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (auth_outcome) (increase(auth_email_verifications_total[5m]))",
+          "expr": "sum by (auth_outcome) ((increase(auth_email_verifications_total[5m]) and auth_email_verifications_total offset 5m) or (auth_email_verifications_total unless auth_email_verifications_total offset 5m))",
           "legendFormat": "{{auth_outcome}}"
         }
       ],
@@ -131,7 +131,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (auth_outcome) (increase(auth_password_resets_total[5m]))",
+          "expr": "sum by (auth_outcome) ((increase(auth_password_resets_total[5m]) and auth_password_resets_total offset 5m) or (auth_password_resets_total unless auth_password_resets_total offset 5m))",
           "legendFormat": "{{auth_outcome}}"
         }
       ],
@@ -171,7 +171,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (auth_outcome) (increase(auth_email_changes_total[5m]))",
+          "expr": "sum by (auth_outcome) ((increase(auth_email_changes_total[5m]) and auth_email_changes_total offset 5m) or (auth_email_changes_total unless auth_email_changes_total offset 5m))",
           "legendFormat": "{{auth_outcome}}"
         }
       ],
@@ -199,7 +199,7 @@
     {
       "type": "timeseries",
       "title": "How do checks of second factors end?",
-      "description": "Checks of second factors' codes in the last 5 minutes, an authenticator app's or a recovery code, at a sign-in's completion, a setup's confirmation, a re-authentication or a change of the password, by how each ended: passed, wrong_code, or rate_limited by the buckets of each user's and each device token's checks (AUTH-056 to AUTH-065). A rise in wrong_code across many accounts is the shape of guessing with stolen passwords, which the buckets bound to 10 guesses a day.",
+      "description": "Checks of second factors' codes in the last 5 minutes, an authenticator app's or a recovery code, at a sign-in's completion, a setup's confirmation, a reset's confirmation, a re-authentication or a change of the password, by how each ended: passed, wrong_code, or rate_limited by the buckets of each user's and each device token's checks (AUTH-056 to AUTH-065, AUTH-098). A rise in wrong_code across many accounts is the shape of guessing with stolen passwords, which the buckets bound to 10 guesses a day.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -211,7 +211,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (auth_outcome) (increase(auth_second_factor_checks_total[5m]))",
+          "expr": "sum by (auth_outcome) ((increase(auth_second_factor_checks_total[5m]) and auth_second_factor_checks_total offset 5m) or (auth_second_factor_checks_total unless auth_second_factor_checks_total offset 5m))",
           "legendFormat": "{{auth_outcome}}"
         }
       ],
@@ -251,7 +251,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (auth_provider, auth_outcome) (increase(auth_provider_exchanges_total[5m]))",
+          "expr": "sum by (auth_provider, auth_outcome) ((increase(auth_provider_exchanges_total[5m]) and auth_provider_exchanges_total offset 5m) or (auth_provider_exchanges_total unless auth_provider_exchanges_total offset 5m))",
           "legendFormat": "{{auth_provider}} {{auth_outcome}}"
         }
       ],

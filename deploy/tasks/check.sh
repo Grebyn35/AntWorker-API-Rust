@@ -10,10 +10,10 @@ failed() {
 noted() { printf '%s\n' "check: note  $*"; }
 
 # Checks what a deploy needs (OPS-19): with one argument, of the release <version>, which it
-# verifies first, as a deploy does; with two, of the API's image and the Postgres image. It reads
-# the settings and the secrets as a deploy does, and refuses what a deploy would refuse. The
-# checks that mount files of secrets/ into a container, those of the buckets and of a managed
-# backend, run once the secrets passed.
+# verifies first, as a deploy does; with two, of the API's image and the Postgres image. It runs
+# the checks of the settings and the secrets that a deploy runs before it pulls an image, and
+# refuses what they refuse. The checks that mount files of secrets/ into a container, those of the
+# buckets and of a managed backend, run once the secrets passed.
 check() {
     findings=0
     docker_answers=no

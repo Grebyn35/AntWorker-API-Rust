@@ -51,7 +51,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (http_response_status_code, error_type) (increase(http_server_request_duration_seconds_count{http_route=~\"/v1/users/me/telemetry/(traces|logs|metrics)\"}[5m]))",
+          "expr": "sum by (http_response_status_code, error_type) ((increase(http_server_request_duration_seconds_count{http_route=~\"/v1/users/me/telemetry/(traces|logs|metrics)\"}[5m]) and http_server_request_duration_seconds_count{http_route=~\"/v1/users/me/telemetry/(traces|logs|metrics)\"} offset 5m) or (http_server_request_duration_seconds_count{http_route=~\"/v1/users/me/telemetry/(traces|logs|metrics)\"} unless http_server_request_duration_seconds_count{http_route=~\"/v1/users/me/telemetry/(traces|logs|metrics)\"} offset 5m))",
           "legendFormat": "{{http_response_status_code}} {{error_type}}"
         }
       ],
@@ -159,7 +159,7 @@
     {
       "type": "timeseries",
       "title": "Is the collector refusing or failing to pass on the clients' telemetry?",
-      "description": "Items per second that the collector's receiver of clients' batches refused, as when the memory limit of the clients' pipelines is reached, which the telemetry proxy answers with 503, and items per second that the clients' exporters failed to send to their stores.",
+      "description": "Items in the last 5 minutes that the collector's receiver of clients' batches refused, as when the memory limit of the clients' pipelines is reached, which the telemetry proxy answers with 503, and items that the clients' exporters failed to send to their stores.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -171,7 +171,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(otelcol_receiver_refused_spans_total{receiver=\"otlp/clients\"}[$__rate_interval]))",
+          "expr": "sum(increase(otelcol_receiver_refused_spans_total{receiver=\"otlp/clients\"}[5m]))",
           "legendFormat": "refused: spans"
         },
         {
@@ -180,7 +180,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(otelcol_receiver_refused_log_records_total{receiver=\"otlp/clients\"}[$__rate_interval]))",
+          "expr": "sum(increase(otelcol_receiver_refused_log_records_total{receiver=\"otlp/clients\"}[5m]))",
           "legendFormat": "refused: log records"
         },
         {
@@ -189,7 +189,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(otelcol_receiver_refused_metric_points_total{receiver=\"otlp/clients\"}[$__rate_interval]))",
+          "expr": "sum(increase(otelcol_receiver_refused_metric_points_total{receiver=\"otlp/clients\"}[5m]))",
           "legendFormat": "refused: metric points"
         },
         {
@@ -198,7 +198,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (exporter) (rate(otelcol_exporter_send_failed_spans_total{exporter=~\".+clients\"}[$__rate_interval]))",
+          "expr": "sum by (exporter) ((increase(otelcol_exporter_send_failed_spans_total{exporter=~\".+clients\"}[5m]) and otelcol_exporter_send_failed_spans_total{exporter=~\".+clients\"} offset 5m) or (otelcol_exporter_send_failed_spans_total{exporter=~\".+clients\"} unless otelcol_exporter_send_failed_spans_total{exporter=~\".+clients\"} offset 5m))",
           "legendFormat": "{{exporter}}: spans"
         },
         {
@@ -207,7 +207,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (exporter) (rate(otelcol_exporter_send_failed_log_records_total{exporter=~\".+clients\"}[$__rate_interval]))",
+          "expr": "sum by (exporter) ((increase(otelcol_exporter_send_failed_log_records_total{exporter=~\".+clients\"}[5m]) and otelcol_exporter_send_failed_log_records_total{exporter=~\".+clients\"} offset 5m) or (otelcol_exporter_send_failed_log_records_total{exporter=~\".+clients\"} unless otelcol_exporter_send_failed_log_records_total{exporter=~\".+clients\"} offset 5m))",
           "legendFormat": "{{exporter}}: log records"
         },
         {
@@ -216,7 +216,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (exporter) (rate(otelcol_exporter_send_failed_metric_points_total{exporter=~\".+clients\"}[$__rate_interval]))",
+          "expr": "sum by (exporter) ((increase(otelcol_exporter_send_failed_metric_points_total{exporter=~\".+clients\"}[5m]) and otelcol_exporter_send_failed_metric_points_total{exporter=~\".+clients\"} offset 5m) or (otelcol_exporter_send_failed_metric_points_total{exporter=~\".+clients\"} unless otelcol_exporter_send_failed_metric_points_total{exporter=~\".+clients\"} offset 5m))",
           "legendFormat": "{{exporter}}: metric points"
         }
       ],
@@ -256,7 +256,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (job, http_response_status_code, error_type) (increase(http_client_request_duration_seconds_count[5m]))",
+          "expr": "sum by (job, http_response_status_code, error_type) ((increase(http_client_request_duration_seconds_count[5m]) and http_client_request_duration_seconds_count offset 5m) or (http_client_request_duration_seconds_count unless http_client_request_duration_seconds_count offset 5m))",
           "legendFormat": "{{job}} {{http_response_status_code}} {{error_type}}"
         }
       ],
@@ -333,7 +333,7 @@
     {
       "type": "timeseries",
       "title": "Which points of the clients' metrics does the collector leave out of its sums?",
-      "description": "Points per second of the clients' metrics that the collector didn't add to a series, by why: limit, for a point of a series beyond the most that the collector adds up, or the error of a point whose time isn't after its series' last one.",
+      "description": "Points of the clients' metrics in the last 5 minutes that the collector didn't add to a series, by why: limit, for a point of a series beyond the most that the collector adds up, or the error of a point whose time isn't after its series' last one.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -345,7 +345,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (error) (rate(otelcol_deltatocumulative_datapoints_total{error!=\"\"}[$__rate_interval]))",
+          "expr": "sum by (error) ((increase(otelcol_deltatocumulative_datapoints_total{error!=\"\"}[5m]) and otelcol_deltatocumulative_datapoints_total{error!=\"\"} offset 5m) or (otelcol_deltatocumulative_datapoints_total{error!=\"\"} unless otelcol_deltatocumulative_datapoints_total{error!=\"\"} offset 5m))",
           "legendFormat": "{{error}}"
         }
       ],

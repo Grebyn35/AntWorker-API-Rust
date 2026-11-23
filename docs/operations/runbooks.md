@@ -69,7 +69,7 @@ If the failures started when a deploy did, roll it back first ([deploy.md](deplo
 
 ## ScannerSignaturesOutdated
 
-**What it means.** The malware scanner's daily signatures haven't changed for 2 days, though ClamAV publishes new ones several times a day, so it misses the malware found since. freshclam, beside clamd in the `scanner` container, checks for them several times a day ([deploy.md](deploy.md#the-scanner)).
+**What it means.** The malware scanner's daily signatures haven't changed for 2 days and 10 minutes, though ClamAV publishes new ones several times a day, so it misses the malware found since. freshclam, beside clamd in the `scanner` container, checks for them several times a day ([deploy.md](deploy.md#the-scanner)).
 
 **Look first.** `just logs <host> scanner`: freshclam's lines name each check that failed, such as a name it couldn't resolve, a connection it couldn't make, or ClamAV's mirrors refusing the server for checking too often, which they answer with 429 and a time to wait.
 
@@ -163,7 +163,7 @@ The receiver `otlp/clients` takes the batches that the telemetry proxy forwards 
 
 ## JobsDelayed
 
-**What it means.** A background job that is due has waited more than 10 minutes without a replica claiming it ([platform spec](../spec/platform.md#the-job-queue)). Every email waits with it. Either no replica's dispatcher claims jobs, every replica's 4 runs are taken by long runs, or the job's kind is one that no running replica knows, as after a rollback to a release that doesn't have it.
+**What it means.** A background job that is due has waited more than 10 minutes without a replica claiming it, for 5 minutes ([platform spec](../spec/platform.md#the-job-queue)). Every email waits with it. Either no replica's dispatcher claims jobs, every replica's 4 runs are taken by long runs, or the job's kind is one that no running replica knows, as after a rollback to a release that doesn't have it.
 
 **Look first.** The API platform dashboard: "Are background jobs keeping up?" shows since when the delay grows, and "How do job runs end?" whether runs end at all. A replica that can't claim writes the `WARN` line "can't claim jobs", with the database's error.
 
@@ -205,7 +205,7 @@ The alert clears once neither of its conditions holds: the first ends 3 hours af
 
 ## BaseBackupTooOld
 
-**What it means.** The bundled database's daily base backup hasn't completed for more than 26 hours. A restore still reaches every moment the archived write-ahead log covers, but it replays more of the log the older the backup it starts from, so it takes longer.
+**What it means.** The bundled database's daily base backup hasn't completed for more than 26 hours and 10 minutes. A restore still reaches every moment the archived write-ahead log covers, but it replays more of the log the older the backup it starts from, so it takes longer.
 
 **Look first.** `just logs <host> backup` shows a line for each scheduled backup that failed, after pgBackRest's error. If the backup service isn't running, `just status <host>` shows how it exited, and its logs why.
 

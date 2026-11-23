@@ -51,7 +51,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (instance, error_type) (increase(otel_sdk_exporter_span_exported_total{error_type!=\"\"}[5m]))",
+          "expr": "sum by (instance, error_type) ((increase(otel_sdk_exporter_span_exported_total{error_type!=\"\"}[5m]) and otel_sdk_exporter_span_exported_total{error_type!=\"\"} offset 5m) or (otel_sdk_exporter_span_exported_total{error_type!=\"\"} unless otel_sdk_exporter_span_exported_total{error_type!=\"\"} offset 5m))",
           "legendFormat": "spans: {{error_type}} on {{instance}}"
         },
         {
@@ -60,7 +60,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (instance, error_type) (increase(otel_sdk_exporter_log_exported_total{error_type!=\"\"}[5m]))",
+          "expr": "sum by (instance, error_type) ((increase(otel_sdk_exporter_log_exported_total{error_type!=\"\"}[5m]) and otel_sdk_exporter_log_exported_total{error_type!=\"\"} offset 5m) or (otel_sdk_exporter_log_exported_total{error_type!=\"\"} unless otel_sdk_exporter_log_exported_total{error_type!=\"\"} offset 5m))",
           "legendFormat": "log records: {{error_type}} on {{instance}}"
         },
         {
@@ -69,7 +69,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (instance, error_type) (increase(otel_sdk_exporter_metric_data_point_exported_total{error_type!=\"\"}[5m]))",
+          "expr": "sum by (instance, error_type) ((increase(otel_sdk_exporter_metric_data_point_exported_total{error_type!=\"\"}[5m]) and otel_sdk_exporter_metric_data_point_exported_total{error_type!=\"\"} offset 5m) or (otel_sdk_exporter_metric_data_point_exported_total{error_type!=\"\"} unless otel_sdk_exporter_metric_data_point_exported_total{error_type!=\"\"} offset 5m))",
           "legendFormat": "metric data points: {{error_type}} on {{instance}}"
         }
       ],
@@ -213,7 +213,7 @@
     {
       "type": "timeseries",
       "title": "Is the collector failing to pass telemetry on?",
-      "description": "Items per second that each exporter of the collector failed to send to its store.",
+      "description": "Items that each exporter of the collector failed to send to its store in the last 5 minutes.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -225,7 +225,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (exporter) (rate(otelcol_exporter_send_failed_spans_total[$__rate_interval]))",
+          "expr": "sum by (exporter) ((increase(otelcol_exporter_send_failed_spans_total[5m]) and otelcol_exporter_send_failed_spans_total offset 5m) or (otelcol_exporter_send_failed_spans_total unless otelcol_exporter_send_failed_spans_total offset 5m))",
           "legendFormat": "{{exporter}}: spans"
         },
         {
@@ -234,7 +234,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (exporter) (rate(otelcol_exporter_send_failed_log_records_total[$__rate_interval]))",
+          "expr": "sum by (exporter) ((increase(otelcol_exporter_send_failed_log_records_total[5m]) and otelcol_exporter_send_failed_log_records_total offset 5m) or (otelcol_exporter_send_failed_log_records_total unless otelcol_exporter_send_failed_log_records_total offset 5m))",
           "legendFormat": "{{exporter}}: log records"
         },
         {
@@ -243,7 +243,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (exporter) (rate(otelcol_exporter_send_failed_metric_points_total[$__rate_interval]))",
+          "expr": "sum by (exporter) ((increase(otelcol_exporter_send_failed_metric_points_total[5m]) and otelcol_exporter_send_failed_metric_points_total offset 5m) or (otelcol_exporter_send_failed_metric_points_total unless otelcol_exporter_send_failed_metric_points_total offset 5m))",
           "legendFormat": "{{exporter}}: metric points"
         }
       ],
@@ -412,7 +412,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (instance) (increase(otel_sdk_processor_span_processed_total{error_type=\"queue_full\"}[5m]))",
+          "expr": "sum by (instance) ((increase(otel_sdk_processor_span_processed_total{error_type=\"queue_full\"}[5m]) and otel_sdk_processor_span_processed_total{error_type=\"queue_full\"} offset 5m) or (otel_sdk_processor_span_processed_total{error_type=\"queue_full\"} unless otel_sdk_processor_span_processed_total{error_type=\"queue_full\"} offset 5m))",
           "legendFormat": "spans on {{instance}}"
         },
         {
@@ -421,7 +421,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (instance) (increase(otel_sdk_processor_log_processed_total{error_type=\"queue_full\"}[5m]))",
+          "expr": "sum by (instance) ((increase(otel_sdk_processor_log_processed_total{error_type=\"queue_full\"}[5m]) and otel_sdk_processor_log_processed_total{error_type=\"queue_full\"} offset 5m) or (otel_sdk_processor_log_processed_total{error_type=\"queue_full\"} unless otel_sdk_processor_log_processed_total{error_type=\"queue_full\"} offset 5m))",
           "legendFormat": "log records on {{instance}}"
         }
       ],

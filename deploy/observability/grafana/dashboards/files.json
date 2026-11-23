@@ -51,7 +51,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (files_outcome) (increase(files_uploads_total[5m]))",
+          "expr": "sum by (files_outcome) ((increase(files_uploads_total[5m]) and files_uploads_total offset 5m) or (files_uploads_total unless files_uploads_total offset 5m))",
           "legendFormat": "{{files_outcome}}"
         }
       ],
@@ -91,7 +91,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (storage_outcome) (increase(platform_storage_requests_total[5m]))",
+          "expr": "sum by (storage_outcome) ((increase(platform_storage_requests_total[5m]) and platform_storage_requests_total offset 5m) or (platform_storage_requests_total unless platform_storage_requests_total offset 5m))",
           "legendFormat": "{{storage_outcome}}"
         }
       ],
@@ -131,7 +131,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (scanner_outcome) (increase(platform_scans_total[5m]))",
+          "expr": "sum by (scanner_outcome) ((increase(platform_scans_total[5m]) and platform_scans_total offset 5m) or (platform_scans_total unless platform_scans_total offset 5m))",
           "legendFormat": "{{scanner_outcome}}"
         }
       ],
@@ -159,7 +159,7 @@
     {
       "type": "timeseries",
       "title": "How old are the scanner's signatures?",
-      "description": "How long ago freshclam last wrote the scanner's daily signatures, which ClamAV publishes several times a day. Over 2 days is the alert ScannerSignaturesOutdated. Empty in development and the tests, which scan with one signature of the repository's own.",
+      "description": "How long ago freshclam last wrote the scanner's daily signatures, which ClamAV publishes several times a day. Over 2 days for 10 minutes is the alert ScannerSignaturesOutdated. Empty in development and the tests, which scan with one signature of the repository's own.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"

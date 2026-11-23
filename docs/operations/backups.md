@@ -146,7 +146,7 @@ Keep a copy of these where the server's loss doesn't reach them, such as a passw
 Two alerts watch the backups, from the times that the `pgbackrest` wrapper and the `backup` service set on files of the volume `deployment_backup-status`, which the collector reads (OBS-14). With `TELEMETRY=off`, no collector runs, so nothing watches the backups: `just status <host>` shows when they last succeeded, and `just logs <host> backup` their errors.
 
 - [BackupArchivingFailing](runbooks.md#backuparchivingfailing) pages when an archive of the write-ahead log has failed more recently than one succeeded, for five minutes.
-- [BaseBackupTooOld](runbooks.md#basebackuptooold) opens a ticket when no base backup has completed for 26 hours.
+- [BaseBackupTooOld](runbooks.md#basebackuptooold) opens a ticket when no base backup has completed for 26 hours and 10 minutes.
 
 An alert notifies no one until its severity, `page` or `ticket`, reaches an integration, as [observability.md](observability.md#alerts) says.
 

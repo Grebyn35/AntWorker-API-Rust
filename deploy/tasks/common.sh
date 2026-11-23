@@ -14,12 +14,14 @@ setting() {
     printf '%s' "${value:-${2:-}}"
 }
 
-# Fails unless $2, the value of the setting $1, is a whole number from $3 to $4.
+# Fails unless $2, the value of the setting $1, is a whole number from $3 to $4, written in digits
+# without a leading zero: the shell's arithmetic reads 010 as 8, and `[` takes a number beyond the
+# shell's range for no number, which `if` reads as false.
 whole_number() {
     case $2 in
-        '' | *[!0-9]*) fail "$1 is a whole number from $3 to $4, not '$2'" ;;
+        '' | *[!0-9]* | 0?*) fail "$1 is a whole number from $3 to $4, in digits without a leading zero, not '$2'" ;;
     esac
-    if [ "$2" -lt "$3" ] || [ "$2" -gt "$4" ]; then fail "$1 is a whole number from $3 to $4, not $2"; fi
+    if [ "${#2}" -gt "${#4}" ] || [ "$2" -lt "$3" ] || [ "$2" -gt "$4" ]; then fail "$1 is a whole number from $3 to $4, not $2"; fi
 }
 
 # Fails unless $2, the value of the setting $1, is an IPv4 range in CIDR notation as Docker writes
@@ -254,6 +256,10 @@ read_settings() {
     # (SEC-13): 64 addresses hold Caddy and both colors of 20 replicas.
     proxy_subnet=$(setting PROXY_SUBNET 172.16.221.0/24)
     ipv4_range PROXY_SUBNET "$proxy_subnet" 16 26
+    case $(setting EMAIL) in
+        smtp | off) ;;
+        *) fail "EMAIL is smtp or off, not '$(setting EMAIL)' (docs/operations/deploy.md#email)" ;;
+    esac
     # Email goes unencrypted only to a mail server on this server itself, at one of its own
     # addresses, since every connection that the deployment opens beyond the server uses TLS
     # (OPS-17): an email holds the code that proves an address, or resets a password.

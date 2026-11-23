@@ -1197,6 +1197,58 @@ async fn obs_15_the_proxy_traces_no_probe() {
     assert!(!everything.contains(probe), "the probe's trace arrived");
 }
 
+/// The names of the services that sent the spans of the trace `trace` that `telemetry`, lines of
+/// the stand-in backend's file, holds.
+fn services_in_trace(telemetry: &str, trace: &str) -> BTreeSet<String> {
+    let mut services = BTreeSet::new();
+    for line in telemetry.lines() {
+        let Ok(batch) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        for resource in batch["resourceSpans"].as_array().into_iter().flatten() {
+            let holds = resource["scopeSpans"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .flat_map(|scope| scope["spans"].as_array().into_iter().flatten())
+                .any(|span| span["traceId"] == trace);
+            let name = resource["resource"]["attributes"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|attribute| attribute["key"] == "service.name")
+                .and_then(|attribute| attribute["value"]["stringValue"].as_str());
+            if let (true, Some(name)) = (holds, name) {
+                services.insert(name.to_owned());
+            }
+        }
+    }
+    services
+}
+
+#[tokio::test]
+async fn obs_06_the_trace_of_a_request_to_a_path_that_starts_as_a_probe_s_starts_at_the_proxy() {
+    let deployment = Deployment::with_a_managed_backend().await;
+
+    // A replica answers 404, a status the collector keeps the trace of.
+    let (status, headers) = get(
+        deployment.server.caddy_root(),
+        deployment.url("https", 443, "/health/none"),
+    );
+    let timing = headers["server-timing"].to_str().unwrap().to_owned();
+    let trace = timing.split('-').nth(1).expect("the trace ID").to_owned();
+    // Until the proxy's span arrives, which a line of spans holds with its service's name.
+    deployment.server.shell(&format!(
+        "timeout 120 sh -c 'until grep resourceSpans /root/backend/out/telemetry.json 2> /dev/null | grep {trace} | grep -q caddy; do sleep 2; done'"
+    ));
+    let telemetry = received(&deployment, &trace);
+
+    assert_eq!(status, 404);
+    let services = services_in_trace(&telemetry, &trace);
+    assert!(services.contains("caddy"), "{services:?}");
+    assert!(services.contains(support::service_name()), "{services:?}");
+}
+
 #[tokio::test]
 async fn obs_08_a_managed_backend_receives_the_proxy_s_span_and_log_line_of_its_503() {
     let deployment = Deployment::with_a_managed_backend().await;

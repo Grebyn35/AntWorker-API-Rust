@@ -9,7 +9,7 @@ use platform::errors::{ErrorCode, RequestError};
 use crate::{
     deployment::{
         Deployment, MANAGED_TLS, Traffic, assert_all_succeeded, get, get_with_too_many_headers,
-        get_within, unanswered,
+        get_within, post, unanswered,
     },
     docker::{compose, lossy},
     server::DEPLOYMENT,
@@ -403,6 +403,46 @@ async fn ops_05_while_no_replica_runs_the_proxy_answers_at_once_with_the_api_s_5
 }
 
 #[tokio::test]
+async fn ops_05_while_no_replica_runs_the_proxy_answers_a_request_beside_the_probes_with_the_problem()
+ {
+    let deployment = Deployment::managed(&[]);
+    let deployed = deployment.apply(&deployment.api, &[]).await;
+    assert!(deployed.status.success(), "{}", lossy(&deployed));
+    let root = deployment.server.caddy_root();
+    deployment
+        .server
+        .shell_ok("docker stop deployment-api-blue-1 deployment-api-blue-2 > /dev/null");
+
+    // No probe: a path that starts as a probe's, a probe's path in another case, and a probe's
+    // path with another method.
+    let (beside, _, beside_body) = get_within(
+        root.clone(),
+        deployment.url("https", 443, "/health/none"),
+        Duration::from_secs(2),
+    );
+    let (cased, _, cased_body) = get_within(
+        root.clone(),
+        deployment.url("https", 443, "/HEALTH/live"),
+        Duration::from_secs(2),
+    );
+    let (posted, posted_body) = post(
+        root,
+        deployment.url("https", 443, "/health/ready"),
+        "{}".to_owned(),
+    );
+
+    for (answered, body) in [
+        (beside, &beside_body),
+        (cased, &cased_body),
+        (posted, &posted_body),
+    ] {
+        assert_eq!(answered, 503, "{body}");
+        let problem: serde_json::Value = serde_json::from_str(body).expect("a problem");
+        assert_eq!(problem["code"], RequestError::Unavailable.code());
+    }
+}
+
+#[tokio::test]
 async fn ops_17_the_proxy_answers_no_plain_http_at_the_api_s_address_and_https_with_hsts() {
     let deployment = Deployment::managed(&[]);
     let deployed = deployment.apply(&deployment.api, &[]).await;
@@ -647,6 +687,42 @@ async fn ops_14_a_deploy_replaces_the_network_of_the_proxy_and_the_replicas_only
     let (first, second) =
         left_for_two_forwarded_clients(&deployment, "deployment_proxy", "deployment-api-green-1");
     assert_eq!(first, second);
+}
+
+#[tokio::test]
+async fn ops_14_a_deploy_that_replaced_the_network_says_that_no_replica_serves_once_its_own_never_become_ready()
+ {
+    let deployment = Deployment::managed(&[]);
+    let first = deployment.apply(&deployment.api, &[]).await;
+    assert!(first.status.success(), "{}", lossy(&first));
+    // The API's image, with a health check that always fails.
+    let unready = deployment.image_from(
+        &deployment.api,
+        "unready",
+        &format!(
+            r#"HEALTHCHECK --interval=1s --retries=2 CMD ["{}", "openapi", "/proc/unwritable"]"#,
+            deployment.api_binary()
+        ),
+    );
+    deployment.set(&[("PROXY_SUBNET", "172.16.222.0/24")]);
+
+    let refused = deployment.apply(&unready, &["--allow-restart"]).await;
+
+    assert!(!refused.status.success(), "{}", lossy(&refused));
+    assert!(
+        lossy(&refused).contains(
+            "it stopped the replicas that served before it, if any, to replace the network, so none serves"
+        ),
+        "{}",
+        lossy(&refused)
+    );
+    assert!(
+        !lossy(&refused).contains("never stopped"),
+        "{}",
+        lossy(&refused)
+    );
+    assert!(deployment.server.running("api-blue").is_empty());
+    assert!(deployment.server.running("api-green").is_empty());
 }
 
 #[tokio::test]

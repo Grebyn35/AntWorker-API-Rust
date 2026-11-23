@@ -128,7 +128,7 @@ just server-check production
 
 checks what a deploy of the latest release, or of the release a second argument names, needs, and changes nothing of the deployment but an object that it writes to each bucket and deletes. It runs that release's files, as the deploy will. On the server, it:
 
-- reads the settings and the secrets as a deploy does, and refuses what a deploy would refuse, the connection budget included (OPS-18); the checks of the buckets and of a managed backend, below, run once both passed;
+- runs the checks of the settings and the secrets that a deploy runs before it pulls an image, the connection budget included (OPS-18), and refuses what they refuse; the checks of the buckets and of a managed backend, below, run once both passed;
 - checks that Docker 29 or later runs, with both plugins;
 - verifies the release, as a deploy does first ([release.md](release.md#verifying-a-release)), and pulls its images;
 - checks the server's memory against the services the settings choose;
@@ -183,7 +183,7 @@ What a deploy refuses, and what to do:
 | The deploy changes a service that runs once, such as Postgres or Caddy, through the release, a setting, a secret or a file it reads | Deploy it again with `--allow-restart` when what its restart interrupts is acceptable (below) |
 | `PROXY_SUBNET` names another subnet than the one that the network of Caddy and the replicas has | Deploy it again with `--allow-restart` when a deployment that serves no request until the release's replicas serve is acceptable (below) |
 | Docker can't create the network `deployment_proxy`, whose pool overlaps another | Set `PROXY_SUBNET` to a range that none of the server's networks uses, with `just server-setup` ([TLS and proxies](#tls-and-proxies)) |
-| The new replicas don't become ready | Nothing to undo: the deploy removed them, and the replicas that served before it, if any, never stopped. Its output holds their last log lines |
+| The new replicas don't become ready | Nothing to undo: the deploy removed them, and the replicas that served before it, if any, never stopped, unless it replaced the network of Caddy and the replicas, which stopped them: then no replica serves until you deploy a release whose replicas become ready, such as the one that served. Its output holds their last log lines |
 | Another deploy, backup or restore runs | Wait for it. Its lock goes when its processes end, however they end, so a task stopped by force leaves none |
 
 A deploy that fails stops at the step that failed, and its output says why: the last log lines of the services that didn't start, or of the replicas that didn't become ready, come before the line that says so, and `bootstrap` and `migrate` write their own lines into it. Fix what it names, and deploy again: a deploy that fails before step 7 ends puts back the files it replaced, as step 2 says. `just logs` shows the services' logs ([Checking on a deployment](#checking-on-a-deployment)).
@@ -363,7 +363,7 @@ The `scanner` service runs ClamAV's daemon, clamd, which scans each upload for m
 
 - **Memory.** clamd holds about 1 gigabyte with ClamAV's signatures, and about 2 while it loads new ones beside the old, so that no scan waits for the load. The service has no memory limit of its own, since a limit that the load reached would kill it; [What a server needs](#what-a-server-needs) counts it.
 - **CPU.** Each scan takes one processor while it runs, for a time that grows with the file's size and kind, the longest for a Word, Excel or PowerPoint file ([files spec](../spec/files.md#scanning)). The scans together use at most `SCANNER_CPUS`, 1 by default, so the scans of a burst of uploads share those processors, each taking longer, and leave the rest of the server to the replicas and Postgres; an upload whose scan passes its 30 seconds answers 503, which its client sends again. A server with processors to spare, whose users upload many large documents, raises it.
-- **Its signatures' age.** The alert ScannerSignaturesOutdated fires once the daily signatures are 2 days old, as when the server can't reach ClamAV's mirrors, or the mirrors refuse it for checking too often ([runbooks](runbooks.md#scannersignaturesoutdated)).
+- **Its signatures' age.** The alert ScannerSignaturesOutdated fires once the daily signatures are 2 days and 10 minutes old, as when the server can't reach ClamAV's mirrors, or the mirrors refuse it for checking too often ([runbooks](runbooks.md#scannersignaturesoutdated)).
 - **Restarts.** It runs once, so a deploy restarts it only with `--allow-restart` ([above](#restarting-a-service-that-runs-once)), and uploads answer 503 while it loads its signatures.
 
 <!-- end part: files -->
