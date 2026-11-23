@@ -666,6 +666,7 @@ impl Server {
         headers: &[(&str, &str)],
         body: &[u8],
     ) -> (u16, Value) {
+        sent::sent(method, path);
         let length = body.len().to_string();
         let mut headers = headers.to_vec();
         headers.push(("content-length", &length));
