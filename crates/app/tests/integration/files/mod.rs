@@ -1,6 +1,6 @@
 //! A workspace's files (the files spec), and in its modules a user's own, the links to files'
 //! bytes, public files, ranges of a download's bytes, users' avatars, workspaces' pictures, and
-//! the operator's writing back of what the bucket kept.
+//! the operator's writing back of what the bucket kept, with the reads of it that it stands on.
 
 mod allowance;
 mod avatars;
@@ -1450,6 +1450,37 @@ async fn files_012_each_call_that_the_bucket_doesn_t_answer_counts_once_as_unava
             "storage.outcome"
         ),
         ["unavailable 2"]
+    );
+}
+
+#[tokio::test]
+async fn files_012_a_read_whose_answer_names_no_size_it_reads_counts_once_as_failed() {
+    let api = Api::new().await;
+    let (workspace, ada, _) = acme(&api, "member").await;
+    let id = files::arrange_row(api.database(), &workspace, "Blue").await;
+    jobs::not_due(api.database(), &files::BUCKET_JOBS).await;
+    let collector = Collector::start().await.unwrap();
+    // It answers a read of a range with the whole object, which names no size of the whole
+    // that the client reads (PLATFORM-094).
+    let bucket = bucket::giving("hello").await;
+    let env = [("S3_ENDPOINT", bucket.endpoint.as_str())];
+    let server = files::serving(api.database(), &collector, &env).await;
+    let bearer = format!("Bearer {}", ada.access);
+    let headers = [("authorization", bearer.as_str()), ("range", "bytes=1-2")];
+    let content = format!("/v1/workspaces/{workspace}/files/{id}/content");
+
+    let (downloaded, _) = server.send("GET", &content, &headers, b"").await;
+    server.stop().await;
+
+    assert_eq!(downloaded, 500);
+    assert_eq!(bucket.methods(), ["GET"]);
+    assert_eq!(
+        counts::of(
+            &collector.received(),
+            "platform.storage_requests",
+            "storage.outcome"
+        ),
+        ["failed 1"]
     );
 }
 

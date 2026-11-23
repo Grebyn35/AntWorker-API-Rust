@@ -201,11 +201,13 @@ const DATABASE_URL_EXPECTED: &str = "a PostgreSQL URL with a user, a password, a
      application_name, each at most once, and no fragment";
 
 /// The environment variables of libpq that the Postgres driver reads, and that would change a
-/// connection whose URL leaves them out. The URL always sets the host, user, password and
-/// database, so the variables for those can't change anything. A URL may leave out the port,
-/// and with `PGPORT` unset, the driver uses 5432.
-const LIBPQ_VARIABLES: [&str; 7] = [
+/// connection whose URL leaves them out. The URL always gives the host, user, password and
+/// database, so `PGHOST`, `PGUSER`, `PGPASSWORD`, `PGDATABASE` and a password file, which the
+/// driver reads only for a URL with none, change nothing. Without the URL's port, it takes
+/// `PGPORT`'s, or 5432. It connects to `PGHOSTADDR`, an address, in place of the URL's host.
+const LIBPQ_VARIABLES: [&str; 8] = [
     "PGPORT",
+    "PGHOSTADDR",
     "PGSSLMODE",
     "PGSSLROOTCERT",
     "PGSSLCERT",
@@ -826,6 +828,7 @@ mod tests {
     fn ops_01_libpq_variables_that_would_change_connections_must_be_unset() {
         for name in [
             "PGPORT",
+            "PGHOSTADDR",
             "PGSSLMODE",
             "PGSSLROOTCERT",
             "PGSSLCERT",

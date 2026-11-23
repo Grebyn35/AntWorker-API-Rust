@@ -21,13 +21,10 @@ pub(crate) fn client_config(verified: bool) -> Result<rustls::ClientConfig, Erro
 }
 
 // part: files
-/// A client's TLS configuration, as [`client_config`] gives it, that trusts the certificates of
-/// the PEM file `also` too, if one is given, such as a private authority's.
-pub(crate) fn client_config_trusting(
-    verified: bool,
-    also: Option<&Path>,
-) -> Result<rustls::ClientConfig, Error> {
-    let mut roots = system_roots(verified)?;
+/// A verified client's TLS configuration, as [`client_config`] gives it, that trusts the
+/// certificates of the PEM file `also` too, if one is given, such as a private authority's.
+pub(crate) fn client_config_trusting(also: Option<&Path>) -> Result<rustls::ClientConfig, Error> {
+    let mut roots = system_roots(true)?;
     if let Some(path) = also {
         for certificate in CertificateDer::pem_file_iter(path)? {
             roots.add(certificate?)?;

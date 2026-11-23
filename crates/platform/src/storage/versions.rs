@@ -15,6 +15,7 @@ use rusty_s3::S3Action;
 use super::{
     Call, Object, ObjectKey, Storage, StorageError, URL_LIFETIME,
     listing::{fetched, unread},
+    reads::size,
 };
 use crate::types::Timestamp;
 
@@ -75,10 +76,12 @@ impl Storage {
             action.query_mut().insert("versionId", id);
             self.client.get(action.sign(URL_LIFETIME))
         });
-        let found = self.answer(Call::Get, request).await?;
+        let (found, size) = self
+            .answer_reading(Call::Get, request, |found| size(found, false))
+            .await?;
         Ok(VersionBytes {
             media_type: media_type(found.headers()),
-            object: self.streamed(found, false)?,
+            object: self.streamed(found, size),
         })
     }
 }
@@ -334,7 +337,12 @@ mod tests {
                 marker("users/aa", "2", false, 21),
                 version("users/aa", "1", false, 20, 5),
                 marker("users/bb", "5", true, 22),
-                version("users/bb", "4", false, 21, 3),
+                // A version that the listing gives no entity tag.
+                version("users/bb", "4", false, 21, 3).replacen(
+                    "<ETag>&#34;tag-4&#34;</ETag>",
+                    "",
+                    1,
+                ),
             ],
             "<IsTruncated>false</IsTruncated>",
         );
@@ -368,6 +376,13 @@ mod tests {
             Some(Content {
                 etag: Some("\"tag-3\"".to_owned()),
                 size: 7
+            })
+        );
+        assert_eq!(
+            versions[4].content,
+            Some(Content {
+                etag: None,
+                size: 3
             })
         );
         assert!(next.is_none());

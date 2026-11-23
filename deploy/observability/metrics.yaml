@@ -70,11 +70,11 @@ metrics:
   - name: otel_sdk_processor_span_processed_total
     kind: counter
     producer: the API's OpenTelemetry SDK
-    description: The spans that an instance's queue handed its exporter, with no error_type, and those it dropped, with error_type queue_full when they arrived while it was full (PLATFORM-106).
+    description: The spans that an instance's queue handed its exporter, with no error_type, and those it dropped, with error_type queue_full when they arrived while it was full (PLATFORM-106), or already_shutdown when they arrived once it had shut down.
   - name: otel_sdk_processor_log_processed_total
     kind: counter
     producer: the API's OpenTelemetry SDK
-    description: The log records that an instance's queue handed its exporter, with no error_type, and those it dropped, with error_type queue_full when they arrived while it was full (PLATFORM-106).
+    description: The log records that an instance's queue handed its exporter, with no error_type, and those it dropped, with error_type queue_full when they arrived while it was full (PLATFORM-106), or already_shutdown when they arrived once it had shut down.
   # part: client_telemetry
   - name: http_client_request_duration_seconds_count
     kind: counter

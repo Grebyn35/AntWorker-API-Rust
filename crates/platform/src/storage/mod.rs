@@ -274,14 +274,29 @@ impl Storage {
         .boxed()
     }
 
-    /// Sends `request` for `call`, unless building it already failed, and waits for the bucket's
-    /// answer, in the call's client span (OBS-06), for at most the call's timeout on the clock,
-    /// and counts how it ended. An answer whose status isn't a success is a failure.
+    /// The bucket's answer to `request`, as [`Storage::answer_reading`] waits for it and counts
+    /// it, of which the call reads nothing more.
     async fn answer(
         &self,
         call: Call,
         request: Result<reqwest::RequestBuilder, StorageError>,
     ) -> Result<reqwest::Response, StorageError> {
+        self.answer_reading(call, request, |_| Ok(()))
+            .await
+            .map(|(found, ())| found)
+    }
+
+    /// Sends `request` for `call`, unless building it already failed, and waits for the bucket's
+    /// answer, in the call's client span (OBS-06), for at most the call's timeout on the clock,
+    /// then gives it with what `read` reads of it, such as the size of an object, and counts how
+    /// the call ended, once: an answer whose status isn't a success, or that `read` fails on, is
+    /// a failure.
+    async fn answer_reading<T>(
+        &self,
+        call: Call,
+        request: Result<reqwest::RequestBuilder, StorageError>,
+        read: impl FnOnce(&reqwest::Response) -> Result<T, StorageError>,
+    ) -> Result<(reqwest::Response, T), StorageError> {
         let wait = self.clock.sleep(call.timeout());
         let answered = async {
             let answering = async { answered_with(request?.send().await, call) };
@@ -296,8 +311,12 @@ impl Storage {
         }
         .instrument(self.span(call))
         .await;
-        count(answered.as_ref().map(drop).err());
-        answered
+        let read = answered.and_then(|found| {
+            let value = read(&found)?;
+            Ok((found, value))
+        });
+        count(read.as_ref().map(drop).err());
+        read
     }
 
     /// The client span of `call` (OBS-06), which names the bucket's address and never the key.
@@ -384,7 +403,7 @@ fn answered<T: Send + 'static>(
 /// connection's: the waits for the bucket's answers are the clock's, in [`Storage`]. It follows
 /// no redirect, so a request reaches the endpoint that the settings name, or fails (SEC-10).
 fn client(ca_path: Option<&std::path::Path>) -> Result<reqwest::Client, Internal> {
-    let tls = crate::tls::client_config_trusting(true, ca_path).map_err(Internal::new)?;
+    let tls = crate::tls::client_config_trusting(ca_path).map_err(Internal::new)?;
     reqwest::Client::builder()
         .connect_timeout(CONNECT_TIMEOUT)
         .redirect(reqwest::redirect::Policy::none())

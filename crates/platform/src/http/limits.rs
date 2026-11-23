@@ -1,6 +1,5 @@
-//! The IP limit that every request the router takes passes, but the health probes and a listed
-//! origin's preflight, before authentication, and the rate-limit headers of every response the limits counted
-//! (PLATFORM-054, PLATFORM-056).
+//! The IP limit that each request that PLATFORM-054 counts passes, before authentication, and
+//! the rate-limit headers of every response the limits counted (PLATFORM-054, PLATFORM-056).
 
 use std::{sync::Arc, time::Duration};
 

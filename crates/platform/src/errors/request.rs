@@ -8,8 +8,9 @@ use super::{Category, ErrorCode, FieldError, INTERNAL_CODE, INTERNAL_TITLE, Inte
 /// runs, or in a mechanism a module calls, such as authorization and idempotency keys.
 #[derive(Debug, thiserror::Error)]
 pub enum RequestError {
-    /// No route has the path.
-    #[error("no route has the path")]
+    /// No route has the path, or the path's workspace ID isn't a UUID, or the caller isn't a
+    /// member of the path's workspace (ACCESS-003).
+    #[error("no route has the path, or it names no workspace of the caller's")]
     NotFound,
     /// The path doesn't serve the method.
     #[error("the path doesn't serve the method")]
@@ -18,8 +19,9 @@ pub enum RequestError {
     /// route refuses, each named by its JSON Pointer among the parameters (API-09, PLATFORM-045).
     #[error("the query holds parameters the route doesn't take")]
     InvalidQuery(Vec<FieldError>),
-    /// The body isn't the JSON its route takes (PLATFORM-049).
-    #[error("the body isn't the JSON the route takes")]
+    /// The body isn't one that its route takes, for the reason that the fault names, such as a
+    /// JSON body that isn't of the route's request type (PLATFORM-049).
+    #[error("the body isn't one the route takes")]
     InvalidBody(BodyFault),
     /// Fields of the body that their domain types refused (PLATFORM-051).
     #[error("fields of the request failed validation")]
@@ -98,7 +100,7 @@ pub enum RequestError {
     Panicked,
 }
 
-/// Why a body isn't the JSON its route takes (PLATFORM-049).
+/// Why a body isn't one that its route takes, such as the JSON of PLATFORM-049.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BodyFault {
     /// The request's `Content-Type` isn't the media type its route takes, which this names.

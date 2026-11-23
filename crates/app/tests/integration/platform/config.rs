@@ -22,6 +22,41 @@ async fn ops_01_a_setting_that_isnt_unicode_fails_startup() {
     }
 }
 
+#[tokio::test]
+async fn ops_01_a_libpq_variable_that_names_another_address_fails_startup() {
+    let db = TestDatabase::migrated().await;
+    // An address at which the tests' Postgres doesn't listen, which the driver connects to in
+    // place of the URL's host.
+    let env = [("ENVIRONMENT", "test"), ("PGHOSTADDR", "127.0.0.2")];
+
+    let output = db.run_api(&["migrate"], &env).await;
+
+    let errors = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success(), "{output:?}");
+    assert!(
+        errors.contains(
+            "PGHOSTADDR must be unset: connections take their settings only from the database URLs"
+        ),
+        "{output:?}"
+    );
+}
+
+#[tokio::test]
+async fn ops_01_the_libpq_variables_of_what_a_url_gives_leave_its_connection_to_the_url() {
+    let db = TestDatabase::migrated().await;
+    let env = [
+        ("ENVIRONMENT", "test"),
+        ("PGHOST", "postgres.invalid"),
+        ("PGUSER", "nobody"),
+        ("PGPASSWORD", "wrong"),
+        ("PGDATABASE", "nothing"),
+    ];
+
+    let output = db.run_api(&["migrate"], &env).await;
+
+    assert!(output.status.success(), "{output:?}");
+}
+
 /// Each setting of `.env.example` whose type is a whole number in a range, with its range.
 fn ranged_settings() -> Vec<(String, i64, i64)> {
     ranged(".env.example")

@@ -1,6 +1,7 @@
 //! The operator's writing back of the files' bytes that were deleted or replaced in their bucket
 //! since a moment, from the versions that the bucket kept (the files spec's "Restoring bytes",
-//! FILES-028, FILES-029).
+//! FILES-028, FILES-029), and the storage's listing and reads of those versions, in the tests'
+//! SeaweedFS (PLATFORM-096, PLATFORM-103).
 
 use std::process::Output;
 
@@ -12,7 +13,7 @@ use platform::{
 };
 
 use crate::support::{
-    Api,
+    Api, TestDatabase,
     bucket::{self, Kept, Written},
     operator, run_binary,
 };
@@ -323,4 +324,83 @@ async fn files_029_what_isn_t_a_moment_as_the_api_writes_one_is_refused_before_a
         assert_eq!(unparsed.status.code(), Some(2), "{unparsed:?}");
     }
     assert_eq!(bucket.paths(), Vec::<String>::new());
+}
+
+/// The client of a bucket of its own that keeps versions, in the tests' SeaweedFS, which the
+/// database `db` names.
+async fn keeping_versions(db: &TestDatabase) -> Storage {
+    let name = db.bucket().await;
+    bucket::keep_versions(&name).await;
+    bucket::storage(&name)
+}
+
+#[tokio::test]
+async fn platform_096_a_listing_gives_the_writes_and_the_deletions_of_the_keys_under_its_prefix() {
+    let db = TestDatabase::empty().await;
+    let storage = keeping_versions(&db).await;
+    let key = |key: &str| ObjectKey::from_stored(key);
+    let (kept, deleted) = (key("users/aa"), key("users/bb"));
+    // A key that starts with the prefix's text but for its slash, and one under another prefix.
+    let (beside, other) = (key("usersx/cc"), key("workspaces/dd"));
+    for object in [&kept, &deleted, &beside, &other] {
+        storage
+            .put(object, Bytes::from_static(b"first"), "text/plain")
+            .await
+            .unwrap();
+    }
+    storage.delete(&deleted).await.unwrap();
+
+    let listed: Vec<_> = storage.versions("users/").try_collect().await.unwrap();
+
+    let read: Vec<_> = listed
+        .iter()
+        .map(|version| {
+            (
+                version.key.as_str(),
+                version.latest,
+                version.content.as_ref().map(|content| content.size),
+            )
+        })
+        .collect();
+    assert_eq!(
+        read,
+        [
+            ("users/aa", true, Some(5)),
+            ("users/bb", true, None),
+            ("users/bb", false, Some(5)),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn platform_103_a_version_s_bytes_are_those_of_its_id_with_the_media_type_it_was_written_with()
+ {
+    let db = TestDatabase::empty().await;
+    let storage = keeping_versions(&db).await;
+    let object = ObjectKey::from_stored("users/aa");
+    storage
+        .put(&object, Bytes::from_static(b"first"), "text/plain")
+        .await
+        .unwrap();
+    storage
+        .put(
+            &object,
+            Bytes::from_static(b"second, of another size"),
+            "image/png",
+        )
+        .await
+        .unwrap();
+    let listed: Vec<_> = storage.versions("users/").try_collect().await.unwrap();
+    let first = listed.iter().find(|version| !version.latest).unwrap();
+
+    let read = storage.version(&object, &first.id).await.unwrap();
+
+    assert_eq!(read.media_type, "text/plain");
+    assert_eq!(read.object.size, 5);
+    let mut bytes = Vec::new();
+    let mut chunks = read.object.bytes;
+    while let Some(chunk) = chunks.next().await {
+        bytes.extend_from_slice(&chunk.unwrap());
+    }
+    assert_eq!(bytes, b"first");
 }

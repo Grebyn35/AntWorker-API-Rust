@@ -37,18 +37,16 @@ impl Storage {
                 ))),
             }
         });
-        let found = self.answer(Call::Get, request).await?;
-        self.streamed(found, range.is_some())
+        let ranged = range.is_some();
+        let (found, size) = self
+            .answer_reading(Call::Get, request, |found| size(found, ranged))
+            .await?;
+        Ok(self.streamed(found, size))
     }
 
-    /// The object that the bucket's answer `found` to a read holds, of a range of it when
-    /// `ranged`: its whole size, and its bytes, as the bucket streams them.
-    pub(super) fn streamed(
-        &self,
-        found: reqwest::Response,
-        ranged: bool,
-    ) -> Result<Object, StorageError> {
-        let size = size(&found, ranged).inspect_err(|unread| count(Some(unread)))?;
+    /// The object that the bucket's answer `found` to a read holds, whose whole holds `size`
+    /// bytes: its bytes, as the bucket streams them.
+    pub(super) fn streamed(&self, found: reqwest::Response, size: u64) -> Object {
         let chunks = stream::unfold(found, |mut found| async move {
             match found.chunk().await {
                 Ok(Some(chunk)) => Some((Ok(chunk), found)),
@@ -66,7 +64,7 @@ impl Storage {
                 })
             })
             .boxed();
-        Ok(Object { size, bytes })
+        Object { size, bytes }
     }
 
     /// How many bytes the object `key` holds, as the bucket's answer to S3's `HeadObject` names
@@ -76,15 +74,16 @@ impl Storage {
             let action = self.bucket.head_object(Some(&self.credentials), object);
             self.client.head(action.sign(URL_LIFETIME))
         });
-        let found = self.answer(Call::Head, request).await?;
-        named_length(&found).inspect_err(|unread| count(Some(unread)))
+        self.answer_reading(Call::Head, request, named_length)
+            .await
+            .map(|(_, length)| length)
     }
 }
 
 /// How many bytes the whole object of the answer `found` holds: what follows the slash of its
 /// `Content-Range`, when the read asked for a range, which the bucket answers with a 206, and
 /// its `Content-Length` otherwise.
-fn size(found: &reqwest::Response, ranged: bool) -> Result<u64, StorageError> {
+pub(super) fn size(found: &reqwest::Response, ranged: bool) -> Result<u64, StorageError> {
     if !ranged {
         return found
             .content_length()

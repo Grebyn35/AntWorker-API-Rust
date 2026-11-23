@@ -2,13 +2,15 @@
 //! budgets, through a route of the tests' own that counts the bytes its request names in its
 //! caller's budget (PLATFORM-089).
 
+use std::sync::Arc;
+
 use serde_json::json;
 
 use crate::support::{
     Api, Options,
     api::Response,
     budgets::assert_refused_by,
-    fixtures::{self, SPENDING},
+    fixtures::{self, Gate, SPENDING},
     users::{self, SignedIn},
 };
 
@@ -208,6 +210,35 @@ async fn platform_054_the_window_is_a_setting() {
     let response = api.get("/v1/capabilities").send().await;
 
     assert_eq!(response.header("ratelimit-policy"), "\"ip\";q=10;w=30");
+}
+
+#[tokio::test]
+async fn platform_054_a_request_beyond_the_concurrency_limit_counts_in_no_bucket() {
+    let gate = Arc::new(Gate::default());
+    let api = Api::with(
+        Options::routes(fixtures::routes(gate.clone())).set("MAX_CONCURRENT_REQUESTS", 1),
+    )
+    .await;
+    let entered = gate.entered.notified();
+    let held = tokio::spawn({
+        let api = api.clone();
+        async move { api.get("/v1/gate").send().await.status }
+    });
+    entered.await;
+
+    let refused = api.get("/v1/capabilities").send().await;
+
+    gate.release.notify_one();
+    assert_eq!(held.await.unwrap(), 204);
+    assert_eq!(refused.status, 503);
+    assert_eq!(refused.json()["code"], "request.overloaded");
+    assert_eq!(
+        api.database()
+            .owner_reads("SELECT count::text FROM rate_limit_buckets")
+            .await,
+        ["1"],
+        "the held request alone counted"
+    );
 }
 
 #[tokio::test]
