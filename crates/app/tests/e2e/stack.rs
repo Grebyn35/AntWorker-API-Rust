@@ -532,6 +532,16 @@ fn collector_metrics_read() -> BTreeSet<String> {
     names
 }
 
+/// The collector's metrics that it creates at their first event: a failed send, and a point that
+/// it can't add to a series. A deployment in which neither happened holds no series of them, as a
+/// run of the end-to-end tests showed.
+const AT_FIRST_EVENT: [&str; 4] = [
+    "otelcol_deltatocumulative_datapoints_total",
+    "otelcol_exporter_send_failed_log_records_total",
+    "otelcol_exporter_send_failed_metric_points_total",
+    "otelcol_exporter_send_failed_spans_total",
+];
+
 #[tokio::test]
 async fn obs_14_the_backups_the_server_s_memory_and_the_collector_report_what_the_alerts_and_the_dashboards_read()
  {
@@ -565,8 +575,12 @@ async fn obs_14_the_backups_the_server_s_memory_and_the_collector_report_what_th
     assert!(memory.status.success(), "{}", lossy(&memory));
     // The collector's own metrics, under the names that the alert rules and the dashboards read,
     // once the API's telemetry has passed through it, as Prometheus holds them: the collector
-    // may create one only at its first event, such as a span that it fails to send.
-    let read = collector_metrics_read();
+    // creates some only at their first event, which a deployment that fails no send holds none
+    // of: the alert counts a failed send's series from its first value.
+    let read: Vec<String> = collector_metrics_read()
+        .into_iter()
+        .filter(|name| !AT_FIRST_EVENT.contains(&name.as_str()))
+        .collect();
     let waits: Vec<String> = read
         .iter()
         .map(|name| format!("grep -q {name} /root/collector.json"))
