@@ -1,5 +1,5 @@
 //! Signing in, registering and re-authenticating through an OAuth provider (AUTH-073 to AUTH-080,
-//! the auth spec's "Signing in through a provider").
+//! AUTH-099 to AUTH-101, the auth spec's "Signing in through a provider").
 
 use platform::{
     authn::{AuditScope, Principal},
@@ -170,7 +170,7 @@ impl Auth {
             .replace_session(&mut uow, user_id, &input.device)
             .await?;
         let device = self
-            .issue_device_token(&mut uow, user_id, &address.email, trusted.as_ref())
+            .issue_device_token(&mut uow, user_id, trusted.as_ref())
             .await?;
         audit_log::record(
             &mut uow,
@@ -224,9 +224,7 @@ impl Auth {
             ),
         )
         .await?;
-        let device = self
-            .issue_device_token(&mut uow, user_id, &email, None)
-            .await?;
+        let device = self.issue_device_token(&mut uow, user_id, None).await?;
         if !identity.proved {
             self.enqueue_code(&mut uow, &principal).await?;
         }
@@ -408,7 +406,7 @@ async fn linked(
         return Ok(None);
     };
     // The user's turn, as a deletion of the account takes it first: a sign-in that waited for
-    // one finds no user (the auth spec's "Taking turns").
+    // one finds no user (the auth spec's "Signing in through a provider").
     let Some(address) = accounts::address_for_update(uow, user_id).await? else {
         return Ok(None);
     };

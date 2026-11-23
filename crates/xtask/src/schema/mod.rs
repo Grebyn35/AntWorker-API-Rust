@@ -25,18 +25,22 @@ const ARCHITECTURE: &str = "docs/architecture.md";
 
 /// Checks the migrations' schema.
 pub fn check(repo: &Repo) -> Outcome {
-    let bookkeeping = bookkeeping(repo);
     let findings = match catalog::read() {
-        Ok(catalog) => rules::check(&catalog, &bookkeeping)
-            .into_iter()
-            .map(|(subject, message)| locate(repo, &subject, message))
-            .collect(),
+        Ok(catalog) => findings(repo, &catalog),
         Err(error) => vec![Finding::new(MIGRATIONS, 1, error)],
     };
     Outcome {
         report: Vec::new(),
         findings,
     }
+}
+
+/// The findings of `catalog`, each at the migration that [`locate`] names.
+fn findings(repo: &Repo, catalog: &serde_json::Value) -> Vec<Finding> {
+    rules::check(catalog, &bookkeeping(repo))
+        .into_iter()
+        .map(|(subject, message)| locate(repo, &subject, message))
+        .collect()
 }
 
 /// The tables of `platform`'s bookkeeping: those that architecture.md §5 gives `platform`.
@@ -96,20 +100,38 @@ mod tests {
     }
 
     #[test]
-    fn data_01_a_finding_names_the_last_migration_that_mentions_its_object() {
+    fn data_01_a_misnamed_constraint_is_found_at_the_last_migration_that_mentions_it() {
         let repo = Repo::of(&[
             (
                 "migrations/2_b.sql",
-                "-- users\nALTER TABLE users ADD x int;\n",
+                "-- users_key\nALTER TABLE users ADD CONSTRAINT users_key PRIMARY KEY (id);\n",
             ),
-            ("migrations/1_a.sql", "CREATE TABLE users (id uuid);\n"),
+            (
+                "migrations/1_a.sql",
+                "CREATE TABLE users (id uuid, CONSTRAINT users_key PRIMARY KEY (id));\n",
+            ),
         ]);
-        let finding = locate(&repo, "users", "m".to_owned());
+        let constraint = |name: &str| {
+            serde_json::json!({"constraints": [
+                {"name": name, "table": "users", "type": "p", "columns": ["id"]}
+            ]})
+        };
+        let named = |found: Vec<Finding>| -> Vec<(String, usize)> {
+            found
+                .into_iter()
+                .filter(|finding| finding.message.ends_with("(DATA-01)"))
+                .map(|finding| (finding.path, finding.line))
+                .collect()
+        };
+
         assert_eq!(
-            (finding.path.as_str(), finding.line),
-            ("migrations/2_b.sql", 1)
+            named(findings(&repo, &constraint("users_key"))),
+            [("migrations/2_b.sql".to_owned(), 1)]
         );
-        let nowhere = locate(&repo, "sessions", "m".to_owned());
-        assert_eq!((nowhere.path.as_str(), nowhere.line), (MIGRATIONS, 1));
+        assert_eq!(
+            named(findings(&repo, &constraint("users_gone"))),
+            [(MIGRATIONS.to_owned(), 1)]
+        );
+        assert_eq!(named(findings(&repo, &constraint("users_pkey"))), []);
     }
 }

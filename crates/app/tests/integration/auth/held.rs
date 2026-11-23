@@ -6,6 +6,7 @@ use serde_json::{Value, json};
 use crate::support::{
     Api,
     api::Response,
+    api::reads,
     execute_on,
     providers::{gives, grant, identity, stand_in},
     query_waits_on_a_lock,
@@ -13,11 +14,6 @@ use crate::support::{
     upstream::Upstream,
     users::{self, PASSWORD, SignedIn, WEB},
 };
-
-/// The first column of each row of `sql`, as the `owner` reads it.
-async fn reads(api: &Api, sql: &str) -> Vec<String> {
-    api.database().owner_reads(sql).await
-}
 
 /// Sends `body` to `path` from a browser at [`WEB`] that holds the cookies `cookies`.
 async fn from_browser(api: &Api, path: &str, body: &Value, cookies: &str) -> Response {
@@ -54,11 +50,6 @@ fn session_of(response: &Response) -> String {
     response.json()["id"].as_str().unwrap().to_owned()
 }
 
-/// The IDs of the sessions that exist, in order.
-async fn sessions(api: &Api) -> Vec<String> {
-    reads(api, "SELECT id::text FROM sessions ORDER BY 1").await
-}
-
 /// The log, actor and session of each `session.ended` entry, the actor `-` when there is none,
 /// in order.
 async fn ended_entries(api: &Api) -> Vec<String> {
@@ -84,7 +75,7 @@ async fn auth_096_a_sign_in_from_a_browser_that_holds_a_session_ends_it() {
     assert_ne!(started, held);
     let mut left = vec![ada.session_id.clone(), started];
     left.sort();
-    assert_eq!(sessions(&api).await, left);
+    assert_eq!(users::sessions(&api).await, left);
     // The end is its user's own, through the full sign-out path.
     assert_eq!(
         ended_entries(&api).await,
@@ -128,7 +119,7 @@ async fn auth_096_the_access_cookie_names_the_session_or_else_the_refresh_cookie
         &format!("{access}; {others_refresh}"),
     )
     .await;
-    let after_access = sessions(&api).await;
+    let after_access = users::sessions(&api).await;
     // The refresh cookie's session, where the access cookie names none.
     let by_refresh = sign_in(
         &api,
@@ -152,12 +143,12 @@ async fn auth_096_the_access_cookie_names_the_session_or_else_the_refresh_cookie
         session_of(&by_refresh),
     ];
     expected.sort();
-    assert_eq!(sessions(&api).await, expected);
+    assert_eq!(users::sessions(&api).await, expected);
     // The refresh cookie of the first session, which the access cookie's end deleted, names
     // none.
     let none = sign_in(&api, "ada@example.com", &refresh).await;
     assert_eq!(none.status, 201, "{}", none.json());
-    assert_eq!(sessions(&api).await.len(), 4);
+    assert_eq!(users::sessions(&api).await.len(), 4);
 }
 
 #[tokio::test]
@@ -177,7 +168,7 @@ async fn auth_096_a_sign_in_as_another_user_ends_the_held_session_with_no_actor(
         session_of(&second),
     ];
     left.sort();
-    assert_eq!(sessions(&api).await, left);
+    assert_eq!(users::sessions(&api).await, left);
     assert_eq!(
         ended_entries(&api).await,
         [format!("{} - {held}", ada.user_id)]
@@ -205,7 +196,7 @@ async fn auth_096_a_registration_from_a_browser_that_holds_a_session_ends_it() {
     assert_eq!(registered.status, 201, "{}", registered.json());
     let mut left = vec![ada.session_id.clone(), session_of(&registered)];
     left.sort();
-    assert_eq!(sessions(&api).await, left);
+    assert_eq!(users::sessions(&api).await, left);
     assert_eq!(
         ended_entries(&api).await,
         [format!("{} - {held}", ada.user_id)]
@@ -221,7 +212,7 @@ async fn auth_096_a_challenge_ends_no_session_and_its_completion_ends_the_held_o
     let cookies = users::cookies(&first);
 
     let challenged = sign_in(&api, "ada@example.com", &cookies).await;
-    let during = sessions(&api).await;
+    let during = users::sessions(&api).await;
     let code = second_factors::code(&api, &app.secret).await;
     let completed = from_browser(
         &api,
@@ -236,7 +227,7 @@ async fn auth_096_a_challenge_ends_no_session_and_its_completion_ends_the_held_o
     assert_eq!(completed.status, 201, "{}", completed.json());
     let mut left = vec![ada.session_id.clone(), session_of(&completed)];
     left.sort();
-    assert_eq!(sessions(&api).await, left);
+    assert_eq!(users::sessions(&api).await, left);
     assert_eq!(
         ended_entries(&api).await,
         [format!("{0} {0} {held}", ada.user_id)]
@@ -273,7 +264,7 @@ async fn auth_096_a_sign_in_through_a_provider_ends_the_held_session() {
     assert_eq!(signed_in.status, 201, "{}", signed_in.json());
     let mut left = vec![ada.session_id.clone(), session_of(&signed_in)];
     left.sort();
-    assert_eq!(sessions(&api).await, left);
+    assert_eq!(users::sessions(&api).await, left);
     let bob = registered.json()["user_id"].as_str().unwrap().to_owned();
     let mut ended = vec![
         format!("{} - {held}", ada.user_id),
@@ -287,7 +278,7 @@ async fn auth_096_a_sign_in_through_a_provider_ends_the_held_session() {
 async fn auth_096_a_sign_in_that_fails_ends_no_session() {
     let api = users::browsers_api().await;
     let (_, first) = in_a_browser(&api, "ada@example.com").await;
-    let before = sessions(&api).await;
+    let before = users::sessions(&api).await;
 
     let failed = from_browser(
         &api,
@@ -298,7 +289,7 @@ async fn auth_096_a_sign_in_that_fails_ends_no_session() {
     .await;
 
     assert_eq!(failed.status, 401, "{}", failed.json());
-    assert_eq!(sessions(&api).await, before);
+    assert_eq!(users::sessions(&api).await, before);
     assert!(ended_entries(&api).await.is_empty());
 }
 
@@ -306,7 +297,7 @@ async fn auth_096_a_sign_in_that_fails_ends_no_session() {
 async fn auth_096_cookies_that_name_no_session_or_come_without_an_origin_count_as_none() {
     let api = users::browsers_api().await;
     let (_, first) = in_a_browser(&api, "ada@example.com").await;
-    let before = sessions(&api).await;
+    let before = users::sessions(&api).await;
     let body = json!({ "email": "ada@example.com", "password": PASSWORD });
 
     let unknown = sign_in(
@@ -327,7 +318,7 @@ async fn auth_096_cookies_that_name_no_session_or_come_without_an_origin_count_a
     let mut expected = before;
     expected.extend([session_of(&unknown), session_of(&without_origin)]);
     expected.sort();
-    assert_eq!(sessions(&api).await, expected);
+    assert_eq!(users::sessions(&api).await, expected);
     assert!(ended_entries(&api).await.is_empty());
 }
 
@@ -349,7 +340,7 @@ async fn auth_096_a_held_session_that_stopped_lasting_ends_too() {
     );
 
     let by_access = sign_in(&api, "ada@example.com", &users::cookies(&first)).await;
-    let after_access = sessions(&api).await;
+    let after_access = users::sessions(&api).await;
     // Another session that stopped lasting, which the refresh cookie alone names.
     let other = sign_in(&api, "ada@example.com", "").await;
     api.database()
@@ -377,10 +368,10 @@ async fn auth_096_a_held_session_that_stopped_lasting_ends_too() {
         session_of(&by_refresh),
     ];
     left.sort();
-    assert_eq!(sessions(&api).await, left);
+    assert_eq!(users::sessions(&api).await, left);
     // The first session's own refresh cookie names none any more.
     assert_eq!(sign_in(&api, "ada@example.com", &refresh).await.status, 201);
-    assert_eq!(sessions(&api).await.len(), 4);
+    assert_eq!(users::sessions(&api).await.len(), 4);
 }
 
 #[tokio::test]
@@ -401,7 +392,7 @@ async fn auth_096_a_held_session_that_is_the_one_on_the_device_ends_once() {
     assert_eq!(second.status, 201, "{}", second.json());
     let mut left = vec![ada.session_id.clone(), session_of(&second)];
     left.sort();
-    assert_eq!(sessions(&api).await, left);
+    assert_eq!(users::sessions(&api).await, left);
     assert_eq!(
         ended_entries(&api).await,
         [format!("{0} {0} {held}", ada.user_id)]
@@ -451,6 +442,6 @@ async fn auth_096_a_request_ends_the_sessions_it_shows_in_the_order_of_their_ids
 
     assert_eq!(free, [device.as_str()]);
     assert_eq!(sign_in.status, 201, "{}", sign_in.json());
-    let left = sessions(&api).await;
+    let left = users::sessions(&api).await;
     assert!(!left.contains(&held) && !left.contains(&device), "{left:?}");
 }

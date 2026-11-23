@@ -242,8 +242,8 @@ fn operations(
     operations
 }
 
-/// The access level a Routes cell states: `public`, `user` or `workspace`, before any `::`
-/// that names a permission.
+/// The access level a Routes cell states, such as `public` or `workspace`: the lowercase
+/// letters that start it after its backticks, which end before any `::` that names a permission.
 fn access_level(cell: &str) -> String {
     cell.trim_start_matches('`')
         .chars()

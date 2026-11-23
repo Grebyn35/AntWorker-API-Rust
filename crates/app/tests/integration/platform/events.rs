@@ -8,17 +8,15 @@ use platform::{telemetry::testing, types::UserId};
 use serde_json::json;
 
 use crate::support::{
-    Api, Options, Proxy,
+    Api, CHECK_INTERVAL, Options, Proxy,
     announcements::{self, Note, published::NOTED},
     client,
     events::{self, Event},
+    hex,
     streams::{self, Stream},
     users::{self, SignedIn},
     workspaces,
 };
-
-/// How often the hub checks the listener (PLATFORM-061).
-const CHECK_INTERVAL: Duration = Duration::from_secs(5);
 
 /// How often the hub re-checks its streams, by default (PLATFORM-031).
 const RECHECK: Duration = Duration::from_secs(60);
@@ -28,10 +26,6 @@ fn note(label: &str) -> Note {
     Note {
         label: Some(label.to_owned()),
     }
-}
-
-async fn api() -> Api {
-    Api::with(Options::routes(announcements::routes())).await
 }
 
 /// Publishes `count` events to the members of `workspace` as `user`, to every member, or only to
@@ -53,21 +47,6 @@ async fn post(api: &Api, user: &SignedIn, workspace: &str, count: u32, restricte
     );
 }
 
-/// Publishes `count` events to `user`.
-async fn announce(api: &Api, user: &SignedIn, count: u32) {
-    let response = api
-        .post("/v1/announcements", &json!({ "count": count }))
-        .bearer(&user.access)
-        .send()
-        .await;
-    assert_eq!(
-        response.status,
-        StatusCode::NO_CONTENT,
-        "{}",
-        response.json()
-    );
-}
-
 /// The name of each of the next `count` events of `stream`.
 async fn names(stream: &mut Stream, count: usize) -> Vec<String> {
     let mut names = Vec::new();
@@ -77,18 +56,9 @@ async fn names(stream: &mut Stream, count: usize) -> Vec<String> {
     names
 }
 
-/// The next `count` events of `stream`.
-async fn frames(stream: &mut Stream, count: usize) -> Vec<streams::Frame> {
-    let mut frames = Vec::new();
-    for _ in 0..count {
-        frames.push(stream.event().await);
-    }
-    frames
-}
-
 #[tokio::test]
 async fn platform_029_a_workspace_event_reaches_only_the_members_whose_role_holds_its_permission() {
-    let api = api().await;
+    let api = announcements::api().await;
     let ada = users::register(&api, "ada@example.com").await;
     let grace = users::register(&api, "grace@example.com").await;
     let alan = users::register(&api, "alan@example.com").await;
@@ -107,7 +77,7 @@ async fn platform_029_a_workspace_event_reaches_only_the_members_whose_role_hold
     // Each user's own events come last, numbered from 1, so another's would show as a number
     // out of its place.
     for (user, count) in [(&ada, 1), (&grace, 2), (&alan, 3)] {
-        announce(&api, user, count).await;
+        announcements::announce(&api, user, count).await;
     }
 
     let numbered = |frames: Vec<streams::Frame>| -> Vec<(String, u64)> {
@@ -121,7 +91,7 @@ async fn platform_029_a_workspace_event_reaches_only_the_members_whose_role_hold
     };
     let made = |n| ("announcement.made".to_owned(), n);
     assert_eq!(
-        numbered(frames(&mut admin, 3).await),
+        numbered(admin.events(3).await),
         [
             ("announcement.restricted".to_owned(), 1),
             ("announcement.posted".to_owned(), 1),
@@ -129,24 +99,24 @@ async fn platform_029_a_workspace_event_reaches_only_the_members_whose_role_hold
         ]
     );
     assert_eq!(
-        numbered(frames(&mut member, 3).await),
+        numbered(member.events(3).await),
         [("announcement.posted".to_owned(), 1), made(1), made(2)]
     );
     assert_eq!(
-        numbered(frames(&mut outsider, 3).await),
+        numbered(outsider.events(3).await),
         [made(1), made(2), made(3)]
     );
 }
 
 #[tokio::test]
 async fn platform_029_a_replay_leaves_out_a_workspace_s_events_from_before_its_member_joined() {
-    let api = api().await;
+    let api = announcements::api().await;
     let ada = users::register(&api, "ada@example.com").await;
     let grace = users::register(&api, "grace@example.com").await;
     let workspace =
         workspaces::arrange(api.database(), "Analytical", &[(&ada.user_id, "owner")]).await;
     let mut first = streams::opened(&api, &grace).await;
-    announce(&api, &grace, 1).await;
+    announcements::announce(&api, &grace, 1).await;
     first.event().await;
     let last = first.last_event_id.clone();
     drop(first);
@@ -157,7 +127,7 @@ async fn platform_029_a_replay_leaves_out_a_workspace_s_events_from_before_its_m
     let mut again = streams::connect(&api, &grace.access, last.as_deref()).await;
     again.opened().await;
     let replayed = [again.event().await, again.event().await];
-    announce(&api, &grace, 1).await;
+    announcements::announce(&api, &grace, 1).await;
     let next = again.event().await;
 
     let numbers: Vec<_> = replayed
@@ -170,7 +140,7 @@ async fn platform_029_a_replay_leaves_out_a_workspace_s_events_from_before_its_m
 
 #[tokio::test]
 async fn platform_027_each_event_is_loaded_once_whatever_the_streams_it_reaches() {
-    let api = api().await;
+    let api = announcements::api().await;
     let users = [
         users::register(&api, "ada@example.com").await,
         users::register(&api, "grace@example.com").await,
@@ -211,7 +181,7 @@ async fn platform_027_each_event_is_loaded_once_whatever_the_streams_it_reaches(
 
 #[tokio::test]
 async fn platform_031_a_signal_closes_its_streams_before_any_event_that_commits_after_it() {
-    let api = api().await;
+    let api = announcements::api().await;
     let ada = users::register(&api, "ada@example.com").await;
     let other = users::new_session(&api, "ada@example.com").await;
     let workspace =
@@ -224,7 +194,7 @@ async fn platform_031_a_signal_closes_its_streams_before_any_event_that_commits_
         .send()
         .await;
     post(&api, &other, &workspace, 1, false).await;
-    announce(&api, &other, 1).await;
+    announcements::announce(&api, &other, 1).await;
     let (before, reason) = ended.closed().await;
 
     assert_eq!(signed_out.status, StatusCode::NO_CONTENT);
@@ -234,7 +204,7 @@ async fn platform_031_a_signal_closes_its_streams_before_any_event_that_commits_
 
 #[tokio::test]
 async fn platform_028_a_stream_resumes_on_another_replica_with_every_event_after_its_last() {
-    let api = api().await;
+    let api = announcements::api().await;
     let ada = users::register(&api, "ada@example.com").await;
     // A second replica: another application, with a hub of its own, on the same database.
     let second = crate::support::api::application(
@@ -246,16 +216,16 @@ async fn platform_028_a_stream_resumes_on_another_replica_with_every_event_after
     .await
     .router;
     let mut first = streams::opened(&api, &ada).await;
-    announce(&api, &ada, 1).await;
+    announcements::announce(&api, &ada, 1).await;
     first.event().await;
     let last = first.last_event_id.clone();
     drop(first);
 
-    announce(&api, &ada, 2).await;
+    announcements::announce(&api, &ada, 2).await;
     let mut resumed = streams::connect_on(&api, second, &ada.access, last.as_deref()).await;
     resumed.opened().await;
     let replayed = [resumed.event().await, resumed.event().await];
-    announce(&api, &ada, 1).await;
+    announcements::announce(&api, &ada, 1).await;
     let live = resumed.event().await;
 
     let numbers: Vec<_> = replayed
@@ -269,11 +239,11 @@ async fn platform_028_a_stream_resumes_on_another_replica_with_every_event_after
 #[tokio::test]
 async fn platform_028_events_reach_a_stream_and_its_replay_in_the_order_their_units_of_work_commit()
 {
-    let api = api().await;
+    let api = announcements::api().await;
     let ada = users::register(&api, "ada@example.com").await;
     let user = UserId::from_uuid(ada.user_id.parse().unwrap());
     let mut stream = streams::opened(&api, &ada).await;
-    announce(&api, &ada, 1).await;
+    announcements::announce(&api, &ada, 1).await;
     stream.event().await;
     let before = stream.last_event_id.clone();
 
@@ -311,7 +281,7 @@ async fn platform_028_events_reach_a_stream_and_its_replay_in_the_order_their_un
 
 #[tokio::test]
 async fn platform_031_the_recheck_closes_a_stream_whose_membership_changed_without_a_signal() {
-    let api = api().await;
+    let api = announcements::api().await;
     let clock = api.clock();
     let ada = users::register(&api, "ada@example.com").await;
     let grace = users::register(&api, "grace@example.com").await;
@@ -330,7 +300,7 @@ async fn platform_031_the_recheck_closes_a_stream_whose_membership_changed_witho
     clock.advance(RECHECK);
     let (_, reason) = changed.closed().await;
     clock.sleeping(RECHECK).await;
-    announce(&api, &grace, 1).await;
+    announcements::announce(&api, &grace, 1).await;
     let still = unchanged.event().await;
 
     assert_eq!(reason, "access_changed");
@@ -338,8 +308,43 @@ async fn platform_031_the_recheck_closes_a_stream_whose_membership_changed_witho
 }
 
 #[tokio::test]
+async fn platform_031_the_recheck_closes_a_stream_whose_session_stopped_lasting_without_a_signal() {
+    let api = announcements::api().await;
+    let clock = api.clock();
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let workspace = workspaces::arrange(
+        api.database(),
+        "Analytical",
+        &[(&grace.user_id, "owner"), (&ada.user_id, "member")],
+    )
+    .await;
+    let mut ended = streams::opened(&api, &ada).await;
+    let mut lasting = streams::opened(&api, &grace).await;
+
+    // Gone behind the API's back, so no signal tells the hub.
+    api.database()
+        .owner_executes(&format!(
+            "DELETE FROM sessions WHERE user_id = '{}'",
+            ada.user_id
+        ))
+        .await;
+    clock.sleeping(RECHECK).await;
+    clock.advance(RECHECK);
+    // The hub sleeps again once its re-check has ended; an event that commits after it reaches
+    // each stream that stayed open.
+    clock.sleeping(RECHECK).await;
+    post(&api, &grace, &workspace, 1, false).await;
+    let closed = ended.closing().await;
+    let still = lasting.event().await;
+
+    assert_eq!(closed.payload()["reason"], "session_ended");
+    assert_eq!(still.event.as_deref(), Some("announcement.posted"));
+}
+
+#[tokio::test]
 async fn workspaces_005_removing_a_member_closes_their_stream_before_the_next_event() {
-    let api = api().await;
+    let api = announcements::api().await;
     let ada = users::register(&api, "ada@example.com").await;
     let grace = users::register(&api, "grace@example.com").await;
     let workspace = workspaces::arrange(
@@ -374,7 +379,7 @@ async fn workspaces_005_removing_a_member_closes_their_stream_before_the_next_ev
 // part: workspace_creation
 #[tokio::test]
 async fn access_006_a_membership_that_starts_closes_its_user_s_streams() {
-    let api = api().await;
+    let api = announcements::api().await;
     let ada = users::register(&api, "ada@example.com").await;
     let grace = users::register(&api, "grace@example.com").await;
     let mut creator = streams::opened(&api, &ada).await;
@@ -386,7 +391,7 @@ async fn access_006_a_membership_that_starts_closes_its_user_s_streams() {
         .send()
         .await;
     let (_, reason) = creator.closed().await;
-    announce(&api, &grace, 1).await;
+    announcements::announce(&api, &grace, 1).await;
     let still = other.event().await;
 
     assert_eq!(response.status, StatusCode::CREATED);
@@ -397,7 +402,7 @@ async fn access_006_a_membership_that_starts_closes_its_user_s_streams() {
 
 #[tokio::test]
 async fn access_007_a_stream_holds_each_workspace_s_permissions_of_its_role_there() {
-    let api = api().await;
+    let api = announcements::api().await;
     let ada = users::register(&api, "ada@example.com").await;
     let grace = users::register(&api, "grace@example.com").await;
     let owned = workspaces::arrange(
@@ -438,8 +443,32 @@ async fn access_007_a_stream_holds_each_workspace_s_permissions_of_its_role_ther
 }
 
 #[tokio::test]
+async fn access_007_a_stream_holds_a_workspace_from_the_transaction_that_added_the_membership() {
+    let api = announcements::api().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let workspace =
+        workspaces::arrange(api.database(), "Joined", &[(&grace.user_id, "owner")]).await;
+    let mut first = streams::opened(&api, &ada).await;
+    announcements::announce(&api, &ada, 1).await;
+    first.event().await;
+    let before = first.last_event_id.clone();
+    drop(first);
+    post(&api, &grace, &workspace, 1, false).await;
+    workspaces::join(api.database(), &workspace, &ada.user_id, "member").await;
+
+    let mut resumed = streams::connect(&api, &ada.access, before.as_deref()).await;
+    resumed.opened().await;
+    announcements::announce(&api, &ada, 1).await;
+    let next = resumed.event().await;
+
+    // The post committed before the transaction that made Ada a member, so it isn't replayed.
+    assert_eq!(next.event.as_deref(), Some("announcement.made"));
+}
+
+#[tokio::test]
 async fn auth_018_a_stream_outlives_its_access_token_but_not_its_session() {
-    let api = api().await;
+    let api = announcements::api().await;
     let clock = api.clock();
     let ada = users::register(&api, "ada@example.com").await;
     let grace = users::register(&api, "grace@example.com").await;
@@ -460,7 +489,7 @@ async fn auth_018_a_stream_outlives_its_access_token_but_not_its_session() {
     let (_, reason) = ending.closed().await;
     clock.sleeping(RECHECK).await;
     let again = users::new_session(&api, "grace@example.com").await;
-    announce(&api, &again, 1).await;
+    announcements::announce(&api, &again, 1).await;
     // Grace's new session's start reaches her lasting stream first (AUTH-046).
     let started = lasting.event().await;
     let still = lasting.event().await;
@@ -472,12 +501,12 @@ async fn auth_018_a_stream_outlives_its_access_token_but_not_its_session() {
 
 #[tokio::test]
 async fn platform_032_a_stream_whose_client_reads_too_slowly_closes_with_lagging() {
-    let api = api().await;
+    let api = announcements::api().await;
     let ada = users::register(&api, "ada@example.com").await;
     let mut stream = streams::opened(&api, &ada).await;
 
     // Nothing reads the stream while 300 events arrive at once.
-    announce(&api, &ada, 300).await;
+    announcements::announce(&api, &ada, 300).await;
     let (before, reason) = stream.closed().await;
 
     assert_eq!(reason, "lagging");
@@ -508,11 +537,11 @@ async fn lose_the_connection(api: &Api, meanwhile: &str) -> crate::support::api:
 #[tokio::test]
 async fn platform_033_after_a_lost_connection_every_stream_closes_and_replays_what_committed_meanwhile()
  {
-    let api = api().await;
+    let api = announcements::api().await;
     let clock = api.clock();
     let ada = users::register(&api, "ada@example.com").await;
     let mut stream = streams::opened(&api, &ada).await;
-    announce(&api, &ada, 1).await;
+    announcements::announce(&api, &ada, 1).await;
     stream.event().await;
     let last = stream.last_event_id.clone();
     clock.sleeping(CHECK_INTERVAL).await;
@@ -548,13 +577,13 @@ async fn platform_033_after_a_lost_connection_every_stream_closes_and_replays_wh
 #[tokio::test]
 async fn platform_033_after_a_lost_connection_a_reconnect_leaves_out_what_access_lost_meanwhile_withholds()
  {
-    let api = api().await;
+    let api = announcements::api().await;
     let clock = api.clock();
     let ada = users::register(&api, "ada@example.com").await;
     let workspace =
         workspaces::arrange(api.database(), "Analytical", &[(&ada.user_id, "member")]).await;
     let mut stream = streams::opened(&api, &ada).await;
-    announce(&api, &ada, 1).await;
+    announcements::announce(&api, &ada, 1).await;
     stream.event().await;
     let last = stream.last_event_id.clone();
     clock.sleeping(CHECK_INTERVAL).await;
@@ -589,7 +618,7 @@ async fn platform_033_after_a_lost_connection_a_reconnect_leaves_out_what_access
     let (before, reason) = stream.closed().await;
     let mut again = streams::connect(&api, &ada.access, last.as_deref()).await;
     again.opened().await;
-    announce(&api, &ada, 1).await;
+    announcements::announce(&api, &ada, 1).await;
     let next = again.event().await;
 
     assert!(before.is_empty(), "{before:?}");
@@ -600,7 +629,7 @@ async fn platform_033_after_a_lost_connection_a_reconnect_leaves_out_what_access
 
 #[tokio::test]
 async fn platform_033_a_re_check_that_fails_is_tried_again_at_the_next_check() {
-    let api = api().await;
+    let api = announcements::api().await;
     let clock = api.clock();
     let ada = users::register(&api, "ada@example.com").await;
     let workspace =
@@ -683,7 +712,7 @@ async fn ops_18_checks_that_time_out_open_no_connection_beyond_the_pool_and_the_
 
 #[tokio::test]
 async fn platform_034_the_hub_records_its_streams_why_it_closed_them_and_its_lag() {
-    let api = api().await;
+    let api = announcements::api().await;
     let name = api.database().name().to_owned();
     let ours = |point: &testing::Point| point.labels.get("db.namespace") == Some(&name);
     let ada = users::register(&api, "ada@example.com").await;
@@ -693,7 +722,7 @@ async fn platform_034_the_hub_records_its_streams_why_it_closed_them_and_its_lag
         .find(|point| ours(point))
         .map(|point| point.value);
 
-    announce(&api, &ada, 1).await;
+    announcements::announce(&api, &ada, 1).await;
     stream.event().await;
     api.readiness().stop();
     stream.closed().await;
@@ -719,10 +748,39 @@ async fn platform_034_the_hub_records_its_streams_why_it_closed_them_and_its_lag
 }
 
 #[tokio::test]
-async fn platform_019_the_sweep_deletes_the_events_older_than_24_hours() {
-    let api = api().await;
+async fn platform_034_the_lag_is_the_seconds_from_an_event_s_commit_to_its_delivery() {
+    let api = announcements::api().await;
+    let db = api.database();
+    let name = db.name().to_owned();
     let ada = users::register(&api, "ada@example.com").await;
-    announce(&api, &ada, 1).await;
+    let mut stream = streams::opened(&api, &ada).await;
+
+    // An event that committed a minute ago, by the database's clock, which the hub hears of now.
+    db.owner_executes(&events::statement(
+        &[Event {
+            committed_before: Some("1 minute"),
+            ..Event::to_user(&ada.user_id, "note.made", "{}")
+        }],
+        true,
+    ))
+    .await;
+    let delivered = stream.event().await;
+
+    let lag = testing::recorded("platform.event_delivery_lag")
+        .into_iter()
+        .find(|point| point.labels.get("db.namespace") == Some(&name))
+        .unwrap();
+    assert_eq!(delivered.event.as_deref(), Some("note.made"));
+    // The start of Ada's session (AUTH-046), loaded as it committed, and the minute-old event.
+    assert_eq!(lag.count, Some(2));
+    assert!((60.0..70.0).contains(&lag.value), "{}", lag.value);
+}
+
+#[tokio::test]
+async fn platform_019_the_sweep_deletes_the_events_older_than_24_hours() {
+    let api = announcements::api().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    announcements::announce(&api, &ada, 1).await;
     api.database()
         .owner_executes(&format!(
             "INSERT INTO events (scope, user_id, name, payload, position, created_at) \
@@ -746,7 +804,7 @@ async fn platform_019_the_sweep_deletes_the_events_older_than_24_hours() {
 
 #[tokio::test]
 async fn access_006_removing_a_membership_closes_its_user_s_streams() {
-    let api = api().await;
+    let api = announcements::api().await;
     let ada = users::register(&api, "ada@example.com").await;
     let grace = users::register(&api, "grace@example.com").await;
     let workspace = workspaces::arrange(
@@ -773,7 +831,7 @@ async fn access_006_removing_a_membership_closes_its_user_s_streams() {
 
 #[tokio::test]
 async fn auth_018_the_recheck_closes_a_stream_whose_session_outlived_its_lifetime_or_is_gone() {
-    let api = api().await;
+    let api = announcements::api().await;
     let clock = api.clock();
     let ada = users::register(&api, "ada@example.com").await;
     let grace = users::register(&api, "grace@example.com").await;
@@ -834,7 +892,7 @@ async fn platform_031_the_recheck_interval_is_a_setting_of_10_to_3600_seconds() 
 
 #[tokio::test]
 async fn sec_19_member_removed_reaches_every_member_and_no_replay_from_before_joining() {
-    let api = api().await;
+    let api = announcements::api().await;
     let ada = users::register(&api, "ada@example.com").await;
     let grace = users::register(&api, "grace@example.com").await;
     let alan = users::register(&api, "alan@example.com").await;
@@ -853,7 +911,7 @@ async fn sec_19_member_removed_reaches_every_member_and_no_replay_from_before_jo
     let mut owner = streams::opened(&api, &ada).await;
     let mut member = streams::opened(&api, &grace).await;
     let mut later = streams::opened(&api, &alan).await;
-    announce(&api, &alan, 1).await;
+    announcements::announce(&api, &alan, 1).await;
     later.event().await;
     let before = later.last_event_id.clone();
     drop(later);
@@ -869,7 +927,7 @@ async fn sec_19_member_removed_reaches_every_member_and_no_replay_from_before_jo
     workspaces::join(api.database(), &workspace, &alan.user_id, "member").await;
     let mut joined = streams::connect(&api, &alan.access, before.as_deref()).await;
     joined.opened().await;
-    announce(&api, &alan, 1).await;
+    announcements::announce(&api, &alan, 1).await;
     let after_joining = joined.event().await;
 
     assert_eq!(removed.status, StatusCode::NO_CONTENT);
@@ -902,7 +960,7 @@ async fn published(api: &Api, user: &SignedIn, workspace: &str) -> String {
 #[tokio::test]
 async fn platform_095_an_event_s_trace_id_reaches_its_publisher_s_streams_alone_live_and_replayed()
 {
-    let api = api().await;
+    let api = announcements::api().await;
     let ada = users::register(&api, "ada@example.com").await;
     let grace = users::register(&api, "grace@example.com").await;
     let workspace = workspaces::arrange(
@@ -943,11 +1001,11 @@ async fn platform_095_an_event_s_trace_id_reaches_its_publisher_s_streams_alone_
 
 #[tokio::test]
 async fn platform_095_an_event_of_a_unit_of_work_that_no_principal_opened_has_no_publisher() {
-    let api = api().await;
+    let api = announcements::api().await;
     let ada = users::register(&api, "ada@example.com").await;
     let user = UserId::from_uuid(ada.user_id.parse().unwrap());
 
-    announce(&api, &ada, 1).await;
+    announcements::announce(&api, &ada, 1).await;
     let mut uow = api.pool().begin(&client(), None).await.unwrap();
     uow.publish_to_user(&NOTED, user, &note("unattributed"))
         .await
@@ -972,7 +1030,7 @@ async fn platform_095_an_event_of_a_unit_of_work_that_no_principal_opened_has_no
 
 #[tokio::test]
 async fn platform_095_deleting_a_publisher_s_account_leaves_their_events_to_others_without_one() {
-    let api = api().await;
+    let api = announcements::api().await;
     let ada = users::register(&api, "ada@example.com").await;
     let grace = users::register(&api, "grace@example.com").await;
     let workspace = workspaces::arrange(
@@ -1046,7 +1104,6 @@ async fn obs_07_an_event_s_delivery_links_to_the_trace_that_published_it() {
         .find(|(_, span)| span.name == "deliver event")
         .unwrap();
     assert_eq!(span.links.len(), 1);
-    let hex = |bytes: &[u8]| -> String { bytes.iter().map(|byte| format!("{byte:02x}")).collect() };
     assert_eq!(hex(&span.links[0].trace_id), trace);
     assert_eq!(hex(&span.links[0].span_id), "00f067aa0ba902b7");
     assert_ne!(hex(&span.trace_id), trace);
@@ -1054,13 +1111,13 @@ async fn obs_07_an_event_s_delivery_links_to_the_trace_that_published_it() {
 
 #[tokio::test]
 async fn platform_029_an_event_that_commits_while_its_member_joins_reaches_them_not() {
-    let api = api().await;
+    let api = announcements::api().await;
     let ada = users::register(&api, "ada@example.com").await;
     let alan = users::register(&api, "alan@example.com").await;
     let workspace =
         workspaces::arrange(api.database(), "Analytical", &[(&ada.user_id, "owner")]).await;
     let mut first = streams::opened(&api, &alan).await;
-    announce(&api, &alan, 1).await;
+    announcements::announce(&api, &alan, 1).await;
     first.event().await;
     let before = first.last_event_id.clone();
     drop(first);
@@ -1090,7 +1147,7 @@ async fn platform_029_an_event_that_commits_while_its_member_joins_reaches_them_
         .collect();
     // The second post's two events, not the first's, which committed before Alan was a member.
     assert_eq!(numbers, [json!(1), json!(2)]);
-    announce(&api, &alan, 1).await;
+    announcements::announce(&api, &alan, 1).await;
     assert_eq!(
         again.event().await.event.as_deref(),
         Some("announcement.made")
@@ -1099,7 +1156,7 @@ async fn platform_029_an_event_that_commits_while_its_member_joins_reaches_them_
 
 #[tokio::test]
 async fn platform_033_a_load_that_fails_is_tried_again_at_the_next_check() {
-    let api = api().await;
+    let api = announcements::api().await;
     let clock = api.clock();
     let ada = users::register(&api, "ada@example.com").await;
     let mut stream = streams::opened(&api, &ada).await;
@@ -1132,7 +1189,7 @@ async fn platform_033_a_load_that_fails_is_tried_again_at_the_next_check() {
 
 #[tokio::test]
 async fn platform_035_the_hub_records_the_events_it_owes_while_its_loads_fail() {
-    let api = api().await;
+    let api = announcements::api().await;
     let clock = api.clock();
     let name = api.database().name().to_owned();
     let unloaded = || {
@@ -1169,9 +1226,22 @@ async fn platform_035_the_hub_records_the_events_it_owes_while_its_loads_fail() 
     assert_eq!(settled, Some(0.0));
 }
 
-/// Whether a hub has logged `message`.
+#[tokio::test]
+async fn test_06_a_wait_for_a_line_of_the_hub_ends_on_no_line_of_another_test() {
+    let _api = announcements::api().await;
+
+    // As another test's hub, which runs on that test's thread, writes it.
+    std::thread::spawn(|| tracing::warn!("the hub couldn't load events"))
+        .join()
+        .unwrap();
+
+    assert!(!logged("the hub couldn't load events"));
+}
+
+/// Whether the hub of this test has logged `message`: its runtime runs the hub on the test's own
+/// thread, so that a line of another test's hub ends no wait of this one (TEST-06).
 fn logged(message: &str) -> bool {
-    testing::all_logged()
+    testing::logged_on_this_thread()
         .iter()
         .any(|line| line["message"] == message)
 }

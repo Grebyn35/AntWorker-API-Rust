@@ -1,7 +1,10 @@
 //! The part of `check-metrics` that reads the dashboards as a whole (OBS-13): Grafana provisions
 //! them read-only, and one overview links to every other dashboard, by its address or by the tags
-//! it carries, so a dashboard that a part of the template owns leaves no link behind once a fork
-//! leaves the part out.
+//! it carries.
+// part: removal
+//! So a dashboard that a part of the template owns leaves no link behind once a fork leaves the
+//! part out.
+// end part: removal
 
 use crate::{
     Finding,

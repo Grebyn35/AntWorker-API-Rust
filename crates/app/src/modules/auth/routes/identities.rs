@@ -4,14 +4,11 @@
 
 use std::sync::Arc;
 
-use axum::{
-    extract::{RawPathParams, State},
-    http::StatusCode,
-};
+use axum::{extract::State, http::StatusCode};
 use platform::{
     authn::Principal,
     errors::{Problem, RequestError},
-    http::{FieldErrors, Json, Routes, path_id},
+    http::{FieldErrors, Json, PathIds, Routes},
     rate_limit::RateLimits,
     types::Client,
 };
@@ -128,9 +125,9 @@ async fn remove_identity(
     limits: RateLimits,
     client: Client,
     principal: Principal,
-    params: RawPathParams,
+    params: PathIds,
 ) -> Result<StatusCode, Problem<AuthError>> {
-    let id = path_id(&params, "identity_id");
+    let id = params.id("identity_id");
     auth.remove_identity(&limits, &client, &principal, id)
         .await?;
     Ok(StatusCode::NO_CONTENT)

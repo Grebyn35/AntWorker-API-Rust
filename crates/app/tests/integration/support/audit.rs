@@ -67,6 +67,9 @@ pub struct Logged<'a> {
     pub target: Option<&'a str>,
     /// The permission that reading it in a workspace's log takes beside `audit.read`, if any.
     pub permission: Option<&'a str>,
+    /// When it was recorded, an SQL timestamp, such as `2026-11-01T12:00:00Z`, or, if not given,
+    /// the database's `now()`.
+    pub at: Option<&'a str>,
 }
 
 impl<'a> Logged<'a> {
@@ -80,6 +83,7 @@ impl<'a> Logged<'a> {
             resource: ("workspace", workspace),
             target: None,
             permission: None,
+            at: None,
         }
     }
 
@@ -92,6 +96,15 @@ impl<'a> Logged<'a> {
             resource: ("user", user),
             target: None,
             permission: None,
+            at: None,
+        }
+    }
+
+    /// The entry, recorded at `at`, an SQL timestamp.
+    pub fn at(self, at: &'a str) -> Self {
+        Self {
+            at: Some(at),
+            ..self
         }
     }
 
@@ -105,8 +118,9 @@ impl<'a> Logged<'a> {
         };
         db.owner_reads(&format!(
             "INSERT INTO audit_entries (scope, user_id, workspace_id, actor_user_id, \
-             target_user_id, action, resource_type, resource_id, permission) \
-             VALUES ('{scope}', {}, {}, '{}', {}, '{}', '{}', '{}', {}) RETURNING id::text",
+             target_user_id, action, resource_type, resource_id, permission, created_at) \
+             VALUES ('{scope}', {}, {}, '{}', {}, '{}', '{}', '{}', {}, coalesce({}, now())) \
+             RETURNING id::text",
             text(user),
             text(workspace),
             self.actor,
@@ -115,6 +129,7 @@ impl<'a> Logged<'a> {
             self.resource.0,
             self.resource.1,
             text(self.permission),
+            text(self.at),
         ))
         .await
         .remove(0)
@@ -132,6 +147,19 @@ pub async fn noise(db: &TestDatabase, user: &str, action: &str, count: u32) {
          FROM generate_series(1, {count}) AS r (n)"
     ))
     .await;
+}
+
+/// How many entries of `action` record a client with an IP address or a user agent, which no
+/// entry of an operator's subcommand does.
+pub async fn with_a_client(db: &TestDatabase, action: &str) -> usize {
+    db.owner_reads(&format!(
+        "SELECT count(*)::text FROM audit_entry_clients c JOIN audit_entries e \
+         ON e.id = c.audit_entry_id WHERE e.action = '{action}' \
+         AND (c.client_ip IS NOT NULL OR c.user_agent IS NOT NULL)"
+    ))
+    .await[0]
+        .parse()
+        .unwrap()
 }
 
 /// Records `client` as the client of the entry `entry`.

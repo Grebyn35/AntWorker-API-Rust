@@ -6,12 +6,17 @@
 //! an export of the caller's data; in `verification.rs`, proving an account's
 //! email address, and the job that sends every code; in `password.rs`, resetting and changing the
 //! password; in `email_change.rs`, changing the account's address; in `second_factors/`, second
-//! factors and the completion of a sign-in with one; in `identities.rs`, a user's identities; and
-//! in `verifier.rs`, the verifier of access tokens and sessions. Each operation opens its own
-//! unit of work, after any per-action limit it counts first. One operation opens a second: a
-//! sign-in through a provider whose linked account went while it waited for the user's turn
-//! ends its unit of work with nothing written, counts as the registration it has become, and
-//! reads again in a new one (ARCH-11, AUTH-099). The operator's end of every account's sessions
+//! factors and the completion of a sign-in with one; in `providers.rs`, signing in, registering
+//! and re-authenticating through a provider; in `identities.rs`, a user's identities; in
+//! `devices.rs`, a sign-in's device tokens; in `buckets.rs`, the fixed limits of the module's
+//! actions; and in `verifier.rs`, the verifier of access tokens and sessions. Each operation
+//! opens its own unit of work, after any per-action limit it counts first. Two operations open
+//! another when what decided their limit holds no more once they hold the user's row: each ends
+//! its unit of work with nothing written, counts in the limit that applies after all, and reads
+//! again in a new one (ARCH-11). They are a sign-in through a provider whose linked account went
+//! while it waited for the user's turn, which counts as the registration it has become
+//! (AUTH-099), and a deletion of an account whose address changed, which counts in the bucket of
+//! the address that the account holds (AUTH-024). The operator's end of every account's sessions
 //! is an operation for each account, with a unit of work for each (AUTH-094).
 
 use std::sync::Arc;
@@ -255,9 +260,7 @@ impl Auth {
             Entry::new(audit::USER_REGISTERED, audit::USER, user_id.uuid()),
         )
         .await?;
-        let device = self
-            .issue_device_token(&mut uow, user_id, &input.email, None)
-            .await?;
+        let device = self.issue_device_token(&mut uow, user_id, None).await?;
         self.enqueue_code(&mut uow, &principal).await?;
         uow.commit().await?;
         // A new account has proved no address and has no app.
@@ -331,8 +334,10 @@ impl Auth {
 
     /// `session` as its client sees it, which says whether its account must still prove its
     /// email address or set up a second factor, as `uow` reads the account (AUTH-026, AUTH-070).
-    /// An account that a deletion took since the session was read went with the session, so the
-    /// request answers as one sent after the deletion does (AUTH-016, ACCOUNTS-019).
+    /// An account that a deletion took since the session was read went with the session: with
+    /// email on, `required` finds it gone, and the request answers as one sent after the deletion
+    /// does (AUTH-016, ACCOUNTS-019); with email off, it reads no row of the account's, and the
+    /// session answers as it was read.
     async fn answer(
         &self,
         uow: &mut UnitOfWork,
@@ -347,7 +352,8 @@ impl Auth {
 
     /// What `user_id`'s account must still do before the API serves it anything else, as `uow`
     /// reads it: prove its email address (AUTH-025), or set up a second factor, while the
-    /// deployment requires one (AUTH-070); or `None` once the account is gone.
+    /// deployment requires one (AUTH-070); or `None` once the account is gone, which it finds
+    /// only with email on, as `email_verification_required` says.
     async fn required(
         &self,
         uow: &mut UnitOfWork,
@@ -395,16 +401,15 @@ fn new_tokens() -> Result<Tokens, Internal> {
 /// turn of theirs is free (AUTH-014).
 async fn hash(workers: &Workers, password: Password) -> Result<String, Internal> {
     let hashing = workers.turn().await.map_err(Internal::new)?;
-    let (hash, _) = hash_in(hashing, password).await?;
-    Ok(hash)
+    hash_in(hashing, password).await
 }
 
 /// The Argon2id hash of `password`, in PHC format, with a new salt, in the turn `hashing`, which
-/// its caller took before it opened its unit of work, and which comes back with the hash
+/// its caller took before it opened its unit of work, and which goes once the hash is made
 /// (AUTH-014, AUTH-093).
-async fn hash_in(hashing: Turn, password: Password) -> Result<(String, Turn), Internal> {
+async fn hash_in(hashing: Turn, password: Password) -> Result<String, Internal> {
     let salt = random::bytes::<16>()?;
-    let (hash, hashing) = hashing
+    let (hash, _) = hashing
         .run("hash_password", move || {
             Argon2::default()
                 .hash_password_with_salt(password.bytes(), &salt)
@@ -413,7 +418,7 @@ async fn hash_in(hashing: Turn, password: Password) -> Result<(String, Turn), In
         })
         .await
         .map_err(Internal::new)?;
-    Ok((hash?, hashing))
+    hash
 }
 
 /// Whether `password` matches `stored`, in the turn `hashing`, which its caller took before it

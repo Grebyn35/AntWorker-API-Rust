@@ -11,7 +11,9 @@ noted() { printf '%s\n' "check: note  $*"; }
 
 # Checks what a deploy needs (OPS-19): with one argument, of the release <version>, which it
 # verifies first, as a deploy does; with two, of the API's image and the Postgres image. It reads
-# the settings and the secrets as a deploy does, and refuses what a deploy would refuse.
+# the settings and the secrets as a deploy does, and refuses what a deploy would refuse. The
+# checks that mount files of secrets/ into a container, those of the buckets and of a managed
+# backend, run once the secrets passed.
 check() {
     findings=0
     docker_answers=no
@@ -31,7 +33,7 @@ check() {
             failed "Docker $docker_version, with Compose ${compose_version:-missing} and Buildx ${buildx_version:-missing}; a deploy needs Docker 29 or later with both plugins"
         fi
     fi
-    settled=no
+    settled=no secured=no
     if problem=$( (read_settings && check_connections) 2>&1 > /dev/null); then
         read_settings
         settled=yes
@@ -41,7 +43,8 @@ check() {
     fi
     if [ "$settled" = yes ]; then
         if problem=$( (check_secrets) 2>&1 > /dev/null); then
-            passed "the secrets that the operator holds, in $deployment/secrets"
+            secured=yes
+            passed "the secrets that a deploy requires, in $deployment/secrets"
         else
             failed "${problem#deploy: }"
         fi
@@ -61,16 +64,16 @@ check() {
     fi
     # What each bucket keeps of what is deleted in it (tasks/buckets.sh): the backups', once the
     # check of its key pair passed.
-    if [ "$settled" = yes ] && [ "$database" = bundled ] && [ -n "$postgres_image" ] && check_bucket; then
+    if [ "$secured" = yes ] && [ "$database" = bundled ] && [ -n "$postgres_image" ] && check_bucket; then
         check_versions BACKUP_S3 backup_s3_key backup-ca.crt "the backups' bucket"
     fi
     # part: files
     # The files bucket's, which also checks its key pair.
-    if [ "$settled" = yes ] && [ "$docker_answers" = yes ]; then
+    if [ "$secured" = yes ] && [ "$docker_answers" = yes ]; then
         check_versions FILES_S3 files_s3_key files-ca.crt "the files bucket"
     fi
     # end part: files
-    if [ "$settled" = yes ] && [ "$telemetry" = managed ] && [ "$docker_answers" = yes ]; then check_backend; fi
+    if [ "$secured" = yes ] && [ "$telemetry" = managed ] && [ "$docker_answers" = yes ]; then check_backend; fi
     check_clock
     noted "whether the disk is encrypted can't be seen from the server; confirm it with the provider (docs/operations/deploy.md#what-a-server-needs)"
     if [ "$findings" -gt 0 ]; then fail "$findings of the checks on the server failed"; fi

@@ -2,14 +2,12 @@
 //! (the platform spec's "Events and the real-time hub"), through the tests' keyed route and
 //! their announcements, so they hold whichever of the template's parts a fork keeps.
 
-use std::sync::Arc;
-
 use serde_json::{Value, json};
 
 use platform::{errors::PlatformError, idempotency::Claimed, jobs::JobContext};
 
 use crate::support::{
-    Api, Options, TestDatabase,
+    Api, TestDatabase,
     announcements::{self, Note, published::NOTED},
     execute_on, fixtures,
     users::{self, SignedIn},
@@ -18,11 +16,6 @@ use crate::support::{
 
 /// The ID of no workspace.
 const NO_WORKSPACE: &str = "018f4e6a-7c7b-7d5e-9c1a-3b2f6d0e4a11";
-
-/// The tests' API, with their keyed route.
-async fn api() -> Api {
-    Api::with(Options::routes(fixtures::routes(Arc::default()))).await
-}
 
 /// Sends `body` to the keyed route as `user`, with `key` as its idempotency key if given.
 async fn keyed(
@@ -40,7 +33,7 @@ async fn keyed(
 
 #[tokio::test]
 async fn platform_036_a_retry_with_the_key_answers_the_first_result_and_runs_nothing() {
-    let api = api().await;
+    let api = fixtures::api().await;
     let ada = users::register(&api, "ada@example.com").await;
     let body = json!({ "value": "a" });
 
@@ -60,7 +53,7 @@ async fn platform_036_a_retry_with_the_key_answers_the_first_result_and_runs_not
 
 #[tokio::test]
 async fn platform_036_a_claim_that_follows_another_statement_of_its_unit_of_work_fails() {
-    let api = api().await;
+    let api = fixtures::api().await;
     let ada = users::register(&api, "ada@example.com").await;
     let user = platform::types::UserId::from_uuid(ada.user_id.parse().unwrap());
     let client = crate::support::client();
@@ -82,7 +75,7 @@ async fn platform_036_a_claim_that_follows_another_statement_of_its_unit_of_work
 
 #[tokio::test]
 async fn platform_036_the_key_with_another_request_answers_422() {
-    let api = api().await;
+    let api = fixtures::api().await;
     let ada = users::register(&api, "ada@example.com").await;
     keyed(&api, &ada, &json!({ "value": "a" }), Some("\"k-1\"")).await;
 
@@ -94,7 +87,7 @@ async fn platform_036_the_key_with_another_request_answers_422() {
 
 #[tokio::test]
 async fn platform_036_a_key_whose_first_request_hasn_t_committed_answers_409_then_runs() {
-    let api = api().await;
+    let api = fixtures::api().await;
     let ada = users::register(&api, "ada@example.com").await;
     let db = api.database();
     let mut held = db.owner_connection().await;
@@ -121,7 +114,7 @@ async fn platform_036_a_key_whose_first_request_hasn_t_committed_answers_409_the
 
 #[tokio::test]
 async fn platform_036_an_operation_that_rolled_back_leaves_no_record_so_its_retry_runs() {
-    let api = api().await;
+    let api = fixtures::api().await;
     let ada = users::register(&api, "ada@example.com").await;
 
     let failed = keyed(
@@ -150,7 +143,7 @@ async fn platform_036_an_operation_that_rolled_back_leaves_no_record_so_its_retr
 
 #[tokio::test]
 async fn platform_036_a_record_older_than_24_hours_counts_as_absent() {
-    let api = api().await;
+    let api = fixtures::api().await;
     let ada = users::register(&api, "ada@example.com").await;
     keyed(&api, &ada, &json!({ "value": "a" }), Some("\"k-1\"")).await;
     api.database()
@@ -165,7 +158,7 @@ async fn platform_036_a_record_older_than_24_hours_counts_as_absent() {
 
 #[tokio::test]
 async fn platform_037_a_malformed_key_answers_400_and_keys_are_per_user() {
-    let api = api().await;
+    let api = fixtures::api().await;
     let ada = users::register(&api, "ada@example.com").await;
     let grace = users::register(&api, "grace@example.com").await;
     let body = json!({ "value": "a" });
@@ -185,7 +178,7 @@ async fn platform_037_a_malformed_key_answers_400_and_keys_are_per_user() {
 
 #[tokio::test]
 async fn platform_026_a_published_event_exists_only_if_its_unit_of_work_commits() {
-    let api = api().await;
+    let api = fixtures::api().await;
     let ada = users::register(&api, "ada@example.com").await;
     // The registration's session published its start (AUTH-046).
     api.database().owner_executes("DELETE FROM events").await;
@@ -240,7 +233,7 @@ async fn platform_098_a_publication_that_fails_otherwise_fails_as_any_other_does
 
 #[tokio::test]
 async fn obs_07_an_event_stores_the_trace_context_that_published_it() {
-    let api = api().await;
+    let api = fixtures::api().await;
     let ada = users::register(&api, "ada@example.com").await;
     // The registration's session published its start (AUTH-046).
     api.database().owner_executes("DELETE FROM events").await;

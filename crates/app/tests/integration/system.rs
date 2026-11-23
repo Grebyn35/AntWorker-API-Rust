@@ -19,8 +19,8 @@ async fn system_001_the_capabilities_list_each_feature_a_deployment_can_turn_off
 
     assert_eq!(response.status, StatusCode::OK);
     assert_eq!(response.header("content-type"), "application/json");
-    // Email is the one feature a deployment can turn off, beside the template's parts that the
-    // fork keeps, and no version is reported; a deployment that configures no provider lists none
+    // Email is on, and the members of the template's parts that the fork keeps are as `features`
+    // gives them; no version is reported, and a deployment that configures no provider lists none
     // (AUTH-081).
     assert_eq!(
         response.json(),
@@ -40,8 +40,9 @@ async fn system_001_a_feature_turned_off_is_false() {
     );
 }
 
-/// The features of a deployment whose email is `email`: each of the template's parts that changes
-/// what a client offers is `true` while the fork keeps it (D118).
+/// The features of the tests' API whose email is `email`: the member of each of the template's
+/// parts that changes what a client offers, while the fork keeps it, is `true`, but `false` for a
+/// part whose feature a deployment turns off, which the tests' API leaves off (D118).
 fn features(email: bool) -> Value {
     let mut features = serde_json::Map::new();
     features.insert("email".to_owned(), json!(email));
@@ -174,21 +175,17 @@ async fn system_003_seed_registers_its_accounts_through_the_routes() {
     let password = seed(&database).await;
 
     let api = Api::on(database, Options::default()).await;
-    for email in [
-        "owner@example.com",
-        "admin@example.com",
-        "member@example.com",
-    ] {
+    for email in ["owner@example.com", "member@example.com"] {
         sign_in(&api, email, &password).await;
     }
     let names = api
         .database()
         .owner_reads(
             "SELECT name FROM users WHERE email IN \
-             ('owner@example.com', 'admin@example.com', 'member@example.com') ORDER BY email",
+             ('owner@example.com', 'member@example.com') ORDER BY email",
         )
         .await;
-    assert_eq!(names, ["Adam Admin", "Mia Member", "Olivia Owner"]);
+    assert_eq!(names, ["Mia Member", "Olivia Owner"]);
     // Each request went through the pipeline as a client's does, from 127.0.0.1, and recorded
     // and published what a client's does: each registration its entry, and its session's start.
     assert_eq!(
@@ -460,8 +457,8 @@ async fn system_010_sam_hands_the_workspace_over_to_olivia_and_leaves_it() {
             .await
             .contains(&("Acme Holdings".to_owned(), "owner".to_owned()))
     );
-    // Sam invited Olivia as an admin, transferred the workspace to her, and left it: its log
-    // holds each step, and Sam belongs to no workspace.
+    // Sam created the workspace, transferred it to Olivia, whom he invited as an admin, and left
+    // it: its log holds his creation, transfer and leaving, and Sam belongs to no workspace.
     assert_eq!(
         api.database()
             .owner_reads(
@@ -518,7 +515,7 @@ async fn system_003_the_subcommand_prints_the_accounts_their_password_and_the_wo
     let accounts = database
         .owner_reads("SELECT email || '|' || name FROM users")
         .await;
-    assert!(accounts.len() >= 3, "{accounts:?}");
+    assert!(accounts.len() >= 2, "{accounts:?}");
     for account in accounts {
         let (email, name) = account.split_once('|').unwrap();
         assert!(printed(email, name), "{email} in {stdout}");
@@ -684,9 +681,12 @@ async fn system_005_seed_has_olivia_invite_adam_and_mia_who_accept_and_ian_whose
     assert!(workspaces(&api, &ian).await.is_empty());
     assert_eq!(
         api.database()
-            .owner_reads("SELECT name FROM users WHERE email = 'invitee@example.com'")
+            .owner_reads(
+                "SELECT name FROM users WHERE email IN \
+                 ('admin@example.com', 'invitee@example.com') ORDER BY email"
+            )
             .await,
-        ["Ian Invitee"]
+        ["Adam Admin", "Ian Invitee"]
     );
 }
 // end part: invitations

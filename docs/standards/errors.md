@@ -5,7 +5,8 @@ How errors are defined, how they move through the code, and how they reach the c
 ## Defining errors
 
 ### ERR-01 One error enum per module
-Each module defines one error enum in `error.rs`, using `thiserror`, with variants named in domain terms (for example `SessionExpired` or `MemberNotFound`). A large module may group variants into nested enums inside that file.
+Each module defines one error enum in `error.rs`, using `thiserror`, with variants named in domain terms (for example `SessionExpired` or `MemberNotFound`). A large module may group variants into nested enums inside that file. Beside it, the file may hold an enum of what stops a run of a subcommand of the module's, which no route answers, and which the run's internal error holds as its cause.
+`files` holds one so, `RestoreFailure`, of what stops a run of `restore-files` (FILES-029). <!-- part: files -->
 - Why: a module's failure modes can be read in one place (D17).
 - Check: `ci: check-layout` (every module has its `error.rs`), plus `review`.
 
@@ -42,7 +43,7 @@ An error that only a subcommand reports, such as `seed`'s, implements no `ErrorC
 ## Moving errors
 
 ### ERR-04 Infrastructure errors stay in their adapter
-The errors of the libraries that reach other systems, such as the database driver and the clients for object storage, email and HTTP, never appear in a service or route signature. The repository or adapter turns each one into either a domain outcome or a `platform::errors::Internal` value. That value keeps the cause for logs only.
+The errors of the libraries that reach other systems, such as the database driver and the clients for email and HTTP, never appear in a service or route signature. The repository or adapter turns each one into either a domain outcome or a `platform::errors::Internal` value. That value keeps the cause for logs only.
 - Why: a database error must never decide a response or reach a client (D17).
 - Check: `ci: check-layers` (no infrastructure error types in `service.rs` or `routes.rs`), plus `compiler`.
 
@@ -66,7 +67,7 @@ Errors become HTTP responses in exactly one function in `platform::errors`, whic
 ### ERR-08 Internal errors expose nothing
 A 500 response has a fixed title and no detail. Its only identifying field is `trace_id`.
 - Why: internals in a response help attackers and confuse clients (D8).
-- Check: `test` (every `Internal` path asserts the fixed body).
+- Check: `test` (`platform`'s unit tests assert the fixed body of an error of the `Internal` category, and the integration tests' support asserts it of each 500 that it reads from the API in process).
 
 ### ERR-09 `detail` is for humans and never carries internals
 `detail` holds a human-readable sentence, which holds on every route that answers its code: it names no field or step that only some of them have. It never includes SQL, file paths, internal identifiers, stack traces or secrets. Clients act on `code`, never on the text.
@@ -74,12 +75,12 @@ A 500 response has a fixed title and no detail. Its only identifying field is `t
 - Check: `review`.
 
 ### ERR-10 An error is logged once, where it is handled
-The HTTP boundary logs every 5xx at `ERROR`, with its cause chain and trace ID, but the 503 of a feature that the deployment turned off, which is no failure (OPS-04). 4xx responses appear in the request's completion log (OBS-03) and are not logged at `WARN` or `ERROR`. Code that returns an error never logs it. An error that a download's bytes meet once its status is sent can become no response: it ends the body short, and is an ignored error of ERR-11 (PLATFORM-100).
+The HTTP boundary logs every 5xx at `ERROR`, with its cause chain and trace ID, but a health probe's (OPS-05), a panic's, whose one `ERROR` line the panic hook writes (ERR-12), and the 503 of a feature that the deployment turned off, which is no failure (OPS-04). 4xx responses appear in the request's completion log (OBS-03) and are not logged at `WARN` or `ERROR`. Code that returns an error never logs it. An error that a download's bytes meet once its status is sent can become no response: it ends the body short, and is an ignored error of ERR-11 (PLATFORM-100).
 - Why: one log entry per failure, at a level that means something (D17).
 - Check: `review`.
 
 ### ERR-11 An ignored error is explicit
-An error is deliberately ignored only through `platform::errors::ignore(error, reason)`, which logs it at `WARN` in a standard shape and counts it in the `platform.errors_ignored` metric, labelled by reason. `let _ =` on a fallible call is not allowed (CODE-03).
+An error is deliberately ignored only through `platform::errors::ignore(error, reason)`, which logs it at `WARN` in a standard shape and counts it in the `platform.errors_ignored` metric, labelled by reason. `let _ =` on a fallible call is not allowed (CODE-03). An error that the code reads as a value, where its doc says what value, is no ignored error, such as a cookie that may not authenticate its request, which counts as none (AUTH-096), or the body of a probe's answer that isn't its JSON, which names no status.
 - Why: every ignored failure is visible in logs and metrics (D17).
 - Check: `clippy` (`let_underscore_must_use`, and `unused_result_ok` for a `Result` dropped with `.ok()`), `test` (the line and the count), plus `review` (a `Result` dropped another way, such as one that holds nothing and ends in `unwrap_or_default`, which no lint tells from a value's default).
 

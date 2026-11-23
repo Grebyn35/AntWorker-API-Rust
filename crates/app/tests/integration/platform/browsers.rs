@@ -1,10 +1,13 @@
 //! CORS and the cross-site check (PLATFORM-058, PLATFORM-059).
 
-use http::Method;
+use std::sync::Arc;
+
+use http::{Method, StatusCode};
 use serde_json::json;
 
 use crate::support::{
     Api, Options,
+    fixtures::{self, Gate},
     users::{self, WEB, browser_sign_in, browsers_api, cookies},
 };
 
@@ -105,6 +108,61 @@ async fn platform_058_a_listed_origin_s_preflight_is_answered_before_the_ip_limi
 }
 
 #[tokio::test]
+async fn platform_058_a_listed_origin_may_read_the_ip_limit_s_429() {
+    let api = Api::with(
+        Options::default()
+            .set("CORS_ALLOWED_ORIGINS", WEB)
+            .set("RATE_LIMIT_IP_REQUESTS", 1),
+    )
+    .await;
+    let counted = api
+        .get("/v1/capabilities")
+        .header("origin", WEB)
+        .send()
+        .await;
+
+    let refused = api
+        .get("/v1/capabilities")
+        .header("origin", WEB)
+        .send()
+        .await;
+
+    assert_eq!(counted.status, StatusCode::OK);
+    assert_eq!(refused.status, StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(refused.header("access-control-allow-origin"), WEB);
+    assert_eq!(refused.header("access-control-allow-credentials"), "true");
+}
+
+#[tokio::test]
+async fn platform_058_a_listed_origin_may_read_the_concurrency_limit_s_503() {
+    let gate = Arc::new(Gate::default());
+    let api = Api::with(
+        Options::routes(fixtures::routes(gate.clone()))
+            .set("CORS_ALLOWED_ORIGINS", WEB)
+            .set("MAX_CONCURRENT_REQUESTS", 1),
+    )
+    .await;
+    let entered = gate.entered.notified();
+    let held = tokio::spawn({
+        let api = api.clone();
+        async move { api.get("/v1/gate").send().await.status }
+    });
+    entered.await;
+
+    let refused = api
+        .get("/v1/capabilities")
+        .header("origin", WEB)
+        .send()
+        .await;
+
+    assert_eq!(refused.status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(refused.header("access-control-allow-origin"), WEB);
+    assert_eq!(refused.header("access-control-allow-credentials"), "true");
+    gate.release.notify_one();
+    assert_eq!(held.await.unwrap(), StatusCode::NO_CONTENT);
+}
+
+#[tokio::test]
 async fn platform_059_a_change_from_an_unlisted_origin_answers_403() {
     let api = browsers_api().await;
     for origin in ["https://evil.example.com", "null"] {
@@ -125,6 +183,37 @@ async fn platform_059_a_change_from_an_unlisted_origin_answers_403() {
         without_origin.status, 201,
         "a client that sets its own headers"
     );
+}
+
+#[tokio::test]
+async fn platform_059_a_refusal_of_an_origin_counts_in_the_ip_limit_and_carries_its_headers() {
+    let api = Api::with(
+        Options::default()
+            .set("CORS_ALLOWED_ORIGINS", WEB)
+            .set("RATE_LIMIT_IP_REQUESTS", 2),
+    )
+    .await;
+    let mut answers = Vec::new();
+
+    for _ in 0..3 {
+        let response = api
+            .post("/v1/users", &users::registration("ada@example.com"))
+            .header("origin", "https://evil.example.com")
+            .send()
+            .await;
+        answers.push(response);
+    }
+
+    for (answer, remaining) in answers[..2].iter().zip([1, 0]) {
+        assert_eq!(answer.status, StatusCode::FORBIDDEN);
+        assert_eq!(answer.json()["code"], "request.origin_not_allowed");
+        assert_eq!(answer.header("ratelimit-policy"), "\"ip\";q=2;w=60");
+        let state = format!("\"ip\";r={remaining};t=");
+        assert!(answer.header("ratelimit").starts_with(&state), "{state}");
+    }
+    // The two refusals counted, so the third request is over the limit.
+    assert_eq!(answers[2].status, StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(answers[2].json()["code"], "request.rate_limited");
 }
 
 #[tokio::test]

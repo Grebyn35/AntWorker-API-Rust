@@ -23,7 +23,8 @@ pub enum Category {
     Validation,
     /// Missing, invalid or expired credentials.
     Unauthenticated,
-    /// Authenticated, but not allowed, within a resource the caller can see.
+    /// Not allowed: an authenticated caller's action within a resource the caller can see, or a
+    /// change from an origin the API doesn't list (PLATFORM-059).
     Forbidden,
     /// The resource doesn't exist, or the caller may not know it exists.
     NotFound,
@@ -39,8 +40,8 @@ pub enum Category {
     BusinessRule,
     /// A rate limit was hit.
     RateLimited,
-    /// A disabled feature, a dependency that's down, load shedding, or a request past its
-    /// timeout.
+    /// A disabled feature, a dependency that's down, load shedding, a request past its timeout,
+    /// or, from the reference deployment's proxy, no replica that answers (OPS-05).
     Unavailable,
     /// Anything else.
     Internal,
@@ -68,8 +69,8 @@ impl Category {
 
 /// An error a client can receive (ERR-02).
 pub trait ErrorCode: Error {
-    /// `<namespace>.<snake_case_name>`, such as `workspaces.member_not_found`. Once released, a
-    /// code never changes.
+    /// `<namespace>.<snake_case_name>`, such as `workspaces.member_not_found`. Once in a final
+    /// release, a code never changes (ERR-02).
     fn code(&self) -> &'static str;
 
     /// A short summary, the same for every occurrence of the code.

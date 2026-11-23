@@ -1,8 +1,8 @@
 //! The composition root: builds every service once and mounts every module's routes (ARCH-12).
-//! `main.rs` opens the process's resources, such as the database, and hands them here. The
+//! `main.rs` opens the process's resources, and hands here those the services use. The
 //! modules' settings are in `config.rs`, the request pipeline that serves the routes in
 //! `pipeline.rs`, and the other subcommands that run the modules' logic in `tasks.rs`, those that
-//! an operator runs, and in `seed.rs`, the entry points of `seed`.
+//! an operator runs against the database, and in `seed.rs`, the entry points of `seed`.
 // part: files
 //! The one that an operator runs against the bucket of files' bytes is in `restore_files.rs`.
 // end part: files
@@ -310,8 +310,8 @@ struct States {
     // end part: client_telemetry
 }
 
-/// Every module's routes, each with its state from `states`, or the pool or the workers of
-/// `resources`. `just new-module` adds a module's routes before the chain's last link.
+/// Every module's routes, each with its state from `states`, or the database of `resources`.
+/// `just new-module` adds a module's routes before the chain's last link.
 fn routes(resources: &Resources, states: States) -> Routes {
     let database = &resources.database;
     system::routes()

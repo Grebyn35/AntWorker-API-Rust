@@ -26,9 +26,9 @@ pub fn printed(output: &Output) -> String {
     )
 }
 
-/// Asserts that `output` exited 0 with the one line that says what the subcommand `area` did,
-/// which holds `outcome`, and that it wrote none of `absent`, since the logs hold no personal
-/// data (OPS-03, OBS-04).
+/// Asserts that `output` exited 0, and that what it wrote holds `subcommand finished`, `area` and
+/// `outcome`, each anywhere in it, as the line that says what the subcommand `area` did holds them,
+/// and none of `absent`, since the logs hold no personal data (OPS-03, OBS-04).
 pub fn finished(output: &Output, area: &str, outcome: &str, absent: &[&str]) {
     let written = printed(output);
     assert_eq!(output.status.code(), Some(0), "{written}");
@@ -40,9 +40,9 @@ pub fn finished(output: &Output, area: &str, outcome: &str, absent: &[&str]) {
     }
 }
 
-/// Asserts that `output` exited 1 with the one failure that OPS-03 gives the subcommand `area`,
-/// whose message is `message`, and that it wrote none of `absent`, since the logs hold no
-/// personal data (OBS-04).
+/// Asserts that `output` exited 1, and that what it wrote holds `startup failed`, `area` and
+/// `message`, each anywhere in it, as the failure that OPS-03 gives the subcommand `area` holds
+/// them, and none of `absent`, since the logs hold no personal data (OBS-04).
 pub fn refused(output: &Output, area: &str, message: &str, absent: &[&str]) {
     let written = printed(output);
     assert_eq!(output.status.code(), Some(1), "{written}");

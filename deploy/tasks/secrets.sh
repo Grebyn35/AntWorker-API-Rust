@@ -1,7 +1,7 @@
 # The deployment's secrets (OPS-14, OPS-19): those that a deploy generates, the check of those
-# that the operator holds, and the replacement of a key that a deploy generated.
+# that a deploy requires of the operator, and the replacement of a key that a deploy generated.
 
-# Writes the secrets the deployment generates, once those the operator holds are there: the
+# Writes the secrets the deployment generates, once check_secrets passes: the
 # passwords of the bundled Postgres's other roles and the URLs made from them, the API's HMAC
 # key, and Grafana's secret key. The files may be read by every
 # user of a container, as Compose mounts them, so the directory admits only the deployment's
@@ -43,14 +43,16 @@ write_secrets() {
     if [ ! -f "$secrets/smtp_password" ]; then
         : > "$secrets/smtp_password"
     fi
-    # The secret of each client of a provider, empty for a client the deployment doesn't use,
-    # which the API reads as unset (AUTH-081).
     # part: github
+    # The secret of GitHub's client, empty while the deployment doesn't use the client, which the
+    # API reads as unset (AUTH-081).
     if [ ! -f "$secrets/github_client_secret" ]; then
         : > "$secrets/github_client_secret"
     fi
     # end part: github
     # part: google
+    # The secret of each of Google's clients, empty for a client the deployment doesn't use, which
+    # the API reads as unset (AUTH-081).
     for client in google_client_secret google_desktop_client_secret; do
         if [ ! -f "$secrets/$client" ]; then
             : > "$secrets/$client"
@@ -58,6 +60,8 @@ write_secrets() {
     done
     # end part: google
     # part: openid_connect
+    # The secret of the client of the provider that the settings name, empty while the deployment
+    # doesn't use the client, which the API reads as unset (AUTH-081).
     if [ ! -f "$secrets/openid_connect_client_secret" ]; then
         : > "$secrets/openid_connect_client_secret"
     fi
@@ -71,11 +75,6 @@ write_secrets() {
     for name in database_url database_owner_url database_admin_url; do
         if [ ! -f "$secrets/$name" ]; then fail "$secrets/$name is missing (docs/operations/deploy.md)"; fi
     done
-    # part: files
-    for name in files_s3_key files_s3_key_secret; do
-        if [ ! -s "$secrets/$name" ]; then fail "$secrets/$name is missing (docs/operations/deploy.md#the-files-bucket)"; fi
-    done
-    # end part: files
     # Compose checks every secret file it declares, so the ones this choice of services doesn't
     # use exist empty.
     for name in postgres_password backup_s3_key backup_s3_key_secret backup_cipher_pass grafana_admin_password grafana_secret_key managed_otlp_token; do
@@ -113,8 +112,12 @@ query_values() {
     tr -d '\n' | sed 's/#.*//' | sed -n 's/^[^?]*?//p' | tr '&' '\n' | sed -n "s/^$1=//p"
 }
 
-# Fails unless secrets/ holds each secret that the operator holds for these settings, which
-# `just server-setup` writes.
+# Fails unless secrets/ holds each secret that `just server-setup` asks the operator for with
+# these settings, but the mail server's password and the providers' client secrets, which a deploy
+# writes empty when they are missing, for the API to read as unset, and the alert integrations'
+# credentials, in secrets/alertmanager/. It also refuses a managed
+# database's URL that names the bundled database or doesn't set sslmode=verify-full once, and a
+# password of Grafana's administrator of fewer than 15 characters.
 check_secrets() {
     secrets=$deployment/secrets
     if [ ! -s "$secrets/encryption_keys" ]; then fail "$secrets/encryption_keys is missing: just server-setup generates it (docs/operations/deploy.md#the-encryption-keys)"; fi
@@ -141,6 +144,11 @@ check_secrets() {
             if [ ! -s "$secrets/$name" ]; then fail "$secrets/$name is missing (docs/operations/deploy.md)"; fi
         done
     fi
+    # part: files
+    for name in files_s3_key files_s3_key_secret; do
+        if [ ! -s "$secrets/$name" ]; then fail "$secrets/$name is missing (docs/operations/deploy.md#the-files-bucket)"; fi
+    done
+    # end part: files
     # The password of Grafana's administrator, which its operator chooses: the deployment
     # generates none, since nothing would make its holder change it (SEC-14). A file that exists
     # empty stands in for a secret the services didn't use before, so it counts as missing.

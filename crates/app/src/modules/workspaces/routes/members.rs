@@ -1,12 +1,12 @@
 //! The members endpoints: listing a workspace's members, reading one, changing a member's role,
 //! and removing a member (the workspaces spec's Routes).
 
-use axum::{extract::RawPathParams, http::StatusCode};
+use axum::http::StatusCode;
 use platform::{
     authz::Authorize,
     db::Database,
     errors::{Problem, RequestError},
-    http::{FieldErrors, IfMatch, MergePatch, Query, ResourceResponse, Routes, path_id},
+    http::{FieldErrors, IfMatch, MergePatch, PathIds, Query, ResourceResponse, Routes},
     lists::{self, Cursor, Limit, List, Page, Search},
     types::{UserId, WorkspaceId},
 };
@@ -108,9 +108,9 @@ async fn members(
 )]
 async fn member(
     authorize: Authorize<MembersRead>,
-    params: RawPathParams,
+    params: PathIds,
 ) -> Result<ResourceResponse<Member>, Problem<WorkspacesError>> {
-    let user = path_id(&params, "user_id").map(UserId::from_uuid);
+    let user = params.id("user_id").map(UserId::from_uuid);
     let (mut uow, authorized) = authorize.open().await.map_err(WorkspacesError::from)?;
     let user = user.ok_or(WorkspacesError::MemberNotFound)?;
     let current = service::member(&mut uow, &authorized, user).await?;
@@ -155,11 +155,11 @@ impl TryFrom<ChangeRoleRequest> for NewRole {
 )]
 async fn change_role(
     authorize: Authorize<MembersUpdate>,
-    params: RawPathParams,
+    params: PathIds,
     if_match: IfMatch,
     request: MergePatch<ChangeRoleRequest>,
 ) -> Result<ResourceResponse<Member>, Problem<WorkspacesError>> {
-    let user = path_id(&params, "user_id").map(UserId::from_uuid);
+    let user = params.id("user_id").map(UserId::from_uuid);
     let role = NewRole::try_from(request.0).map_err(WorkspacesError::from)?;
     let (uow, authorized) = authorize.open().await.map_err(WorkspacesError::from)?;
     let user = user.ok_or(WorkspacesError::MemberNotFound)?;
@@ -182,9 +182,9 @@ async fn change_role(
 )]
 async fn remove_member(
     authorize: Authorize<MembersRemove>,
-    params: RawPathParams,
+    params: PathIds,
 ) -> Result<StatusCode, Problem<WorkspacesError>> {
-    let user = path_id(&params, "user_id").map(UserId::from_uuid);
+    let user = params.id("user_id").map(UserId::from_uuid);
     let (uow, authorized) = authorize.open().await.map_err(WorkspacesError::from)?;
     let user = user.ok_or(WorkspacesError::MemberNotFound)?;
     service::remove_member(uow, &authorized, user).await?;

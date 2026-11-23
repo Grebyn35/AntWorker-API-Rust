@@ -117,12 +117,14 @@ impl Request {
         self
     }
 
+    // part: github
     /// The request, with `value` as its JSON body.
     #[must_use]
     pub fn json(mut self, value: &serde_json::Value) -> Self {
         self.body = Some(("application/json", value.to_string().into_bytes()));
         self
     }
+    // end part: github
 }
 
 impl std::fmt::Debug for Request {
@@ -184,7 +186,7 @@ impl Configured {
     /// When the TLS configuration, which trusts the operating system's certificates, can't be
     /// built.
     pub fn new(environment: Environment, config: &OutboundConfig) -> Result<Self, OutboundError> {
-        let tls = crate::tls::client_config(true, None)
+        let tls = crate::tls::client_config(true)
             .map_err(|error| OutboundError(format!("the TLS configuration: {error}")))?;
         let client = reqwest::Client::builder()
             .connect_timeout(CONNECT_TIMEOUT)
@@ -223,7 +225,7 @@ impl Configured {
             .instrument(span.clone())
             .await;
         if let Ok(response) = &answered {
-            span.record(names::HTTP_RESPONSE_STATUS_CODE, response.status);
+            span.record(names::HTTP_RESPONSE_STATUS_CODE, i64::from(response.status));
         }
         answered
     }

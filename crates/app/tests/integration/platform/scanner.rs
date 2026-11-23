@@ -6,24 +6,40 @@ use std::{sync::Arc, time::Duration};
 use platform::{
     clock::TestClock,
     scanner::{ScanError, Verdict},
-    telemetry::testing,
+    telemetry::testing::collector::Collector,
 };
 
-use crate::support::scanner::{self, Script};
+use crate::{
+    files::upload_to,
+    support::{
+        Api, counts, files,
+        scanner::{self, Script},
+        users, workspaces,
+    },
+};
 
-/// How many scans ended as `outcome`, in every test that runs alongside.
-fn scans(outcome: &str) -> f64 {
-    testing::recorded("platform.scans")
-        .into_iter()
-        .filter(|point| point.labels.get("scanner.outcome").map(String::as_str) == Some(outcome))
-        .map(|point| point.value)
-        .sum()
+/// The answers to Ada's uploads of `uploads`, each a name and its bytes, to a workspace of hers,
+/// through a `serve` whose scanner is the one at `address`, and the scans that it counted, by how
+/// each ended, such as `clean 1`, once it stopped (TEST-07).
+async fn scanned(address: &str, uploads: &[(&str, &[u8])]) -> (Vec<u16>, Vec<String>) {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let workspace = workspaces::arrange(api.database(), "Acme", &[(&ada.user_id, "owner")]).await;
+    let collector = Collector::start().await.unwrap();
+    let server = files::serving(api.database(), &collector, &[("CLAMD_ADDRESS", address)]).await;
+    let mut answers = Vec::new();
+    for (name, bytes) in uploads {
+        let (status, _) = upload_to(&server, &ada, &workspace, name, bytes, None).await;
+        answers.push(status);
+    }
+    server.stop().await;
+    let counted = counts::of(&collector.received(), "platform.scans", "scanner.outcome");
+    (answers, counted)
 }
 
 #[tokio::test]
 async fn platform_079_a_scan_is_clean_or_names_the_signature_it_found() {
     let client = scanner::scanner();
-    let (clean, found) = (scans("clean"), scans("found"));
 
     let harmless = client.scan(b"hello").await.unwrap();
     let infected = client.scan(&scanner::eicar()).await.unwrap();
@@ -33,16 +49,27 @@ async fn platform_079_a_scan_is_clean_or_names_the_signature_it_found() {
         infected,
         Verdict::Found(scanner::EICAR_SIGNATURE.to_owned())
     );
-    // Tests running alongside scan too, so the counts grow by at least these.
-    assert!(scans("clean") >= clean + 1.0);
-    assert!(scans("found") >= found + 1.0);
+}
+
+#[tokio::test]
+async fn platform_079_a_clean_scan_and_one_that_finds_a_signature_count_by_their_verdicts() {
+    let eicar = scanner::eicar();
+
+    let (answers, counted) = scanned(
+        scanner::ADDRESS,
+        &[("a.txt", b"hello".as_slice()), ("eicar.txt", &eicar)],
+    )
+    .await;
+
+    // Stored, then refused for the signature (FILES-005).
+    assert_eq!(answers, [201, 422]);
+    assert_eq!(counted, ["clean 1", "found 1"]);
 }
 
 #[tokio::test]
 async fn platform_079_clamd_takes_20_mib_and_fails_a_longer_stream() {
     let client = scanner::scanner();
     let largest = 20 * 1024 * 1024;
-    let failed = scans("failed");
 
     let taken = client.scan(&vec![b'a'; largest]).await;
     let refused = client.scan(&vec![b'a'; largest + 1]).await;
@@ -52,19 +79,36 @@ async fn platform_079_clamd_takes_20_mib_and_fails_a_longer_stream() {
     assert!(matches!(error, ScanError::Failed(_)), "{error:?}");
     let cause = format!("{:?}", std::error::Error::source(&error));
     assert!(cause.contains("size limit exceeded"), "{cause}");
-    assert!(scans("failed") >= failed + 1.0);
+}
+
+#[tokio::test]
+async fn platform_079_a_scan_that_clamd_answers_with_an_error_counts_as_failed() {
+    // What clamd answers a stream longer than it takes, which no upload is (FILES-004).
+    let stand_in = scanner::scripted(Script::Answer("INSTREAM size limit exceeded. ERROR")).await;
+
+    let (answers, counted) = scanned(&stand_in.address, &[("a.txt", b"hello")]).await;
+
+    assert_eq!(answers, [500]);
+    assert_eq!(counted, ["failed 1"]);
 }
 
 #[tokio::test]
 async fn platform_079_a_scanner_it_can_t_connect_to_is_unavailable() {
     // Nothing listens on port 9 of the loopback address.
     let client = scanner::client("127.0.0.1:9", Arc::new(TestClock::default()));
-    let unavailable = scans("unavailable");
 
     let error = client.scan(b"hello").await.unwrap_err();
 
     assert!(matches!(error, ScanError::Unavailable(_)), "{error:?}");
-    assert!(scans("unavailable") >= unavailable + 1.0);
+}
+
+#[tokio::test]
+async fn platform_079_a_scan_that_can_t_connect_counts_as_unavailable() {
+    // Nothing listens on port 9 of the loopback address.
+    let (answers, counted) = scanned("127.0.0.1:9", &[("a.txt", b"hello")]).await;
+
+    assert_eq!(answers, [503]);
+    assert_eq!(counted, ["unavailable 1"]);
 }
 
 #[tokio::test]

@@ -1,10 +1,12 @@
-//! Builders of second factors, through the API's own routes (TEST-09), and the codes of an
-//! authenticator app, computed as an app computes them, by the database's clock (AUTH-057).
+//! Builders of second factors, through the API's own routes, or, for more apps than a test sets
+//! up one by one, through the `owner` connection (TEST-09), and the codes of an authenticator
+//! app, computed as an app computes them, by the database's clock (AUTH-057).
 
+use platform::encryption::{Binding, Keyring};
 use serde_json::{Value, json};
 
 use super::{
-    Api,
+    Api, TestDatabase,
     api::Response,
     users::{PASSWORD, SignedIn},
 };
@@ -105,6 +107,35 @@ pub async fn forget_steps(api: &Api, user_id: &str) {
              WHERE user_id = '{user_id}'"
         ))
         .await;
+}
+
+/// Gives each of `users`, by their IDs, an app with a secret of its own, which the current key of
+/// the ring `keys`, listed as `ENCRYPTION_KEYS` lists them, seals, bound to the app's row as a
+/// confirmation of a setup binds it, through the `owner` connection, in one statement, so a test
+/// has more of them than a batch of the code takes (AUTH-066).
+pub async fn apps_sealed_by(db: &TestDatabase, users: &[String], keys: &str) {
+    let ring = Keyring::parse(keys, None).unwrap();
+    let rows: Vec<String> = users
+        .iter()
+        .zip(1_u128..)
+        .map(|(user, n)| {
+            let id = uuid::Uuid::from_u128(n);
+            let binding = Binding::new("totp_factors", "secret", id);
+            let mut secret = [0_u8; 20];
+            secret[..16].copy_from_slice(&n.to_be_bytes());
+            let sealed = ring.seal(&binding, &secret).unwrap();
+            let bytes = super::hex(&sealed.bytes);
+            format!(
+                "('{id}', '{user}', {}, decode('{bytes}', 'hex'), 0)",
+                sealed.version
+            )
+        })
+        .collect();
+    db.owner_executes(&format!(
+        "INSERT INTO totp_factors (id, user_id, key_version, secret, last_used_step) VALUES {}",
+        rows.join(", ")
+    ))
+    .await;
 }
 
 /// Signs `email` in with [`PASSWORD`], for an account with an app, and returns the challenge.

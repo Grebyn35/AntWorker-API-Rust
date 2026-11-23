@@ -2,9 +2,14 @@
 //! placed (DATA-16, D39).
 //! - A table that the migrations create with a `workspace_id` column holds workspace data, unless
 //!   it is listed as platform data. The check reads a table from `CREATE TABLE <name> (`, with the
-//!   columns of the list in those parentheses, and a view from `CREATE VIEW <name>` or `CREATE OR
-//!   REPLACE VIEW <name>`, in the tokens that `views` reads, of each line cut at its first `--`. A
-//!   `CREATE` of a table or a view is a finding when it holds any of the words that
+//!   columns of the list in those parentheses, and the column of each `ALTER TABLE <name> ADD
+//!   COLUMN <column>`, those words one after another, so a statement adds a column as its first
+//!   action. An `ALTER TABLE` is a finding when it holds a `RENAME`, or an `ADD` that none of
+//!   `CONSTRAINT`, `PRIMARY`, `UNIQUE`, `CHECK`, `FOREIGN` and `EXCLUDE` follows other than that
+//!   one, such as an `ADD` without `COLUMN`, or after `IF EXISTS` or `ONLY`, a statement's second
+//!   action, or an `ADD COLUMN IF NOT EXISTS`. It reads a view from `CREATE VIEW <name>` or
+//!   `CREATE OR REPLACE VIEW <name>`, in the tokens that `views` reads, of each line cut at its
+//!   first `--`. A `CREATE` of a table or a view is a finding when it holds any of the words that
 //!   `tables::MODIFIERS` lists between `CREATE` and `TABLE` or `VIEW`, such as `UNLOGGED` or
 //!   `MATERIALIZED`, but for a view's `OR REPLACE`, when `IF` follows its `TABLE` or `VIEW`, when
 //!   its name is no word that starts with a letter or `_`, such as a name in double quotes, or is
@@ -12,7 +17,9 @@
 //!   an `AS` outside parentheses follows that `(`'s list before the statement's `;`, as one does
 //!   where a query fills the table. Each query of one in the code of `platform` and `app`, in a
 //!   `sqlx` macro, names its tenant: a `workspace_id`, or for a table that also has a `user_id`, a
-//!   `user_id`, compared in its `WHERE` or among the columns it inserts. A table of [`ADDRESSED`]
+//!   `user_id`, compared in its `WHERE` or among the columns it inserts. A macro named as one of
+//!   those that `functions::MACROS` lists, `!` after it, is a finding unless it is written
+//!   `sqlx::<macro>!( ... )`, with parentheses, the one form whose query the check reads. A table of [`ADDRESSED`]
 //!   is also reached by the address of the user its rows are addressed to, which their own queries
 //!   name instead.
 //! - A query that a listed function holds is exempt: a function, by its file and its name, of a
@@ -188,7 +195,7 @@ fn check_with(repo: &Repo, addressed: &[(&str, &str)], exempt: &[(&str, &str)]) 
         .collect();
     let tables = tables(repo);
     findings.extend(placements(&tables));
-    findings.extend(unread(repo));
+    findings.extend(tables::refused(repo));
     for file in repo.files() {
         let in_code = CODE.iter().any(|code| file.path.starts_with(code));
         if !file.path.ends_with(".rs") || !in_code {
@@ -201,6 +208,14 @@ fn check_with(repo: &Repo, addressed: &[(&str, &str)], exempt: &[(&str, &str)]) 
                 continue;
             }
         };
+        for line in &held.unread {
+            findings.push(Finding::new(
+                &file.path,
+                *line,
+                "check-tenancy reads a query of a `sqlx` macro written `sqlx::<macro>!( ... )`, \
+                 and no other form, so it checks nothing of this one (DATA-16)",
+            ));
+        }
         for (path, name, count, _) in &mut exemptions {
             if *path == file.path {
                 *count = held.functions.iter().filter(|held| held == name).count();
@@ -242,31 +257,6 @@ fn check_with(repo: &Repo, addressed: &[(&str, &str)], exempt: &[(&str, &str)]) 
         )],
         findings,
     }
-}
-
-/// Every statement of a migration that creates a table or a view in a form the check doesn't
-/// read.
-fn unread(repo: &Repo) -> Vec<Finding> {
-    let migrations = repo
-        .files()
-        .filter(|file| file.path.starts_with(MIGRATIONS) && file.path.ends_with(".sql"));
-    migrations
-        .flat_map(|file| {
-            tables::unread(&file.text).into_iter().map(|(line, statement)| {
-                Finding::new(
-                    &file.path,
-                    line,
-                    format!(
-                        "`{statement}`: check-tenancy reads a table from `CREATE TABLE <name> (`, \
-                         which no `AS` follows, and a view from `CREATE VIEW <name>` or `CREATE OR \
-                         REPLACE VIEW <name>`, each name a word without quotes or a schema's name, \
-                         as the doc of crates/xtask/src/tenancy/mod.rs says, so it places and \
-                         checks nothing of what this statement creates (DATA-16)"
-                    ),
-                )
-            })
-        })
-        .collect()
 }
 
 /// Every table without a `workspace_id`, and every view of no workspace data, that the lists
@@ -611,6 +601,40 @@ CREATE TABLE notes (id uuid PRIMARY KEY, body text);
     }
 
     #[test]
+    fn data_16_a_sqlx_macro_in_a_form_the_check_doesn_t_read_is_found() {
+        let code = r#"
+            use sqlx::query;
+            fn f() {
+                sqlx::query!("SELECT name FROM things WHERE workspace_id = $1", id);
+                ::sqlx::query_scalar!("SELECT name FROM things WHERE workspace_id = $1", id);
+                query!("SELECT name FROM things");
+                sqlx::query_as! { "SELECT name FROM things" };
+                sqlx::query![
+                    "SELECT name FROM things"
+                ];
+                other::query!("SELECT 1");
+            }
+        "#;
+
+        let found = findings(code);
+
+        let lines: Vec<&str> = found
+            .iter()
+            .filter(|finding| finding.contains("and no other form"))
+            .map(|finding| finding.split(": ").next().unwrap())
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                "crates/app/src/modules/things/repo.rs:6",
+                "crates/app/src/modules/things/repo.rs:7",
+                "crates/app/src/modules/things/repo.rs:8",
+                "crates/app/src/modules/things/repo.rs:11",
+            ]
+        );
+    }
+
+    #[test]
     fn data_16_a_view_holds_its_table_s_rows_so_its_queries_name_their_tenant() {
         let migrations = format!(
             "{MIGRATION}CREATE VIEW old_things AS\nSELECT id, name FROM things WHERE name <> '';\n\
@@ -928,7 +952,7 @@ CREATE TABLE v
             "migrations/1_things.sql",
             "\nCREATE TABLE public.e (id uuid);",
         )]);
-        let found: Vec<String> = super::unread(&repo)
+        let found: Vec<String> = tables::refused(&repo)
             .iter()
             .map(ToString::to_string)
             .collect();
@@ -942,6 +966,55 @@ CREATE TABLE v
                  says, so it places and checks nothing of what this statement creates (DATA-16)"
             ]
         );
+    }
+
+    #[test]
+    fn data_16_a_column_that_alter_table_adds_is_its_table_s() {
+        let repo = Repo::of(&[
+            ("migrations/1_notes.sql", "CREATE TABLE notes (id uuid);\n"),
+            (
+                "migrations/2_tenant.sql",
+                "ALTER TABLE notes ADD COLUMN workspace_id uuid,\n    \
+                 ADD CONSTRAINT notes_body_check CHECK (true);\n\
+                 ALTER TABLE notes ADD CONSTRAINT notes_id_check CHECK (true);\n",
+            ),
+        ]);
+
+        assert_eq!(tables(&repo)["notes"].columns, ["id", "workspace_id"]);
+    }
+
+    #[test]
+    fn data_16_a_column_added_in_a_form_the_check_doesn_t_read_is_found() {
+        let read = "\
+ALTER TABLE notes ADD COLUMN workspace_id uuid,
+    ADD CONSTRAINT notes_body_check CHECK (true);
+ALTER TABLE notes ADD CONSTRAINT notes_id_check CHECK (true), ADD UNIQUE (id);
+ALTER TABLE notes VALIDATE CONSTRAINT notes_id_check;
+ALTER TABLE notes
+    ADD PRIMARY KEY (id);
+";
+        let unread = "\
+ALTER TABLE notes ADD workspace_id uuid;
+ALTER TABLE notes ADD COLUMN IF NOT EXISTS user_id uuid;
+ALTER TABLE IF EXISTS notes ADD COLUMN user_id uuid;
+ALTER TABLE ONLY notes ADD COLUMN user_id uuid;
+ALTER TABLE public.notes ADD COLUMN user_id uuid;
+ALTER TABLE notes DROP COLUMN body, ADD COLUMN user_id uuid;
+alter table notes add column body text,
+    add column user_id uuid;
+ALTER TABLE notes RENAME COLUMN body TO workspace_id;
+ALTER TABLE notes RENAME TO others;
+";
+        let lines = |text: &str| -> Vec<usize> {
+            let repo = Repo::of(&[("migrations/1_notes.sql", text)]);
+            tables::refused(&repo)
+                .iter()
+                .map(|finding| finding.line)
+                .collect()
+        };
+
+        assert_eq!(lines(read), Vec::<usize>::new());
+        assert_eq!(lines(unread), [1, 2, 3, 4, 5, 6, 7, 9, 10]);
     }
 
     #[test]

@@ -61,10 +61,11 @@ impl Deletion {
         if !access::erasable(uow, principal).await? {
             return Ok(Outcome::OwnsSharedWorkspace);
         }
-        // A running job of an export of theirs holds its export's row from its first statement,
-        // and the user's `FOR KEY SHARE` once it has inserted a row that names them, until it
-        // commits what names them; the deletion refuses at once rather than waiting for it
-        // (ACCOUNTS-016). A lock that times out ends the unit of work, so nothing follows it.
+        // A running job of an export of theirs holds its export's row from its first statement
+        // after the one that sets its isolation level, and the user's `FOR KEY SHARE` once it has
+        // inserted a row that names them, until it commits what names them; the deletion refuses
+        // at once rather than waiting for it (ACCOUNTS-016). A lock that times out ends the unit
+        // of work, so nothing follows it.
         uow.wait_for_locks_at_most(NO_WAIT).await?;
         if !exports::hold_all(uow, principal.user_id()).await? {
             return Ok(Outcome::AccountChanged);

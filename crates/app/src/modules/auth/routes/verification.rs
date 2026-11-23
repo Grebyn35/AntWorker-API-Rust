@@ -104,7 +104,7 @@ async fn request_code(
     tag = "auth",
     request_body = ConfirmationRequest,
     responses(
-        (status = 200, description = "The session, without its tokens, whose account no longer needs to verify its address.", body = Session),
+        (status = 200, description = "The session, without its tokens, whose `email_verification_required` is false.", body = Session),
     )
 )]
 async fn confirm_code(

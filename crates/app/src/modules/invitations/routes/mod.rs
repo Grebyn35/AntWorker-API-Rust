@@ -3,15 +3,12 @@
 
 mod managing;
 
-use axum::{
-    extract::{RawPathParams, State},
-    http::StatusCode,
-};
+use axum::{extract::State, http::StatusCode};
 use platform::{
     authn::Principal,
     authz::Authorize,
     errors::{Problem, RequestError},
-    http::{FieldErrors, Idempotent, Query, ResourceResponse, Routes, path_id},
+    http::{FieldErrors, Idempotent, PathIds, Query, ResourceResponse, Routes},
     idempotency::IdempotencyKey,
     lists::{Cursor, Limit, List, Page, Search},
     rate_limit::RateLimits,
@@ -203,9 +200,9 @@ async fn accept(
     State(invitations): State<Invitations>,
     client: Client,
     principal: Principal,
-    params: RawPathParams,
+    params: PathIds,
 ) -> Result<axum::Json<Accepted>, Problem<InvitationsError>> {
-    let id = path_id(&params, "invitation_id");
+    let id = params.id("invitation_id");
     let accepted = service::accept(&invitations.database, &client, &principal, id).await?;
     Ok(axum::Json(accepted))
 }
@@ -226,9 +223,9 @@ async fn decline(
     State(invitations): State<Invitations>,
     client: Client,
     principal: Principal,
-    params: RawPathParams,
+    params: PathIds,
 ) -> Result<StatusCode, Problem<InvitationsError>> {
-    let id = path_id(&params, "invitation_id");
+    let id = params.id("invitation_id");
     service::decline(&invitations.database, &client, &principal, id).await?;
     Ok(StatusCode::NO_CONTENT)
 }

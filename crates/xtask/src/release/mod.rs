@@ -74,7 +74,8 @@ pub fn refusal(state: &State, requested: Version) -> Option<String> {
     if !state.changed.is_empty() {
         return Some(format!(
             "There are changes that aren't committed: {}. Commit them, or set them aside with \
-             `git stash`, and run this again.",
+             `git stash --include-untracked`, which takes untracked files too, and run this \
+             again.",
             state.changed.join(", ")
         ));
     }
@@ -506,7 +507,7 @@ mod tests {
         let cases: [(Change, &str); 3] = [
             (
                 |state| state.changed = vec!["justfile".to_owned()],
-                "git stash",
+                "git stash --include-untracked",
             ),
             (
                 |state| state.branch = "feature".to_owned(),

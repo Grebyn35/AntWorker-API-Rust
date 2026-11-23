@@ -155,9 +155,12 @@ impl Exports {
     }
 
     /// What a download of the caller's export `id` serves, as `wanted` asks for it: its archive,
-    /// laid out from its documents and any other entries a module holds for it, recording
-    /// `export.downloaded` in the caller's own log when it serves bytes, in a unit of work
-    /// of `client`'s request that commits before the bytes stream (ACCOUNTS-026, D126).
+    /// laid out from its documents,
+    // part: files
+    /// and from the files that it holds,
+    // end part: files
+    /// recording `export.downloaded` in the caller's own log when it serves bytes, in a unit of
+    /// work of `client`'s request that commits before the bytes stream (ACCOUNTS-026, D126).
     pub(in crate::modules::accounts) async fn download(
         &self,
         client: &Client,
@@ -254,7 +257,8 @@ impl Exports {
         id: uuid::Uuid,
     ) -> Result<(), JobFailure> {
         let mut uow = self.database.for_snapshot_job(context).await?;
-        // The first statement, which locks the export's row before any other write (DATA-20).
+        // The first statement after the one that sets the isolation level, which locks the
+        // export's row before any write (DATA-20).
         if stored::lock(&mut uow, user, id).await? != Some(ExportState::Pending) {
             return Ok(());
         }
@@ -364,8 +368,10 @@ impl ExportStore for Store {
     }
 }
 
-/// Where a download's bytes come from: the documents of `user`'s export, in the database, and
-/// any other entries a module holds for it.
+/// Where a download's bytes come from: the documents of `user`'s export, in the database.
+// part: files
+/// The files that it holds come from the bucket.
+// end part: files
 #[derive(Clone)]
 struct Sources {
     database: Database,
@@ -391,20 +397,18 @@ impl Sources {
             .boxed()
     }
 
-    /// The stored bytes at `offsets` of the entry at `index`: a document's, which come first,
-    /// or another entry's that a module holds.
+    /// The stored bytes at `offsets` of the archive's entry at `index`. A document's deflated
+    /// bytes are read a few chunks at a time, each read in a transaction of its own, so a slow
+    /// client holds no transaction open.
+    // part: files
+    /// The documents come first, and the files that the archive holds after them.
+    // end part: files
     fn entry(self, index: usize, offsets: Range<u64>) -> ArchiveBytes {
         // part: files
         if let Some(file) = index.checked_sub(self.positions.len()) {
             return self.file(file, offsets);
         }
         // end part: files
-        self.document(index, offsets)
-    }
-
-    /// The deflated bytes at `offsets` of the archive's document at `index`, read a few chunks at
-    /// a time, each read in a transaction of its own, so a slow client holds no transaction open.
-    fn document(self, index: usize, offsets: Range<u64>) -> ArchiveBytes {
         let Some(&position) = self.positions.get(index) else {
             return stream::once(async {
                 Err(Internal::new("an archive's entry that no document is"))

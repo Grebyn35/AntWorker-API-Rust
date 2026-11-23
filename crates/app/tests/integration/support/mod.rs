@@ -25,6 +25,7 @@ pub mod bucket;
 pub mod budgets;
 pub mod cleanup;
 mod contract;
+pub mod counts;
 pub mod events;
 // part: files
 pub mod files;
@@ -63,12 +64,14 @@ use std::{
         Mutex, PoisonError,
         atomic::{AtomicU32, Ordering},
     },
+    time::Duration,
 };
 
 use platform::{
     blocking::Workers,
     config::BootstrapConfig,
     db::{Admin, Database, DatabaseUrl, migrate, testing},
+    telemetry::testing::collector::Collector,
 };
 use serde_json::Value;
 use sqlx::{AssertSqlSafe, Connection, PgConnection, migrate::Migrator};
@@ -99,6 +102,16 @@ pub fn client() -> platform::types::Client {
         user_agent: Some("tests".to_owned()),
     }
 }
+
+/// `bytes` in lowercase hexadecimal, as a trace's or a span's ID is written, and as Postgres's
+/// `decode(..., 'hex')` reads them.
+pub fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// How often the hub checks its listener, for readiness (PLATFORM-061), and tries again what it
+/// owes (PLATFORM-033), as `platform::events` checks it.
+pub const CHECK_INTERVAL: Duration = Duration::from_secs(5);
 
 /// The port of the tests' Postgres, whose data is in memory, as `compose.yaml` publishes it on
 /// the loopback address: the tests' databases are on that server, with the roles and the
@@ -245,21 +258,39 @@ impl TestDatabase {
     }
 
     /// Runs the API binary with `args`, as an operator would, with its database settings
-    /// pointing at this database and `env` added to its environment. Returns its exit status
-    /// and everything it printed.
+    /// pointing at this database and `env` added to its environment, in place of any of those
+    /// settings that it names. Returns its exit status and everything it printed.
     pub async fn run_api<V: AsRef<OsStr>>(&self, args: &[&str], env: &[(&str, V)]) -> Output {
         run(self.api_command(args, env)).await
     }
 
     /// Starts `serve` from the API binary, as an operator would, on a free port of 127.0.0.1,
     /// with its database settings pointing at this database and `env` added to its
-    /// environment. It returns once the server listens, which it does before it builds its
-    /// services, which read the database, so a test that cuts the database off waits for the
-    /// readiness probe first (TEST-06).
+    /// environment, in place of any of those settings that it names. It returns once the server
+    /// listens, which it does before it builds its services, which read the database, so a test
+    /// that cuts the database off waits for the readiness probe first (TEST-06).
     pub async fn serve(&self, env: &[(&str, &str)]) -> Server {
         let mut command = self.api_command(&["serve"], env);
         command.env("LISTEN_ADDR", "127.0.0.1:0");
-        Server::start(command).await
+        // The last value of a setting is the one the binary reads.
+        let production = env
+            .iter()
+            .rev()
+            .find(|(name, _)| *name == "ENVIRONMENT")
+            .is_some_and(|(_, environment)| *environment == "production");
+        Server::start(command, production).await
+    }
+
+    /// Starts `serve` as [`TestDatabase::serve`] does, in production, exporting its telemetry to
+    /// `collector`, and with `env` in place of any of those settings that it names.
+    pub async fn exporting_to(&self, collector: &Collector, env: &[(&str, &str)]) -> Server {
+        let endpoint = collector.endpoint();
+        let mut settings = vec![
+            ("ENVIRONMENT", "production"),
+            ("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint.as_str()),
+        ];
+        settings.extend_from_slice(env);
+        self.serve(&settings).await
     }
 
     fn api_command<V: AsRef<OsStr>>(&self, args: &[&str], env: &[(&str, V)]) -> Command {
@@ -273,7 +304,6 @@ impl TestDatabase {
         // only when asked; a test that stores a file runs the API in process.
         command.env("S3_ENDPOINT", "https://bucket.invalid");
         // end part: files
-        command.envs(env.iter().map(|(name, value)| (name, value)));
         // The test's database on the tests' Postgres, as `settings` reaches it.
         for setting in ["DATABASE_ADMIN_URL", "DATABASE_OWNER_URL", "DATABASE_URL"] {
             let mut url =
@@ -283,6 +313,9 @@ impl TestDatabase {
             url.set_port(Some(TESTS_POSTGRES)).expect("a port");
             command.env(setting, url.as_str());
         }
+        // After the database's settings, so that a test may name a database of its own, such as
+        // one that no connection reaches.
+        command.envs(env.iter().map(|(name, value)| (name, value)));
         command
     }
 
@@ -511,17 +544,18 @@ pub async fn http_exchange(
     method: &str,
     path: &str,
     headers: &[(&str, &str)],
-    body: &str,
+    body: impl AsRef<[u8]>,
 ) -> io::Result<String> {
     let mut stream = TcpStream::connect(address).await?;
     let headers: String = headers
         .iter()
         .map(|(name, value)| format!("{name}: {value}\r\n"))
         .collect();
-    let request = format!(
-        "{method} {path} HTTP/1.1\r\nHost: api\r\n{headers}Connection: close\r\n\r\n{body}"
-    );
-    stream.write_all(request.as_bytes()).await?;
+    let mut request =
+        format!("{method} {path} HTTP/1.1\r\nHost: api\r\n{headers}Connection: close\r\n\r\n")
+            .into_bytes();
+    request.extend_from_slice(body.as_ref());
+    stream.write_all(&request).await?;
     let mut response = String::new();
     stream.read_to_string(&mut response).await?;
     Ok(response)
@@ -533,10 +567,13 @@ pub struct Server {
     lines: mpsc::UnboundedReceiver<String>,
     address: SocketAddr,
     started: Vec<Value>,
+    /// Whether it runs in production, which writes each line as JSON, where development and the
+    /// tests' environment write them for people (OBS-01).
+    production: bool,
 }
 
 impl Server {
-    async fn start(mut command: Command) -> Self {
+    async fn start(mut command: Command, production: bool) -> Self {
         let mut child = command
             .stdout(Stdio::piped())
             .spawn()
@@ -555,6 +592,7 @@ impl Server {
             lines,
             address: SocketAddr::from(([127, 0, 0, 1], 0)),
             started: Vec::new(),
+            production,
         };
         loop {
             let line = server.line(|_| true).await;
@@ -590,7 +628,9 @@ impl Server {
     }
 
     /// The next line the server writes for which `matches` holds, as JSON. Panics if the
-    /// server exits first.
+    /// server exits first, or if a line of a server in production isn't JSON. A line written for
+    /// people is `{"text": <the line>}`, without its escape codes, and the line of `listening`
+    /// also gives its `message` and its `server.port`.
     pub async fn line(&mut self, matches: impl Fn(&Value) -> bool) -> Value {
         loop {
             let line = self
@@ -598,12 +638,21 @@ impl Server {
                 .recv()
                 .await
                 .expect("the server exited before writing the line");
-            let value: Value = serde_json::from_str(&line)
-                .map_err(|_| format!("a line that isn't JSON: {line}"))
-                .unwrap();
+            let value = self.read(&line);
             if matches(&value) {
                 return value;
             }
+        }
+    }
+
+    /// `line`, one that the server wrote, as JSON, as [`Server::line`] gives it.
+    fn read(&self, line: &str) -> Value {
+        if self.production {
+            serde_json::from_str(line)
+                .map_err(|_| format!("a line that isn't JSON: {line}"))
+                .unwrap()
+        } else {
+            for_people(line)
         }
     }
 
@@ -614,6 +663,93 @@ impl Server {
             .await
             .expect("a response from the server")
     }
+
+    /// Sends `body` with `method` to `path`, with `headers` and the body's length, and returns the
+    /// answer's status, and its body as JSON, or null for a body that isn't JSON.
+    pub async fn send(
+        &self,
+        method: &str,
+        path: &str,
+        headers: &[(&str, &str)],
+        body: &[u8],
+    ) -> (u16, Value) {
+        sent::sent(method, path);
+        let length = body.len().to_string();
+        let mut headers = headers.to_vec();
+        headers.push(("content-length", &length));
+        let answer = http_exchange(self.address, method, path, &headers, body)
+            .await
+            .expect("a response from the server");
+        let (head, body) = answer.split_once("\r\n\r\n").expect("a head and a body");
+        let status = head
+            .split(' ')
+            .nth(1)
+            .and_then(|status| status.parse().ok())
+            .expect("a status");
+        (status, serde_json::from_str(body).unwrap_or(Value::Null))
+    }
+
+    /// Sends the server SIGTERM, as an operator's stop does, and waits until it has exited, which
+    /// it does once it has written out its telemetry (PLATFORM-062, PLATFORM-068), so a collector
+    /// that it exported to then holds every count it made. Returns each line that it wrote after
+    /// the last one that [`Server::line`] read, as that reads them, and panics as that does on a
+    /// line of a server in production that isn't JSON.
+    pub async fn stop(mut self) -> Vec<Value> {
+        let mut kill = Command::new("kill");
+        kill.args(["-TERM", &self.child.id().to_string()]);
+        let signalled = run(kill).await;
+        assert!(signalled.status.success(), "{signalled:?}");
+        let mut lines = Vec::new();
+        // Its stdout closes as it exits.
+        while let Some(line) = self.lines.recv().await {
+            lines.push(self.read(&line));
+        }
+        lines
+    }
+
+    /// Sends `body` as JSON to `path`, in the trace `trace`, whose ID is 32 hexadecimal digits,
+    /// and returns the whole response as text.
+    pub async fn post_in_trace(&self, path: &str, body: &Value, trace: &str) -> String {
+        let body = body.to_string();
+        http_exchange(
+            self.address,
+            "POST",
+            path,
+            &[
+                ("traceparent", &format!("00-{trace}-b7ad6b7169203331-01")),
+                ("content-type", "application/json"),
+                ("content-length", &body.len().to_string()),
+            ],
+            &body,
+        )
+        .await
+        .expect("a response from the server")
+    }
+}
+
+/// A line that a server writes for people, as [`Server::line`] gives it: development's format,
+/// `<time> <level> <target>: <message> <name>=<value> ...`, with the escape codes of its colors.
+fn for_people(line: &str) -> Value {
+    let mut text = String::new();
+    let mut chars = line.chars();
+    while let Some(char) = chars.next() {
+        if char == '\u{1b}' {
+            // An escape code runs to its letter.
+            chars.find(char::is_ascii_alphabetic);
+        } else {
+            text.push(char);
+        }
+    }
+    let mut value = serde_json::json!({ "text": text });
+    let port = text
+        .split_once(": listening ")
+        .and_then(|(_, fields)| fields.split_once("server.port="))
+        .and_then(|(_, port)| port.split(' ').next()?.parse::<u16>().ok());
+    if let Some(port) = port {
+        value["message"] = "listening".into();
+        value["server.port"] = port.into();
+    }
+    value
 }
 
 impl Drop for Server {
@@ -686,6 +822,20 @@ pub async fn query_waits_on_a_lock(db: &TestDatabase, text: &str) {
         .any(|query| query.contains(text))
     {
         tokio::task::yield_now().await;
+    }
+}
+
+/// What `request` answers, or none once a query of the test database waits on a lock first: a
+/// test holds a lock that a request must not wait for, such as one on a row that it reads only
+/// once a limit lets it through, and the request answers, or comes to wait on the lock, with no
+/// bound of its own (TEST-06).
+pub async fn answer_before_a_lock_wait<T>(
+    db: &TestDatabase,
+    request: impl std::future::Future<Output = T>,
+) -> Option<T> {
+    tokio::select! {
+        answer = request => Some(answer),
+        () = queries_wait_on_locks(db, 1) => None,
     }
 }
 

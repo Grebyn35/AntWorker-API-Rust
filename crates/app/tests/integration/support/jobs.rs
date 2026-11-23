@@ -20,3 +20,19 @@ pub async fn enqueued(db: &TestDatabase, kind: &str, payload: &Value, traceparen
     ))
     .await;
 }
+
+// part: files
+/// Gives the periodic jobs `names` the schedule of a run due a day from now, as one that ran
+/// does, through the `owner` connection, so a `serve` that starts on `db` runs none of them
+/// while the test runs (PLATFORM-015).
+pub async fn not_due(db: &TestDatabase, names: &[&str]) {
+    for name in names {
+        db.owner_executes(&format!(
+            "INSERT INTO job_schedules (name, next_run_at) VALUES ('{name}', now() + interval \
+             '1 day') ON CONFLICT ON CONSTRAINT job_schedules_name_key DO UPDATE SET next_run_at \
+             = EXCLUDED.next_run_at"
+        ))
+        .await;
+    }
+}
+// end part: files

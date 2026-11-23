@@ -25,6 +25,9 @@ use crate::modules::{
     },
 };
 
+/// How long a session's proof of who its user is lasts for a sensitive action (AUTH-023).
+const PROOF_MINUTES: i32 = 5;
+
 /// Refuses, with 403 `request.reauthentication_required`, unless the session that authenticated
 /// the caller proved who they are within the last 5 minutes, by the database's clock, as its
 /// `authenticated_at` records, read in `uow` without a lock (AUTH-023, AUTH-044, AUTH-045,
@@ -36,7 +39,8 @@ pub(crate) async fn require_recent_proof(
     uow: &mut UnitOfWork,
     principal: &Principal,
 ) -> Result<(), AuthError> {
-    match repo::recently_authenticated(uow, principal.user_id(), principal.session_id()).await? {
+    let (user_id, session_id) = (principal.user_id(), principal.session_id());
+    match repo::recently_authenticated(uow, user_id, session_id, PROOF_MINUTES).await? {
         Some(true) => Ok(()),
         Some(false) => Err(RequestError::ReauthenticationRequired.into()),
         None => Err(RequestError::Unauthenticated.into()),

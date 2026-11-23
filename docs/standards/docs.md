@@ -5,7 +5,7 @@
 ### DOC-01 Docs and comments describe the system as it is
 No document or comment records what changed, what something replaced, what an earlier version did, who asked for it, or when it was written. An edit rewrites the text it affects so that it reads as if it had always said that: it adds no "update", "note" or dated paragraph, and strikes nothing through. History has its homes in DOC-07: the commit messages, the architecture decision records (ADRs) and `CHANGELOG.md`. The migration workspace is the exception: the tracker records the migration's progress (DOC-14), and the inventory describes the old codebase (DOC-13).
 - Why: history goes stale, readers need the current state, not the path to it, and an edited document must read as one description (D27).
-- Check: `ci: check-docs` flags the common markers, outside the changelog and the ADRs (`previously`, `no longer`, `used to`, `legacy`, `now uses`, and dates in comments, where a comment starts as the doc comment of `comment` in [`text.rs`](../../crates/xtask/src/text.rs) says), and a path to a Rust file, such as `events/hub.rs`, or a Rust file's name alone between backticks, such as `jobs.rs`, that names no file of the repository, plus `review`.
+- Check: `ci: check-docs` flags the common markers, outside the changelog and the ADRs (`previously`, `no longer`, `used to`, `legacy`, `now uses`, and dates in comments, where a comment starts as the doc comment of `comment` in [`text.rs`](../../crates/xtask/src/text.rs) says), the history markers on each line of `openapi.json` too, which holds the strings of each route's `#[utoipa::path]`, as the line is written, its JSON escapes such as `\n` left as they are, plus `review`. The check also fails on a path to a Rust file, such as `events/hub.rs`, or a Rust file's name alone between backticks, such as `jobs.rs`, that names no file of the repository, and on a Rust file of `crates/app/src/composition/` that the layout of `app` in architecture.md doesn't name, as the doc of `composition` in [`listings.rs`](../../crates/xtask/src/docs/listings.rs) says it reads the layout.
 
 ## The documentation set
 
@@ -44,12 +44,12 @@ A new kind of document needs a rule change.
 - Check: `ci: check-docs` (no Markdown files outside these locations, except the migration workspace in DOC-13).
 
 ### DOC-06 Docs are written for a developer new to the codebase
-Each technical term is defined in the glossary or in the sentence where it first appears. An acronym is spelled out where a document first uses it: it stands alone in parentheses right after the words it abbreviates, as in "Simple Mail Transfer Protocol (SMTP)", or those words stand in parentheses right after it, or after the hyphenated name it starts. The glossary lists the exceptions: the acronyms a developer is assumed to know, and the names written in capitals, such as SHA. Sentences use the active voice, and the same term is used throughout (CODE-11).
+Each technical term is defined in the glossary or in the sentence where it first appears. An acronym is spelled out where a document first uses it: it stands alone in parentheses right after the words it abbreviates, as in "Simple Mail Transfer Protocol (SMTP)", or those words stand in parentheses right after it, or after the hyphenated name it starts. The glossary lists the exceptions: the acronyms a developer is assumed to know, and the names written in capitals, such as SHA, each of which a document uses. The same term is used throughout (CODE-11).
 - Why: the reader is often someone who forked the template yesterday.
-- Check: `ci: check-docs` (where each acronym is first used, outside the migration workspace), plus `review`.
+- Check: `ci: check-docs` (where each acronym is first used, outside the migration workspace, and that a line of a document other than the glossary's list uses each word that the list names, as the doc of `crates/xtask/src/acronyms.rs` says), plus `review`.
 
 ### DOC-07 A fact lives in one place
-Each kind of fact has one home, listed below. A fact is written in its home as soon as it is known, and every other mention links to it or cites its ID instead of restating it.
+Each kind of fact has one home, listed below. A fact is written in its home as soon as it is known, and every other mention links to it or cites its ID instead of restating it. The threat model restates a behavior's number beside the ID that holds it, where a row says how large a mitigation is.
 
 | Fact | Home |
 |---|---|
@@ -80,12 +80,13 @@ Each kind of fact has one home, listed below. A fact is written in its home as s
 - The spec README's index links every spec.
 - A module's spec lists, in its Routes table, each operation that `openapi.json` documents for the module, with its access level. Each operation names its module as its first tag. Once the module is built, its Routes table lists no operation the document lacks; until then, the table is the plan.
 - A rule follows the format in the [standards README](README.md#rule-format): a heading with its ID and its name, the statement, a `Why` line, and a `Check` line that starts with one of the kinds of check the README lists, after which only the items of a list nested under it follow. Its ID starts with the prefix the README gives its file.
-- Every table in a document, a block of lines whose first character other than whitespace is `|`, has a delimiter row under its header, and a blank line after it unless it ends the document. Every row, the delimiter row among them, has as many cells as the header: one pipe at each end of a row bounds it, and a pipe that follows a backslash belongs to its cell.
+- Every table in a document, a block of lines whose first character other than whitespace is `|`, has a delimiter row under its header, and a blank line after it unless it ends the document. Every row, the delimiter row among them, has as many cells as the header: one pipe at each end of a row bounds it, and a pipe that follows a backslash belongs to its cell. Outside the migration workspace, the specs and the changelog, a table has a row under its delimiter row, and a heading has a line of text under it before the next heading of its level or a higher one.
 - Why: every document of a kind reads the same way, and an edit that changes a document's shape fails CI instead of waiting for a reader to notice (D27).
 - Check: `ci: check-docs`, which also reads the `tag` of each `#[utoipa::path]` under `crates/app/src/modules/<module>/` and fails unless it is `<module>`, plus `review` (a spec lists the routes its module serves outside `openapi.json`, such as the health probes).
 
 ### DOC-15 Sentences, paragraphs and cells are bounded
 A sentence of a document holds at most 100 words, a paragraph or an item of a list at most 300, and a cell of a table at most 200. The doc comment of [`words.rs`](../../crates/xtask/src/words.rs) says what the check counts as a word, as a sentence, and as each of those blocks. The migration workspace is exempt (DOC-13).
+A line that holds only a part's marker ends no paragraph for the check: it goes when a fork chooses its parts (ARCH-07), and the lines around it are one paragraph from then on. <!-- part: removal -->
 - Why: a reviewer answers a statement one guarantee at a time, and a reader new to the codebase holds only so much of a sentence; a bound that a check holds every document to has each place over it split, where a reader's taste would choose some (D217).
 - Check: `ci: check-docs`.
 
@@ -107,9 +108,9 @@ An ADR has four sections: context, decision, consequences and status. After it i
 - Check: `test` (what a release refuses of the changelog), plus `review`.
 
 ### DOC-12 Links and IDs resolve
-Every link in the docs, and in a Rust file's doc comments, resolves, to one heading where it names an anchor, so no two headings of a document share their text. Every rule ID or behavior ID cited in a document, comment or test exists, and so does the ID whose test prefix a document or comment cites, such as `workspaces_005_`. Two places are exempt from both: the inventory, whose IDs are its own (DOC-13), and the tests of the checks in `crates/xtask/`, whose documents and code, links among them, are made up for a check to read, and name files and modules that no repository need have. Every CI check a rule names is listed in the table of checks in `docs/operations/ci.md`, or, while the migration runs, in the tracker's CI checks.
+Every link in the docs, and in a Rust file's doc comments, resolves, to one heading where it names an anchor, so no two headings of a document share their text, but in `CHANGELOG.md`, whose sections each repeat the headings that Keep a Changelog gives a release (DOC-11), and whose repeated headings no link names. Every rule ID or behavior ID cited in a document, comment or test exists, and so does the ID whose test prefix a document or comment cites, such as `workspaces_005_`. The inventory, whose IDs are its own (DOC-13), is exempt from the IDs and from the headings' texts, while its links resolve. The tests of the checks in `crates/xtask/` are exempt from the links and the IDs both, since their documents and code, links among them, are made up for a check to read, and name files and modules that no repository need have. Every CI check a rule names is listed in the table of checks in `docs/operations/ci.md`, or, while the migration runs, in the tracker's CI checks.
 - Why: a broken reference is a silent lie.
-- Check: `ci: check-docs`, plus `ci: check-doc-links` (a doc comment's link to an item of the code, which rustdoc resolves).
+- Check: `ci: check-docs`, which reads a file's comments where the doc of `comment` in [`text.rs`](../../crates/xtask/src/text.rs) says it finds them, plus `ci: check-doc-links` (a doc comment's link to an item of the code, which rustdoc resolves). Nothing checks a link to another site.
 
 ## The migration workspace
 
@@ -119,12 +120,13 @@ Documents and comments describe only this codebase. The one exception is the mig
 - `docs/MIGRATION.md`, the tracker, records the migration (DOC-14).
 - Neither is held to the bounds on a document's words (DOC-15).
 - `CLAUDE.md` may point to the inventory, so a session can look up old behavior.
+- `docs/standards/docs.md`, which holds this rule, names the inventory and what it describes.
 - The `conformance-review` skill in `.claude/skills/` reads the inventory's `decision-trace.md`, so the review of a build-order part first settles the commitments the trace gives that part.
 - Until the ADRs are written, documents cite decisions by their IDs, such as D4, and `docs/architecture.md` and the tracker link to the decisions' records: the inventory's for D1 to D36, and the tracker's decisions for later ones.
 
 When the migration completes, the workspace is deleted, and these exceptions with it.
 - Why: a fork's developers never saw any other codebase, so references to one mean nothing to them.
-- Check: `ci: check-docs` (known names of other codebases, the phrases that name one, and a path into the inventory, in any file but the places above and a Rust file's code, which names what a check checks), plus `review`.
+- Check: `ci: check-docs` (known names of other codebases, in any file but the migration workspace, and the phrases that name one and a path into the inventory, in any file but the places above, each outside a Rust file's code, which names what a check checks), plus `review`.
 
 ### DOC-14 The tracker holds status, not content
 While the migration runs, `docs/MIGRATION.md` records its progress, which DOC-01 otherwise forbids. It holds status and pointers. Every other fact lives in its home (DOC-07). Its sections, in this order:

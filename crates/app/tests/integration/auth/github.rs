@@ -1,10 +1,13 @@
-//! GitHub, through OAuth 2.0 (AUTH-083), against a stand-in of its endpoints.
+//! GitHub, through OAuth 2.0 (AUTH-083, AUTH-102), against a stand-in of its endpoints.
 
 use serde_json::{Value, json};
 
-use platform::telemetry::testing;
-
-use crate::support::{Api, Options, api, api::Response, providers::VERIFIER, upstream::Upstream};
+use crate::support::{
+    Api, Options, api,
+    api::Response,
+    providers::{VERIFIER, kept_token_logged},
+    upstream::Upstream,
+};
 
 /// A stand-in of GitHub's endpoints, and an API with GitHub's client.
 async fn github() -> (Upstream, Api) {
@@ -112,6 +115,24 @@ async fn auth_083_github_signs_in_with_its_numeric_id_and_primary_address_and_de
 }
 
 #[tokio::test]
+async fn auth_083_github_s_name_names_the_account_before_its_login() {
+    let (upstream, api) = github().await;
+    gives(
+        &upstream,
+        json!({ "id": 583231, "login": "octo-ada", "name": "Ada Lovelace" }),
+        primary("ada@example.com"),
+    );
+
+    let response = sign_in(&api).await;
+
+    assert_eq!(response.status, 201, "{}", response.json());
+    assert_eq!(
+        api.database().owner_reads("SELECT name FROM users").await,
+        ["Ada Lovelace"]
+    );
+}
+
+#[tokio::test]
 async fn auth_083_a_deletion_that_fails_refuses_nothing() {
     let (upstream, api) = github().await;
     gives(
@@ -129,19 +150,10 @@ async fn auth_083_a_deletion_that_fails_refuses_nothing() {
     let response = sign_in(&api).await;
 
     assert_eq!(response.status, 201, "{}", response.json());
-    let logged = testing::all_logged()
-        .into_iter()
-        .filter(|line| line["error.type"] == "provider_token_not_deleted")
-        .count();
-    assert!(logged >= 1, "ERR-11's line");
-    let counted: f64 = testing::recorded("platform.errors_ignored")
-        .into_iter()
-        .filter(|point| {
-            point.labels.get("error.type").map(String::as_str) == Some("provider_token_not_deleted")
-        })
-        .map(|point| point.value)
-        .sum();
-    assert!(counted >= 1.0, "ERR-11's count");
+    assert!(
+        kept_token_logged(&response, "answered 500"),
+        "ERR-11's line"
+    );
 }
 
 // part: files
@@ -194,7 +206,7 @@ async fn auth_083_a_token_that_may_not_read_the_addresses_gives_none() {
 }
 
 #[tokio::test]
-async fn auth_083_a_refusal_of_the_client_is_the_api_s_and_any_other_the_code_s() {
+async fn auth_083_a_refusal_other_than_of_the_client_answers_as_one_of_the_code() {
     let (upstream, api) = github().await;
     upstream.set(
         "POST",
@@ -202,18 +214,27 @@ async fn auth_083_a_refusal_of_the_client_is_the_api_s_and_any_other_the_code_s(
         200,
         json!({ "error": "bad_verification_code" }),
     );
+
     let response = sign_in(&api).await;
+
     assert_eq!(response.status, 401);
     assert_eq!(response.json()["code"], "auth.provider_code_rejected");
+}
 
+#[tokio::test]
+async fn auth_083_a_refusal_of_the_client_answers_as_one_of_the_api_s_own_client() {
+    let (upstream, api) = github().await;
     upstream.set(
         "POST",
         "/login/oauth/access_token",
         200,
         json!({ "error": "incorrect_client_credentials" }),
     );
+
     let response = sign_in(&api).await;
+
     assert_eq!(response.status, 503);
+    assert_eq!(response.json()["code"], "auth.provider_unavailable");
 }
 
 #[tokio::test]
@@ -232,14 +253,11 @@ async fn auth_083_a_deletion_that_doesn_t_end_in_time_refuses_nothing() {
     };
 
     // The deletion's deadline waits once its request is sent, so the clock moves only then.
-    for _ in 0..100_000 {
-        if upstream
-            .received()
-            .iter()
-            .any(|received| received.method == "DELETE")
-        {
-            break;
-        }
+    while !upstream
+        .received()
+        .iter()
+        .any(|received| received.method == "DELETE")
+    {
         tokio::task::yield_now().await;
     }
     clock.sleeping(std::time::Duration::from_secs(2)).await;
@@ -248,12 +266,7 @@ async fn auth_083_a_deletion_that_doesn_t_end_in_time_refuses_nothing() {
     let response = call.await.unwrap();
     assert_eq!(response.status, 201, "{}", response.json());
     assert!(
-        testing::all_logged().iter().any(|line| {
-            line["error.type"] == "provider_token_not_deleted"
-                && line["exception.message"]
-                    .as_str()
-                    .is_some_and(|cause| cause.contains("no answer within 2 seconds"))
-        }),
+        kept_token_logged(&response, "no answer within 2 seconds"),
         "ERR-11's line"
     );
 }

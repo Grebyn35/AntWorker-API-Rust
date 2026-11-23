@@ -16,13 +16,15 @@ use serde::Serialize;
 use super::model::{Admitted, ExportedEntry};
 
 /// What inserting an entry came to.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub(super) enum Inserted {
     /// The entry is in its log.
     Recorded,
     /// Its log is a user's, or a workspace's, whose deletion committed first, so the log's
-    /// foreign key refused the entry, and the unit of work can't go on.
-    LogGone,
+    /// foreign key refused the entry, and the unit of work can't go on: the internal error that
+    /// the refusal causes, which a request whose caller's account went answers as PLATFORM-097
+    /// says.
+    LogGone(Internal),
 }
 
 /// The foreign key of an entry's log of the user scope, which refuses it once the user is gone
@@ -94,7 +96,7 @@ pub(super) async fn insert<D: Serialize>(
     .await;
     match inserted {
         Ok(_) => Ok(Inserted::Recorded),
-        Err(error) if log_gone(&error) => Ok(Inserted::LogGone),
+        Err(error) if log_gone(&error) => Ok(Inserted::LogGone(error.into())),
         Err(error) => Err(error.into()),
     }
 }

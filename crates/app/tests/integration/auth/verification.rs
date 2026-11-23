@@ -35,13 +35,7 @@ async fn code_sent(api: &Api, address: &str) -> String {
     api.run_jobs().await;
     let emails = mailbox::to(address).await;
     let email = emails.first().expect("an email with a code");
-    code_in(&email.text).expect("a code in the email")
-}
-
-fn code_in(text: &str) -> Option<String> {
-    text.split_whitespace()
-        .find(|word| word.len() == 6 && word.bytes().all(|byte| byte.is_ascii_digit()))
-        .map(str::to_owned)
+    mailbox::digits_code_in(&email.text).expect("a code in the email")
 }
 
 /// A code of 6 digits that isn't `code`.
@@ -441,6 +435,38 @@ async fn auth_028_an_account_that_proved_its_address_answers_409() {
 }
 
 #[tokio::test]
+async fn auth_028_an_account_that_proved_its_address_while_the_request_waited_answers_409() {
+    let api = Api::new().await;
+    let ada = users::register_unverified(&api, &mailbox::address("ada")).await;
+    let db = api.database();
+    // The registration enqueued a code's job.
+    db.owner_executes("DELETE FROM jobs").await;
+    // A confirmation of a code that holds the user's row until it commits, which proves the
+    // address once the request has read that it isn't proved.
+    let mut confirmation = db
+        .holding(&format!(
+            "UPDATE users SET email_verified = true WHERE id = '{}'",
+            ada.user_id
+        ))
+        .await;
+
+    let asked = api.spawn(
+        http::Method::POST,
+        "/v1/users/me/email/verification",
+        &ada.access,
+        None,
+    );
+    queries_wait_on_locks(db, 1).await;
+    execute_on(&mut confirmation, "COMMIT").await;
+    let (status, body) = asked.await.unwrap();
+
+    assert_eq!(status, 409);
+    assert_eq!(body["code"], "auth.email_already_verified");
+    let jobs = db.owner_reads("SELECT kind FROM jobs").await;
+    assert!(jobs.is_empty(), "{jobs:?}");
+}
+
+#[tokio::test]
 async fn auth_028_with_email_off_asking_answers_503() {
     let api = Api::without_email().await;
     let ada = users::register_unverified(&api, "ada@example.com").await;
@@ -472,6 +498,13 @@ async fn auth_029_asking_for_codes_counts_in_a_bucket_of_the_address() {
 
     assert_eq!(refused.status, 429);
     assert_eq!(refused.json()["code"], "request.rate_limited");
+    assert!(
+        refused
+            .header("ratelimit-policy")
+            .starts_with("\"verification_email\";q=3;w=900"),
+        "{}",
+        refused.header("ratelimit-policy")
+    );
     assert_eq!(
         api.database()
             .owner_reads("SELECT count(*)::text FROM jobs")
@@ -519,6 +552,13 @@ async fn auth_029_registering_counts_in_the_bucket_of_its_address() {
 
     assert_eq!(refused.status, 429);
     assert_eq!(refused.json()["code"], "request.rate_limited");
+    assert!(
+        refused
+            .header("ratelimit-policy")
+            .starts_with("\"registration_email\";q=3;w=900"),
+        "{}",
+        refused.header("ratelimit-policy")
+    );
 }
 
 #[tokio::test]
@@ -1076,6 +1116,13 @@ async fn auth_033_every_check_counts_in_a_bucket_of_the_user_s() {
 
     assert_eq!(refused.status, 429);
     assert_eq!(refused.json()["code"], "request.rate_limited");
+    assert!(
+        refused
+            .header("ratelimit-policy")
+            .starts_with("\"code_check\";q=10;w=86400"),
+        "{}",
+        refused.header("ratelimit-policy")
+    );
     assert_eq!(
         api.database()
             .owner_reads("SELECT email_verified::text FROM users")

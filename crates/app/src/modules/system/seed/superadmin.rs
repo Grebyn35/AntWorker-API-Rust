@@ -47,7 +47,7 @@ impl Api {
             .await?;
         let now = unix_seconds(&session["authenticated_at"])?;
         let account = Account {
-            access_token: text(&session, "access_token")?,
+            access_token: Secret::new(text(&session, "access_token")?),
             ..account
         };
         let setup = self

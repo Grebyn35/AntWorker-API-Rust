@@ -21,18 +21,18 @@ use futures_util::{TryStreamExt, stream};
 use platform::{
     clock::TestClock,
     storage::{ObjectKey, Storage, StorageConfig},
-    telemetry::testing,
+    telemetry::testing::{self, collector::Collector},
     types::Secret,
 };
 use serde_json::{Value, json};
 use tokio::sync::Notify;
 
 use crate::support::{
-    Api,
+    Api, Server, TestDatabase,
     api::{Options, Response},
-    bucket,
+    bucket, counts,
     events::{self, Event},
-    files,
+    files, jobs,
     lists::{field, pages},
     scanner::{self, Script},
     streams,
@@ -423,11 +423,38 @@ fn uploads(outcome: &str) -> f64 {
         .sum()
 }
 
+/// The uploads that `collector` received the count of, from a `serve` that has stopped, by how
+/// each ended, such as `stored 1` (TEST-07).
+fn uploads_counted(collector: &Collector) -> Vec<String> {
+    counts::of(&collector.received(), "files.uploads", "files.outcome")
+}
+
+/// Uploads `bytes` as the file `name` to `workspace` as `user`, through `server`, with `key` as
+/// its idempotency key if given, and gives the answer's status and body.
+pub(crate) async fn upload_to(
+    server: &Server,
+    user: &SignedIn,
+    workspace: &str,
+    name: &str,
+    bytes: &[u8],
+    key: Option<&str>,
+) -> (u16, Value) {
+    let bearer = format!("Bearer {}", user.access);
+    let disposition = format!("attachment; filename=\"{name}\"");
+    let mut headers = vec![
+        ("authorization", bearer.as_str()),
+        ("content-type", "application/octet-stream"),
+        ("content-disposition", &disposition),
+    ];
+    headers.extend(key.map(|key| ("idempotency-key", key)));
+    let path = format!("/v1/workspaces/{workspace}/files");
+    server.send("POST", &path, &headers, bytes).await
+}
+
 #[tokio::test]
 async fn files_005_an_upload_in_which_the_scanner_finds_a_signature_is_refused() {
     let api = Api::new().await;
     let (workspace, ada, _) = acme(&api, "member").await;
-    let detected = uploads("malware_detected");
 
     let response = upload(&api, &ada, &workspace, "eicar.txt", &scanner::eicar(), None).await;
 
@@ -436,8 +463,6 @@ async fn files_005_an_upload_in_which_the_scanner_finds_a_signature_is_refused()
     assert!(stored_names(&api, &workspace).await.is_empty());
     assert!(objects(&api).await.is_empty());
     assert!(entries(&api, "file.uploaded").await.is_empty());
-    // Tests running alongside upload too, so the count grows by at least this.
-    assert!(uploads("malware_detected") >= detected + 1.0);
 }
 
 #[tokio::test]
@@ -636,9 +661,6 @@ fn upload_streamed(
 async fn declared_over_the_limit() -> Response {
     let api = Api::with(Options::default().set("FILE_MAX_BYTES", 10)).await;
     let (workspace, ada, _) = acme(&api, "member").await;
-    let unread = Body::from_stream(stream::once(async {
-        Err::<Bytes, _>(std::io::Error::other("the body was read"))
-    }));
     api.request(
         http::Method::POST,
         &format!("/v1/workspaces/{workspace}/files"),
@@ -647,7 +669,7 @@ async fn declared_over_the_limit() -> Response {
     .header("content-disposition", "attachment; filename=\"a.txt\"")
     .header("content-length", "11")
     .bearer(&ada.access)
-    .send_streamed(unread)
+    .send_streamed(unread())
     .await
 }
 
@@ -758,9 +780,6 @@ async fn files_006_the_upload_s_unit_of_work_authorizes_the_caller_again() {
 async fn platform_073_a_check_refuses_a_member_without_the_permission_with_403() {
     let api = Api::new().await;
     let (workspace, _, grace) = acme(&api, "member").await;
-    let unread = Body::from_stream(stream::once(async {
-        Err::<Bytes, _>(std::io::Error::other("the body was read"))
-    }));
 
     // The picture's upload asks for a permission that a member lacks, as a file's doesn't.
     let response = api
@@ -770,7 +789,7 @@ async fn platform_073_a_check_refuses_a_member_without_the_permission_with_403()
         )
         .header("content-type", "application/octet-stream")
         .bearer(&grace.access)
-        .send_streamed(unread)
+        .send_streamed(unread())
         .await;
 
     assert_eq!(response.status, 403);
@@ -1259,6 +1278,37 @@ async fn files_011_the_comparison_records_each_object_no_row_names_written_an_ho
 }
 
 #[tokio::test]
+async fn files_011_the_comparison_records_an_object_written_over_an_hour_ago_and_none_within_it() {
+    // The bucket lists two objects that no row names, written 61 and 59 minutes before now, by
+    // the database's clock, which the comparison reads them by.
+    let database = TestDatabase::migrated().await;
+    let ago = |minutes: u32| {
+        format!(
+            "SELECT to_char((now() - interval '{minutes} minutes') AT TIME ZONE 'UTC', \
+             'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')"
+        )
+    };
+    let over = database.owner_reads(&ago(61)).await.remove(0);
+    let within = database.owner_reads(&ago(59)).await.remove(0);
+    let bucket =
+        bucket::listing(&[("workspaces/over", &over), ("workspaces/within", &within)]).await;
+    let api = Api::on(
+        database,
+        Options::default().set("S3_ENDPOINT", &bucket.endpoint),
+    )
+    .await;
+
+    api.run_periodic("files.find_unreferenced_objects").await;
+
+    assert_eq!(
+        api.database()
+            .owner_reads("SELECT object_key FROM object_deletions")
+            .await,
+        ["workspaces/over"]
+    );
+}
+
+#[tokio::test]
 async fn files_011_an_unreferenced_object_goes_once_its_delay_has_passed() {
     let api = Api::new().await;
     let (workspace, ada, _) = acme(&api, "member").await;
@@ -1350,15 +1400,6 @@ fn errors_of(response: &Response) -> Vec<Value> {
         .collect()
 }
 
-/// How many calls to the bucket ended as `outcome`, in every test that runs alongside.
-fn storage_calls(outcome: &str) -> f64 {
-    testing::recorded("platform.storage_requests")
-        .into_iter()
-        .filter(|point| point.labels.get("storage.outcome").map(String::as_str) == Some(outcome))
-        .map(|point| point.value)
-        .sum()
-}
-
 #[tokio::test]
 async fn files_012_a_bucket_that_doesn_t_answer_makes_the_routes_of_bytes_answer_503() {
     // Nothing listens on port 9 of the loopback address.
@@ -1366,7 +1407,6 @@ async fn files_012_a_bucket_that_doesn_t_answer_makes_the_routes_of_bytes_answer
     let (workspace, ada, _) = acme(&api, "member").await;
     let id = files::arrange_row(api.database(), &workspace, "Blue").await;
     let key = object_key(&api, &id).await;
-    let unavailable = storage_calls("unavailable");
 
     let uploaded = upload(&api, &ada, &workspace, "a.txt", b"hello", None).await;
     let downloaded = download(&api, &ada, &workspace, &id).await;
@@ -1381,8 +1421,36 @@ async fn files_012_a_bucket_that_doesn_t_answer_makes_the_routes_of_bytes_answer
     let errors = errors_of(&downloaded);
     assert_eq!(errors.len(), 1, "{errors:#?}");
     assert!(!errors[0].to_string().contains(&key), "{errors:#?}");
-    // Tests running alongside call the bucket too, so the count grows by at least these.
-    assert!(storage_calls("unavailable") >= unavailable + 2.0);
+}
+
+#[tokio::test]
+async fn files_012_each_call_that_the_bucket_doesn_t_answer_counts_once_as_unavailable() {
+    let api = Api::new().await;
+    let (workspace, ada, _) = acme(&api, "member").await;
+    let id = files::arrange_row(api.database(), &workspace, "Blue").await;
+    jobs::not_due(api.database(), &files::BUCKET_JOBS).await;
+    let collector = Collector::start().await.unwrap();
+    // Nothing listens on port 9 of the loopback address.
+    let env = [("S3_ENDPOINT", "http://127.0.0.1:9")];
+    let server = files::serving(api.database(), &collector, &env).await;
+    let bearer = format!("Bearer {}", ada.access);
+    let content = format!("/v1/workspaces/{workspace}/files/{id}/content");
+
+    let (uploaded, _) = upload_to(&server, &ada, &workspace, "a.txt", b"hello", None).await;
+    let (downloaded, _) = server
+        .send("GET", &content, &[("authorization", &bearer)], b"")
+        .await;
+    server.stop().await;
+
+    assert_eq!((uploaded, downloaded), (503, 503));
+    assert_eq!(
+        counts::of(
+            &collector.received(),
+            "platform.storage_requests",
+            "storage.outcome"
+        ),
+        ["unavailable 2"]
+    );
 }
 
 #[tokio::test]
@@ -1505,34 +1573,56 @@ async fn files_012_a_request_that_the_bucket_refuses_answers_500_naming_no_key()
 async fn files_013_uploads_are_counted_by_how_they_ended() {
     let api = Api::new().await;
     let (workspace, ada, _) = acme(&api, "member").await;
-    let (stored, unsupported, detected) = (
-        uploads("stored"),
-        uploads("unsupported_type"),
-        uploads("malware_detected"),
+    let collector = Collector::start().await.unwrap();
+    let server = files::serving(api.database(), &collector, &[]).await;
+
+    let eicar = scanner::eicar();
+    for (name, bytes) in [
+        ("a.txt", b"hello".as_slice()),
+        ("a.png", b"hello"),
+        ("eicar.txt", &eicar),
+    ] {
+        upload_to(&server, &ada, &workspace, name, bytes, None).await;
+    }
+    server.stop().await;
+
+    assert_eq!(
+        uploads_counted(&collector),
+        ["malware_detected 1", "stored 1", "unsupported_type 1"]
     );
+}
 
-    upload(&api, &ada, &workspace, "a.txt", b"hello", None).await;
-    upload(&api, &ada, &workspace, "a.png", b"hello", None).await;
-    upload(&api, &ada, &workspace, "eicar.txt", &scanner::eicar(), None).await;
+#[tokio::test]
+async fn files_013_a_retry_of_a_keyed_upload_counts_as_stored_too() {
+    let api = Api::new().await;
+    let (workspace, ada, _) = acme(&api, "member").await;
+    let collector = Collector::start().await.unwrap();
+    let server = files::serving(api.database(), &collector, &[]).await;
+    let (_, first) = upload_to(&server, &ada, &workspace, "a.txt", b"one", Some("\"k1\"")).await;
 
-    // Tests running alongside upload too, so the counts grow by at least these.
-    assert!(uploads("stored") >= stored + 1.0);
-    assert!(uploads("unsupported_type") >= unsupported + 1.0);
-    assert!(uploads("malware_detected") >= detected + 1.0);
+    let (status, retry) =
+        upload_to(&server, &ada, &workspace, "a.txt", b"one", Some("\"k1\"")).await;
+    server.stop().await;
+
+    assert_eq!(status, 201);
+    assert_eq!(retry["id"], first["id"]);
+    assert_eq!(uploads_counted(&collector), ["stored 2"]);
 }
 
 #[tokio::test]
 async fn files_013_an_upload_that_the_bucket_doesn_t_take_counts_as_failed() {
-    // Nothing listens on port 9 of the loopback address.
-    let api = Api::with(Options::default().set("S3_ENDPOINT", "http://127.0.0.1:9")).await;
+    let api = Api::new().await;
     let (workspace, ada, _) = acme(&api, "member").await;
-    let before = uploads("failed");
+    let collector = Collector::start().await.unwrap();
+    // Nothing listens on port 9 of the loopback address.
+    let env = [("S3_ENDPOINT", "http://127.0.0.1:9")];
+    let server = files::serving(api.database(), &collector, &env).await;
 
-    let response = upload(&api, &ada, &workspace, "a.txt", b"hello", None).await;
+    let (status, _) = upload_to(&server, &ada, &workspace, "a.txt", b"hello", None).await;
+    server.stop().await;
 
-    assert_eq!(response.status, 503);
-    // Tests running alongside upload too, so the count grows by at least this.
-    assert!(uploads("failed") >= before + 1.0);
+    assert_eq!(status, 503);
+    assert_eq!(uploads_counted(&collector), ["failed 1"]);
 }
 
 #[tokio::test]
@@ -1554,22 +1644,26 @@ async fn files_013_an_upload_that_its_route_s_timeout_ends_counts_as_failed() {
 
     assert_eq!(response.status, 503);
     assert_eq!(response.json()["code"], "request.timed_out");
-    // Tests running alongside upload too, so the count grows by at least this.
+    // The route's timeout runs on tokio's time, which a test pauses only for an API in its own
+    // process (TEST-06), where tests running alongside upload too, so the count grows by at least
+    // this one (TEST-07).
     assert!(uploads("failed") >= before + 1.0);
 }
 
 #[tokio::test]
 async fn files_013_an_upload_whose_scanner_doesn_t_answer_counts_as_failed() {
-    // Nothing listens on port 9 of the loopback address.
-    let api = Api::with(Options::default().set("CLAMD_ADDRESS", "127.0.0.1:9")).await;
+    let api = Api::new().await;
     let (workspace, ada, _) = acme(&api, "member").await;
-    let before = uploads("failed");
+    let collector = Collector::start().await.unwrap();
+    // Nothing listens on port 9 of the loopback address.
+    let env = [("CLAMD_ADDRESS", "127.0.0.1:9")];
+    let server = files::serving(api.database(), &collector, &env).await;
 
-    let response = upload(&api, &ada, &workspace, "a.txt", b"hello", None).await;
+    let (status, _) = upload_to(&server, &ada, &workspace, "a.txt", b"hello", None).await;
+    server.stop().await;
 
-    assert_eq!(response.status, 503);
-    // Tests running alongside upload too, so the count grows by at least this.
-    assert!(uploads("failed") >= before + 1.0);
+    assert_eq!(status, 503);
+    assert_eq!(uploads_counted(&collector), ["failed 1"]);
 }
 
 #[tokio::test]

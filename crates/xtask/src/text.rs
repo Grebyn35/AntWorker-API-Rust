@@ -113,8 +113,9 @@ pub fn has_date(text: &str) -> bool {
 /// `//` before that starts the comment. A block comment, `/* … */`, and a regular expression of
 /// JavaScript are read as code too.
 ///
-/// In a file of another type, the first comment marker of the line starts the comment, even
-/// inside a string literal.
+/// In a file of another type that this names, the first comment marker of the line starts the
+/// comment, even inside a string literal. A file of any other type, such as an email's template,
+/// a `.tmpl` file or a JSON file, holds no comment that this finds.
 pub fn comment<'a>(path: &str, line: &'a str) -> Option<&'a str> {
     let name = path.rsplit('/').next().unwrap_or(path);
     if name.ends_with(".rs") || name.ends_with(".js") {
@@ -130,6 +131,8 @@ pub fn comment<'a>(path: &str, line: &'a str) -> Option<&'a str> {
         ".sh",
         ".caddy",
         ".env.example",
+        ".conf",
+        ".jq",
     ]
     .iter()
     .any(|extension| name.ends_with(extension))
@@ -145,6 +148,11 @@ pub fn comment<'a>(path: &str, line: &'a str) -> Option<&'a str> {
         return None;
     };
     line.find(marker).map(|start| &line[start..])
+}
+
+/// `line`, a line of Rust, without the comment that [`comment`] finds in it.
+pub fn rust_code(line: &str) -> &str {
+    code_comment(line, true).map_or(line, |start| &line[..start])
 }
 
 /// Where the comment of `line`, a line of Rust when `rust` holds and of JavaScript otherwise,
@@ -298,6 +306,14 @@ mod tests {
             Some("# why")
         );
         assert_eq!(comment("deploy/caddy/Caddyfile", "# why"), Some("# why"));
+        assert_eq!(
+            comment("deploy/postgres/pgbackrest.conf", "# why"),
+            Some("# why")
+        );
+        assert_eq!(
+            comment("deploy/postgres/retention.jq", "# why"),
+            Some("# why")
+        );
         assert_eq!(
             comment("crates/app/tests/load/streams.js", "f(); // why"),
             Some("// why")

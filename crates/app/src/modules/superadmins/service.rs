@@ -1,6 +1,7 @@
 //! Who is a superadmin: the `SuperadminPolicy` that `platform::authz` asks on every route of a
-//! superadmin's, the caller's own standing, and the operator's subcommand, which alone makes a
-//! superadmin, which ends one, and which lists them (the superadmins spec).
+//! superadmin's, the caller's own standing, and the operations of the operator's subcommand,
+//! which make a superadmin, as no route does, and as `seed` does in development (SYSTEM-010), end
+//! one, and list them (the superadmins spec).
 
 use std::collections::HashMap;
 

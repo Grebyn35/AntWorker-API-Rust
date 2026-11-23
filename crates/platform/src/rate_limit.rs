@@ -12,7 +12,7 @@ use std::{
 
 use crate::{
     db::Database,
-    errors::{Category, ErrorCode, Internal},
+    errors::{Category, ErrorCode, Internal, RequestError},
     hashing::HmacKey,
     telemetry::{metrics::Counter, names},
 };
@@ -25,9 +25,10 @@ static REFUSALS: Counter<1> = Counter::new(
 );
 
 /// What a bucket counts of a client's address: an IPv4 address's bytes, with one that arrived
-/// mapped into IPv6 counted as itself, or an IPv6 address's /64 prefix, which one subscriber holds
-/// whole, so a client can't escape a limit by moving within it (PLATFORM-054). The IP limit counts
-/// it, and so does a per-action limit that counts by address, such as AUTH-006's.
+/// mapped into IPv6 taken as its IPv4 address (PLATFORM-053), or an IPv6 address's /64 prefix,
+/// which one subscriber holds whole, so a client can't escape a limit by moving within it
+/// (PLATFORM-054). The IP limit counts it, and so does a per-action limit that counts by address,
+/// such as AUTH-006's.
 pub fn address(ip: IpAddr) -> Vec<u8> {
     match ip.to_canonical() {
         IpAddr::V4(address) => address.octets().to_vec(),
@@ -171,7 +172,8 @@ impl RateLimits {
     }
 }
 
-/// A rate limit refused the request, or couldn't count it.
+/// A rate limit refused the request, or couldn't count it. A refusal answers as
+/// [`RequestError::RateLimited`] does, whose code, title and category it takes.
 #[derive(Debug, thiserror::Error)]
 pub enum LimitError {
     /// The bucket is full (PLATFORM-054).
@@ -185,21 +187,21 @@ pub enum LimitError {
 impl ErrorCode for LimitError {
     fn code(&self) -> &'static str {
         match self {
-            Self::RateLimited => "request.rate_limited",
+            Self::RateLimited => RequestError::RateLimited.code(),
             Self::Internal(error) => error.code(),
         }
     }
 
     fn title(&self) -> &'static str {
         match self {
-            Self::RateLimited => "Too many requests",
+            Self::RateLimited => RequestError::RateLimited.title(),
             Self::Internal(error) => error.title(),
         }
     }
 
     fn category(&self) -> Category {
         match self {
-            Self::RateLimited => Category::RateLimited,
+            Self::RateLimited => RequestError::RateLimited.category(),
             Self::Internal(_) => Category::Internal,
         }
     }
@@ -234,7 +236,7 @@ mod tests {
     }
 
     #[test]
-    fn platform_057_an_ipv4_address_mapped_into_ipv6_counts_as_itself() {
+    fn platform_053_an_ipv4_address_mapped_into_ipv6_counts_as_its_ipv4_address() {
         let mapped: IpAddr = "::ffff:192.0.2.1".parse().unwrap();
         let plain: IpAddr = "192.0.2.1".parse().unwrap();
         assert_eq!(address(mapped), address(plain));

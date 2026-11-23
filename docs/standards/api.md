@@ -7,7 +7,7 @@ The HTTP contract every route follows. The generated OpenAPI document is the aut
 ### API-01 Paths are versioned, plural and lowercase
 Every route lives under `/v1`, except the health probes `/health/live` and `/health/ready` (OPS-05), which load balancers call without a version, and the API reference that development serves at `/docs` (PLATFORM-052), which no client is built against. Collections are plural nouns, and segments of more than one word use kebab-case (`/order-items`). A path parameter is named `{<resource>_id}`, after the resource whose ID it holds, which the segment before it may name in other words: `/members/{user_id}` holds the ID of the member's user.
 - Why: a path reads as a predictable address for a resource (D8).
-- Check: `ci: check-openapi` (a path lint over the committed document).
+- Check: `ci: check-openapi` (each path of the committed document is under `/v1`, its segments are lowercase kebab-case, and its parameters are `snake_case` names that end in `_id`), plus `review` (a collection is a plural noun, and a parameter is named after the resource whose ID it holds).
 
 ### API-02 The scope of a resource is in its path
 Workspace resources live under `/v1/workspaces/{workspace_id}/`, and the caller's own resources under `/v1/users/me/`.
@@ -63,7 +63,7 @@ An error response, except from the health probes (OPS-05) and the HTTP server's 
 - `trace_id`: the request's trace ID.
 - `errors`: present only for validation failures. A list of `{field, code, message}`, where `field` is a JSON Pointer to the invalid input: into the body, or, for `request.invalid_query`, into the query's parameters, such as `/limit`.
 - Why: one standard format that every client parses the same way (D8, D10). The exception is a request that only a broken client sends, and that only another HTTP server would answer otherwise (D215).
-- Check: `compiler` (ERR-07), plus `test`.
+- Check: `compiler` (ERR-07), plus `clippy` (`disallowed_types` bans axum's `Path` and `RawPathParams`, whose rejections are plain text), plus `test`: a generated test sends a segment that percent-decodes to bytes that aren't UTF-8 in each path parameter of every documented route, and expects a problem.
 
 ### API-08 Request bodies are strict
 JSON bodies reject unknown fields. Each route group has a body size limit, and an oversized body gets the 413 problem before it is buffered.
@@ -78,7 +78,7 @@ Unknown query parameters are rejected with 400. Filters are explicit, named para
 - Check: `ci: check-layers` (the API-08 check covers query types), plus `test`.
 
 ### API-10 Input becomes domain types at the boundary
-A module's routes convert each request's input into the domain types its service takes, and report every value they refuse in one response (API-07): a body's request type converts through `TryFrom`, and a query's parameters, each read as text, through `Page` and `Search`, which read a list's paging and its `search` ([platform spec](../spec/platform.md#lists)), and each filter's domain type. A subcommand's arguments, which no route reads, are converted before its operation runs: by the function of the composition root that runs the subcommand, through each domain type's own reader, or by the constructor of the type that the operation takes. Service functions, and the values an email is rendered from, take domain types, never raw strings for values that have a domain type (D25).
+A module's routes convert each request's input into the domain types its service takes, and report in one response every value of one body, or of one query, that the conversion refuses (API-07): a body's request type converts through `TryFrom`, and a query's parameters, each read as text, through `Page` and `Search`, which read a list's paging and its `search` ([platform spec](../spec/platform.md#lists)), and each filter's domain type. A body whose values are checked against the API's state converts in its handler instead, through functions that take that state and record what they refuse in one `FieldErrors`, as a sign-in through a provider checks its redirect address against the clients that the providers' registry lists (AUTH-078). A route that refuses values of one request in more than one step, such as a header's, a query's and a body's, answers with the refusal of the first of those steps: the steps come in the order that [architecture.md §6](../architecture.md#6-request-lifecycle) gives, such as an `Idempotency-Key` that isn't one before the body, and a handler's own reads in the order in which it makes them. A subcommand's arguments, which no route reads, are converted before its operation runs: by the function of the composition root that runs the subcommand, through each domain type's own reader, or by the constructor of the type that the operation takes. Service functions, and the values an email is rendered from, take domain types, never raw strings for values that have a domain type (D25).
 - Why: a value can't skip validation, whatever its source.
 - Check: `test` (each route's invalid-input test asserts that every invalid field is reported, and a generated test sends each parameter of each list a value that none takes, and expects `request.invalid_query` to name it alone), plus `review`.
 
@@ -157,7 +157,7 @@ Within `/v1`, changes are additive: new routes, new optional request fields, new
 - Check: `ci: check-openapi` (a breaking-change diff against the last final release, which reads of the two documents what the comment of [`breaking`](../../crates/xtask/src/openapi/breaking/mod.rs) says), plus `review` (what the documents don't hold, such as what a route does with a request that it takes).
 
 ### API-19 Event names and payloads
-Server-sent events (SSE) are named `<resource>.<past-tense verb>`, for example `member.removed`. A payload carries IDs and non-sensitive fields only, and is a type that its event declares, whose schema the event catalog documents (REALTIME-008). Clients fetch details over REST.
+Server-sent events (SSE) are named `<resource>.<past-tense verb>`, for example `member.removed`, and so are the frames that the stream sends of its own, such as `stream.closed` (REALTIME-008). The verb may name what changed before it, as `member.role_changed` does. A payload carries IDs and non-sensitive fields only, and is a type that its event declares, whose schema the event catalog documents (REALTIME-008). Clients fetch details over REST.
 - Why: events never leak data that the REST permission checks would withhold (D7), and a client knows each payload's shape from the document (D8).
 - Check: `compiler` (an event is published only with the payload type it declares), `ci: check-openapi` (each frame type's shape, `<resource>.<verb>` in `snake_case`), `review` (the verb's tense, and what a payload holds), plus `test` (TEST-08 covers the REST side, and REALTIME-008 the payloads' schemas).
 

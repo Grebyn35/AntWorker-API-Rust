@@ -143,13 +143,52 @@ impl Block {
     }
 }
 
+/// The lines of a document that the check reads, as one text, with where each stands.
+struct Read {
+    text: String,
+    /// The number, in the document, of each line of `text`.
+    numbers: Vec<usize>,
+    /// Where each line of `text` starts.
+    starts: Vec<usize>,
+}
+
+impl Read {
+    fn of(document: &str) -> Self {
+        let mut read = Self {
+            text: String::new(),
+            numbers: Vec::new(),
+            starts: Vec::new(),
+        };
+        for (index, line) in document.lines().enumerate() {
+            // part: removal
+            // A line that holds only a part's marker goes once a fork has chosen its parts, and
+            // the lines above and below it are one paragraph from then on, which the bounds
+            // hold too.
+            if crate::parts::unmarked(line).is_none() {
+                continue;
+            }
+            // end part: removal
+            read.numbers.push(index + 1);
+            read.starts.push(read.text.len());
+            read.text.push_str(line);
+            read.text.push('\n');
+        }
+        read
+    }
+
+    /// The number, in the document, of the line that holds the byte at `offset` of the text.
+    fn line(&self, offset: usize) -> usize {
+        let at = self.starts.partition_point(|start| *start <= offset);
+        self.numbers.get(at.saturating_sub(1)).copied().unwrap_or(1)
+    }
+}
+
 /// The blocks and sentences of the document `text`, at `path`, that hold more words than
 /// their bounds.
 fn over(path: &str, text: &str) -> Vec<Finding> {
-    let starts: Vec<usize> = std::iter::once(0)
-        .chain(text.match_indices('\n').map(|(index, _)| index + 1))
-        .collect();
-    let line = |offset: usize| starts.partition_point(|start| *start <= offset);
+    let read = Read::of(text);
+    let text = read.text.as_str();
+    let line = |offset: usize| read.line(offset);
     let mut findings = Vec::new();
     let mut markup = Vec::new();
     let mut block: Option<Block> = None;
@@ -313,7 +352,7 @@ mod tests {
             "{} [two words](https://example.invalid/a%20path%20of%20many%20words).\n",
             words(98)
         );
-        let comment = format!("{}. <!-- part: files and more words -->\n", words(100));
+        let comment = format!("{} <!-- part: files and more words -->\n", words(100));
         let lines = format!("{}\n{}.\n", words(50), words(51));
 
         assert_eq!(findings(&link), Vec::<String>::new());
@@ -361,6 +400,30 @@ mod tests {
             ]
         );
     }
+
+    // part: removal
+    #[test]
+    fn doc_15_a_part_s_marker_alone_on_its_line_ends_no_paragraph() {
+        let sentence = format!("{}.", words(60));
+        let three = [sentence.as_str(); 3].join(" ");
+        // The marker is built, so the source of these tests holds none.
+        let marker = format!("<!-- {}: widgets -->", "part");
+        let end = format!("<!-- end {}: widgets -->", "part");
+        let split = format!(
+            "{three}\n{marker}\n{three}\n{end}\n\nAfter.\n\n{}.\n",
+            words(101)
+        );
+
+        assert_eq!(
+            findings(&split),
+            [
+                "docs/guide.md:1: a paragraph of 360 words: it holds at most 300 (DOC-15)",
+                "docs/guide.md:8: a sentence of 101 words, which starts \"word word word word \
+                 word word\": it holds at most 100 (DOC-15)",
+            ]
+        );
+    }
+    // end part: removal
 
     #[test]
     fn doc_15_the_migration_workspace_is_not_read() {

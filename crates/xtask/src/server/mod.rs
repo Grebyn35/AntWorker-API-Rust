@@ -28,41 +28,15 @@ use std::{
 pub use check::check;
 pub use setup::setup;
 
-use crate::deploy::archive;
-
-/// The deployment's directory on the server, in the home of the user SSH signs in as.
-const DEPLOYMENT: &str = "$HOME/deployment";
+use crate::deploy::{DEPLOYMENT, send_files};
 
 /// Copies the files of deploy/ at the tag of the release `version` to a new temporary
 /// directory on `host`, as a deploy of the release runs them, and returns its path there.
 fn send_release(root: &Path, host: &str, version: &str) -> Result<String, String> {
-    let mut archive = archive(root, &format!("v{version}:deploy"))
-        .stdout(Stdio::piped())
-        .spawn()
-        .map_err(|error| format!("can't run git archive: {error}"))?;
-    let stdout = archive.stdout.take().ok_or("git archive has no output")?;
-    let unpacked = Command::new("ssh")
-        .arg(host)
-        .arg(
-            r#"set -e; directory=$(mktemp -d); tar -x -C "$directory"; printf '%s\n' "$directory""#,
-        )
-        .stdin(Stdio::from(stdout))
-        .stderr(Stdio::inherit())
-        .output()
-        .map_err(|error| format!("can't run ssh: {error}"))?;
-    let archived = archive
-        .wait()
-        .map_err(|error| format!("git archive failed: {error}"))?;
-    if !archived.success() {
-        return Err("git archive failed".to_owned());
-    }
-    if !unpacked.status.success() {
-        return Err(format!(
-            "unpacking them on the server failed ({})",
-            unpacked.status
-        ));
-    }
-    let directory = String::from_utf8_lossy(&unpacked.stdout).trim().to_owned();
+    let unpack =
+        r#"set -e; directory=$(mktemp -d); tar -x -C "$directory"; printf '%s\n' "$directory""#;
+    let written = send_files(root, host, version, unpack)?;
+    let directory = written.trim().to_owned();
     if !directory.starts_with('/') {
         return Err(format!("the server named no directory, but {directory:?}"));
     }

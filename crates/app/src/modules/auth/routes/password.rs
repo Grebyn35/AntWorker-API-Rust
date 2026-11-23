@@ -1,5 +1,5 @@
 //! Resetting a forgotten password, and changing the signed-in user's (the auth spec's Routes,
-//! AUTH-034 to AUTH-041).
+//! AUTH-034 to AUTH-041, AUTH-098).
 
 use std::sync::Arc;
 
@@ -26,7 +26,7 @@ use crate::modules::auth::{
     service::{Auth, PasswordChange, ResetConfirmation},
 };
 
-/// The routes that reset and change a password (AUTH-034 to AUTH-041).
+/// The routes that reset and change a password (AUTH-034 to AUTH-041, AUTH-098).
 pub(super) fn routes() -> Routes<Arc<Auth>> {
     Routes::new()
         .public(routes!(request_reset), &[&RequestError::FeatureDisabled])

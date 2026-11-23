@@ -531,6 +531,28 @@ async fn invitations_015_sending_again_renews_the_invitation_and_enqueues_its_em
 }
 
 #[tokio::test]
+async fn invitations_015_an_invitation_sent_again_lasts_the_configured_days_from_then() {
+    let api = Api::with(Options::default().set("INVITATION_EXPIRY_DAYS", 3)).await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let workspace = acme(&api, &ada, &[]).await;
+    let id = invited(&api, &ada, &workspace, "carol@example.com", "member").await;
+    let db = api.database();
+    db.owner_executes("UPDATE invitations SET expires_at = now() + interval '1 day'")
+        .await;
+
+    let response = resend(&api, &ada, &workspace, &id).await;
+
+    assert_eq!(response.status, 200);
+    let lasts = db
+        .owner_reads(
+            "SELECT (expires_at BETWEEN now() + interval '2 days 23 hours' \
+             AND now() + interval '3 days')::text FROM invitations",
+        )
+        .await;
+    assert_eq!(lasts, ["true"]);
+}
+
+#[tokio::test]
 async fn invitations_015_the_email_sent_again_names_the_member_who_sent_it() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;

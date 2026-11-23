@@ -31,6 +31,9 @@ pub struct Held {
     pub queries: Vec<Query>,
     /// The name of each `fn` followed by a name, once for each.
     pub functions: Vec<String>,
+    /// The line of each macro named as one of [`MACROS`] in another form than
+    /// `sqlx::<macro>!( ... )`, the one whose query [`invoked`] reads.
+    pub unread: Vec<usize>,
 }
 
 /// The queries and the functions of `tokens`, each query with the function that holds it, as the
@@ -80,6 +83,12 @@ fn walk(tokens: &[TokenTree], function: Option<&str>, held: &mut Held) {
                         line,
                         function: function.map(str::to_owned),
                     });
+                } else if let [TokenTree::Ident(name), TokenTree::Punct(bang), _] =
+                    &tokens[index.saturating_sub(2)..=index]
+                    && bang.as_char() == '!'
+                    && MACROS.contains(&name.to_string().as_str())
+                {
+                    held.unread.push(name.span().start().line);
                 }
                 walk(&inner, function, held);
             }

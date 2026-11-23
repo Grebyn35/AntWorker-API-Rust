@@ -1,4 +1,4 @@
-//! The stream of server-sent events (REALTIME-001 to REALTIME-006): the hub's deliveries, turned
+//! The stream of server-sent events (REALTIME-001 to REALTIME-008): the hub's deliveries, turned
 //! into frames, with `stream.beat` at every heartbeat.
 
 use std::{convert::Infallible, time::Duration};
@@ -141,21 +141,18 @@ async fn events(
                 opened: false,
                 ended: false,
             };
-            Sse::new(frames.into_stream()).into_response()
-        }
-        Err(error) => {
-            let error = RealtimeError::from(error);
-            let unavailable = matches!(error, RealtimeError::Unavailable);
-            let mut response = Problem(error).into_response();
-            if unavailable {
-                // The replica has stopped accepting connections, so the next request reaches
-                // another (OPS-07).
-                response
-                    .headers_mut()
-                    .insert(header::RETRY_AFTER, HeaderValue::from_static("1"));
-            }
+            let mut response = Sse::new(frames.into_stream()).into_response();
+            // In place of the `no-cache` that `Sse` sets, which lets a cache keep the stream
+            // (SEC-12).
+            response
+                .headers_mut()
+                .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
             response
         }
+        // A replica that has stopped accepting connections answers with `Retry-After`, which the
+        // conversion of every unavailable error sets, so the next request reaches another
+        // (OPS-07).
+        Err(error) => Problem(RealtimeError::from(error)).into_response(),
     }
 }
 

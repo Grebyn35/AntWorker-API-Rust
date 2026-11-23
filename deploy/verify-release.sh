@@ -1,7 +1,8 @@
 #!/bin/sh
 # Verifies a release (OPS-12): for each image named, the image tagged with the version is signed
-# by the run of ci.yml on main of the repository at the source address, and its image index holds
-# the SBOM and the provenance of both platforms. It prints each image with its digest, as
+# by the run of ci.yml on main of the repository at the source address, each platform's image
+# names that version as its own, and its image index holds the SBOM and the provenance of both
+# platforms. It prints each image with its digest, as
 # `<image>@<digest>`, one per line, in the order given, and fails on the first image that doesn't
 # verify. `just verify-release` runs it when CI releases a version, and the reference deployment
 # runs it before it pulls a release (OPS-14).
@@ -35,6 +36,20 @@ for image in "$@"; do
         printf '%s\n' "$image:$version isn't signed by the run on main of $source" >&2
         exit 1
     fi
+    # Each platform's image names the version that it was built as, in a label of its
+    # configuration, which the signed index covers: the image of an earlier release, under this
+    # version's tag, names its own. A platform the index lacks names none.
+    for platform in linux/amd64 linux/arm64; do
+        if ! named=$(docker buildx imagetools inspect "$image@$digest" \
+            --format "{{ with index .Image \"$platform\" }}{{ index .Config.Labels \"org.opencontainers.image.version\" }}{{ end }}"); then
+            printf '%s\n' "$image:$version can't be read for $platform" >&2
+            exit 1
+        fi
+        if [ "$named" != "$version" ]; then
+            printf '%s\n' "$image:$version is the image of ${named:-no version} for $platform, not of $version" >&2
+            exit 1
+        fi
+    done
     # Each kind of attestation, with the field that holds its document. A platform the index
     # lacks gives an empty entry, whose field is empty.
     for attestation in SBOM:SPDX Provenance:SLSA; do

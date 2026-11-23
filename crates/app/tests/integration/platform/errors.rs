@@ -9,6 +9,12 @@ use platform::{
     telemetry::{Service, testing},
 };
 
+// part: files
+use platform::telemetry::testing::collector::Collector;
+
+use crate::support::{Api, bucket, counts, files, jobs, users, workspaces};
+// end part: files
+
 #[test]
 fn err_11_an_ignored_error_writes_one_warn_line_with_its_kind_and_cause() {
     testing::install(Service {
@@ -54,7 +60,7 @@ fn err_11_an_ignored_error_is_counted_by_its_kind() {
 }
 
 #[tokio::test]
-async fn platform_100_bytes_that_fail_once_the_status_is_sent_are_written_and_counted_as_ignored() {
+async fn platform_100_bytes_that_fail_once_the_status_is_sent_are_written_as_ignored() {
     testing::install(Service {
         name: "api",
         version: "0.0.0",
@@ -78,7 +84,6 @@ async fn platform_100_bytes_that_fail_once_the_status_is_sent_are_written_and_co
         // end part: files
         bytes: Some(bytes),
     };
-    let before = cut();
     // The request's span, which ends once its handler returned the response.
     let request = tracing::info_span!("request");
     let trace_id = request.in_scope(platform::telemetry::trace_id);
@@ -100,15 +105,41 @@ async fn platform_100_bytes_that_fail_once_the_status_is_sent_are_written_and_co
         lines[0]["exception.message"],
         "the bucket stopped answering"
     );
-    // A test that runs alongside may count one too, so the count grows by at least this.
-    assert!(cut() >= before + 1.0);
+    // `ignore` counts each line that it writes, which
+    // `err_11_an_ignored_error_is_counted_by_its_kind` shows with a kind of its own (TEST-07).
 }
 
-/// How many errors `platform.errors_ignored` has counted as a download's cut.
-fn cut() -> f64 {
-    testing::recorded("platform.errors_ignored")
-        .into_iter()
-        .filter(|point| point.labels.get("error.type").map(String::as_str) == Some("download_cut"))
-        .map(|point| point.value)
-        .sum()
+// part: files
+#[tokio::test]
+async fn platform_100_a_download_that_the_bucket_cuts_short_counts_once_as_ignored() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    let workspace = workspaces::arrange(db, "Acme", &[(&ada.user_id, "owner")]).await;
+    let id = files::arrange_row(db, &workspace, "Blue").await;
+    jobs::not_due(db, &files::BUCKET_JOBS).await;
+    let stand_in = bucket::cutting(std::str::from_utf8(files::BYTES).unwrap()).await;
+    let collector = Collector::start().await.unwrap();
+    let env = [("S3_ENDPOINT", stand_in.endpoint.as_str())];
+    let server = files::serving(db, &collector, &env).await;
+    let bearer = format!("Bearer {}", ada.access);
+    let content = format!("/v1/workspaces/{workspace}/files/{id}/content");
+
+    let answer = server
+        .request("GET", &content, &[("authorization", &bearer)])
+        .await;
+    server.stop().await;
+
+    // The status and the first half of the bytes, which the bucket sent before it stopped.
+    assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
+    assert!(answer.ends_with("\r\n\r\nhe"), "{answer}");
+    assert_eq!(
+        counts::of(
+            &collector.received(),
+            "platform.errors_ignored",
+            "error.type"
+        ),
+        ["download_cut 1"]
+    );
 }
+// end part: files

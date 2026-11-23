@@ -1,10 +1,12 @@
 //! Registration and sign-in (AUTH-001 to AUTH-008, AUTH-014).
 
 use argon2::{Algorithm, Argon2, Params, PasswordHasher, Version};
+use opentelemetry_proto::tonic::trace::v1::{Span, span::SpanKind};
+use platform::telemetry::testing::collector::Collector;
 use serde_json::json;
 
 use crate::support::{
-    Api, Options,
+    Api, Options, TestDatabase, answer_before_a_lock_wait, execute_on,
     users::{self, PASSWORD},
 };
 
@@ -160,6 +162,77 @@ async fn auth_005_every_failed_sign_in_answers_the_same_401() {
     assert_eq!(failures, [format!("{} none", ada.user_id)]);
 }
 
+#[tokio::test]
+async fn auth_005_an_unknown_email_and_an_account_without_a_password_verify_a_hash_as_a_wrong_password_does()
+ {
+    let collector = Collector::start().await.unwrap();
+    let database = TestDatabase::migrated().await;
+    let endpoint = collector.endpoint();
+    let server = database
+        .serve(&[
+            ("ENVIRONMENT", "production"),
+            ("OTEL_EXPORTER_OTLP_ENDPOINT", &endpoint),
+        ])
+        .await;
+    let registration = users::registration("ada@example.com");
+    let registered = server
+        .post_in_trace(
+            "/v1/users",
+            &registration,
+            "0af7651916cd43dd8448eb211c80319c",
+        )
+        .await;
+    assert!(registered.starts_with("HTTP/1.1 201"), "{registered}");
+    users::without_password(&database, "nopassword@example.com").await;
+    let attempts = [
+        (
+            "ada@example.com",
+            "wrong-password-123",
+            "5bf1a8b1a1e04e7a8c0f1d2e3a4b5c01",
+        ),
+        (
+            "nobody@example.com",
+            PASSWORD,
+            "5bf1a8b1a1e04e7a8c0f1d2e3a4b5c02",
+        ),
+        (
+            "nopassword@example.com",
+            PASSWORD,
+            "5bf1a8b1a1e04e7a8c0f1d2e3a4b5c03",
+        ),
+    ];
+
+    let mut answers = Vec::new();
+    for (email, password, trace) in attempts {
+        let body = json!({ "email": email, "password": password });
+        answers.push(server.post_in_trace("/v1/sessions", &body, trace).await);
+    }
+
+    for answer in &answers {
+        assert!(answer.starts_with("HTTP/1.1 401"), "{answer}");
+    }
+    let in_trace =
+        |span: &Span, trace: &str| -> bool { crate::support::hex(&span.trace_id) == trace };
+    // A request's span ends after the spans inside it, so its export follows theirs.
+    let received = collector
+        .wait_for(|received| {
+            attempts.iter().all(|(_, _, trace)| {
+                received.spans().iter().any(|(_, span)| {
+                    in_trace(span, trace) && span.kind == i32::from(SpanKind::Server)
+                })
+            })
+        })
+        .await;
+    for (email, _, trace) in attempts {
+        let hashes = received
+            .spans()
+            .into_iter()
+            .filter(|(_, span)| in_trace(span, trace) && span.name == "verify_password")
+            .count();
+        assert_eq!(hashes, 1, "{email}");
+    }
+}
+
 /// Signs `email` in with [`PASSWORD`] from the client address `peer`.
 async fn sign_in_from(api: &Api, peer: &str, email: &str) -> crate::support::api::Response {
     api.post(
@@ -254,6 +327,29 @@ async fn auth_006_an_existing_email_s_attempts_count_too_in_a_window_that_is_a_s
             .header("ratelimit-policy")
             .starts_with("\"sign_in\";q=2;w=60")
     );
+}
+
+#[tokio::test]
+async fn auth_006_a_sign_in_beyond_its_limit_answers_429_before_it_reads_the_account() {
+    let api = Api::with(Options::default().set("SIGN_IN_ATTEMPTS", 1)).await;
+    users::register(&api, "ada@example.com").await;
+    let first = sign_in_from(&api, "192.0.2.1:50000", "ada@example.com").await;
+    assert_eq!(first.status, 201, "{}", first.json());
+    let db = api.database();
+    // Held against every read of an account.
+    let mut held = db
+        .holding("LOCK TABLE users IN ACCESS EXCLUSIVE MODE")
+        .await;
+
+    let refused =
+        answer_before_a_lock_wait(db, sign_in_from(&api, "192.0.2.1:50000", "ada@example.com"))
+            .await;
+
+    execute_on(&mut held, "COMMIT").await;
+    assert!(refused.is_some(), "the sign-in waited to read the account");
+    let refused = refused.unwrap();
+    assert_eq!(refused.status, 429, "{}", refused.json());
+    assert_eq!(refused.json()["code"], "request.rate_limited");
 }
 
 #[tokio::test]

@@ -6,8 +6,8 @@
 use std::collections::{HashMap, HashSet};
 
 use super::{
-    LIST, Part, REMOVAL, Run, citations, exports, imports, is_migration, leftovers, list, markers,
-    matrix, owned, validate,
+    LIST, Part, REMOVAL, Run, asvs, citations, exports, imports, is_migration, leftovers, list,
+    markers, matrix, owned, validate,
 };
 use crate::{
     Finding, Outcome, metrics,
@@ -270,6 +270,14 @@ fn remove(repo: &Repo, parts: &[Part], run: &Run, read: &Read<'_>) -> (String, V
         .collect();
     let removing: Vec<&str> = removed.iter().map(|part| part.name.as_str()).collect();
     let owned: HashSet<String> = removed.iter().flat_map(|part| owned(repo, part)).collect();
+    // The security map as the removal keeps it, before its marked lines go.
+    let known: Vec<&str> = parts.iter().map(|part| part.name.as_str()).collect();
+    let map = repo
+        .file(asvs::MAP)
+        .and_then(|file| asvs::keeping(&file.text, &removing, &known));
+    let map_owners = map
+        .as_deref()
+        .and_then(|text| markers::owners(text, &known).ok());
     let mut findings = Vec::new();
     let mut kept = Vec::new();
     let mut edited = 0;
@@ -277,7 +285,11 @@ fn remove(repo: &Repo, parts: &[Part], run: &Run, read: &Read<'_>) -> (String, V
         let Some(owners) = read.owners.get(file.path.as_str()) else {
             continue;
         };
-        let lines = markers::kept(&file.text, owners, &removing);
+        let (text, owners) = match (map.as_deref(), map_owners.as_ref()) {
+            (Some(map), Some(map_owners)) if file.path == asvs::MAP => (map, map_owners),
+            _ => (file.text.as_str(), owners),
+        };
+        let lines = markers::kept(text, owners, &removing);
         if lines.len() < owners.len() {
             edited += 1;
             if file.path.ends_with(".rs") {
@@ -595,6 +607,44 @@ mod tests {
                  (ARCH-07)",
                 "removing offers: links to `../src/shop/a.rs`, which the removal deletes \
                  (ARCH-07)",
+            ]
+        );
+    }
+
+    #[test]
+    fn arch_07_a_kept_line_that_names_a_rust_file_the_removal_deletes_fails() {
+        let marker = format!("<!-- {} offers -->", "part:");
+        // The part owns the directory `src/shop/`, which holds the only file of one name, and
+        // one of the two files of another.
+        let doc = format!(
+            "# A\n\nSee `prices.rs`.\nSee shop/jobs.rs, and `jobs.rs`.\nSee `prices.rs`. {marker}\n\
+             See `a.rs` and src/a.rs.\n"
+        );
+        let code = "// As `shop/prices.rs` does.\nfn a() {}\n";
+        let list = shop_list();
+        let repo = Repo::of(&[
+            (LIST, &list),
+            ("docs/a.md", &doc),
+            ("docs/inventory/old.md", "See `prices.rs`.\n"),
+            ("src/a.rs", code),
+            ("src/jobs.rs", ""),
+            ("src/shop/jobs.rs", ""),
+            ("src/shop/prices.rs", ""),
+            ("docs/spec/shop.md", ""),
+        ]);
+
+        let found = found(&repo);
+
+        assert_eq!(
+            places(&found),
+            [("docs/a.md", 3), ("docs/a.md", 4), ("src/a.rs", 1)],
+            "{found:?}"
+        );
+        assert_eq!(
+            [found[0].2.as_str(), found[1].2.as_str()],
+            [
+                "removing offers: names `prices.rs`, which the removal deletes (ARCH-07)",
+                "removing offers: names `shop/jobs.rs`, which the removal deletes (ARCH-07)",
             ]
         );
     }

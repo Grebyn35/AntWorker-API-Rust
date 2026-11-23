@@ -114,17 +114,22 @@ async fn read(request: Request, media_type: &'static str) -> Result<Bytes, Probl
     }
 }
 
-/// `bytes` parsed into `T`, or the field the parser failed at (PLATFORM-049).
+/// `bytes`, one JSON value with nothing but white space after it, parsed into `T`, or the field
+/// the parser failed at (PLATFORM-049).
 fn parse<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, Problem<RequestError>> {
     let deserializer = &mut serde_json::Deserializer::from_slice(bytes);
-    serde_path_to_error::deserialize(deserializer).map_err(|error| {
+    let value = serde_path_to_error::deserialize(&mut *deserializer).map_err(|error| {
         let fault = if error.inner().is_data() {
             BodyFault::Shape(pointer(error.path()))
         } else {
             BodyFault::Syntax
         };
         Problem(RequestError::InvalidBody(fault))
-    })
+    })?;
+    deserializer
+        .end()
+        .map_err(|_| Problem(RequestError::InvalidBody(BodyFault::Syntax)))?;
+    Ok(value)
 }
 
 /// Whether a `Content-Type` is `media_type`, with no parameter but a `charset` of `utf-8`.
@@ -264,6 +269,57 @@ mod tests {
             .map(|field| (field.field.as_str(), field.code))
             .collect();
         assert_eq!(named, [("/a", "too_long"), ("/c/0", "required")]);
+    }
+
+    #[test]
+    fn platform_049_bytes_after_the_body_s_json_value_make_it_no_json() {
+        let parsed = |body: &str| parse::<serde_json::Value>(body.as_bytes());
+
+        for body in [
+            r#"{"name":"Ada"}garbage"#,
+            r#"{"name":"Ada"}{"name":"Grace"}"#,
+            "{} 7",
+        ] {
+            let fault = parsed(body).map_err(|Problem(error)| error);
+            assert!(
+                matches!(fault, Err(RequestError::InvalidBody(BodyFault::Syntax))),
+                "{body}: {fault:?}"
+            );
+        }
+        assert!(parsed(" {\"name\":\"Ada\"}\r\n\t ").is_ok());
+    }
+
+    #[tokio::test]
+    async fn platform_049_each_json_extractor_refuses_bytes_after_the_body_s_json_value() {
+        let request = |media_type: &'static str| {
+            Request::builder()
+                .method("POST")
+                .uri("/v1/things")
+                .header(header::CONTENT_TYPE, media_type)
+                .body(axum::body::Body::from(r#"{"name":"Ada"}garbage"#))
+                .unwrap()
+        };
+        type Value = serde_json::Value;
+
+        let faults = [
+            Json::<Value>::from_request(request(JSON), &()).await.err(),
+            MergePatch::<Value>::from_request(request(MERGE_PATCH), &())
+                .await
+                .err(),
+            Idempotent::<Value>::from_request(request(JSON), &())
+                .await
+                .err(),
+        ];
+
+        for fault in faults {
+            assert!(
+                matches!(
+                    fault,
+                    Some(Problem(RequestError::InvalidBody(BodyFault::Syntax)))
+                ),
+                "{fault:?}"
+            );
+        }
     }
 
     #[test]

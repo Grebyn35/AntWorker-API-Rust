@@ -60,14 +60,18 @@ fn client_ip(peer: IpAddr, headers: &HeaderMap, trusted: &[IpNet]) -> IpAddr {
         return peer;
     }
     let mut client = peer;
+    // A line that holds a byte outside ASCII is one value, which is no address (PLATFORM-092).
     let forwarded = headers
         .get_all("x-forwarded-for")
         .iter()
-        .filter_map(|value| value.to_str().ok())
-        .flat_map(|value| value.split(','))
+        .flat_map(|value| match value.to_str() {
+            Ok(text) => text.split(',').map(Some).collect(),
+            Err(_) => vec![None],
+        })
         .collect::<Vec<_>>();
     for entry in forwarded.into_iter().rev() {
-        let Ok(address) = IpAddr::from_str(entry.trim()).map(|address| address.to_canonical())
+        let Some(Ok(address)) =
+            entry.map(|entry| IpAddr::from_str(entry.trim()).map(|address| address.to_canonical()))
         else {
             return client;
         };
@@ -146,6 +150,26 @@ mod tests {
         // The second line's address is the rightmost, and the first line's comes before it.
         assert_eq!(lines("203.0.113.66", "198.51.100.7"), "198.51.100.7");
         assert_eq!(lines("198.51.100.7", "192.0.2.10"), "198.51.100.7");
+    }
+
+    #[test]
+    fn platform_092_a_forwarded_line_that_holds_a_byte_outside_ascii_is_one_value_and_no_address() {
+        let trusted = ranges(&["172.18.0.0/16", "192.0.2.0/24"]);
+        let lines = |values: &[&[u8]]| {
+            let mut headers = HeaderMap::new();
+            for value in values {
+                let value = axum::http::HeaderValue::from_bytes(value).unwrap();
+                headers.append("x-forwarded-for", value);
+            }
+            client_ip(PROXY.parse().unwrap(), &headers, &trusted).to_string()
+        };
+
+        assert_eq!(lines(&[b"203.0.113.66", b"caf\xc3\xa9"]), PROXY);
+        assert_eq!(
+            lines(&[b"203.0.113.66", b"\xff, 198.51.100.7", b"192.0.2.10"]),
+            "192.0.2.10"
+        );
+        assert_eq!(lines(&[b"\xff", b"198.51.100.7"]), "198.51.100.7");
     }
 
     #[test]

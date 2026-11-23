@@ -19,8 +19,11 @@ use crate::modules::{
 impl Auth {
     /// Deletes the caller's account, once their session has proved who they are within the
     /// last 5 minutes, through `accounts`, in one unit of work (AUTH-023), once the deletion has
-    /// counted in the bucket of the account's email, which a read before the unit of work finds
-    /// (AUTH-024, ARCH-11). An account that another deletion took before that read is deleted
+    /// counted in the bucket of the address that the account holds (AUTH-024): a read before the
+    /// unit of work finds the address, and the unit of work reads it again once it holds the
+    /// user's row. When the account holds another address then, the unit of work ends with
+    /// nothing written, and the deletion counts in that address's bucket and reads again in a new
+    /// one (ARCH-11). An account that another deletion took before either read is deleted
     /// already, as the deletion asked (ACCOUNTS-019).
     pub(crate) async fn delete_account(
         &self,
@@ -28,17 +31,43 @@ impl Auth {
         client: &Client,
         principal: &Principal,
     ) -> Result<(), AuthError> {
-        let mut uow = self.database.begin(client, Some(principal)).await?;
-        let address = accounts::address(&mut uow, principal.user_id()).await?;
-        drop(uow);
-        let Some(accounts::Address { email, .. }) = address else {
+        let mut read = self.database.begin(client, Some(principal)).await?;
+        let address = accounts::address(&mut read, principal.user_id()).await?;
+        drop(read);
+        let Some(accounts::Address {
+            email: mut counted, ..
+        }) = address
+        else {
             return Ok(());
         };
         limits
-            .check(buckets::DELETION_EMAIL, email.as_str().as_bytes())
+            .check(buckets::DELETION_EMAIL, counted.as_str().as_bytes())
             .await?;
-        let mut uow = self.database.begin(client, Some(principal)).await?;
-        require_recent_proof(&mut uow, principal).await?;
+        loop {
+            let mut uow = self.database.begin(client, Some(principal)).await?;
+            require_recent_proof(&mut uow, principal).await?;
+            // The user's row, locked as `Deletion::delete` then holds it, so the operation's locks
+            // keep their order, with the address that the account holds once the lock is held.
+            match accounts::address_for_update(&mut uow, principal.user_id()).await? {
+                Some(held) if held.email != counted => {
+                    // The address changed while the deletion waited for the row: the deletion
+                    // counts in the bucket of the one the account holds, before it writes
+                    // anything, and reads again (AUTH-024, ARCH-11).
+                    drop(uow);
+                    limits
+                        .check(buckets::DELETION_EMAIL, held.email.as_str().as_bytes())
+                        .await?;
+                    counted = held.email;
+                }
+                _ => return self.delete_in(uow, principal).await,
+            }
+        }
+    }
+
+    /// Deletes the caller's account through `accounts` in `uow`, once `uow` has had its turn at
+    /// their row, and commits, or answers why it doesn't (AUTH-023). An account that another
+    /// deletion took while `uow` waited for the row is deleted already (ACCOUNTS-019).
+    async fn delete_in(&self, mut uow: UnitOfWork, principal: &Principal) -> Result<(), AuthError> {
         match self.deletion.delete(&mut uow, principal).await? {
             DeletionOutcome::Deleted => Ok(uow.commit().await?),
             DeletionOutcome::OwnsSharedWorkspace => Err(AuthError::OwnsSharedWorkspace),

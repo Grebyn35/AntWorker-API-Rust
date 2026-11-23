@@ -223,8 +223,8 @@ impl AccessChange {
 
 /// A signal, as the hub receives it: the change, and the ID of the transaction that made it, as
 /// `pg_current_xact_id()` gives it, which tells the hub whether a stream's memberships hold the
-/// change (PLATFORM-031). A replica of the release before sends none while a deploy runs both
-/// (DATA-10), and its signal closes every stream it names.
+/// change (PLATFORM-031). A signal that holds none closes every stream it names, so the hub does
+/// without the field (DATA-10).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 struct Signal {
     #[serde(flatten)]

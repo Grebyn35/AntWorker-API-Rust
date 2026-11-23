@@ -2,13 +2,13 @@
 //! Routes).
 
 use axum::{
-    extract::{RawPathParams, State},
+    extract::State,
     http::{HeaderMap, StatusCode},
 };
 use platform::{
     authn::Principal,
     errors::Problem,
-    http::{Download, FileBytes, Query, ResourceResponse, Routes, Upload, path_id},
+    http::{Download, FileBytes, PathIds, Query, ResourceResponse, Routes, Upload},
     idempotency::IdempotencyKey,
     lists::List,
     ranges::Wanted,
@@ -124,9 +124,9 @@ async fn read_own_file(
     State(files): State<Files>,
     principal: Principal,
     client: Client,
-    params: RawPathParams,
+    params: PathIds,
 ) -> Result<ResourceResponse<UserFile>, Problem<FilesError>> {
-    let id = path_id(&params, "file_id").ok_or(FilesError::NotFound)?;
+    let id = params.id("file_id").ok_or(FilesError::NotFound)?;
     let file = service::read(&files, &client, &principal, id).await?;
     Ok(ResourceResponse::ok(file))
 }
@@ -147,10 +147,10 @@ async fn download_own_file(
     State(files): State<Files>,
     principal: Principal,
     client: Client,
-    params: RawPathParams,
+    params: PathIds,
     wanted: Wanted,
 ) -> Result<Download<ObjectBytes>, Problem<FilesError>> {
-    let id = path_id(&params, "file_id").ok_or(FilesError::NotFound)?;
+    let id = params.id("file_id").ok_or(FilesError::NotFound)?;
     let downloaded = service::download(&files, &client, &principal, id, &wanted).await?;
     Ok(response(downloaded))
 }
@@ -171,9 +171,9 @@ async fn delete_own_file(
     State(files): State<Files>,
     principal: Principal,
     client: Client,
-    params: RawPathParams,
+    params: PathIds,
 ) -> Result<StatusCode, Problem<FilesError>> {
-    let id = path_id(&params, "file_id").ok_or(FilesError::NotFound)?;
+    let id = params.id("file_id").ok_or(FilesError::NotFound)?;
     service::delete(&files, &client, &principal, id).await?;
     Ok(StatusCode::NO_CONTENT)
 }

@@ -1,7 +1,9 @@
-//! What `files` reports (ERR-01).
+//! What `files` reports (ERR-01): what its routes and its interface answer, and what stops a
+//! run of `restore-files`.
 
 use platform::{
     errors::{Category, ErrorCode, FieldError, Internal, PlatformError, RequestError},
+    storage::StorageError,
     types::Invalid,
 };
 
@@ -40,6 +42,25 @@ pub(crate) enum FilesError {
     /// Anything else (ERR-04).
     #[error(transparent)]
     Internal(#[from] Internal),
+}
+
+/// What stops a run of `restore-files` (FILES-029), which no route answers: the subcommand's
+/// log writes it as the cause of the run's internal error.
+#[derive(Debug, thiserror::Error)]
+pub(super) enum RestoreFailure {
+    /// The first version that the bucket listed of an object wasn't its latest, or a later one
+    /// was.
+    #[error("the bucket listed an object's versions in another order than S3's, the latest first")]
+    Order,
+    /// A version's bytes were more or fewer than its listing said.
+    #[error("the bucket gave a version's bytes at another size than it listed them at")]
+    Size,
+    /// A request to the bucket failed.
+    #[error(transparent)]
+    Storage(#[from] StorageError),
+    /// A version's bytes stopped coming.
+    #[error(transparent)]
+    Bytes(#[from] Internal),
 }
 
 impl From<RequestError> for FilesError {

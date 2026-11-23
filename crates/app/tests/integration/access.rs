@@ -3,27 +3,16 @@
 
 use futures_util::future::BoxFuture;
 use http::{Method, StatusCode};
+use serde_json::json;
 
 use crate::support::{
-    Api, TestDatabase,
+    Api, Options, TestDatabase,
     api::Response,
-    execute_on, queries_wait_on_locks,
+    api::call,
+    execute_on, fixtures, queries_wait_on_locks, query_waits_on_a_lock,
     users::{self, SignedIn},
     workspaces,
 };
-
-/// Sends `method` to `path` as `caller`.
-async fn call(
-    api: &Api,
-    method: Method,
-    path: &str,
-    caller: &SignedIn,
-) -> crate::support::api::Response {
-    api.request(method, path)
-        .bearer(&caller.access)
-        .send()
-        .await
-}
 
 #[tokio::test]
 async fn access_001_a_workspace_has_exactly_one_owner() {
@@ -45,6 +34,70 @@ async fn access_001_a_workspace_has_exactly_one_owner() {
         .await;
 
     assert!(second.is_err_and(|error| error.contains("workspace_memberships_workspace_id_key")));
+}
+
+#[tokio::test]
+async fn access_001_no_change_of_a_membership_leaves_a_workspace_without_its_owner() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let db = api.database();
+    let workspace = workspaces::arrange(
+        db,
+        "Acme",
+        &[(&ada.user_id, "owner"), (&grace.user_id, "admin")],
+    )
+    .await;
+    let path = format!("/v1/workspaces/{workspace}");
+    let ada_member = format!("{path}/members/{}", ada.user_id);
+    let owners = format!(
+        "SELECT user_id::text FROM workspace_memberships \
+         WHERE workspace_id = '{workspace}' AND role = 'owner'"
+    );
+    let demoted = json!({ "role": "member" });
+
+    // Each way that a membership changes, short of a transfer, keeps Ada the owner.
+    let left = call(&api, Method::POST, &format!("{path}/leave"), &ada).await;
+    let removed = call(&api, Method::DELETE, &ada_member, &grace).await;
+    let demoted_by_admin = api
+        .patch(&ada_member, &demoted)
+        .bearer(&grace.access)
+        .send()
+        .await;
+    let demoted_by_herself = api
+        .patch(&ada_member, &demoted)
+        .bearer(&ada.access)
+        .send()
+        .await;
+    let deleted = call(&api, Method::DELETE, "/v1/users/me", &ada).await;
+    let kept = db.owner_reads(&owners).await;
+    let transferred = api
+        .post(
+            &format!("{path}/transfer"),
+            &json!({ "user_id": grace.user_id }),
+        )
+        .bearer(&ada.access)
+        .send()
+        .await;
+
+    let refusals = [
+        &left,
+        &removed,
+        &demoted_by_admin,
+        &demoted_by_herself,
+        &deleted,
+    ];
+    let statuses: Vec<u16> = refusals
+        .iter()
+        .map(|answer| answer.status.as_u16())
+        .collect();
+    assert_eq!(statuses, [403, 403, 403, 403, 409]);
+    assert_eq!(kept, std::slice::from_ref(&ada.user_id));
+    assert_eq!(transferred.status, StatusCode::NO_CONTENT);
+    assert_eq!(
+        db.owner_reads(&owners).await,
+        std::slice::from_ref(&grace.user_id)
+    );
 }
 
 #[tokio::test]
@@ -353,6 +406,34 @@ async fn platform_010_a_rank_refusal_records_itself_and_rolls_the_operation_back
 }
 
 #[tokio::test]
+async fn platform_010_a_rank_refusal_rolls_back_what_its_operation_wrote_before_it() {
+    // A route of the fixtures publishes an event, then refuses its caller by rank.
+    let api = Api::with(Options::routes(fixtures::routes(Default::default()))).await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    let workspace = workspaces::arrange(db, "Acme", &[(&ada.user_id, "owner")]).await;
+
+    let refused = call(
+        &api,
+        Method::POST,
+        &format!("/v1/workspaces/{workspace}/outranked"),
+        &ada,
+    )
+    .await;
+
+    assert_eq!(refused.status, StatusCode::FORBIDDEN);
+    assert_eq!(refused.json()["code"], "request.permission_denied");
+    let published = db
+        .owner_reads("SELECT count(*)::text FROM events WHERE name = 'keyed.ran'")
+        .await;
+    assert_eq!(published, ["0"], "the event rolled back with its operation");
+    let actions = db
+        .owner_reads("SELECT action FROM audit_entries WHERE workspace_id IS NOT NULL")
+        .await;
+    assert_eq!(actions, ["access.denied"]);
+}
+
+#[tokio::test]
 async fn platform_026_an_operation_that_rolls_back_publishes_nothing() {
     let api = Api::new().await;
     let owner = users::register(&api, "owner@example.com").await;
@@ -404,6 +485,49 @@ async fn platform_009_authorization_waits_for_a_change_to_the_caller_s_membershi
 
     // The request waited for the removal, so it ran under the membership as it then stood.
     assert_eq!(request.await.unwrap(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn platform_009_the_operation_holds_the_membership_it_was_authorized_with_until_it_ends() {
+    let api = Api::new().await;
+    let owner = users::register(&api, "owner@example.com").await;
+    let db = api.database();
+    let workspace = workspaces::arrange(db, "Acme", &[(&owner.user_id, "owner")]).await;
+    // The rename's write waits for the workspace's row, which the test holds, once its
+    // authorization has read the caller's membership.
+    let mut held = db
+        .holding(&format!(
+            "SELECT 1 FROM workspaces WHERE id = '{workspace}' FOR UPDATE"
+        ))
+        .await;
+    let rename = api.spawn(
+        Method::PATCH,
+        &format!("/v1/workspaces/{workspace}"),
+        &owner.access,
+        Some(json!({ "name": "Renamed" })),
+    );
+    query_waits_on_a_lock(db, "UPDATE workspaces").await;
+
+    // A removal of the membership locks its row as this does, so it would wait for the operation.
+    let removal = db
+        .try_execute(
+            &db.owner_url(),
+            &format!(
+                "SELECT 1 FROM workspace_memberships WHERE workspace_id = '{workspace}' \
+                 AND user_id = '{}' FOR UPDATE NOWAIT",
+                owner.user_id
+            ),
+        )
+        .await;
+    execute_on(&mut held, "ROLLBACK").await;
+
+    assert!(
+        removal
+            .as_ref()
+            .is_err_and(|refused| refused.contains("could not obtain lock")),
+        "{removal:?}"
+    );
+    assert_eq!(rename.await.unwrap().0, StatusCode::OK);
 }
 
 /// Arranges the row a route addresses in the workspace it is given, through the `owner`
@@ -1067,7 +1191,7 @@ async fn data_20_a_deletion_waits_for_a_member_before_it_locks_the_members_below
     assert_eq!(left, ["0"]);
 }
 
-/// What a member's request, `method` to the path that `path` gives for the workspace and the
+/// What a member's request, `DELETE` of the path that `path` gives for the workspace and the
 /// ID of its owner, answers, and what its refusal records, when a deletion of the workspace
 /// commits once the request is refused, while the refusal's entry waits at the workspace's row:
 /// the answer's status and code, and each `access.denied` entry as its scope, the log it is in,
@@ -1075,7 +1199,6 @@ async fn data_20_a_deletion_waits_for_a_member_before_it_locks_the_members_below
 /// workspace's.
 async fn refused_while_the_workspace_goes(
     role: &str,
-    method: Method,
     path: fn(&str, &str) -> String,
 ) -> ((StatusCode, String), Vec<String>, (String, String)) {
     let api = Api::new().await;
@@ -1096,7 +1219,7 @@ async fn refused_while_the_workspace_goes(
         .await;
 
     let refused = api.spawn(
-        method,
+        Method::DELETE,
         &path(&workspace, &owner.user_id),
         &member.access,
         None,
@@ -1125,7 +1248,7 @@ async fn refused_while_the_workspace_goes(
 async fn audit_004_a_member_s_refusal_whose_workspace_went_meanwhile_is_in_their_own_log() {
     // A member may not delete the workspace.
     let (answer, entries, (member, workspace)) =
-        refused_while_the_workspace_goes("member", Method::DELETE, |workspace, _| {
+        refused_while_the_workspace_goes("member", |workspace, _| {
             format!("/v1/workspaces/{workspace}")
         })
         .await;
@@ -1146,10 +1269,62 @@ async fn audit_004_a_member_s_refusal_whose_workspace_went_meanwhile_is_in_their
 }
 
 #[tokio::test]
+async fn audit_004_a_refused_member_whose_account_went_meanwhile_gets_401_and_no_entry() {
+    let api = Api::new().await;
+    let owner = users::register(&api, "owner@example.com").await;
+    let member = users::register(&api, "member@example.com").await;
+    let db = api.database();
+    let workspace = workspaces::arrange(
+        db,
+        "Acme",
+        &[(&owner.user_id, "owner"), (&member.user_id, "member")],
+    )
+    .await;
+    // A deletion of the member's account, which holds their row.
+    let mut deletion = db
+        .holding(&format!(
+            "SELECT 1 FROM users WHERE id = '{}' FOR UPDATE",
+            member.user_id
+        ))
+        .await;
+
+    // A member may not delete the workspace.
+    let refused = api.spawn(
+        Method::DELETE,
+        &format!("/v1/workspaces/{workspace}"),
+        &member.access,
+        None,
+    );
+    // The refusal's entry, which names the member, waits at their row.
+    query_waits_on_a_lock(db, "INSERT INTO audit_entries").await;
+    execute_on(
+        &mut deletion,
+        &format!(
+            "DELETE FROM workspace_memberships WHERE user_id = '{0}'; \
+             DELETE FROM users WHERE id = '{0}'",
+            member.user_id
+        ),
+    )
+    .await;
+    execute_on(&mut deletion, "COMMIT").await;
+    let (status, problem) = refused.await.unwrap();
+
+    // The entry names an actor whose row is gone, so the request fails as any whose caller's
+    // account went (PLATFORM-097).
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(problem["code"], "request.unauthenticated");
+    assert_eq!(
+        db.owner_reads("SELECT count(*)::text FROM audit_entries WHERE action = 'access.denied'")
+            .await,
+        ["0"]
+    );
+}
+
+#[tokio::test]
 async fn platform_010_a_rank_refusal_whose_workspace_went_meanwhile_is_in_the_caller_s_own_log() {
     // An admin may remove members, but not the owner, who outranks them.
     let (answer, entries, (admin, workspace)) =
-        refused_while_the_workspace_goes("admin", Method::DELETE, |workspace, owner| {
+        refused_while_the_workspace_goes("admin", |workspace, owner| {
             format!("/v1/workspaces/{workspace}/members/{owner}")
         })
         .await;
@@ -1326,7 +1501,7 @@ async fn invitations_006_accepting_while_the_owner_deletes_the_workspace_answers
 }
 /// Bob answers Ada's invitation to her workspace, whose only member she is, `answer` being
 /// `accept` or `decline`, while the deletion of her account holds its owner's membership; returns
-/// the answer's response, with the database.
+/// the API, Bob and the answer's response.
 async fn answering_while_the_owner_is_deleted(
     answer: &str,
 ) -> (Api, SignedIn, crate::support::api::Response) {
@@ -1358,7 +1533,7 @@ async fn answering_while_the_owner_is_deleted(
 }
 
 #[tokio::test]
-async fn access_008_a_join_that_waited_for_the_owner_s_deletion_adds_no_member() {
+async fn access_010_a_join_that_waited_for_the_owner_s_deletion_adds_no_member() {
     let (api, bob, _) = answering_while_the_owner_is_deleted("accept").await;
 
     let memberships = api

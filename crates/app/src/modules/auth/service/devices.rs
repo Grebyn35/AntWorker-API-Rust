@@ -10,9 +10,13 @@ use platform::{
 };
 
 use super::{Auth, SignIn};
-use crate::modules::auth::{
-    model::{DEVICE_COOKIE, DeviceToken},
-    repo,
+use crate::modules::{
+    accounts,
+    auth::{
+        error::AuthError,
+        model::{DEVICE_COOKIE, DeviceToken},
+        repo,
+    },
 };
 
 /// The kind of the keyed hash of a device token's email.
@@ -92,15 +96,24 @@ impl Auth {
             .then_some(hash))
     }
 
-    /// Issues `user_id`'s device a device token for `email`, ending the account's expired ones,
-    /// and the one that hashes to `replaced`, if any, the token the sign-in used (AUTH-019).
+    /// Issues `user_id`'s device a device token for the address that the account holds, ending
+    /// the account's expired ones, and the one that hashes to `replaced`, if any, the token the
+    /// sign-in used (AUTH-019). `uow` has inserted the account's session, whose foreign key holds
+    /// the user's row `FOR KEY SHARE` until it commits, which a change of the address waits for,
+    /// so the address read here is the account's until then: a sign-in that found the account by
+    /// the address before a change gets a token for the address after it.
     pub(super) async fn issue_device_token(
         &self,
         uow: &mut UnitOfWork,
         user_id: UserId,
-        email: &EmailAddress,
         replaced: Option<&[u8; 32]>,
-    ) -> Result<DeviceToken, Internal> {
+    ) -> Result<DeviceToken, AuthError> {
+        let email = accounts::address(uow, user_id)
+            .await?
+            .ok_or_else(|| {
+                Internal::new("the account whose session the unit of work holds is gone")
+            })?
+            .email;
         repo::end_device_tokens(uow, user_id, replaced.map(<[u8; 32]>::as_slice)).await?;
         let token = Secret::new(random::token()?);
         let (id, expires_at) = repo::insert_device_token(
@@ -113,7 +126,7 @@ impl Auth {
         .await?;
         Ok(DeviceToken {
             id,
-            cookie: self.device_cookie(email),
+            cookie: self.device_cookie(&email),
             token,
             expires_at,
         })

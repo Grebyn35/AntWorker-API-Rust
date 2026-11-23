@@ -1,6 +1,10 @@
 //! `check-pins`: everything a build or a check uses is pinned (OPS-11), and the toolchain and the
 //! edition are the ones `rust-toolchain.toml` and the workspace name (CODE-01).
 
+mod forms;
+
+use forms::{has_digest, is_exact_version, is_required_variable, is_versioned_runner};
+
 use crate::{Finding, Outcome, repo::Repo};
 
 const WORKFLOWS: &str = ".github/workflows/";
@@ -217,22 +221,20 @@ fn compose_pins(path: &str, text: &str, findings: &mut Vec<Finding>) {
 }
 
 /// Checks the frontend, the images, the downloads, the packages, the crates and the toolchain of
-/// the Dockerfile at `path`.
+/// the Dockerfile at `path`, each instruction whole, at the line it starts on.
 fn dockerfile_pins(path: &str, text: &str, findings: &mut Vec<Finding>) {
     let mut stages: Vec<String> = Vec::new();
-    let mut syntax = false;
-    for (number, line) in numbered(text) {
-        let line = line.trim();
-        if let Some(frontend) = line.strip_prefix("# syntax=") {
-            syntax = true;
-            if !has_digest(frontend) {
-                findings.push(Finding::new(
-                    path,
-                    number,
-                    format!("the frontend {frontend} is pinned by digest (OPS-11)"),
-                ));
-            }
-        }
+    let first = text.lines().next().unwrap_or_default().trim();
+    let frontend = first.strip_prefix("# syntax=");
+    if !frontend.is_some_and(has_digest) {
+        let missing = "the first line pins the Dockerfile frontend, with `# syntax=` and a digest";
+        let problem = frontend.map_or(missing.to_owned(), |frontend| {
+            format!("the frontend {frontend} is pinned by digest")
+        });
+        findings.push(Finding::new(path, 1, format!("{problem} (OPS-11)")));
+    }
+    for (number, line) in &instructions(text) {
+        let (number, line) = (*number, line.as_str());
         let words: Vec<&str> = line.split_whitespace().collect();
         match words
             .first()
@@ -253,6 +255,28 @@ fn dockerfile_pins(path: &str, text: &str, findings: &mut Vec<Finding>) {
                     && as_.eq_ignore_ascii_case("as")
                 {
                     stages.push((*stage).to_owned());
+                }
+            }
+            Some("COPY" | "RUN") => {
+                // The image of a `COPY --from=` or of a `RUN --mount=` option's `from=`, among
+                // the options before the instruction's arguments, unless it names a stage.
+                let options = words[1..].iter().take_while(|word| word.starts_with("--"));
+                let named = options
+                    .flat_map(|option| option.split(','))
+                    .filter_map(|part| {
+                        part.strip_prefix("--from=")
+                            .or_else(|| part.strip_prefix("from="))
+                    });
+                for image in named.filter(|image| {
+                    !has_digest(image)
+                        && !names_stage(image, &stages)
+                        && image.parse::<usize>().is_err()
+                }) {
+                    findings.push(Finding::new(
+                        path,
+                        number,
+                        format!("the image {image} is pinned by digest (OPS-11)"),
+                    ));
                 }
             }
             Some("ADD") => {
@@ -277,19 +301,39 @@ fn dockerfile_pins(path: &str, text: &str, findings: &mut Vec<Finding>) {
             findings.push(Finding::new(path, number, problem));
         }
     }
-    if !syntax {
-        findings.push(Finding::new(
-            path,
-            1,
-            "the first line pins the Dockerfile frontend, with `# syntax=` and a digest (OPS-11)",
-        ));
-    }
 }
 
-/// What is wrong with the commands of the Dockerfile line `line`, split into `words`: a crate
-/// or a package installed without its version, or a toolchain other than the pinned one.
+/// The instructions of the Dockerfile `text`, each with the line it starts on, as BuildKit reads
+/// them: a line that ends in `\` goes on over the next, past comment lines and empty ones.
+fn instructions(text: &str) -> Vec<(usize, String)> {
+    let mut instructions = Vec::new();
+    let mut open: Option<(usize, String)> = None;
+    for (number, line) in numbered(text) {
+        let line = line.trim();
+        if open.is_some() && (line.is_empty() || line.starts_with('#')) {
+            continue;
+        }
+        let (start, mut joined) = open.take().unwrap_or((number, String::new()));
+        match line.strip_suffix('\\') {
+            Some(part) => {
+                joined.push_str(part);
+                joined.push(' ');
+                open = Some((start, joined));
+            }
+            None => {
+                joined.push_str(line);
+                instructions.push((start, joined));
+            }
+        }
+    }
+    instructions.extend(open);
+    instructions
+}
+
+/// What is wrong with the commands of the Dockerfile instruction `line`, split into `words`: a
+/// crate or a package installed without its version, or a toolchain other than the pinned one.
 fn command_problems(line: &str, words: &[&str]) -> Vec<String> {
-    let mut problems: Vec<String> = cargo_install_problem(words).into_iter().collect();
+    let mut problems: Vec<String> = cargo_install_problems(words);
     for package in unpinned_packages(words) {
         problems.push(format!(
             "the package {package} is pinned by version, as {package}=<version> (OPS-11)"
@@ -316,28 +360,40 @@ fn names_stage(image: &str, stages: &[String]) -> bool {
     }
 }
 
-/// The packages that an `apt-get install` among `words` names without a version.
+/// The packages that each `apt-get install` or `apt install` among `words`, with any words that
+/// start with `-` before its `install`, names without a version.
 fn unpinned_packages<'a>(words: &[&'a str]) -> Vec<&'a str> {
-    let Some(at) = words
+    let mut packages = Vec::new();
+    for (at, word) in words.iter().enumerate() {
+        let rest = &words[at + 1..];
+        let options = rest.iter().take_while(|word| word.starts_with('-')).count();
+        if !matches!(*word, "apt-get" | "apt") || rest.get(options) != Some(&"install") {
+            continue;
+        }
+        packages.extend(
+            rest[options + 1..]
+                .iter()
+                .take_while(|word| !["&&", ";", "\\", "||"].contains(word))
+                .filter(|word| !word.starts_with('-') && !word.contains('='))
+                .copied(),
+        );
+    }
+    packages
+}
+
+/// What is wrong with each `cargo install` among `words`.
+fn cargo_install_problems(words: &[&str]) -> Vec<String> {
+    words
         .windows(2)
-        .position(|pair| pair == ["apt-get", "install"])
-    else {
-        return Vec::new();
-    };
-    words[at + 2..]
-        .iter()
-        .take_while(|word| !["&&", ";", "\\", "||"].contains(word))
-        .filter(|word| !word.starts_with('-') && !word.contains('='))
-        .copied()
+        .enumerate()
+        .filter(|(_, pair)| *pair == ["cargo", "install"])
+        .filter_map(|(at, _)| cargo_install_problem(&words[at + 2..]))
         .collect()
 }
 
-/// What is wrong with a `cargo install` among `words`, if anything.
-fn cargo_install_problem(words: &[&str]) -> Option<String> {
-    let at = words
-        .windows(2)
-        .position(|pair| pair == ["cargo", "install"])?;
-    let args = words[at + 2..]
+/// What is wrong with the `cargo install` whose arguments `args` start, if anything.
+fn cargo_install_problem(args: &[&str]) -> Option<String> {
+    let args = args
         .iter()
         .take_while(|word| !matches!(**word, "&&" | ";" | "\\" | "|"));
     let mut locked = false;
@@ -416,52 +472,6 @@ fn value_of<'a>(line: &'a str, key: &str) -> Option<&'a str> {
 
 fn has_line(text: &str, wanted: &str) -> bool {
     text.lines().any(|line| line.trim() == wanted)
-}
-
-/// Whether `value` is one variable that Compose requires, `${NAME}` or `${NAME:?message}`, with
-/// no default it could fall back to.
-fn is_required_variable(value: &str) -> bool {
-    let Some(inner) = value
-        .strip_prefix("${")
-        .and_then(|rest| rest.strip_suffix('}'))
-    else {
-        return false;
-    };
-    let (name, rest) = inner.split_at(
-        inner
-            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
-            .unwrap_or(inner.len()),
-    );
-    !name.is_empty() && (rest.is_empty() || rest.starts_with(":?") || rest.starts_with('?'))
-}
-
-fn has_digest(image: &str) -> bool {
-    image.rsplit_once("@sha256:").is_some_and(|(_, digest)| {
-        digest.len() == 64 && digest.bytes().all(|b| b.is_ascii_hexdigit())
-    })
-}
-
-/// Whether `version` is three whole numbers, such as `1.99.1`.
-fn is_exact_version(version: &str) -> bool {
-    let parts: Vec<&str> = version.split('.').collect();
-    parts.len() == 3
-        && parts
-            .iter()
-            .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
-}
-
-/// Whether `runner` is a hosted runner's versioned label, such as `ubuntu-24.04` or
-/// `ubuntu-24.04-arm`.
-fn is_versioned_runner(runner: &str) -> bool {
-    let runner = runner.strip_suffix("-arm").unwrap_or(runner);
-    ["ubuntu-", "windows-", "macos-"].iter().any(|os| {
-        runner.strip_prefix(os).is_some_and(|version| {
-            !version.is_empty()
-                && version
-                    .split('.')
-                    .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
-        })
-    })
 }
 
 #[cfg(test)]
@@ -548,6 +558,26 @@ mod tests {
     }
 
     #[test]
+    fn ops_11_an_image_that_a_copy_or_a_mount_names_is_pinned_by_digest() {
+        let dockerfile = format!(
+            "# syntax=docker/dockerfile:1.27.1@sha256:{DIGEST}\nFROM alpine:3.24.3@sha256:{DIGEST} AS base\n\
+             COPY --from=base /a /a\nCOPY --from=0 /b /b\nCOPY --from=busybox:1.37@sha256:{DIGEST} /c /c\n\
+             COPY --from=busybox:1.37 /d /d\nRUN --mount=type=cache,from=base,target=/e true\n\
+             RUN --mount=type=bind,from=golang:1.26,target=/f true\nRUN tool --from=anything\n"
+        );
+
+        let findings = findings_with(DOCKERFILE, &dockerfile);
+
+        assert_eq!(
+            findings,
+            [
+                "Dockerfile:6: the image busybox:1.37 is pinned by digest (OPS-11)",
+                "Dockerfile:8: the image golang:1.26 is pinned by digest (OPS-11)",
+            ]
+        );
+    }
+
+    #[test]
     fn ops_11_a_compose_image_from_a_required_variable_passes_and_one_with_a_default_fails() {
         let findings = findings_with(
             "deploy/compose.yaml",
@@ -575,6 +605,42 @@ mod tests {
             findings,
             [
                 "deploy/postgres/Dockerfile:3: the package curl is pinned by version, as curl=<version> (OPS-11)"
+            ]
+        );
+    }
+
+    #[test]
+    fn ops_11_a_package_or_a_crate_on_a_continuation_line_is_pinned_by_version() {
+        let findings = findings_with(
+            "deploy/postgres/Dockerfile",
+            &format!(
+                "# syntax=docker/dockerfile:1@sha256:{DIGEST}\nFROM postgres:18.6@sha256:{DIGEST}\nRUN apt-get update \\\n    && apt-get install --yes pgbackrest=2.59.3-1 \\\n        jq=1.7.1-6 curl \\\n    # a comment between continuation lines\n        wget \\\n    && apt-get -y install less \\\n    && apt install vim \\\n    && cargo install --locked \\\n        cargo-chef@0.1.78 cargo-zigbuild\n"
+            ),
+        );
+
+        assert_eq!(
+            findings,
+            [
+                "deploy/postgres/Dockerfile:3: cargo-zigbuild names an exact version, as name@1.2.3 (OPS-11)",
+                "deploy/postgres/Dockerfile:3: the package curl is pinned by version, as curl=<version> (OPS-11)",
+                "deploy/postgres/Dockerfile:3: the package wget is pinned by version, as wget=<version> (OPS-11)",
+                "deploy/postgres/Dockerfile:3: the package less is pinned by version, as less=<version> (OPS-11)",
+                "deploy/postgres/Dockerfile:3: the package vim is pinned by version, as vim=<version> (OPS-11)",
+            ]
+        );
+    }
+
+    #[test]
+    fn ops_11_the_first_line_pins_the_frontend() {
+        let later = findings_with(
+            DOCKERFILE,
+            &format!("# A comment.\n# syntax=docker/dockerfile:1@sha256:{DIGEST}\n"),
+        );
+
+        assert_eq!(
+            later,
+            [
+                "Dockerfile:1: the first line pins the Dockerfile frontend, with `# syntax=` and a digest (OPS-11)"
             ]
         );
     }

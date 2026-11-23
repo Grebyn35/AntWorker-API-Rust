@@ -3,8 +3,9 @@
 use std::collections::BTreeSet;
 
 use http::{Method, StatusCode};
+use serde_json::Value;
 
-use crate::support::{Api, run_binary, users, workspaces};
+use crate::support::{Api, run_binary, streams, users, workspaces};
 
 /// The document as committed at the repository's root.
 const COMMITTED: &str = include_str!("../../../../openapi.json");
@@ -70,6 +71,166 @@ async fn api_14_every_route_that_isn_t_public_refuses_a_caller_without_a_credent
         called += 1;
     }
     assert!(called >= 7, "only {called} routes that aren't public");
+}
+
+/// Each documented operation with a path parameter, once for each of its parameters, with
+/// `%FF` in that one, which percent-decodes to a byte that no UTF-8 text holds: its method, its
+/// path's template, the parameter, the path, and the operation. Every other parameter names
+/// `workspace`, or an ID that names no row.
+fn not_utf_8_in_each_parameter(
+    api: &Api,
+    workspace: &str,
+) -> Vec<(Method, String, String, String, Value)> {
+    let mut requests = Vec::new();
+    for (template, item) in api.document()["paths"].as_object().unwrap() {
+        let parameters = template.split('/').filter(|part| part.starts_with('{'));
+        for parameter in parameters {
+            let path: String = template
+                .split('/')
+                .map(|part| match part {
+                    _ if part == parameter => "%FF",
+                    "{workspace_id}" => workspace,
+                    _ if part.starts_with('{') => "01900000-0000-7000-8000-000000000000",
+                    _ => part,
+                })
+                .collect::<Vec<_>>()
+                .join("/");
+            for (method, operation) in item.as_object().unwrap() {
+                let method = Method::from_bytes(method.to_ascii_uppercase().as_bytes()).unwrap();
+                requests.push((
+                    method,
+                    template.clone(),
+                    parameter.to_owned(),
+                    path.clone(),
+                    operation.clone(),
+                ));
+            }
+        }
+    }
+    requests
+}
+
+#[tokio::test]
+async fn api_07_every_route_answers_a_path_segment_that_isn_t_utf_8_with_a_problem() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let workspace = workspaces::arrange(api.database(), "Acme", &[(&ada.user_id, "owner")]).await;
+    let mut sent = 0;
+
+    for (method, template, parameter, path, _) in not_utf_8_in_each_parameter(&api, &workspace) {
+        let response = api
+            .request(method.clone(), &path)
+            .bearer(&ada.access)
+            .send()
+            .await;
+
+        assert_eq!(
+            response.header("content-type"),
+            "application/problem+json",
+            "{method} {template} with {parameter} not UTF-8: {}",
+            response.status
+        );
+        sent += 1;
+    }
+    assert!(sent >= 10, "only {sent} requests");
+}
+
+#[tokio::test]
+async fn platform_072_every_route_answers_a_path_segment_that_isn_t_utf_8_as_a_row_it_doesn_t_find()
+{
+    let api = Api::new().await;
+    // The owner of the workspace, who holds every permission of its routes.
+    let ada = users::register(&api, "ada@example.com").await;
+    let workspace = workspaces::arrange(api.database(), "Acme", &[(&ada.user_id, "owner")]).await;
+    let mut sent = 0;
+
+    for (method, template, parameter, path, operation) in
+        not_utf_8_in_each_parameter(&api, &workspace)
+    {
+        // A body that the request lacks is refused before the route reads an ID (API-10).
+        if !operation["requestBody"].is_null() {
+            continue;
+        }
+        let response = api
+            .request(method.clone(), &path)
+            .bearer(&ada.access)
+            .send()
+            .await;
+
+        let expected = StatusCode::NOT_FOUND;
+        // part: superadmins
+        // A route of an access level that she lacks refuses her first.
+        let expected = if operation["x-access"] == "superadmin" {
+            StatusCode::FORBIDDEN
+        } else {
+            expected
+        };
+        // end part: superadmins
+        assert_eq!(
+            response.status,
+            expected,
+            "{method} {template} with {parameter} not UTF-8: {}",
+            response.json()
+        );
+        if expected == StatusCode::FORBIDDEN {
+            assert_eq!(response.json()["code"], "request.permission_denied");
+        }
+        sent += 1;
+    }
+    assert!(sent >= 10, "only {sent} requests");
+}
+
+#[tokio::test]
+async fn sec_12_every_documented_route_answers_with_the_security_headers() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    // What ends Ada's session or her account goes last, so that every other request is hers.
+    let mut operations = api.operations();
+    operations.sort_by_key(|(method, path, _)| {
+        *method == Method::DELETE
+            && matches!(
+                path.as_str(),
+                "/v1/users/me" | "/v1/users/me/sessions/current"
+            )
+    });
+    let mut answers = Vec::new();
+
+    for (method, path, _) in operations {
+        if path == streams::PATH {
+            let stream = streams::connect(&api, &ada.access, None).await;
+            answers.push((method, path, stream.headers().clone()));
+            continue;
+        }
+        let response = api
+            .request(method.clone(), &path)
+            .bearer(&ada.access)
+            .header("content-type", "application/json")
+            .body("{}")
+            .send()
+            .await;
+        answers.push((method, path, response.headers));
+    }
+
+    for (method, path, headers) in &answers {
+        let header = |name: &str| headers.get(name).and_then(|value| value.to_str().ok());
+        assert_eq!(
+            header("x-content-type-options"),
+            Some("nosniff"),
+            "{method} {path}"
+        );
+        assert_eq!(
+            header("referrer-policy"),
+            Some("no-referrer"),
+            "{method} {path}"
+        );
+        assert_eq!(header("cache-control"), Some("no-store"), "{method} {path}");
+        assert_eq!(
+            header("content-security-policy"),
+            Some("default-src 'none'; base-uri 'none'; frame-ancestors 'none'"),
+            "{method} {path}"
+        );
+    }
+    assert!(answers.len() >= 20, "only {} routes", answers.len());
 }
 
 #[tokio::test]

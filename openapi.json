@@ -117,7 +117,7 @@
         "x-audit-action": "access.denied"
       },
       "Acted": {
-        "description": "The details of `workspace.created` and `workspace.deleted`, which say how the caller acted,\nwhen they acted other than as a user of the workspace.",
+        "description": "The details of `workspace.created` and `workspace.deleted`.\nThey say how the caller acted, when they acted other than as a user of the workspace.",
         "properties": {
           "access": {
             "$ref": "#/components/schemas/Access",
@@ -15196,7 +15196,7 @@
             }
           }
         },
-        "summary": "Asks to change the account's email address to another, which an email to it with a code\nproves, in place of any change asked for before. The session must have proved its password\nwithin the last 5 minutes.",
+        "summary": "Asks to change the account's email address to another, which an email to it with a code\nproves, in place of any change asked for before. The session must have proved who its user is\nwithin the last 5 minutes.",
         "tags": [
           "auth"
         ],
@@ -15953,7 +15953,7 @@
                 }
               }
             },
-            "description": "The session, without its tokens, whose account no longer needs to verify its address.",
+            "description": "The session, without its tokens, whose `email_verification_required` is false.",
             "headers": {
               "ratelimit": {
                 "description": "The quota left in the bucket that decided the response, and the seconds until its window ends.",

@@ -26,6 +26,10 @@ pub(crate) const STEP_SECONDS: i64 = 30;
 /// How many digits an app's code has (AUTH-057).
 const APP_CODE_DIGITS: u8 = 6;
 
+/// How many characters a typed app's code holds at most, its digits and the white space around
+/// them, as its schema gives (API-17).
+const APP_CODE_MAX_INPUT: usize = 32;
+
 /// What a URI's label and parameters escape: every character but the unreserved ones of RFC 3986.
 const ESCAPED: &AsciiSet = &NON_ALPHANUMERIC
     .remove(b'-')
@@ -77,14 +81,19 @@ impl AppSecret {
     /// The step whose code `code` is, at `now`, seconds since the Unix epoch by the database's
     /// clock: the current step or the one before it, and only a step after `last_used`, so each
     /// step's code works once (AUTH-057). The comparison is constant-time, as `totp-rs` makes it.
-    pub(crate) fn accepts(&self, code: &AppCode, now: i64, last_used: Option<i64>) -> Option<i64> {
+    pub(crate) fn accepts(
+        &self,
+        code: &AppCode,
+        now: i64,
+        last_used: Option<i64>,
+    ) -> Result<Option<i64>, Internal> {
         let totp = self.totp()?;
         let current = now.div_euclid(STEP_SECONDS);
-        [current, current - 1].into_iter().find(|&step| {
+        Ok([current, current - 1].into_iter().find(|&step| {
             last_used.is_none_or(|last| step > last)
                 && u64::try_from(step * STEP_SECONDS)
                     .is_ok_and(|at| totp.check(code.digits(), at).is_some())
-        })
+        }))
     }
 
     /// The code of the step at `at`, seconds since the Unix epoch, as the app shows it.
@@ -96,8 +105,9 @@ impl AppSecret {
     }
 
     /// RFC 6238's one-time passwords of this secret: HMAC-SHA-1, 6 digits and steps of 30
-    /// seconds, with no step of skew, since `accepts` chooses the steps (AUTH-057).
-    fn totp(&self) -> Option<totp_rs::Totp> {
+    /// seconds, with no step of skew, since `accepts` chooses the steps (AUTH-057), or why
+    /// `totp-rs` refuses them, which an error of the API's own is (ERR-11).
+    fn totp(&self) -> Result<totp_rs::Totp, Internal> {
         totp_rs::Builder::new()
             .with_algorithm(totp_rs::Algorithm::SHA1)
             .with_digits(APP_CODE_DIGITS)
@@ -105,7 +115,7 @@ impl AppSecret {
             .with_step_duration(STEP_SECONDS.unsigned_abs())
             .with_secret(totp_rs::Secret::new_stack(*self.0.expose()))
             .build()
-            .ok()
+            .map_err(Internal::new)
     }
 }
 
@@ -114,10 +124,13 @@ impl AppSecret {
 pub(crate) struct AppCode(Secret<String>);
 
 impl AppCode {
-    /// The code the user typed, trimmed, or why it isn't one (AUTH-056, AUTH-060).
+    /// The code the user typed, of at most [`APP_CODE_MAX_INPUT`] characters, trimmed, or why it
+    /// isn't one (AUTH-056, AUTH-060, API-17).
     pub(crate) fn parse(value: &str) -> Result<Self, Invalid> {
+        let within = value.chars().count() <= APP_CODE_MAX_INPUT;
         let value = value.trim();
-        if value.len() == usize::from(APP_CODE_DIGITS)
+        if within
+            && value.len() == usize::from(APP_CODE_DIGITS)
             && value.bytes().all(|byte| byte.is_ascii_digit())
         {
             Ok(Self(Secret::new(value.to_owned())))
@@ -137,7 +150,7 @@ impl PartialSchema for AppCode {
         ObjectBuilder::new()
             .schema_type(Type::String)
             .min_length(Some(usize::from(APP_CODE_DIGITS)))
-            .max_length(Some(32))
+            .max_length(Some(APP_CODE_MAX_INPUT))
             .pattern(Some("^\\s*[0-9]{6}\\s*$"))
             .description(Some(
                 "The 6 digits that the authenticator app shows, which spaces around them may \
@@ -196,14 +209,17 @@ mod tests {
         let before = AppCode::parse(&secret.code_at(at(step - 1))).unwrap();
         let older = AppCode::parse(&secret.code_at(at(step - 2))).unwrap();
         let next = AppCode::parse(&secret.code_at(at(step + 1))).unwrap();
-        assert_eq!(secret.accepts(&current, now, None), Some(step));
-        assert_eq!(secret.accepts(&before, now, None), Some(step - 1));
-        assert_eq!(secret.accepts(&older, now, None), None);
-        assert_eq!(secret.accepts(&next, now, None), None);
+        assert_eq!(secret.accepts(&current, now, None).unwrap(), Some(step));
+        assert_eq!(secret.accepts(&before, now, None).unwrap(), Some(step - 1));
+        assert_eq!(secret.accepts(&older, now, None).unwrap(), None);
+        assert_eq!(secret.accepts(&next, now, None).unwrap(), None);
         // A step at or before the last used one works no more.
-        assert_eq!(secret.accepts(&current, now, Some(step)), None);
-        assert_eq!(secret.accepts(&before, now, Some(step - 1)), None);
-        assert_eq!(secret.accepts(&current, now, Some(step - 1)), Some(step));
+        assert_eq!(secret.accepts(&current, now, Some(step)).unwrap(), None);
+        assert_eq!(secret.accepts(&before, now, Some(step - 1)).unwrap(), None);
+        assert_eq!(
+            secret.accepts(&current, now, Some(step - 1)).unwrap(),
+            Some(step)
+        );
     }
 
     #[test]
@@ -231,6 +247,17 @@ mod tests {
                 "{refused}"
             );
         }
+    }
+
+    #[test]
+    fn api_17_a_typed_app_code_holds_at_most_the_32_characters_that_its_schema_gives() {
+        let at_bound = format!("{}424242{}", " ".repeat(13), "\n".repeat(13));
+        assert_eq!(at_bound.chars().count(), 32);
+        assert_eq!(AppCode::parse(&at_bound).unwrap().digits(), "424242");
+        assert_eq!(
+            AppCode::parse(&format!("{at_bound} ")).unwrap_err().code,
+            "invalid_code"
+        );
     }
 
     #[test]

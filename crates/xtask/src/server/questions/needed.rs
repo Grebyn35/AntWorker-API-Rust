@@ -248,3 +248,71 @@ pub(super) const CERTS: &[File] = &[
         needed: managed_grafana,
     },
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::{CERTS, SECRETS};
+    use crate::{deploy::root, server::read};
+
+    /// The names that deploy/server-setup.sh's `write` takes for an item of the kind `kind`,
+    /// `secret` or `cert`. It reads the script's text from the line `write() {`: the line
+    /// `<kind>)` after it, then the `case $first in` on the next line, up to the `esac` that ends
+    /// it; of that case, each pattern of an arm on one line that ends with `) ;;`, an arm that
+    /// takes the name, split at each `|`. A nested case and its arms are skipped, and a pattern is
+    /// compared as the text it is, so a name that only a wildcard takes is none of these.
+    fn taken(kind: &str) -> Vec<String> {
+        let script = String::from_utf8(
+            read(&root().join("deploy/server-setup.sh")).expect("deploy/server-setup.sh"),
+        )
+        .expect("UTF-8");
+        let mut lines = script
+            .lines()
+            .skip_while(|line| *line != "write() {")
+            .map(str::trim)
+            .skip_while(|line| line.strip_suffix(')') != Some(kind));
+        assert!(lines.next().is_some(), "no {kind}) in write()");
+        assert_eq!(lines.next(), Some("case $first in"), "the {kind}) arm");
+        let mut names = Vec::new();
+        let mut depth = 1;
+        for line in lines {
+            if line.starts_with("case ") {
+                depth += 1;
+            } else if line == "esac" {
+                depth -= 1;
+                if depth == 0 {
+                    break;
+                }
+            } else if depth == 1
+                && let Some(patterns) = line.strip_suffix(") ;;")
+            {
+                names.extend(patterns.split('|').map(|name| name.trim().to_owned()));
+            }
+        }
+        assert_eq!(depth, 0, "the {kind}) arm's case has no esac");
+        assert!(!names.is_empty(), "the {kind}) arm takes no name");
+        names
+    }
+
+    /// Each secret and certificate that the questions can ask for is one that the server's
+    /// script writes, as `taken` reads the script.
+    #[test]
+    fn ops_19_the_server_s_script_writes_each_secret_and_certificate_the_setup_asks_for() {
+        let secrets = taken("secret");
+        let certs = taken("cert");
+
+        for file in SECRETS {
+            assert!(
+                secrets.iter().any(|name| name == file.name),
+                "server-setup.sh's write takes no secret named {}: {secrets:?}",
+                file.name
+            );
+        }
+        for file in CERTS {
+            assert!(
+                certs.iter().any(|name| name == file.name),
+                "server-setup.sh's write takes no certificate named {}: {certs:?}",
+                file.name
+            );
+        }
+    }
+}

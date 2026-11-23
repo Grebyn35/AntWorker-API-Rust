@@ -2,6 +2,10 @@
 //! names, and that the platform spec's Interface doesn't name either, is dead. The tests' own
 //! items, which only `#[cfg(test)]` or the `test-support` feature compiles, are the tests'.
 //!
+//! The public items it reads are the functions, structs, enums, traits, type aliases, consts and
+//! statics that `pub` declares, and the `pub` functions and consts of an impl of no trait: it
+//! reads no module, union, macro, field, variant or associated type.
+//!
 //! An item is found by its name: it is used when its name occurs in the code of `platform` or
 //! `app` outside the tests, its strings and macros included, more often than the code defines
 //! that name. So an item whose name another item shares can pass unused, which review finds.
@@ -258,6 +262,7 @@ fn attributes(item: &Item) -> &[Attribute] {
         Item::Enum(item) => &item.attrs,
         Item::Fn(item) => &item.attrs,
         Item::Impl(item) => &item.attrs,
+        Item::Macro(item) => &item.attrs,
         Item::Mod(item) => &item.attrs,
         Item::Static(item) => &item.attrs,
         Item::Struct(item) => &item.attrs,
@@ -372,5 +377,15 @@ mod tests {
         ]);
 
         assert!(found.is_empty(), "{found:?}");
+    }
+
+    #[test]
+    fn code_15_a_name_in_a_macro_that_only_the_tests_compile_uses_nothing() {
+        let lib =
+            "pub struct Unused;\n#[cfg(test)]\nmacro_rules! made {\n    () => { Unused };\n}\n";
+
+        let found = findings(&[("crates/platform/src/lib.rs", lib)]);
+
+        assert_eq!(found, ["crates/platform/src/lib.rs:1: `Unused`"]);
     }
 }

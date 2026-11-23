@@ -43,7 +43,7 @@ pub use browsers::{Cookies, Origins, expired_cookie, session_cookie};
 pub use download::{Download, FileBytes};
 pub use precondition::IfMatch;
 pub use query::Query;
-pub use resource::{ResourceResponse, path_id};
+pub use resource::{PathIds, ResourceResponse};
 #[cfg(test)]
 pub(crate) use stack::GROUP_TIMEOUT;
 // part: files

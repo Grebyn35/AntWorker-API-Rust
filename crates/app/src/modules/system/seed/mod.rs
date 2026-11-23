@@ -1,8 +1,8 @@
 //! `seed`, which fills a development database with demo accounts and workspaces (the system
 //! spec's Seed, D28). It changes the API's data through its routes, as any client does: it
-//! sends the API's router each request in process, with a JSON body and the Bearer header of the
-//! account it acts as, so every row that a request creates passes a client's checks and carries
-//! the audit entries and events that the request records
+//! sends the API's router each request in process, with its body, when it has one, as JSON, and
+//! the Bearer header of the account it acts as, so every row that a request creates passes a
+//! client's checks and carries the audit entries and events that the request records
 //! ([system spec](../../../../../../docs/spec/system.md#seed)). With email on, it also runs the
 //! jobs that its registrations enqueued, and proves each account's address with the code that
 //! their emails carry, which it reads from an inbox of its own, as a client reads the code from
@@ -30,14 +30,19 @@ use axum::{
     http::{Method, Request, StatusCode, header},
 };
 use platform::{
-    clock::SharedClock, config::Environment, db::Database, errors::Internal, jobs::Jobs,
-    mail::Inbox, types::EmailAddress,
+    clock::SharedClock,
+    config::Environment,
+    db::Database,
+    errors::Internal,
+    jobs::Jobs,
+    mail::Inbox,
+    types::{EmailAddress, Secret},
 };
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
 // part: superadmins
-pub(crate) use self::superadmin::MakingSuperadmin;
+pub(crate) use self::superadmin::{MakeSuperadmin, MakingSuperadmin};
 // end part: superadmins
 use crate::modules::system::error::SystemError;
 
@@ -49,13 +54,15 @@ pub(crate) const PASSWORD: &str = "orchard-lantern-42-violet";
 const ANSWER_LIMIT: usize = 1 << 20;
 
 /// An account that the seed registered.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub(crate) struct Account {
     /// Its email address, which a developer signs in with.
     pub(crate) email: &'static str,
     /// Its name.
     pub(crate) name: &'static str,
-    access_token: String,
+    /// Its session's access token, which the seed's requests as the account carry, wrapped, so
+    /// nothing prints it (SEC-01).
+    access_token: Secret<String>,
     /// Whether it must still prove its address, as registering answered (AUTH-026).
     email_verification_required: bool,
 }
@@ -98,7 +105,7 @@ pub(crate) struct Seed<'a> {
     // end part: workspace_setup
     // part: superadmins
     /// The operator's making of a superadmin.
-    pub(crate) make_superadmin: superadmin::MakeSuperadmin<'a>,
+    pub(crate) make_superadmin: MakeSuperadmin<'a>,
     // end part: superadmins
 }
 
@@ -134,9 +141,9 @@ pub(crate) async fn seed(seed: Seed<'_>) -> Result<Seeded, SystemError> {
         router: seed.router,
     };
     let olivia = api.register("owner@example.com", "Olivia Owner").await?;
-    let adam = api.register("admin@example.com", "Adam Admin").await?;
     let mia = api.register("member@example.com", "Mia Member").await?;
     // part: invitations
+    let adam = api.register("admin@example.com", "Adam Admin").await?;
     let ian = api.register("invitee@example.com", "Ian Invitee").await?;
     // end part: invitations
     // part: superadmins
@@ -144,9 +151,9 @@ pub(crate) async fn seed(seed: Seed<'_>) -> Result<Seeded, SystemError> {
         .register("superadmin@example.com", "Sam Superadmin")
         .await?;
     // end part: superadmins
-    let registered = vec![&olivia, &adam, &mia];
+    let registered = vec![&olivia, &mia];
     // part: invitations
-    let registered = [registered, vec![&ian]].concat();
+    let registered = [registered, vec![&adam, &ian]].concat();
     // end part: invitations
     // part: superadmins
     let registered = [registered, vec![&sam]].concat();
@@ -196,9 +203,9 @@ pub(crate) async fn seed(seed: Seed<'_>) -> Result<Seeded, SystemError> {
     }
     api.invite(&olivia, shared, &ian, "member").await?;
     // end part: invitations
-    let accounts = vec![olivia, adam, mia];
+    let accounts = vec![olivia, mia];
     // part: invitations
-    let accounts = [accounts, vec![ian]].concat();
+    let accounts = [accounts, vec![adam, ian]].concat();
     // end part: invitations
     // part: superadmins
     let superadmin = (sam.email, app_secret);
@@ -236,7 +243,7 @@ impl Api {
         Ok(Account {
             email,
             name,
-            access_token: text(&answer, "access_token")?,
+            access_token: Secret::new(text(&answer, "access_token")?),
             email_verification_required: answer["email_verification_required"].as_bool()
                 == Some(true),
         })
@@ -338,7 +345,7 @@ impl Api {
         if let Some(account) = account {
             request = request.header(
                 header::AUTHORIZATION,
-                format!("Bearer {}", account.access_token),
+                format!("Bearer {}", account.access_token.expose()),
             );
         }
         let body = match body {

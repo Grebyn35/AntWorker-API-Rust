@@ -1,15 +1,16 @@
 //! The picture that a provider gives for a new account, copied as the account's avatar
-//! (ACCOUNTS-028, AUTH-092), from the hosts that the provider names (AUTH-097), through the tests'
+//! (ACCOUNTS-028 to ACCOUNTS-030, AUTH-092), from the hosts that the provider names (AUTH-097), through the tests'
 //! stand-in provider, which also serves the picture.
 
-use platform::telemetry::testing;
+use platform::telemetry::testing::{self, collector::Collector};
 use serde_json::{Value, json};
 
-use super::{objects, uploads};
+use super::{objects, uploads_counted};
 use crate::support::{
     Api,
+    api::reads,
     api::{self, Options},
-    execute_on, files,
+    counts, execute_on, files,
     providers::{self, gives, grant, sign_in, signed_in},
     query_waits_on_a_lock,
     scanner::{self, Script},
@@ -54,9 +55,9 @@ fn pictured(upstream: &Upstream, picture: &str) {
     );
 }
 
-/// Registers Ada through the stand-in, which serves `bytes` as her picture.
-async fn registered(upstream: &Upstream, api: &Api, bytes: &[u8]) -> SignedIn {
-    upstream.set_bytes("GET", PICTURE, 200, bytes);
+/// Registers Ada through the stand-in, which serves [`files::PNG`] as her picture.
+async fn registered(upstream: &Upstream, api: &Api) -> SignedIn {
+    upstream.set_bytes("GET", PICTURE, 200, files::PNG);
     pictured(upstream, &upstream.url(PICTURE));
     signed_in(api).await
 }
@@ -66,11 +67,6 @@ async fn avatar_url(api: &Api, user: &SignedIn) -> Value {
     let record = api.get("/v1/users/me").bearer(&user.access).send().await;
     assert_eq!(record.status, 200, "{}", record.json());
     record.json()["avatar_url"].clone()
-}
-
-/// The first column of each row of `sql`, as the `owner` reads it.
-async fn reads(api: &Api, sql: &str) -> Vec<String> {
-    api.database().owner_reads(sql).await
 }
 
 /// The jobs that copy a picture, each as its state, its attempts and its payload's address.
@@ -94,7 +90,20 @@ fn fetches(upstream: &Upstream) -> usize {
 /// of work waits for the row, and the other change gives her an avatar before it commits. Gives
 /// Ada, and the link of the avatar that the other change gave her.
 async fn overtaken(upstream: &Upstream, api: &Api) -> (SignedIn, String) {
-    let ada = registered(upstream, api, files::PNG).await;
+    let (ada, avatar, runs) = overtaken_while(upstream, api, api.run_jobs()).await;
+    assert_eq!(runs, 1);
+    (ada, avatar)
+}
+
+/// Registers Ada through the stand-in, as [`overtaken`] does, and gives her, the link of the
+/// avatar that the other change gave her, and the output of `runs`, which runs the job that copies
+/// her picture once the other change holds her row.
+async fn overtaken_while<T>(
+    upstream: &Upstream,
+    api: &Api,
+    runs: impl Future<Output = T>,
+) -> (SignedIn, String, T) {
+    let ada = registered(upstream, api).await;
     let db = api.database();
     let mut change = db
         .holding(&format!(
@@ -103,7 +112,7 @@ async fn overtaken(upstream: &Upstream, api: &Api) -> (SignedIn, String) {
         ))
         .await;
 
-    let ((), runs) = tokio::join!(
+    let ((), ran) = tokio::join!(
         async {
             query_waits_on_a_lock(db, "SELECT id FROM users WHERE id = $1 FOR UPDATE").await;
             execute_on(
@@ -118,31 +127,39 @@ async fn overtaken(upstream: &Upstream, api: &Api) -> (SignedIn, String) {
             .await;
             execute_on(&mut change, "COMMIT").await;
         },
-        api.run_jobs()
+        runs
     );
-    assert_eq!(runs, 1);
-    (ada, format!("/v1/public/avatars/{OTHER_AVATAR}"))
+    (ada, format!("/v1/public/avatars/{OTHER_AVATAR}"), ran)
+}
+
+/// Runs a `serve` of `api`'s database, with the settings of the stand-in at `upstream`, which
+/// exports to `collector`, until it has run every job that copies a picture, then stops it.
+async fn copied_by_serve(upstream: &Upstream, api: &Api, collector: &Collector) {
+    let options = providers::stand_in(upstream).set(HOSTS_SETTING, HOSTS);
+    let env = options.env();
+    let server = files::serving(api.database(), collector, &env).await;
+    while !copies(api).await.is_empty() {
+        tokio::task::yield_now().await;
+    }
+    server.stop().await;
 }
 
 /// The ID of the avatar that another change gives Ada while the job fetches her picture.
 const OTHER_AVATAR: &str = "018f0000-0000-7000-8000-000000000001";
 
-/// How many errors the API has ignored as a picture that wasn't copied, in every test that runs
-/// alongside (ERR-11).
-fn not_copied() -> f64 {
-    testing::recorded("platform.errors_ignored")
+/// How many lines the test's jobs, which run on its thread, wrote of an error ignored as a
+/// picture that wasn't copied (ERR-11): other tests log the same kind on threads of their own.
+fn not_copied() -> usize {
+    testing::logged_on_this_thread()
         .into_iter()
-        .filter(|point| {
-            point.labels.get("error.type").map(String::as_str) == Some("picture_not_copied")
-        })
-        .map(|point| point.value)
-        .sum()
+        .filter(|line| line["error.type"] == "picture_not_copied")
+        .count()
 }
 
 #[tokio::test]
 async fn accounts_028_a_registration_through_a_provider_gets_its_picture_as_its_avatar() {
     let (upstream, api) = standing(Options::default()).await;
-    let ada = registered(&upstream, &api, files::PNG).await;
+    let ada = registered(&upstream, &api).await;
     workspaces::member_of_many(api.database(), &ada.user_id, 1, "owner").await;
     let before = api.get("/v1/users/me").bearer(&ada.access).send().await;
     assert_eq!(before.json()["avatar_url"], Value::Null);
@@ -187,7 +204,7 @@ async fn accounts_028_a_registration_through_a_provider_gets_its_picture_as_its_
 #[tokio::test]
 async fn accounts_030_a_second_run_of_the_job_changes_nothing() {
     let (upstream, api) = standing(Options::default()).await;
-    let ada = registered(&upstream, &api, files::PNG).await;
+    let ada = registered(&upstream, &api).await;
     api.run_jobs().await;
     let first = avatar_url(&api, &ada).await;
     // The job again, as a second delivery runs it.
@@ -242,23 +259,29 @@ async fn accounts_030_an_account_that_gets_an_avatar_while_its_picture_is_fetche
 #[tokio::test]
 async fn files_013_a_copy_of_a_provider_s_picture_counts_as_an_avatar_s_upload() {
     let (upstream, api) = standing(Options::default()).await;
-    let (stored, failed) = (uploads("stored"), uploads("failed"));
-
-    registered(&upstream, &api, files::PNG).await;
-    api.run_jobs().await;
-    let copied = uploads("stored");
     let (overtaken_upstream, overtaken_api) = standing(Options::default()).await;
-    overtaken(&overtaken_upstream, &overtaken_api).await;
+    let (copying, overtaking) = (
+        Collector::start().await.unwrap(),
+        Collector::start().await.unwrap(),
+    );
 
-    // Tests running alongside upload too, so the counts grow by at least these.
-    assert!(copied >= stored + 1.0);
-    assert!(uploads("failed") >= failed + 1.0);
+    registered(&upstream, &api).await;
+    copied_by_serve(&upstream, &api, &copying).await;
+    overtaken_while(
+        &overtaken_upstream,
+        &overtaken_api,
+        copied_by_serve(&overtaken_upstream, &overtaken_api, &overtaking),
+    )
+    .await;
+
+    assert_eq!(uploads_counted(&copying), ["stored 1"]);
+    assert_eq!(uploads_counted(&overtaking), ["failed 1"]);
 }
 
 #[tokio::test]
 async fn accounts_030_an_account_that_set_an_avatar_before_the_job_ran_keeps_it() {
     let (upstream, api) = standing(Options::default()).await;
-    let ada = registered(&upstream, &api, files::PNG).await;
+    let ada = registered(&upstream, &api).await;
     let set = api
         .request(http::Method::PUT, "/v1/users/me/avatar")
         .header("content-type", "application/octet-stream")
@@ -294,13 +317,21 @@ async fn accounts_029_a_picture_that_is_no_avatar_leaves_the_account_without_one
         upstream.set_bytes("GET", PICTURE, status, bytes);
         pictured(&upstream, &upstream.url(PICTURE));
         let ada = signed_in(&api).await;
-        let ignored = not_copied();
+        let collector = Collector::start().await.unwrap();
 
-        api.run_jobs().await;
+        copied_by_serve(&upstream, &api, &collector).await;
 
         assert_eq!(avatar_url(&api, &ada).await, Value::Null, "{status}");
         assert!(copies(&api).await.is_empty(), "no retry and no dead letter");
-        assert!(not_copied() >= ignored + 1.0, "ERR-11's count");
+        let ignored = counts::of(
+            &collector.received(),
+            "platform.errors_ignored",
+            "error.type",
+        );
+        assert!(
+            ignored.contains(&"picture_not_copied 1".to_owned()),
+            "{status}: ERR-11's count: {ignored:?}"
+        );
     }
 }
 
@@ -309,17 +340,18 @@ async fn accounts_029_a_picture_in_which_the_scanner_finds_malware_leaves_no_ava
     let stand_in = scanner::scripted(Script::Answer("stream: Eicar-Test-Signature FOUND")).await;
     let options = Options::default().set("CLAMD_ADDRESS", &stand_in.address);
     let (upstream, api) = standing(options).await;
-    let ada = registered(&upstream, &api, files::PNG).await;
+    let ada = registered(&upstream, &api).await;
 
     api.run_jobs().await;
 
     assert_eq!(avatar_url(&api, &ada).await, Value::Null);
     assert!(copies(&api).await.is_empty());
-    let logged = testing::all_logged()
+    // The lines of this test's jobs, which run on its thread: other tests log the same kind.
+    let logged = testing::logged_on_this_thread()
         .into_iter()
         .filter(|line| line["error.type"] == "picture_not_copied")
         .count();
-    assert!(logged >= 1, "ERR-11's line");
+    assert_eq!(logged, 1, "ERR-11's line");
 }
 
 #[tokio::test]
@@ -344,7 +376,7 @@ async fn accounts_029_an_address_that_the_untrusted_client_refuses_is_never_fetc
 
         assert_eq!(avatar_url(&api, &ada).await, Value::Null, "{picture}");
         assert!(copies(&api).await.is_empty(), "no retry and no dead letter");
-        assert!(not_copied() >= ignored + 1.0, "ERR-11's count");
+        assert_eq!(not_copied(), ignored + 1, "ERR-11's line");
         assert!(
             upstream
                 .received()
@@ -377,7 +409,7 @@ async fn accounts_029_a_fetch_that_fails_is_tried_again_and_the_fifth_leaves_no_
 
     assert_eq!(retried, ["waiting 1 true"]);
     assert!(copies(&api).await.is_empty(), "no dead letter");
-    assert!(not_copied() >= ignored + 1.0, "ERR-11's count");
+    assert_eq!(not_copied(), ignored + 1, "ERR-11's line");
     assert_eq!(avatar_url(&api, &ada).await, Value::Null);
 }
 
@@ -386,7 +418,7 @@ async fn accounts_029_a_scanner_that_doesn_t_answer_is_tried_again_until_the_fif
     let stand_in = scanner::scripted(Script::Close).await;
     let options = Options::default().set("CLAMD_ADDRESS", &stand_in.address);
     let (upstream, api) = standing(options).await;
-    let ada = registered(&upstream, &api, files::PNG).await;
+    let ada = registered(&upstream, &api).await;
 
     api.run_jobs().await;
 
@@ -405,7 +437,7 @@ async fn accounts_029_a_scanner_that_doesn_t_answer_is_tried_again_until_the_fif
 
     assert_eq!(retried, ["waiting 1"]);
     assert!(copies(&api).await.is_empty(), "no dead letter");
-    assert!(not_copied() >= ignored + 1.0, "ERR-11's count");
+    assert_eq!(not_copied(), ignored + 1, "ERR-11's line");
     assert_eq!(avatar_url(&api, &ada).await, Value::Null);
 }
 
@@ -414,7 +446,7 @@ async fn accounts_029_a_storage_that_doesn_t_answer_is_tried_again_until_the_fif
     // Nothing listens on port 9 of the loopback address.
     let options = Options::default().set("S3_ENDPOINT", "http://127.0.0.1:9");
     let (upstream, api) = standing(options).await;
-    let ada = registered(&upstream, &api, files::PNG).await;
+    let ada = registered(&upstream, &api).await;
 
     api.run_jobs().await;
 
@@ -433,7 +465,7 @@ async fn accounts_029_a_storage_that_doesn_t_answer_is_tried_again_until_the_fif
 
     assert_eq!(retried, ["waiting 1"]);
     assert!(copies(&api).await.is_empty(), "no dead letter");
-    assert!(not_copied() >= ignored + 1.0, "ERR-11's count");
+    assert_eq!(not_copied(), ignored + 1, "ERR-11's line");
     assert_eq!(avatar_url(&api, &ada).await, Value::Null);
 }
 
@@ -531,8 +563,9 @@ async fn auth_097_the_copy_fetches_from_the_hosts_that_the_configured_providers_
     signed_in(&apart).await;
     apart.run_jobs().await;
 
-    // The client took the listed host as far as its addresses, and never resolved the other.
-    let causes: Vec<String> = testing::all_logged()
+    // The client took the listed host as far as its addresses, and never resolved the other, as
+    // the lines of this test's jobs, which run on its thread, say: other tests log the same kind.
+    let causes: Vec<String> = testing::logged_on_this_thread()
         .into_iter()
         .filter(|line| line["error.type"] == "picture_not_copied")
         .filter_map(|line| line["exception.message"].as_str().map(str::to_owned))

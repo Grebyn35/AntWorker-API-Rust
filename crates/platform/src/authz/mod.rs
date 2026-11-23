@@ -11,7 +11,7 @@ mod superadmin;
 use std::{collections::HashMap, marker::PhantomData, sync::Arc};
 
 use axum::{
-    extract::{FromRequestParts, RawPathParams},
+    extract::FromRequestParts,
     http::request::Parts,
     response::{IntoResponse, Response},
 };
@@ -20,7 +20,7 @@ use crate::{
     authn::{AuditScope, BoxFuture, Log, Principal},
     db::{Database, UnitOfWork},
     errors::{Internal, PlatformError, Problem, RequestError},
-    http::path_id,
+    http::PathIds,
     jobs::JobScope,
     telemetry::{metrics::Counter, names},
     types::{Client, UserId, WorkspaceId},
@@ -124,7 +124,8 @@ impl Refusal {
 
 /// Records refused requests, which `audit` implements for `platform` (ARCH-13).
 pub trait SecurityEventSink: Send + Sync {
-    /// Records `refusal`, in a transaction of its own.
+    /// Records `refusal`, in transactions of its own: two where the first finds the workspace's
+    /// log gone (AUDIT-004).
     fn refused<'a>(&'a self, refusal: &'a Refusal) -> BoxFuture<'a, Result<(), Internal>>;
 
     // part: superadmins
@@ -204,10 +205,8 @@ impl<P: Permission, S: Send + Sync> FromRequestParts<S> for Authorize<P> {
         let client = Client::from_request_parts(parts, state).await?;
         // A path segment that isn't a UUID names no workspace, which answers as one the caller
         // doesn't belong to.
-        let workspace_id = RawPathParams::from_request_parts(parts, state)
-            .await
-            .ok()
-            .and_then(|params| path_id(&params, WORKSPACE_PARAMETER))
+        let workspace_id = PathIds::of(parts)
+            .id(WORKSPACE_PARAMETER)
             .map(WorkspaceId::from_uuid);
         Ok(Self {
             principal,
@@ -371,7 +370,7 @@ pub async fn refuse<P: Permission>(uow: UnitOfWork, authorized: &Authorized<P>) 
 }
 
 /// Records `refusal` and counts it. A refusal the sink can't record fails the request, so none
-/// goes unrecorded while a log is left to hold it (DATA-22, AUDIT-004).
+/// goes unrecorded while its caller's account is left (DATA-22, AUDIT-004).
 async fn report(
     sink: &dyn SecurityEventSink,
     refusal: &Refusal,

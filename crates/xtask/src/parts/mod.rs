@@ -2,6 +2,7 @@
 //! holds with them and with `check-removable`, and `check-parts`, which does in memory each run's
 //! removal, as the run's task makes it, and each part's alone.
 
+mod asvs;
 mod cache;
 mod citations;
 mod dry_run;
@@ -293,8 +294,9 @@ fn numbered(text: &str) -> Vec<(usize, &str)> {
 
 /// Deletes the files that the parts `removed` own whole, and the lines their markers mark in every
 /// other file, with a blank line where [`markers::strip`] says, writing "None." in each section of
-/// a spec that it empties, and retiring the numbers of the behaviors it deletes from one; returns
-/// how many files it deleted and edited.
+/// a spec that it empties, retiring the numbers of the behaviors it deletes from one, and keeping
+/// in the security map a row of each requirement, as [`asvs::keeping`] says; returns how many
+/// files it deleted and edited.
 fn delete(repo: &Repo, removed: &[&Part], known: &[&str]) -> Result<(usize, usize), String> {
     let removing: Vec<&str> = removed.iter().map(|part| part.name.as_str()).collect();
     let deleted: Vec<String> = removed.iter().flat_map(|part| owned(repo, part)).collect();
@@ -303,9 +305,13 @@ fn delete(repo: &Repo, removed: &[&Part], known: &[&str]) -> Result<(usize, usiz
     }
     let mut edited = 0;
     for file in repo.files().filter(|file| !deleted.contains(&file.path)) {
-        let stripped = markers::strip(&file.path, &file.text, &removing, known)
+        let kept = (file.path == asvs::MAP)
+            .then(|| asvs::keeping(&file.text, &removing, known))
+            .flatten();
+        let source = kept.as_deref().unwrap_or(&file.text);
+        let stripped = markers::strip(&file.path, source, &removing, known)
             .map_err(|(line, message)| format!("{}:{line}: {message}", file.path))?;
-        if let Some(text) = stripped {
+        if let Some(text) = stripped.or(kept) {
             let text = if is_spec(&file.path) {
                 none_in_empty_sections(&retire_removed(&file.text, &text))
             } else {

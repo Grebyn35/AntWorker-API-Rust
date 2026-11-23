@@ -1,6 +1,7 @@
 //! The telemetry of the tests, which compile with the `test-support` feature.
 
 pub mod collector;
+pub mod spans;
 
 use std::{
     cell::RefCell,
@@ -151,6 +152,21 @@ pub fn all_logged() -> Vec<Value> {
         .collect()
 }
 
+/// Every line logged so far on the thread that calls it, in order: of a test, those that its
+/// runtime's tasks wrote, as a [`Watch`] reads them, and none of another test's, which the test
+/// runner runs on a thread of its own (TEST-06).
+pub fn logged_on_this_thread() -> Vec<Value> {
+    let current = thread::current().id();
+    let logged = LOGGED.lock().unwrap_or_else(PoisonError::into_inner);
+    logged
+        .lines
+        .iter()
+        .filter(|(written, _)| *written == current)
+        .flat_map(|(_, written)| written.lines())
+        .filter_map(|line| serde_json::from_str(line).ok())
+        .collect()
+}
+
 /// Prints what the test that starts it has logged, once the watch has lived for a while, then
 /// each line the test logs, until the watch is dropped, so that a test that never ends shows
 /// what it logged before CI's job time limit ends it (TEST-06). [`install`] starts one for 5
@@ -264,8 +280,8 @@ where
 }
 
 /// The data points of the metric `name`, as everything recorded in the process so far adds up
-/// to. Tests running alongside record too, so a test reads the points whose labels only it
-/// records. Empty if [`install`] hasn't run or nothing recorded the metric.
+/// to, the recordings of the tests that run alongside included: TEST-07 says how a test asserts
+/// a count of them. Empty if [`install`] hasn't run or nothing recorded the metric.
 pub fn recorded(name: &str) -> Vec<Point> {
     let Some(Some(installed)) = INSTALLED.get() else {
         return Vec::new();

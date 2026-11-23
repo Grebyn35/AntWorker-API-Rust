@@ -8,7 +8,7 @@ A spec is written just before its module is built, and kept current with the cod
 
 A spec has these sections, in this order:
 
-1. **Purpose.** What the module is for, in two or three sentences.
+1. **Purpose.** What the module is for, which may say what the spec covers of it.
 2. **Owns.** The tables and views the module owns (ARCH-06).
 3. **Interface.** What other modules may use: types, functions and the traits it implements. It may also list what the composition root alone takes of the module, such as a personal data contract, the registration of a job or a subcommand's operation, but not what does nothing but wire the module: its routes, their state and its settings.
 4. **Routes.** Only in a spec whose module serves routes. Each route's method and path, its access level (API-14), and the behaviors it serves. The generated OpenAPI document describes each route in full (API-17).

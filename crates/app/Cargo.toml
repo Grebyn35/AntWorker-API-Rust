@@ -45,7 +45,8 @@ tower.workspace = true
 tracing.workspace = true
 # The redirect URIs that a provider's clients list, and those that requests name (AUTH-078).
 url.workspace = true
-utoipa.workspace = true
+# `uuid`: the schemas of the IDs that its types hold as `uuid::Uuid`.
+utoipa = { workspace = true, features = ["uuid"] }
 utoipa-axum.workspace = true
 uuid.workspace = true
 
@@ -56,8 +57,6 @@ mimalloc.workspace = true
 [dev-dependencies]
 app = { path = ".", features = ["test-support"] }
 platform = { workspace = true, features = ["test-support"] }
-# The fixture routes parse a query.
-axum = { workspace = true, features = ["query"] }
 dotenvy.workspace = true
 # The tests of an export's documents inflate them (PLATFORM-084).
 flate2.workspace = true

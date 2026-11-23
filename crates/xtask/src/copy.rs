@@ -360,6 +360,19 @@ mod tests {
     }
 
     #[test]
+    fn ops_21_the_bound_is_the_one_that_ops_21_gives() {
+        let repo = repo::Repo::load().unwrap();
+        let rules = &repo.file("docs/standards/operations.md").unwrap().text;
+
+        let given = rules
+            .split_once("while the copies hold more than ")
+            .and_then(|(_, rest)| rest.split_once(" gibibytes together"))
+            .and_then(|(number, _)| number.parse::<u64>().ok());
+
+        assert_eq!(given.map(|gibibytes| gibibytes << 30), Some(BOUND));
+    }
+
+    #[test]
     fn ops_21_the_copies_made_longest_ago_go_while_the_copies_hold_more_than_the_bound() {
         let making = Path::new("files");
 

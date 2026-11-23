@@ -6,28 +6,9 @@ use serde_json::json;
 use crate::support::{
     Api,
     api::Response,
-    execute_on, queries_wait_on_locks,
+    execute_on, queries_wait_on_locks, query_waits_on_a_lock,
     users::{self, PASSWORD, SignedIn},
 };
-
-/// Re-authenticates `user`'s session with `password`.
-async fn reauthenticate(api: &Api, user: &SignedIn, password: &str) -> Response {
-    api.post(
-        "/v1/users/me/sessions/current/reauthenticate",
-        &json!({ "password": password }),
-    )
-    .bearer(&user.access)
-    .send()
-    .await
-}
-
-/// Deletes `user`'s account.
-async fn delete(api: &Api, user: &SignedIn) -> Response {
-    api.request(http::Method::DELETE, "/v1/users/me")
-        .bearer(&user.access)
-        .send()
-        .await
-}
 
 /// When `user`'s session last proved their password, as the database holds it.
 async fn authenticated_at(api: &Api, user: &SignedIn) -> String {
@@ -47,7 +28,7 @@ async fn auth_021_the_right_password_reauthenticates_the_session() {
     users::authenticated_ago(&api, &ada, 10).await;
     let before = authenticated_at(&api, &ada).await;
 
-    let response = reauthenticate(&api, &ada, PASSWORD).await;
+    let response = users::reauthenticate(&api, &ada, PASSWORD).await;
 
     assert_eq!(response.status, 200);
     let session = response.json();
@@ -84,7 +65,7 @@ async fn auth_021_a_wrong_password_answers_403_records_it_and_changes_nothing_el
     users::authenticated_ago(&api, &ada, 10).await;
     let before = authenticated_at(&api, &ada).await;
 
-    let response = reauthenticate(&api, &ada, "wrong-password-123").await;
+    let response = users::reauthenticate(&api, &ada, "wrong-password-123").await;
 
     assert_eq!(response.status, 403);
     assert_eq!(response.json()["code"], "auth.wrong_password");
@@ -116,7 +97,7 @@ async fn auth_021_an_account_without_a_password_answers_403_as_a_wrong_password_
         ))
         .await;
 
-    let response = reauthenticate(&api, &ada, PASSWORD).await;
+    let response = users::reauthenticate(&api, &ada, PASSWORD).await;
 
     assert_eq!(response.status, 403);
     assert_eq!(response.json()["code"], "auth.wrong_password");
@@ -137,11 +118,11 @@ async fn auth_022_every_check_of_a_signed_in_user_s_password_counts_in_one_bucke
     let bob = users::register(&api, "bob@example.com").await;
 
     for _ in 0..5 {
-        let wrong = reauthenticate(&api, &ada, "wrong-password-123").await;
+        let wrong = users::reauthenticate(&api, &ada, "wrong-password-123").await;
         assert_eq!(wrong.status, 403);
     }
-    let limited = reauthenticate(&api, &ada, PASSWORD).await;
-    let other = reauthenticate(&api, &bob, PASSWORD).await;
+    let limited = users::reauthenticate(&api, &ada, PASSWORD).await;
+    let other = users::reauthenticate(&api, &bob, PASSWORD).await;
 
     assert_eq!(limited.status, 429);
     assert_eq!(limited.json()["code"], "request.rate_limited");
@@ -171,7 +152,8 @@ async fn auth_021_a_session_that_another_request_ended_meanwhile_answers_401() {
     let db = api.database();
     // Every bucket of Ada's requests but her password checks', which a re-authentication adds.
     api.get("/v1/users/me").bearer(&ada.access).send().await;
-    let (checks, first) = users::added_bucket_of(&api, reauthenticate(&api, &ada, PASSWORD)).await;
+    let (checks, first) =
+        users::added_bucket_of(&api, users::reauthenticate(&api, &ada, PASSWORD)).await;
     // The proof gave the session new tokens (AUTH-095).
     let ada = SignedIn::from(&first);
     // The re-authentication waits at that bucket while another request ends its session.
@@ -227,7 +209,7 @@ async fn auth_023_a_deletion_needs_the_password_proved_within_5_minutes() {
     };
 
     let refused = delete(&ada.access).await;
-    let proved = reauthenticate(&api, &ada, PASSWORD).await;
+    let proved = users::reauthenticate(&api, &ada, PASSWORD).await;
     assert_eq!(proved.status, 200);
     // The proof gave the session new tokens (AUTH-095).
     let deleted = delete(&SignedIn::from(&proved).access).await;
@@ -257,7 +239,7 @@ async fn auth_023_a_deletion_whose_session_another_request_ended_before_its_chec
     // Every bucket of Ada's requests but a deletion's, which a refused deletion then adds.
     api.get("/v1/users/me").bearer(&ada.access).send().await;
     users::authenticated_ago(&api, &ada, 10).await;
-    let deletion_bucket = users::added_bucket(&api, delete(&api, &ada)).await;
+    let deletion_bucket = users::added_bucket(&api, users::delete(&api, &ada)).await;
     users::authenticated_ago(&api, &ada, 0).await;
     // The deletion waits at its bucket, once its request is authenticated, while another request
     // ends its session.
@@ -345,14 +327,14 @@ async fn auth_024_the_deletions_of_an_email_s_accounts_count_in_one_bucket_of_th
     let api = Api::without_email().await;
     for _ in 0..5 {
         let ada = users::register(&api, "ada@example.com").await;
-        assert_eq!(delete(&api, &ada).await.status, 204);
+        assert_eq!(users::delete(&api, &ada).await.status, 204);
     }
     let ada = users::register(&api, "ada@example.com").await;
     let ada_id = ada.user_id.clone();
     let grace = users::register(&api, "grace@example.com").await;
 
-    let limited = delete(&api, &ada).await;
-    let other = delete(&api, &grace).await;
+    let limited = users::delete(&api, &ada).await;
+    let other = users::delete(&api, &grace).await;
 
     assert_eq!(limited.status, 429);
     assert_eq!(limited.json()["code"], "request.rate_limited");
@@ -371,5 +353,117 @@ async fn auth_024_the_deletions_of_an_email_s_accounts_count_in_one_bucket_of_th
             ))
             .await,
         ["1"]
+    );
+}
+
+/// What `user`'s deletion answers when another connection holds their row, as a change of their
+/// address holds it, and makes their address `address`, and commits, while the deletion waits for
+/// the row. The deletion's read of the address before its unit of work locks nothing, so it reads
+/// the address before the change, and counts in that address's bucket.
+async fn deletion_meeting_a_change_of_address(
+    api: &Api,
+    user: &SignedIn,
+    address: &str,
+) -> Response {
+    let db = api.database();
+    let mut change = db
+        .holding(&format!(
+            "SELECT 1 FROM users WHERE id = '{}' FOR NO KEY UPDATE",
+            user.user_id
+        ))
+        .await;
+
+    let deletion = tokio::spawn({
+        let api = api.clone();
+        let access = user.access.clone();
+        async move {
+            api.request(http::Method::DELETE, "/v1/users/me")
+                .bearer(&access)
+                .send()
+                .await
+        }
+    });
+    // The statement that waits is the deletion's lock of the user's row, in its unit of work.
+    query_waits_on_a_lock(db, "FROM users WHERE id = $1 FOR NO KEY UPDATE").await;
+    execute_on(
+        &mut change,
+        &format!(
+            "UPDATE users SET email = '{address}' WHERE id = '{}'",
+            user.user_id
+        ),
+    )
+    .await;
+    execute_on(&mut change, "COMMIT").await;
+    deletion.await.unwrap()
+}
+
+#[tokio::test]
+async fn auth_024_a_deletion_whose_account_s_address_changed_as_it_waited_answers_429_beyond_the_new_address_s_limit()
+ {
+    // With email off, so the address's registrations count in no bucket of theirs (AUTH-029),
+    // and its accounts delete themselves without proving it (AUTH-025).
+    let api = Api::without_email().await;
+    for _ in 0..5 {
+        let grace = users::register(&api, "grace@example.com").await;
+        assert_eq!(users::delete(&api, &grace).await.status, 204);
+    }
+    let ada = users::register(&api, "ada@example.com").await;
+
+    let limited = deletion_meeting_a_change_of_address(&api, &ada, "grace@example.com").await;
+
+    assert_eq!(limited.status, 429);
+    assert_eq!(limited.json()["code"], "request.rate_limited");
+    assert!(
+        limited
+            .header("ratelimit-policy")
+            .starts_with("\"deletion_email\";q=5;w=86400"),
+        "{}",
+        limited.header("ratelimit-policy")
+    );
+    assert_eq!(
+        api.database()
+            .owner_reads(&format!(
+                "SELECT count(*)::text FROM users WHERE id = '{}'",
+                ada.user_id
+            ))
+            .await,
+        ["1"]
+    );
+    let still = api.get("/v1/users/me").bearer(&ada.access).send().await;
+    assert_eq!(still.status, 200);
+}
+
+#[tokio::test]
+async fn auth_024_a_deletion_whose_account_s_address_changed_as_it_waited_counts_in_the_new_address_s_bucket()
+ {
+    // With email off, as above.
+    let api = Api::without_email().await;
+    for _ in 0..4 {
+        let grace = users::register(&api, "grace@example.com").await;
+        assert_eq!(users::delete(&api, &grace).await.status, 204);
+    }
+    let ada = users::register(&api, "ada@example.com").await;
+
+    let deleted = deletion_meeting_a_change_of_address(&api, &ada, "grace@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let sixth = users::delete(&api, &grace).await;
+
+    assert_eq!(deleted.status, 204);
+    assert_eq!(
+        api.database()
+            .owner_reads(&format!(
+                "SELECT count(*)::text FROM users WHERE id = '{}'",
+                ada.user_id
+            ))
+            .await,
+        ["0"]
+    );
+    assert_eq!(sixth.status, 429);
+    assert!(
+        sixth
+            .header("ratelimit-policy")
+            .starts_with("\"deletion_email\";q=5;w=86400"),
+        "{}",
+        sixth.header("ratelimit-policy")
     );
 }

@@ -12,7 +12,9 @@ use serde_json::{Value, json};
 use crate::{
     accounts::exports::{built, document},
     support::{
-        Api, Options, execute_on,
+        Api, Options,
+        api::reads,
+        audit, execute_on,
         lists::pages,
         mailbox,
         operator::{EMAIL_OFF, SENDS_EMAIL, finished, printed, refused},
@@ -67,19 +69,15 @@ async fn run(api: &Api, env: &[(&str, &str)], arguments: &[&str]) -> Output {
     api.database().run_api(&arguments, env).await
 }
 
-/// The first column of each row of `sql`, as the `owner` reads it.
-async fn reads(api: &Api, sql: &str) -> Vec<String> {
-    api.database().owner_reads(sql).await
-}
-
 /// The user of each superadmin, the oldest first.
 async fn superadmins_of(api: &Api) -> Vec<String> {
     reads(api, "SELECT user_id::text FROM superadmins ORDER BY id").await
 }
 
 /// The log, actor, target, resource and details of each entry of `action`, the oldest first,
-/// with `-` for no actor, no target or no resource ID, and how many of them record a client.
-async fn entries(api: &Api, action: &str) -> (Vec<String>, String) {
+/// with `-` for no actor, no target or no resource ID, and how many of them record a client, an
+/// address or a user agent.
+async fn entries(api: &Api, action: &str) -> (Vec<String>, usize) {
     let entries = reads(
         api,
         &format!(
@@ -91,17 +89,7 @@ async fn entries(api: &Api, action: &str) -> (Vec<String>, String) {
         ),
     )
     .await;
-    let clients = reads(
-        api,
-        &format!(
-            "SELECT count(*)::text FROM audit_entry_clients c JOIN audit_entries e \
-             ON e.id = c.audit_entry_id WHERE e.action = '{action}' \
-             AND c.client_ip IS NOT NULL AND c.user_agent IS NOT NULL"
-        ),
-    )
-    .await
-    .remove(0);
-    (entries, clients)
+    (entries, audit::with_a_client(api.database(), action).await)
 }
 
 /// Whether `user` reads that they are a superadmin (SUPERADMINS-006).
@@ -173,10 +161,7 @@ async fn superadmins_001_add_makes_the_account_that_holds_the_address_a_superadm
     assert_eq!(superadmins_of(&api).await, std::slice::from_ref(user));
     let (recorded, with_client) = entries(&api, "superadmin.added").await;
     assert_eq!(recorded, [format!("user {user} - - user {user} {{}}")]);
-    assert_eq!(
-        with_client, "0",
-        "an operator's subcommand records no client"
-    );
+    assert_eq!(with_client, 0, "an operator's subcommand records no client");
     assert_eq!(standing(&api, &ada).await, json!({ "superadmin": true }));
     assert_eq!(standing(&api, &grace).await, json!({ "superadmin": false }));
 }
@@ -217,8 +202,8 @@ async fn superadmins_002_with_email_on_an_account_that_has_not_proved_its_addres
     refused(
         &unproved,
         AREA,
-        "the account that holds the address hasn't proved it, so it may not be its owner's: \
-         nothing changed; run it again once the account has proved the address",
+        "the account that holds the address hasn't proved it, so the address may not be the \
+         account's user's: nothing changed; run it again once the account has proved the address",
         &[&address],
     );
     assert!(superadmins_of(&api).await.is_empty());
@@ -295,10 +280,7 @@ async fn superadmins_003_remove_ends_the_account_s_being_a_superadmin() {
     let user = &ada.user_id;
     let (recorded, with_client) = entries(&api, "superadmin.removed").await;
     assert_eq!(recorded, [format!("user {user} - - user {user} {{}}")]);
-    assert_eq!(
-        with_client, "0",
-        "an operator's subcommand records no client"
-    );
+    assert_eq!(with_client, 0, "an operator's subcommand records no client");
     assert_eq!(refused_now.status, 403);
     assert_eq!(refused_now.json()["code"], "request.permission_denied");
     assert_eq!(standing(&api, &ada).await, json!({ "superadmin": false }));
@@ -364,7 +346,7 @@ async fn superadmins_004_a_superadmin_s_route_refuses_any_other_caller_and_recor
             "user {user} {user} - deployment - {{\"access\": \"superadmin\"}}"
         )]
     );
-    assert_eq!(with_client, "1", "the refusal records its request's client");
+    assert_eq!(with_client, 1, "the refusal records its request's client");
 }
 
 #[tokio::test]
@@ -846,7 +828,7 @@ async fn workspaces_030_a_superadmin_deletes_any_workspace_with_everything_in_it
             "user {user} {user} - workspace {workspace} {{\"access\": \"superadmin\"}}"
         )]
     );
-    assert_eq!(with_client, "1", "the entry records its request's client");
+    assert_eq!(with_client, 1, "the entry records its request's client");
     // Each member's signal names the deletion's transaction: the owner's first, then each rank's.
     let received = signals.received().await;
     let transaction = received[0]["transaction"].as_u64().unwrap();
@@ -1058,7 +1040,7 @@ async fn workspaces_031_a_superadmin_creates_a_workspace_that_they_own() {
         .await,
         ["workspace.read", "-"]
     );
-    assert_eq!(with_client, "2", "each entry records its request's client");
+    assert_eq!(with_client, 2, "each entry records its request's client");
     let events = db
         .owner_reads(
             "SELECT name || ' ' || scope || ' ' || user_id || ' ' || (payload->>'workspace_id') \

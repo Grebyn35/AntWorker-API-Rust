@@ -29,18 +29,26 @@ impl<S: Send + Sync> FromRequestParts<S> for Wanted {
     type Rejection = std::convert::Infallible;
 
     async fn from_request_parts(parts: &mut Parts, _: &S) -> Result<Self, Self::Rejection> {
-        let text = |name: HeaderName| {
+        // A condition that holds a byte outside ASCII is read too, as UTF-8, with the replacement
+        // character for what isn't, so a member that holds such a byte names no entity tag the
+        // API sent, and a `Range` that holds one is none that a download can serve
+        // (PLATFORM-092).
+        let condition = |name: HeaderName| {
             parts
                 .headers
                 .get(name)
-                .and_then(|value| value.to_str().ok())
-                .map(str::to_owned)
+                .map(|value| String::from_utf8_lossy(value.as_bytes()).into_owned())
         };
+        let range = parts
+            .headers
+            .get(header::RANGE)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned);
         Ok(Self::new(
             parts.method == Method::GET,
-            text(header::RANGE),
-            text(header::IF_RANGE),
-            text(header::IF_NONE_MATCH),
+            range,
+            condition(header::IF_RANGE),
+            condition(header::IF_NONE_MATCH),
         ))
     }
 }
@@ -51,6 +59,12 @@ impl<S: Send + Sync> FromRequestParts<S> for Wanted {
 /// `ETag` names the bytes, and `Accept-Ranges` says that a request may ask for a range of them.
 /// The security headers add `X-Content-Type-Options: nosniff` and `Cache-Control: no-store`
 /// (SEC-12, PLATFORM-081).
+// part: files
+///
+/// `Content-Disposition` is `inline` instead where [`Download::inline`] is set, and a public
+/// file's `Cache-Control` lets shared caches keep it for [`Download::public_for`], in place of
+/// `no-store` (SEC-11, FILES-023).
+// end part: files
 pub struct Download<S> {
     /// The bytes' media type.
     pub media_type: String,
@@ -94,9 +108,13 @@ where
         headers.insert(header::ETAG, tag);
         // part: files
         if let Some(duration) = self.public_for {
-            let value = format!("public, max-age={}", duration.as_secs());
-            if let Ok(value) = HeaderValue::from_str(&value) {
-                headers.insert(header::CACHE_CONTROL, value);
+            // A number of seconds is always a header's value. Without it, no cache keeps the
+            // bytes, since the security headers add `no-store`.
+            match HeaderValue::from_str(&format!("public, max-age={}", duration.as_secs())) {
+                Ok(value) => {
+                    headers.insert(header::CACHE_CONTROL, value);
+                }
+                Err(error) => errors::ignore(&error, "cache_control_not_set"),
             }
         }
         // end part: files
@@ -105,23 +123,30 @@ where
             Served::Whole => (StatusCode::OK, self.size),
             Served::Range(range) => {
                 let value = format!("bytes {}-{}/{}", range.first, range.last, self.size);
-                if let Ok(value) = HeaderValue::from_str(&value) {
-                    headers.insert(header::CONTENT_RANGE, value);
+                // A 206 that doesn't say which bytes it holds is no answer to its request.
+                match HeaderValue::from_str(&value) {
+                    Ok(value) => {
+                        headers.insert(header::CONTENT_RANGE, value);
+                    }
+                    Err(error) => return Problem(Internal::new(error)).into_response(),
                 }
                 (StatusCode::PARTIAL_CONTENT, range.len())
             }
         };
         let Ok(media_type) = HeaderValue::from_str(&self.media_type) else {
-            return Problem(Internal::new("a stored media type isn't a header's value"))
-                .into_response();
+            return Problem(Internal::new("a media type isn't a header's value")).into_response();
         };
         headers.insert(header::CONTENT_TYPE, media_type);
         headers.insert(header::CONTENT_LENGTH, HeaderValue::from(length));
-        let kind = "attachment";
+        let disposition = attachment(&self.name);
         // part: files
-        let kind = if self.inline { "inline" } else { kind };
+        let disposition = if self.inline {
+            inline(&self.name)
+        } else {
+            disposition
+        };
         // end part: files
-        headers.insert(header::CONTENT_DISPOSITION, disposition(kind, &self.name));
+        headers.insert(header::CONTENT_DISPOSITION, disposition);
         headers.insert(
             header::CONTENT_SECURITY_POLICY,
             HeaderValue::from_static(SANDBOX),
@@ -149,17 +174,39 @@ where
     }
 }
 
-/// `Content-Disposition` of the type `kind` for bytes named `name`: the type, then the name as
-/// `filename`, an ASCII fallback, and as `filename*`, in UTF-8 percent-encoded as RFC 8187 says
+/// `Content-Disposition: attachment` for bytes named `name`, with [`named`]'s parameters
 /// (RFC 6266).
-fn disposition(kind: &str, name: &str) -> HeaderValue {
-    let value = format!(
-        "{kind}; filename=\"{}\"; filename*=UTF-8''{}",
+fn attachment(name: &str) -> HeaderValue {
+    as_header(&format!("attachment; {}", named(name)))
+}
+
+// part: files
+/// `Content-Disposition: inline` for bytes named `name`, with [`named`]'s parameters (RFC 6266).
+fn inline(name: &str) -> HeaderValue {
+    as_header(&format!("inline; {}", named(name)))
+}
+// end part: files
+
+/// The parameters of `Content-Disposition` that name bytes `name`: the name as `filename`, an
+/// ASCII fallback, and as `filename*`, in UTF-8 percent-encoded as RFC 8187 says (RFC 6266).
+fn named(name: &str) -> String {
+    format!(
+        "filename=\"{}\"; filename*=UTF-8''{}",
         fallback(name),
         percent_encoded(name)
-    );
+    )
+}
+
+/// `value`, a `Content-Disposition`, as a header's value.
+fn as_header(value: &str) -> HeaderValue {
     // Both forms of the name hold only visible ASCII, so the value is always a header's.
-    HeaderValue::from_str(&value).unwrap_or_else(|_| HeaderValue::from_static("attachment"))
+    match HeaderValue::from_str(value) {
+        Ok(value) => value,
+        Err(error) => {
+            errors::ignore(&error, "disposition_name_not_set");
+            HeaderValue::from_static("attachment")
+        }
+    }
 }
 
 /// `name` in visible ASCII for the `filename` parameter: every other character, the quote, the
@@ -198,15 +245,44 @@ fn percent_encoded(name: &str) -> String {
 mod tests {
     use super::*;
 
+    /// What a `GET` with `headers` asks of the 1,000 bytes whose entity tag is `tag`.
+    async fn served(headers: &[(HeaderName, &[u8])]) -> Served {
+        let mut request = axum::http::Request::builder().method(Method::GET);
+        for (name, value) in headers {
+            request = request.header(name, HeaderValue::from_bytes(value).unwrap());
+        }
+        let (mut parts, ()) = request.body(()).unwrap().into_parts();
+        let wanted = Wanted::from_request_parts(&mut parts, &()).await.unwrap();
+        wanted.serve(1_000, "tag")
+    }
+
+    #[tokio::test]
+    async fn platform_092_a_download_reads_an_if_range_or_if_none_match_that_holds_a_byte_outside_ascii()
+     {
+        let range = (header::RANGE, &b"bytes=0-1"[..]);
+
+        let other_tag = served(&[range.clone(), (header::IF_RANGE, b"\"tag\xc3\xa9\"")]).await;
+        let spaced_tag = served(&[range.clone(), (header::IF_RANGE, b"\xc2\xa0\"tag\"")]).await;
+        let named = served(&[(header::IF_NONE_MATCH, b"\"tag\", \"caf\xc3\xa9\"")]).await;
+        let spaced = served(&[(header::IF_NONE_MATCH, b"\xc2\xa0\"tag\"")]).await;
+        let no_range = served(&[(header::RANGE, b"bytes=\xc2\xa00-1")]).await;
+
+        assert_eq!(other_tag, Served::Whole);
+        assert_eq!(spaced_tag, Served::Whole);
+        assert_eq!(named, Served::NotModified);
+        assert_eq!(spaced, Served::Whole);
+        assert_eq!(no_range, Served::Whole);
+    }
+
     #[test]
     fn platform_081_a_name_is_served_in_ascii_and_in_utf_8() {
-        let value = disposition("attachment", "Ré\"port 100%.pdf");
+        let value = attachment("Ré\"port 100%.pdf");
         assert_eq!(
             value.to_str().unwrap(),
             "attachment; filename=\"R__port 100_.pdf\"; filename*=UTF-8''R%C3%A9%22port%20100%25.pdf"
         );
         // A name that names a header or a parameter stays inside the parameters.
-        let value = disposition("attachment", "a.txt\r\nSet-Cookie: x; filename=evil");
+        let value = attachment("a.txt\r\nSet-Cookie: x; filename=evil");
         assert_eq!(
             value.to_str().unwrap(),
             "attachment; filename=\"a.txt__Set-Cookie: x; filename=evil\"; \

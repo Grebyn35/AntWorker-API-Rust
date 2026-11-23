@@ -5,8 +5,8 @@ use percent_encoding::percent_decode_str;
 
 /// The name in an upload's `Content-Disposition`: its `filename*` parameter, whose value RFC 8187
 /// encodes in UTF-8, or else its `filename` parameter, a token or a quoted string, whatever the
-/// disposition's type. `None` when the header is absent, isn't text, or names no file
-/// (PLATFORM-075).
+/// disposition's type. `None` when the header is absent, holds a byte outside ASCII, since
+/// `filename*` is how a name outside ASCII travels, or names no file (PLATFORM-075).
 pub fn disposition_name(headers: &HeaderMap) -> Option<String> {
     let value = headers.get(header::CONTENT_DISPOSITION)?.to_str().ok()?;
     let mut plain = None;
@@ -124,5 +124,44 @@ mod tests {
         assert!(name("attachment").is_none());
         assert!(name("attachment; name=\"field\"").is_none());
         assert!(disposition_name(&HeaderMap::new()).is_none());
+    }
+
+    /// The types of disposition that the tests send: the two a download answers, the one a
+    /// browser's form sends, and one that no specification defines.
+    const TYPES: [&str; 4] = [
+        "attachment",
+        "inline",
+        "form-data; name=\"file\"",
+        "x-unknown",
+    ];
+
+    #[test]
+    fn platform_075_a_name_is_read_whatever_the_disposition_s_type() {
+        for kind in TYPES {
+            assert_eq!(
+                name(&format!("{kind}; filename=\"a b.txt\"")).as_deref(),
+                Some("a b.txt"),
+                "{kind}"
+            );
+            assert_eq!(
+                name(&format!("{kind}; filename*=UTF-8''caf%C3%A9.txt")).as_deref(),
+                Some("café.txt"),
+                "{kind}"
+            );
+        }
+    }
+
+    #[test]
+    fn platform_075_a_header_that_holds_a_byte_outside_ascii_names_no_file() {
+        for kind in TYPES {
+            for parameters in [
+                "filename*=UTF-8''caf%C3%A9.txt; filename=\"café.txt\"",
+                "filename=\"café.txt\"",
+                "filename=café.txt",
+            ] {
+                let value = format!("{kind}; {parameters}");
+                assert_eq!(name(&value), None, "{value}");
+            }
+        }
     }
 }

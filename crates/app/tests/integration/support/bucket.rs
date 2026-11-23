@@ -468,12 +468,13 @@ impl Scripted {
 }
 
 /// What a scripted bucket answers each request with: a status, the `Location` of a redirect, and
-/// a body.
+/// a body, of which it sends only the first half when `cut`.
 #[derive(Clone)]
 struct Answer {
     status: u16,
     location: Option<&'static str>,
     body: String,
+    cut: bool,
 }
 
 impl Answer {
@@ -482,6 +483,7 @@ impl Answer {
             status,
             location: None,
             body,
+            cut: false,
         }
     }
 }
@@ -504,12 +506,24 @@ pub async fn giving(object: &str) -> Scripted {
     serve(Some(Answer::of(200, object.to_owned()))).await
 }
 
+/// A bucket that answers every request with `object` as an object's bytes, as [`giving`] does,
+/// but sends only the first half of them, and then closes the connection, as a bucket that stops
+/// midway does.
+pub async fn cutting(object: &str) -> Scripted {
+    serve(Some(Answer {
+        cut: true,
+        ..Answer::of(200, object.to_owned())
+    }))
+    .await
+}
+
 /// A bucket that answers every request with a redirect to `location`, a path of its own.
 pub async fn redirecting(location: &'static str) -> Scripted {
     serve(Some(Answer {
         status: 307,
         location: Some(location),
         body: String::new(),
+        cut: false,
     }))
     .await
 }
@@ -560,7 +574,7 @@ async fn serve(answer: Option<Answer>) -> Scripted {
 
 /// Reads each request on `stream`, its body included, records its method and its path in
 /// `requests`, and answers it with `answer`, without the body when the request is a `HEAD`, or
-/// never.
+/// never. An answer that is `cut` closes the connection once it is sent.
 async fn answering(
     stream: TcpStream,
     answer: Option<Answer>,
@@ -604,6 +618,7 @@ async fn answering(
             status,
             location,
             body,
+            cut,
         }) = &answer
         else {
             // Holds the connection, answering nothing.
@@ -611,12 +626,16 @@ async fn answering(
             return;
         };
         let location = location.map_or_else(String::new, |to| format!("Location: {to}\r\n"));
-        let sent = if head { "" } else { body };
+        let sent = match (head, *cut) {
+            (true, _) => "",
+            (false, true) => &body[..body.len() / 2],
+            (false, false) => body,
+        };
         let answer = format!(
             "HTTP/1.1 {status} Scripted\r\n{location}Content-Length: {}\r\n\r\n{sent}",
             body.len()
         );
-        if stream.get_mut().write_all(answer.as_bytes()).await.is_err() {
+        if stream.get_mut().write_all(answer.as_bytes()).await.is_err() || *cut {
             return;
         }
     }

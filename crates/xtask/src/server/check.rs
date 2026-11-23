@@ -215,4 +215,109 @@ mod tests {
             Finding::Passed(_)
         ));
     }
+
+    /// What deploy.sh's check on the server reads of a bucket's lifecycle (OPS-22), in
+    /// deploy/tasks/buckets.sh. The tests run the script in a POSIX shell, as the server does,
+    /// which Windows doesn't provide, so they compile only on Unix.
+    #[cfg(unix)]
+    mod lifecycle {
+        use super::*;
+
+        /// Whether `function` of deploy/tasks/buckets.sh, `expiring_rules` or `only_expiry`,
+        /// prints an expiry of noncurrent versions after `days` days for the lifecycle
+        /// configuration that holds `rules`.
+        fn expires(function: &str, rules: &str, days: &str) -> bool {
+            let lifecycle = format!("<LifecycleConfiguration>{rules}</LifecycleConfiguration>");
+            let output = Command::new("sh")
+                .args(["-c", ". \"$1\" && \"$2\" \"$3\" \"$4\"", "sh"])
+                .arg(root().join("deploy/tasks/buckets.sh"))
+                .args([function, &lifecycle, days])
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            !output.stdout.is_empty()
+        }
+
+        /// A lifecycle rule with `filter`, `status` and `action`.
+        fn rule(filter: &str, status: &str, action: &str) -> String {
+            format!("<Rule><ID>r</ID>{filter}<Status>{status}</Status>{action}</Rule>")
+        }
+
+        /// The filter of a rule of the whole bucket.
+        const WHOLE: &str = "<Filter><Prefix></Prefix></Filter>";
+        /// The filter of a rule of one prefix's objects.
+        const PREFIX: &str = "<Filter><Prefix>workspaces/</Prefix></Filter>";
+        /// The filters of a rule of some of the objects under every prefix: those that hold a
+        /// tag, those larger, or smaller, than a size, and those that hold a tag, with an empty
+        /// prefix.
+        const OTHERS: [&str; 4] = [
+            "<Filter><Tag><Key>kind</Key><Value>upload</Value></Tag></Filter>",
+            "<Filter><ObjectSizeGreaterThan>1048576</ObjectSizeGreaterThan></Filter>",
+            "<Filter><ObjectSizeLessThan>1048576</ObjectSizeLessThan></Filter>",
+            "<Filter><And><Prefix></Prefix><Tag><Key>kind</Key><Value>upload</Value></Tag></And>\
+             </Filter>",
+        ];
+        /// An expiry of noncurrent versions a day after they became noncurrent.
+        const AFTER_A_DAY: &str = "<NoncurrentVersionExpiration><NoncurrentDays>1</NoncurrentDays>\
+                                   </NoncurrentVersionExpiration>";
+        /// One 7 days after.
+        const AFTER_A_WEEK: &str = "<NoncurrentVersionExpiration><NoncurrentDays>7\
+                                    </NoncurrentDays></NoncurrentVersionExpiration>";
+
+        #[test]
+        fn ops_22_the_check_takes_only_a_rule_that_deletes_noncurrent_versions_after_the_days_asked()
+         {
+            let expiring = |rules: &str| expires("expiring_rules", rules, "1");
+
+            // Backblaze B2's "Keep only the last version of the file".
+            assert!(expiring(&rule(WHOLE, "Enabled", AFTER_A_DAY)));
+            assert!(!expiring(&rule(WHOLE, "Disabled", AFTER_A_DAY)));
+            for filter in [PREFIX].iter().chain(&OTHERS) {
+                assert!(!expiring(&rule(filter, "Enabled", AFTER_A_DAY)), "{filter}");
+            }
+            assert!(!expiring(&rule(
+                WHOLE,
+                "Enabled",
+                "<NoncurrentVersionTransition><NoncurrentDays>1</NoncurrentDays>\
+                 <StorageClass>GLACIER</StorageClass></NoncurrentVersionTransition>"
+            )));
+            assert!(!expiring(&rule(
+                WHOLE,
+                "Enabled",
+                "<NoncurrentVersionExpiration><NoncurrentDays>1</NoncurrentDays>\
+                 <NewerNoncurrentVersions>3</NewerNoncurrentVersions></NoncurrentVersionExpiration>"
+            )));
+            assert!(!expiring(&rule(WHOLE, "Enabled", AFTER_A_WEEK)));
+            // The days that the setting gives, and no others, such as those that start with them.
+            let after_a_week = |rules: &str| expires("expiring_rules", rules, "7");
+            assert!(after_a_week(&rule(WHOLE, "Enabled", AFTER_A_WEEK)));
+            assert!(!after_a_week(&rule(WHOLE, "Enabled", AFTER_A_DAY)));
+            assert!(!after_a_week(&rule(
+                WHOLE,
+                "Enabled",
+                "<NoncurrentVersionExpiration><NoncurrentDays>70</NoncurrentDays>\
+                 </NoncurrentVersionExpiration>"
+            )));
+            assert!(!after_a_week(&rule(WHOLE, "Disabled", AFTER_A_WEEK)));
+        }
+
+        #[test]
+        fn ops_22_the_check_takes_a_lifecycle_s_expiry_of_noncurrent_versions_only_when_it_holds_no_other()
+         {
+            let only = |rules: &str| expires("only_expiry", rules, "7");
+            let kept = rule(WHOLE, "Enabled", AFTER_A_WEEK);
+            // A second expiry, of one prefix's versions, could expire those sooner.
+            let sooner = rule(PREFIX, "Enabled", AFTER_A_DAY);
+
+            assert!(only(&kept));
+            assert!(!only(&format!("{kept}{sooner}")));
+            assert!(!only(&format!("{kept}{kept}")));
+            assert!(!only(&rule(WHOLE, "Enabled", AFTER_A_DAY)));
+            assert!(!only(""));
+        }
+    }
 }

@@ -311,14 +311,9 @@ fn free(old: &Name, new: &Name, files: &[(&str, &str)], paths: &[&str]) -> Resul
     ))
 }
 
-/// The first of `candidates` that the product `old` can take as its name, as [`free`] says.
-fn first_free<'a>(
-    old: &Name,
-    candidates: &[&'a str],
-    files: &[(&str, &str)],
-    paths: &[&str],
-) -> Option<&'a str> {
-    candidates.iter().copied().find(|candidate| {
+/// The first of [`CHECKED`] that the product `old` can take as its name, as [`free`] says.
+fn first_free(old: &Name, files: &[(&str, &str)], paths: &[&str]) -> Option<&'static str> {
+    CHECKED.iter().copied().find(|candidate| {
         Name::parse(candidate).is_ok_and(|new| free(old, &new, files, paths).is_ok())
     })
 }
@@ -419,7 +414,7 @@ fn rename(name: &str) -> Result<(Name, Name, Vec<String>), String> {
 /// `just rename`, to the first of [`CHECKED`] that it can take, then runs `just checks` there.
 pub fn check() -> ExitCode {
     let name = match Read::load().and_then(|read| {
-        first_free(&read.old, &CHECKED, &read.files(), &read.paths()).ok_or_else(|| {
+        first_free(&read.old, &read.files(), &read.paths()).ok_or_else(|| {
             format!(
                 "the product can take none of the names that the check gives a copy, since its \
                  name or its files hold each: {}",
@@ -661,7 +656,7 @@ mod tests {
         assert_eq!(CHECKED, ["Order Desk", "Paper Lantern", "Copper Kettle"]);
         let files = [("README.md", "# Ledger API\n")];
         let free_of = |old: &str, files: &[(&str, &str)], paths: &[&str]| {
-            first_free(&name(old), &CHECKED, files, paths)
+            first_free(&name(old), files, paths)
         };
 
         assert_eq!(

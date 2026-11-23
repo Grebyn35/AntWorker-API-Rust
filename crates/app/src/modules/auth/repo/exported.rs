@@ -131,7 +131,8 @@ pub(in crate::modules::auth) async fn device_tokens(
         .collect())
 }
 
-/// Every code of `user`'s: one at most that proves their address, and their reset codes.
+/// Every code of `user`'s: one at most that proves their address, one at most that changes it,
+/// and their reset codes.
 pub(in crate::modules::auth) async fn verification_codes(
     uow: &mut UnitOfWork,
     user: UserId,

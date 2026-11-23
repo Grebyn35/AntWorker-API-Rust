@@ -67,7 +67,7 @@ impl Untrusted {
     /// When the TLS configuration, which trusts the operating system's certificates, can't be
     /// built.
     pub fn new(config: &OutboundConfig, hosts: Vec<String>) -> Result<Self, OutboundError> {
-        let tls = crate::tls::client_config(true, None)
+        let tls = crate::tls::client_config(true)
             .map_err(|error| OutboundError(format!("the TLS configuration: {error}")))?;
         let hosts: Arc<[String]> = hosts.into();
         let test_origin = config.test_origin.clone();
@@ -138,7 +138,7 @@ impl Untrusted {
         };
         let mut response = self.client.get(url).send().await.map_err(failed)?;
         let status = response.status();
-        span.record(names::HTTP_RESPONSE_STATUS_CODE, status.as_u16());
+        span.record(names::HTTP_RESPONSE_STATUS_CODE, i64::from(status.as_u16()));
         if !status.is_success() {
             let answered = format!("GET of {host} answered {}", status.as_u16());
             // A server's failure, a timeout it reports, or a limit it sets may pass; any other

@@ -2,6 +2,8 @@
 
 use std::time::Duration;
 
+use tracing::Instrument;
+
 use super::Database;
 use crate::errors::Internal;
 
@@ -38,6 +40,7 @@ impl Database {
             bytes,
         )
         .fetch_one(&self.pool)
+        .instrument(self.statement("INSERT rate_limit_buckets"))
         .await?;
         let count = u32::try_from(row.count).unwrap_or(u32::MAX);
         let resets_in = Duration::try_from_secs_f64(row.resets_in.max(0.0)).unwrap_or(window);

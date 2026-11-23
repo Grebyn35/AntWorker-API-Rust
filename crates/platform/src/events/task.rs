@@ -223,17 +223,21 @@ impl Task {
     async fn received(&mut self, received: Received) {
         match received {
             Received::Notification { channel, payload } if channel == EVENTS_CHANNEL => {
-                let Ok(through) = payload.parse::<i64>() else {
-                    tracing::warn!("a notification of events named no position");
-                    return;
-                };
-                self.notified = self.notified.max(through);
-                self.load_notified().await;
+                // A notification that names no position loads nothing: the next one's load
+                // covers its events, since it loads every event up to the position it names.
+                match payload.parse::<i64>() {
+                    Ok(through) => {
+                        self.notified = self.notified.max(through);
+                        self.load_notified().await;
+                    }
+                    Err(error) => errors::ignore(&error, "event_position_unparsed"),
+                }
             }
             Received::Notification { payload, .. } => {
                 match serde_json::from_str::<Signal>(&payload) {
                     Ok(signal) => self.streams.changed(signal),
-                    Err(_) => tracing::warn!("an access-change signal didn't parse"),
+                    // The next re-check covers the streams that it would have changed.
+                    Err(error) => errors::ignore(&error, "access_signal_unparsed"),
                 }
             }
             Received::Lost(failure) => {

@@ -17,6 +17,8 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use utoipa_axum::routes;
 
+use super::{Api, Options, users::SignedIn};
+
 /// Reading the workspace, which every role holds, as `access`'s matrix names it.
 struct Reading;
 
@@ -162,6 +164,26 @@ async fn to_members(
     }
     uow.commit().await.map_err(PlatformError::from)?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// The API, with the announcing routes added.
+pub async fn api() -> Api {
+    Api::with(Options::routes(routes())).await
+}
+
+/// Publishes `count` events to `user`, in one unit of work, through the announcing route.
+pub async fn announce(api: &Api, user: &SignedIn, count: u32) {
+    let response = api
+        .post("/v1/announcements", &serde_json::json!({ "count": count }))
+        .bearer(&user.access)
+        .send()
+        .await;
+    assert_eq!(
+        response.status,
+        StatusCode::NO_CONTENT,
+        "{}",
+        response.json()
+    );
 }
 
 /// The announcing routes, which the tests of the stream add to the API's.

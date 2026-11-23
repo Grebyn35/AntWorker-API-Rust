@@ -18,11 +18,11 @@ use crate::{
 
 /// Removes the parts named `names` from the repository (ARCH-07): it deletes the files they own
 /// whole and the lines their markers mark, outside Rust with a blank line where ARCH-07 says,
-/// writing "None." in each section of a spec that it empties, and retiring the number of each
-/// behavior it deletes from a spec, then the cached queries that no kept code holds, updates
-/// `Cargo.lock`, writes `openapi.json` and the metric catalog again, formats the code, and fails
-/// while a file it kept, or the path of one, still names one of them. It refuses `removal`, which
-/// only `just keep` removes.
+/// writing "None." in each section of a spec that it empties, retiring the number of each
+/// behavior it deletes from a spec, and keeping in the security map a row of each requirement,
+/// then the cached queries that no kept code holds, updates `Cargo.lock`, writes `openapi.json`
+/// and the metric catalog again, formats the code, and fails while a file it kept, or the path of
+/// one, still names one of them. It refuses `removal`, which only `just keep` removes.
 pub fn remove(names: &[String]) -> ExitCode {
     let (repo, parts) = match loaded(names) {
         Ok(loaded) => loaded,

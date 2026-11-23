@@ -1,8 +1,9 @@
 //! A user's own files (FILES-016 to FILES-019).
 
+use platform::telemetry::testing::collector::Collector;
 use serde_json::json;
 
-use super::{objects, uploads, without_links};
+use super::{objects, uploads_counted, without_links};
 use crate::support::{
     Api,
     api::{Options, Response},
@@ -282,13 +283,22 @@ async fn files_005_an_upload_to_one_s_own_files_in_which_the_scanner_finds_a_sig
 async fn files_013_an_upload_to_one_s_own_files_counts_as_stored() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
-    let stored = uploads("stored");
+    let collector = Collector::start().await.unwrap();
+    let server = files::serving(api.database(), &collector, &[]).await;
+    let bearer = format!("Bearer {}", ada.access);
+    let headers = [
+        ("authorization", bearer.as_str()),
+        ("content-type", "application/octet-stream"),
+        ("content-disposition", "attachment; filename=\"a.txt\""),
+    ];
 
-    let response = upload_own(&api, &ada, "a.txt", b"hello", "", None).await;
+    let (status, _) = server
+        .send("POST", "/v1/users/me/files", &headers, b"hello")
+        .await;
+    server.stop().await;
 
-    assert_eq!(response.status, 201);
-    // Tests running alongside upload too, so the count grows by at least this.
-    assert!(uploads("stored") >= stored + 1.0);
+    assert_eq!(status, 201);
+    assert_eq!(uploads_counted(&collector), ["stored 1"]);
 }
 
 #[tokio::test]

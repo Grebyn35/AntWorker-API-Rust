@@ -188,7 +188,7 @@ write() {
                 ;;
             secret)
                 case $first in
-                    encryption_keys | database_admin_url | database_owner_url | database_url | postgres_password | backup_s3_key | backup_s3_key_secret | backup_cipher_pass | managed_otlp_token | managed_grafana_token | smtp_password) ;;
+                    encryption_keys | database_admin_url | database_owner_url | database_url | postgres_password | backup_s3_key | backup_s3_key_secret | backup_cipher_pass | managed_otlp_token | managed_grafana_token | grafana_admin_password | smtp_password) ;;
                     # part: files
                     files_s3_key | files_s3_key_secret) ;;
                     # end part: files

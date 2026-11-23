@@ -2,8 +2,9 @@
 //! closed sets `snake_case` strings (API-11); and every string of a request body has a
 //! `maxLength` (API-17).
 //!
-//! An ID is a property or a parameter named `id` or `<name>_id`, and a timestamp a property
-//! named `<event>_at`, as DATA-01 names their columns.
+//! An ID is a property or a parameter named `id` or `<name>_id`, but `trace_id`, `device_id`
+//! and `client_id`, the IDs that API-11 excepts, and a timestamp a property named `<event>_at`,
+//! as DATA-01 names their columns.
 
 use serde_json::{Map, Value};
 
@@ -95,8 +96,8 @@ pub fn problems(document: &Value) -> Vec<Problem> {
     problems
 }
 
-/// API-11: the IDs among an operation's path and query parameters are UUIDs, each of them, of a
-/// filter that takes several, an array's item (PLATFORM-088).
+/// API-11: the IDs among an operation's path and query parameters, but those of [`NOT_UUIDS`],
+/// are UUIDs, each of them, of a filter that takes several, an array's item (PLATFORM-088).
 fn identifiers(
     document: &Value,
     path: &str,
@@ -118,7 +119,7 @@ fn identifiers(
     }
     names
         .into_iter()
-        .filter(|name| is_id(name))
+        .filter(|name| is_id(name) && !NOT_UUIDS.contains(&name.as_str()))
         .filter(|name| {
             !parameters.iter().any(|parameter| {
                 let schema = resolve(document, &parameter["schema"]);
@@ -255,7 +256,7 @@ impl Lengths<'_> {
             Value::Array(kinds) => kinds.iter().any(|kind| kind == "string"),
             _ => false,
         };
-        let bounded = ["maxLength", "enum", "const"]
+        let bounded = ["maxLength", "enum"]
             .iter()
             .any(|key| schema.get(*key).is_some());
         if is_string && !bounded {
@@ -357,6 +358,25 @@ mod tests {
     }
 
     #[test]
+    fn api_11_a_parameter_that_api_11_excepts_is_no_uuid() {
+        let document = json!({ "paths": { "/v1/users/me/devices/{device_id}": { "get": {
+            "parameters": [
+                { "name": "device_id", "in": "path", "schema": { "type": "string", "maxLength": 64 } },
+                { "name": "trace_id", "in": "query", "schema": { "type": "string" } },
+                { "name": "client_id", "in": "query", "schema": { "type": "string" } },
+                { "name": "owner_id", "in": "query", "schema": { "type": "string" } },
+            ],
+            "responses": {},
+        } } } });
+        assert_eq!(
+            messages(&document),
+            [
+                "GET /v1/users/me/devices/{device_id}: the parameter owner_id isn't documented as format: uuid (API-11)",
+            ]
+        );
+    }
+
+    #[test]
     fn api_11_a_problem_s_codes_are_no_closed_set() {
         let operation = json!({ "responses": { "400": { "content": { "application/problem+json": {
             "schema": { "properties": { "code": { "enum": ["request.invalid_body"] } } },
@@ -397,6 +417,7 @@ mod tests {
             "Note": { "type": "string" },
             "Delivery": { "type": "string", "enum": ["body", "cookie"] },
             "Request": { "type": "object", "properties": {
+                "kind": { "type": "string", "const": "thing" },
                 "name": { "$ref": "#/components/schemas/Name" },
                 "note": { "oneOf": [{ "$ref": "#/components/schemas/Note" }, { "type": "null" }] },
                 "delivery": { "$ref": "#/components/schemas/Delivery" },
@@ -411,6 +432,7 @@ mod tests {
         assert_eq!(
             messages(&document(operation, schemas)),
             [
+                "POST /v1/things application/json request: the string at /kind has no maxLength (API-17)",
                 "POST /v1/things application/json request: the string at /note has no maxLength (API-17)",
                 "POST /v1/things application/json request: the string at /tags/* has no maxLength (API-17)",
             ]

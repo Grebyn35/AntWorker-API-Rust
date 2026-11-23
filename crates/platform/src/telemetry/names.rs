@@ -5,7 +5,9 @@
 //! fails compilation when the name differs from the one the conventions publish. The
 //! conventions are version 1.42.0, as `opentelemetry-semantic-conventions` 0.33.1 publishes
 //! them, and a name they deprecate fails clippy. Any other name is `<term>.<property>`, outside
-//! every namespace the conventions define. No name is for personal data or secrets (OBS-04).
+//! every namespace the conventions define, but the trace context of a JSON line, `trace_id` and
+//! `span_id`, and the bridge's own `otel.name` and `otel.kind` (OBS-05). No name is for personal
+//! data or secrets (OBS-04).
 
 use opentelemetry_semantic_conventions::attribute as otel;
 
@@ -48,12 +50,19 @@ pub const EXCEPTION_MESSAGE: &str = convention("exception.message", otel::EXCEPT
 pub const CODE_FILE_PATH: &str = convention("code.file.path", otel::CODE_FILE_PATH);
 /// The line a panic happened on.
 pub const CODE_LINE_NUMBER: &str = convention("code.line.number", otel::CODE_LINE_NUMBER);
-/// The address the server listens on.
+/// A server's address: on a client span, that of the server it calls, and on the line that
+/// `serve` writes as it starts listening, the API's own.
 pub const SERVER_ADDRESS: &str = convention("server.address", otel::SERVER_ADDRESS);
-/// The port the server listens on.
+/// A server's port: on a client span, that of the server it calls, and on the line that `serve`
+/// writes as it starts listening, the API's own.
 pub const SERVER_PORT: &str = convention("server.port", otel::SERVER_PORT);
-/// The name of the database a task ran against.
+/// The name of the database that a task ran against, or that a span's transaction ran in.
 pub const DB_NAMESPACE: &str = convention("db.namespace", otel::DB_NAMESPACE);
+/// The database system that a span's transaction ran in: `postgresql`.
+pub const DB_SYSTEM_NAME: &str = convention("db.system.name", otel::DB_SYSTEM_NAME);
+/// The operation and the table of a statement that commits by itself, such as
+/// `INSERT rate_limit_buckets`, on its span (PLATFORM-104).
+pub const DB_QUERY_SUMMARY: &str = convention("db.query.summary", otel::DB_QUERY_SUMMARY);
 
 /// The trace a line was written in, a top-level field of JSON logs.
 pub const TRACE_ID: &str = "trace_id";
@@ -111,6 +120,9 @@ pub const JOB_ID: &str = "job.id";
 pub const JOB_ATTEMPT: &str = "job.attempt";
 /// How a job's run ended, such as `succeeded` or `retried` (PLATFORM-020).
 pub const JOB_OUTCOME: &str = "job.outcome";
+/// How a send of an email to the mail server ended, such as `sent` or `unavailable`
+/// (PLATFORM-105).
+pub const MAIL_OUTCOME: &str = "mail.outcome";
 /// Why the hub closed a stream, such as `access_changed` (PLATFORM-034).
 pub const STREAM_CLOSE_REASON: &str = "stream.close_reason";
 /// The part of startup that failed, such as `database` or `listen`, or the subcommand that an

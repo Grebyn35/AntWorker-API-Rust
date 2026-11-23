@@ -8,11 +8,12 @@ use axum::{Router, body::Body, extract::ConnectInfo};
 use http::{HeaderMap, HeaderName, HeaderValue, Method, Request, StatusCode};
 use http_body_util::BodyExt;
 use platform::{
-    blocking::Workers,
+    blocking::{Turn, Workers},
     clock::{SharedClock, TestClock},
     config::{ConfigError, ServerConfig, Settings},
     db::Database,
     events::Hub,
+    hashing::HmacKey,
     http::Routes,
     jobs::Jobs,
     lifecycle::Readiness,
@@ -22,7 +23,7 @@ use platform::{
 use serde_json::Value;
 use tower::ServiceExt;
 
-use super::{Proxy, TestDatabase, contract::Contract, sent};
+use super::{Proxy, TestDatabase, contract::Contract, sent, users::SignedIn};
 
 /// The service the tests' OpenAPI documents name. The name and version don't affect a check.
 pub(crate) const SERVICE: Service = Service {
@@ -32,6 +33,13 @@ pub(crate) const SERVICE: Service = Service {
 
 /// The base64 of the tests' `HMAC_KEY`: 32 bytes of 7.
 const HMAC_KEY: &str = "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=";
+
+/// The key of the tests' `HMAC_KEY`, with which a test finds what an API with that setting keys
+/// by an HMAC, such as a rate-limit bucket (PLATFORM-057).
+pub fn hmac_key() -> HmacKey {
+    let bytes = data_encoding::BASE64.decode(HMAC_KEY.as_bytes()).unwrap();
+    HmacKey::new(&bytes).unwrap()
+}
 
 /// The tests' `ENCRYPTION_KEYS`: one key, version 1, of 32 bytes of 7.
 const ENCRYPTION_KEYS: &str = "1:BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=";
@@ -81,6 +89,14 @@ impl Options {
     /// The options of a deployment with email off (PLATFORM-024).
     pub fn email_off() -> Self {
         Self::default().set("EMAIL", "off")
+    }
+
+    /// The settings, as [`TestDatabase::serve`](super::TestDatabase::serve) takes them.
+    pub fn env(&self) -> Vec<(&str, &str)> {
+        self.settings
+            .iter()
+            .map(|(name, value)| (name.as_str(), value.as_str()))
+            .collect()
     }
 }
 
@@ -325,6 +341,16 @@ impl Api {
         &self.workers
     }
 
+    /// Takes every turn of the API's CPU-heavy work, as a burst of sign-ins does, so that each
+    /// work of a request waits for a turn until the test drops them (PLATFORM-060).
+    pub async fn every_turn(&self) -> Vec<Turn> {
+        let mut turns = Vec::new();
+        for _ in 0..self.workers.turns() {
+            turns.push(self.workers.turn().await.unwrap());
+        }
+        turns
+    }
+
     /// Waits until the API's hub has loaded every event that committed so far, so that a stream
     /// that a test then opens starts after them, rather than receive those that the hub hadn't
     /// loaded yet: the hub loads an event once its notification reaches it, which the answer of
@@ -415,7 +441,8 @@ impl Api {
         self.router.clone()
     }
 
-    /// Checks a response against the document, as every response of [`Call::send`] is.
+    /// Checks a response against the document, and the body of a 500 to any method but `HEAD`,
+    /// which answers none, against ERR-08's, as every response of [`Call::send`] is.
     pub fn check(
         &self,
         method: &Method,
@@ -425,6 +452,22 @@ impl Api {
         body: &[u8],
     ) {
         self.contract.check(method, path, status, headers, body);
+        if status == StatusCode::INTERNAL_SERVER_ERROR && method != Method::HEAD {
+            let problem: Value = serde_json::from_slice(body).unwrap_or_default();
+            let mut members: Vec<&str> = problem
+                .as_object()
+                .into_iter()
+                .flat_map(|members| members.keys().map(String::as_str))
+                .collect();
+            members.sort_unstable();
+            assert!(
+                problem["code"] == "request.internal_error"
+                    && problem["title"] == "Internal error"
+                    && members == ["code", "status", "title", "trace_id", "type"],
+                "{method} {path} answered 500 with another body than an internal error's fixed \
+                 one (ERR-08): {problem}"
+            );
+        }
     }
 
     /// The database the API runs on.
@@ -478,10 +521,11 @@ impl Api {
         call
     }
 
-    /// Sends, in a task of its own, with the access token `access`, `method` to `path`, with
-    /// `body` as JSON when there is one, which a `PATCH` sends as a merge patch, and gives the
-    /// response's status and its body's JSON, or null for an empty body: a request that a test
-    /// holds at a lock while it changes what the request then finds.
+    /// Sends, in a task of its own, with the access token `access`, `method` to `path`, or, with
+    /// a `body`, a `PATCH` of it as a merge patch when `method` is `PATCH`, and a `POST` of it as
+    /// JSON for any other `method`, and gives the response's status and its body's JSON, or null
+    /// for an empty body: a request that a test holds at a lock while it changes what the request
+    /// then finds.
     pub fn spawn(
         &self,
         method: Method,
@@ -692,7 +736,6 @@ impl Call<'_> {
             .to_bytes()
             .to_vec();
         self.api
-            .contract
             .check(&self.method, &self.path, status, &headers, &body);
         let response = Response {
             status,
@@ -745,4 +788,22 @@ impl Response {
             .map(|value| value.to_str().unwrap())
             .collect()
     }
+}
+
+/// The first column of each row of `sql`, as the `owner` reads it on `api`'s database (TEST-05).
+pub async fn reads(api: &Api, sql: &str) -> Vec<String> {
+    api.database().owner_reads(sql).await
+}
+
+/// The one value that `sql` reads, as [`reads`] reads it.
+pub async fn one(api: &Api, sql: &str) -> String {
+    reads(api, sql).await.remove(0)
+}
+
+/// Sends `method` to `path` as `caller`, with no body.
+pub async fn call(api: &Api, method: Method, path: &str, caller: &SignedIn) -> Response {
+    api.request(method, path)
+        .bearer(&caller.access)
+        .send()
+        .await
 }

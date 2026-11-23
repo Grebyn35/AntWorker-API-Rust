@@ -19,5 +19,6 @@ mod personal_data;
 // part: files
 mod scanner;
 // end part: files
+mod spans;
 mod startup;
 mod telemetry;

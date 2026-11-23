@@ -1,12 +1,17 @@
 //! The reference deployment with its self-hosted observability stack (D42), on a server of the
 //! tests' own.
 
-use std::time::Duration;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    path::Path,
+    time::Duration,
+};
 
 use crate::{
     deployment::{
         Deployment, GRAFANA_ADDRESS, GRAFANA_ADMIN_PASSWORD, GRAFANA_ADMIN_USER, get, get_traced,
-        get_with_cookie, get_within, post, post_for_cookies, unanswered_as,
+        get_with_cookie, get_within, get_within_as, post, post_for_cookies, unanswered_as,
     },
     docker::{compose, lossy},
     server::DEPLOYMENT,
@@ -28,6 +33,10 @@ const PERSONAL: [&str; 9] = [
     "\"headers\"",
 ];
 
+/// The `User-Agent` of the request that no replica answers, a value of the tests' own, which the
+/// proxy's spans and log lines hold under no name (OBS-04).
+const AGENT: &str = "the-e2e-tests-own-agent/7.1";
+
 /// The lines of the stand-in backend's file that hold `trace`, once a line of spans and one of
 /// log records do. The collector decides on a trace 15 seconds after its last span.
 fn received(deployment: &Deployment, trace: &str) -> String {
@@ -38,16 +47,17 @@ fn received(deployment: &Deployment, trace: &str) -> String {
     ))
 }
 
-/// Stops the deployment's replicas, then asks the proxy for a resource, which no replica
-/// answers, and returns the trace ID of its 503 problem.
+/// Stops the deployment's replicas, then asks the proxy for a resource, with `AGENT` as its
+/// `User-Agent`, which no replica answers, and returns the trace ID of its 503 problem.
 fn trace_of_a_request_no_replica_answers(deployment: &Deployment) -> String {
     deployment
         .server
         .shell_ok("docker stop deployment-api-blue-1 deployment-api-blue-2 > /dev/null");
-    let (status, _, body) = get_within(
+    let (status, _, body) = get_within_as(
         deployment.server.caddy_root(),
         deployment.url("https", 443, "/v1/capabilities"),
         Duration::from_secs(2),
+        Some(AGENT),
     );
     assert_eq!(status, 503, "{body}");
     let problem: serde_json::Value = serde_json::from_str(&body).expect("a problem");
@@ -163,7 +173,11 @@ fn assert_the_stores_answer_the_collector_and_grafana_alone(deployment: &Deploym
     }
     assert_eq!(
         networks("collector"),
-        ["deployment_stack", "deployment_telemetry"]
+        [
+            "deployment_edge",
+            "deployment_stack",
+            "deployment_telemetry"
+        ]
     );
     assert_eq!(networks("grafana"), ["deployment_edge", "deployment_stack"]);
     let mut senders = [
@@ -205,6 +219,26 @@ fn assert_the_stores_answer_the_collector_and_grafana_alone(deployment: &Deploym
             lossy(&answered)
         );
     }
+}
+
+/// The server's ports that each container publishes, of those that publish one, from
+/// `containers`, a line for each container with its name, a space and its ports, as `docker ps`
+/// lists them: in each item of the ports that holds `->`, what stands between the last `:`
+/// before it and it.
+fn published(containers: &str) -> BTreeMap<&str, BTreeSet<&str>> {
+    containers
+        .lines()
+        .filter_map(|line| {
+            let (name, ports) = line.split_once(' ')?;
+            let ports: BTreeSet<&str> = ports
+                .split([' ', ','])
+                .filter_map(|item| item.split_once("->"))
+                .filter_map(|(host, _)| host.rsplit_once(':'))
+                .map(|(_, port)| port)
+                .collect();
+            (!ports.is_empty()).then_some((name, ports))
+        })
+        .collect()
 }
 
 #[tokio::test]
@@ -256,19 +290,10 @@ async fn sec_14_a_server_publishes_only_the_proxy_and_grafana_signs_every_viewer
     // in.
     let (as_admin, _) = grafana_sign_in(&deployment, &root, ("admin", GRAFANA_ADMIN_PASSWORD));
     let (as_default, _) = grafana_sign_in(&deployment, &root, ("admin", "admin"));
-    // Grafana's pages are for a browser, so plain HTTP at its address leads to HTTPS (OPS-17).
-    let (plain, plain_headers) = get(
-        root.clone(),
-        deployment.url_at(GRAFANA_ADDRESS, "http", 80, "/login"),
-    );
 
-    let publishing: Vec<&str> = containers
-        .lines()
-        .filter(|line| line.contains("->"))
-        .collect();
-    assert_eq!(publishing.len(), 1, "{containers}");
-    assert!(
-        publishing[0].starts_with("deployment-caddy-1 "),
+    assert_eq!(
+        published(&containers),
+        BTreeMap::from([("deployment-caddy-1", BTreeSet::from(["443", "80"]))]),
         "{containers}"
     );
     assert!(containers.contains("deployment-grafana-1"), "{containers}");
@@ -292,9 +317,26 @@ async fn sec_14_a_server_publishes_only_the_proxy_and_grafana_signs_every_viewer
     assert_a_browser_guards_grafana_s_pages(&page_headers);
     assert_the_stores_answer_the_collector_and_grafana_alone(&deployment);
     assert_the_proxy_answers_no_other_host(&deployment, &root);
+}
+
+#[tokio::test]
+async fn ops_17_the_proxy_redirects_plain_http_at_grafana_s_address_to_https() {
+    let deployment = Deployment::managed(&[("TELEMETRY", "self-hosted")]);
+    let deployed = deployment.apply(&deployment.api, &[]).await;
+    assert!(deployed.status.success(), "{}", lossy(&deployed));
+
+    // Grafana's pages are for a browser, so plain HTTP at its address leads to HTTPS.
+    let (plain, headers) = get(
+        deployment.server.caddy_root(),
+        deployment.url_at(GRAFANA_ADDRESS, "http", 80, "/login"),
+    );
+
     assert_eq!(plain, 308);
-    let location = plain_headers["location"].to_str().unwrap();
-    assert!(location.starts_with(&format!("https://{GRAFANA_ADDRESS}")));
+    let location = headers["location"].to_str().unwrap();
+    assert!(
+        location.starts_with(&format!("https://{GRAFANA_ADDRESS}")),
+        "{location}"
+    );
 }
 
 /// Of the cookies that Grafana's sign-in sets, the session's is `__Host-grafana_session`, for
@@ -464,8 +506,48 @@ async fn ops_19_a_key_that_the_operator_replaced_reaches_its_services_at_the_nex
     assert_eq!(again, 200);
 }
 
+/// The names of the collector's own metrics that the alert rules and the dashboards read: in
+/// deploy/observability/prometheus/rules.yaml and each file of
+/// deploy/observability/grafana/dashboards/, each run of letters, digits and underscores that
+/// starts with `otelcol_`.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "tests may block, each on a runtime of its own (CODE-05)"
+)]
+fn collector_metrics_read() -> BTreeSet<String> {
+    let observability = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../deploy/observability");
+    let mut files = vec![observability.join("prometheus/rules.yaml")];
+    files.extend(
+        fs::read_dir(observability.join("grafana/dashboards"))
+            .expect("the dashboards")
+            .map(|entry| entry.expect("a dashboard").path()),
+    );
+    let mut names = BTreeSet::new();
+    for file in files {
+        let text = fs::read_to_string(&file).expect("a file of the stack");
+        for (at, _) in text.match_indices("otelcol_") {
+            let name: String = text[at..]
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                .collect();
+            names.insert(name);
+        }
+    }
+    names
+}
+
+/// The collector's metrics that it creates at their first event: a failed send, and a point that
+/// it can't add to a series. A deployment in which neither happened holds no series of them, as a
+/// run of the end-to-end tests showed.
+const AT_FIRST_EVENT: [&str; 4] = [
+    "otelcol_deltatocumulative_datapoints_total",
+    "otelcol_exporter_send_failed_log_records_total",
+    "otelcol_exporter_send_failed_metric_points_total",
+    "otelcol_exporter_send_failed_spans_total",
+];
+
 #[tokio::test]
-async fn obs_14_the_backups_the_server_s_memory_and_the_collector_report_what_the_cause_alerts_read()
+async fn obs_14_the_backups_the_server_s_memory_and_the_collector_report_what_the_alerts_and_the_dashboards_read()
  {
     let deployment = Deployment::bundled(&[("TELEMETRY", "self-hosted")]);
     let deployed = deployment.apply(&deployment.api, &[]).await;
@@ -495,12 +577,43 @@ async fn obs_14_the_backups_the_server_s_memory_and_the_collector_report_what_th
         "timeout 120 sh -c 'until docker exec deployment-prometheus-1 wget -qO-          \"http://localhost:9090/api/v1/query?query=system_linux_memory_available_bytes\"          | grep -q system_linux_memory_available_bytes; do sleep 5; done'",
     );
     assert!(memory.status.success(), "{}", lossy(&memory));
-    // The collector's own counters, under the names the alert on lost telemetry reads, once the
-    // API's metrics have passed through it.
-    let collector = deployment.server.shell(
-        "timeout 120 sh -c 'until docker exec deployment-prometheus-1 wget -qO-          \"http://localhost:9090/api/v1/query?query=otelcol_receiver_refused_metric_points_total\"          | grep -q otelcol_receiver_refused_metric_points_total; do sleep 5; done'",
+    // The collector's own metrics, under the names that the alert rules and the dashboards read,
+    // once the API's telemetry has passed through it, as Prometheus holds them: the collector
+    // creates some only at their first event, which a deployment that fails no send holds none
+    // of: the alert counts a failed send's series from its first value.
+    let read: Vec<String> = collector_metrics_read()
+        .into_iter()
+        .filter(|name| !AT_FIRST_EVENT.contains(&name.as_str()))
+        .collect();
+    let waits: Vec<String> = read
+        .iter()
+        .map(|name| format!("grep -q {name} /root/collector.json"))
+        .collect();
+    deployment.server.shell(&format!(
+        "timeout 180 sh -c 'until docker exec deployment-prometheus-1 wget -qO- \
+         \"http://localhost:9090/api/v1/query?query=count%20by%20(__name__)%20(%7B__name__%3D~%22otelcol_.%2B%22%7D)\" \
+         > /root/collector.json && {}; do sleep 5; done'",
+        waits.join(" && ")
+    ));
+    let held: serde_json::Value =
+        serde_json::from_str(&deployment.server.shell_ok("cat /root/collector.json"))
+            .expect("Prometheus's answer");
+    let present: BTreeSet<&str> = held["data"]["result"]
+        .as_array()
+        .expect("its series")
+        .iter()
+        .filter_map(|series| series["metric"]["__name__"].as_str())
+        .collect();
+    let absent: Vec<&String> = read
+        .iter()
+        .filter(|name| !present.contains(name.as_str()))
+        .collect();
+    assert!(!read.is_empty());
+    assert!(
+        absent.is_empty(),
+        "Prometheus holds no series of {absent:?}, of the collector's metrics that a rule or a \
+         dashboard reads"
     );
-    assert!(collector.status.success(), "{}", lossy(&collector));
 }
 
 #[tokio::test]
@@ -556,17 +669,7 @@ async fn ops_14_a_deploy_installs_the_release_s_alert_rules_and_prometheus_reads
 
 #[tokio::test]
 async fn obs_08_a_managed_backend_receives_the_trace_and_the_logs_of_a_4xx_response() {
-    let deployment = Deployment::managed(&[]);
-    let backend = deployment.server.start_otlp_backend();
-    let mut changes = vec![("TELEMETRY", "managed")];
-    changes.extend(
-        backend
-            .iter()
-            .map(|(name, value)| (name.as_str(), value.as_str())),
-    );
-    deployment.set(&changes);
-    let deployed = deployment.apply(&deployment.api, &[]).await;
-    assert!(deployed.status.success(), "{}", lossy(&deployed));
+    let deployment = Deployment::with_a_managed_backend().await;
 
     let (status, headers) = get(
         deployment.server.caddy_root(),
@@ -995,21 +1098,67 @@ async fn obs_08_the_trace_id_of_the_proxy_s_503_leads_to_its_span_and_its_log_li
     assert!(both.contains("\"caddy\""), "{both}");
 }
 
+/// The addresses from which Caddy, on `deployment`'s server, may see a request of the tests: the
+/// gateway of each network that its container joins, and the server's own gateway, through which
+/// the port that the server publishes reaches it.
+fn addresses_caddy_may_see(deployment: &Deployment) -> Vec<String> {
+    deployment
+        .server
+        .shell_ok(
+            "docker inspect --format '{{ range .NetworkSettings.Networks }}{{ .Gateway }} {{ end }}' \
+             deployment-caddy-1 && ip route show default | awk '{ print $3 }'",
+        )
+        .split_whitespace()
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Whether `text` holds the IPv4 address `address` whole: with neither a digit nor a dot before
+/// it, and no digit after it.
+fn holds_address(text: &str, address: &str) -> bool {
+    text.match_indices(address).any(|(at, _)| {
+        let before = text[..at].chars().next_back();
+        let after = text[at + address.len()..].chars().next();
+        !before.is_some_and(|c| c.is_ascii_digit() || c == '.')
+            && !after.is_some_and(|c| c.is_ascii_digit())
+    })
+}
+
 #[tokio::test]
-async fn obs_04_the_proxy_s_span_and_log_line_hold_no_personal_data() {
+async fn obs_04_the_proxy_s_span_and_logs_hold_no_personal_data() {
     let deployment = Deployment::with_a_managed_backend().await;
+    let addresses = addresses_caddy_may_see(&deployment);
 
     let trace = trace_of_a_request_no_replica_answers(&deployment);
     let telemetry = received(&deployment, &trace);
     let written = deployment
         .server
         .shell_ok("docker exec deployment-caddy-1 cat /var/log/caddy/access.log");
+    // Caddy's own log, which `just logs` shows.
+    let own = deployment
+        .server
+        .shell_ok("docker logs deployment-caddy-1 2>&1");
 
     assert!(telemetry.contains("no replica answered"), "{telemetry}");
     assert!(written.contains(&trace), "{written}");
+    assert!(!addresses.is_empty());
     for name in PERSONAL {
         assert!(!telemetry.contains(name), "{name}: {telemetry}");
         assert!(!written.contains(name), "{name}: {written}");
+    }
+    // The client's user agent and its address, under any name.
+    for (what, text) in [
+        ("the telemetry", &telemetry),
+        ("the access log", &written),
+        ("Caddy's own log", &own),
+    ] {
+        assert!(!text.contains(AGENT), "{what} holds the user agent: {text}");
+        for address in &addresses {
+            assert!(
+                !holds_address(text, address),
+                "{what} holds the address {address}: {text}"
+            );
+        }
     }
 }
 
@@ -1056,7 +1205,16 @@ async fn obs_08_a_managed_backend_receives_the_proxy_s_span_and_log_line_of_its_
     let telemetry = received(&deployment, &trace);
 
     assert!(telemetry.contains("no replica answered"), "{telemetry}");
-    // Each span and line of the proxy names its service's version (OBS-02).
+}
+
+#[tokio::test]
+async fn obs_02_each_span_and_log_line_of_the_proxy_names_its_service_s_version() {
+    let deployment = Deployment::with_a_managed_backend().await;
+
+    let trace = trace_of_a_request_no_replica_answers(&deployment);
+    let telemetry = received(&deployment, &trace);
+
+    // `received` returns once a line of spans and one of log records hold the trace.
     for line in telemetry.lines() {
         assert!(line.contains("\"service.version\""), "{line}");
     }

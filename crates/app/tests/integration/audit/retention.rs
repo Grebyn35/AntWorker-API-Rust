@@ -7,12 +7,12 @@ use crate::support::{Api, Options, audit, execute_on, users, workspaces};
 const JOB: &str = "audit.expire_entries";
 
 /// Inserts, as the owner may, `count` entries in the own log of `user_id`, each recorded `age`
-/// ago, with the action `action`.
-async fn arrange(api: &Api, user_id: &str, action: &str, age: &str, count: u32) {
+/// ago, with the action `user.renamed`.
+async fn arrange(api: &Api, user_id: &str, age: &str, count: u32) {
     api.database()
         .owner_executes(&format!(
             "INSERT INTO audit_entries (scope, user_id, action, resource_type, created_at) \
-             SELECT 'user', '{user_id}', '{action}', 'user', now() - interval '{age}' \
+             SELECT 'user', '{user_id}', 'user.renamed', 'user', now() - interval '{age}' \
              FROM generate_series(1, {count})"
         ))
         .await;
@@ -34,7 +34,7 @@ async fn audit_005_app_deletes_through_the_view_only_the_entries_recorded_more_t
     let ada = users::register(&api, "ada@example.com").await;
     let db = api.database();
     for age in ["400 days", "90 days 1 hour", "89 days 23 hours"] {
-        arrange(&api, &ada.user_id, "user.renamed", age, 1).await;
+        arrange(&api, &ada.user_id, age, 1).await;
     }
     // The oldest has a client, which goes with it.
     let oldest = db
@@ -79,7 +79,7 @@ async fn audit_005_the_view_s_floor_holds_whatever_time_zone_the_session_sets() 
     let ada = users::register(&api, "ada@example.com").await;
     let db = api.database();
     for age in ["77 days", "85 days", "89 days 23 hours"] {
-        arrange(&api, &ada.user_id, "user.renamed", age, 1).await;
+        arrange(&api, &ada.user_id, age, 1).await;
     }
     // A zone that `app` may set, whose offset changes by 334 hours once between 90 days ago and
     // now: its daylight time starts 45 days ago and ends 180 days later, one way round and the
@@ -185,8 +185,8 @@ async fn audit_011_by_default_a_log_keeps_an_entry_365_days_and_a_run_deletes_ev
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     // More than two batches of 1,000 past the retention, and one entry short of it.
-    arrange(&api, &ada.user_id, "user.renamed", "366 days", 2_500).await;
-    arrange(&api, &ada.user_id, "user.renamed", "364 days", 1).await;
+    arrange(&api, &ada.user_id, "366 days", 2_500).await;
+    arrange(&api, &ada.user_id, "364 days", 1).await;
 
     api.run_periodic(JOB).await;
 
@@ -211,7 +211,7 @@ async fn audit_011_a_run_that_meets_an_entry_that_another_transaction_holds_ends
  {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
-    arrange(&api, &ada.user_id, "user.renamed", "400 days", 3).await;
+    arrange(&api, &ada.user_id, "400 days", 3).await;
     // A transaction that sets an entry's actor to null, as an account's deletion does, and
     // hasn't committed.
     let mut held = api

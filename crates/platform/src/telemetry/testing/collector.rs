@@ -141,6 +141,8 @@ struct Shared {
     received: Mutex<Received>,
     changed: Notify,
     logs: Logs,
+    /// Whether it holds its answer to every export of spans.
+    holds_traces: bool,
 }
 
 /// What the stand-in does with an export of log records.
@@ -149,32 +151,46 @@ enum Logs {
     Taken,
     Refused,
     Redirected,
+    Held,
 }
 
 impl Collector {
     /// A collector that accepts every export. Fails if it can't listen.
     pub async fn start() -> io::Result<Self> {
-        Self::listening(Logs::Taken).await
+        Self::listening(Logs::Taken, false).await
+    }
+
+    /// A collector that never answers an export of spans, as one that answers slowly holds it
+    /// until its client's timeout, and takes every other export. Fails if it can't listen.
+    pub async fn holding_traces() -> io::Result<Self> {
+        Self::listening(Logs::Taken, true).await
+    }
+
+    /// A collector that never answers an export of log records, as one that answers slowly holds
+    /// it until its client's timeout, and takes every other export. Fails if it can't listen.
+    pub async fn holding_logs() -> io::Result<Self> {
+        Self::listening(Logs::Held, false).await
     }
 
     /// A collector that answers every export of log records with 400, which the exporter
     /// counts as a failed export and doesn't retry. Fails if it can't listen.
     pub async fn refusing_logs() -> io::Result<Self> {
-        Self::listening(Logs::Refused).await
+        Self::listening(Logs::Refused, false).await
     }
 
     /// A collector that answers every export of log records with a redirect to another path
     /// of its own, which takes them, so the records of an exporter that followed it are
     /// among what it received. Fails if it can't listen.
     pub async fn redirecting_logs() -> io::Result<Self> {
-        Self::listening(Logs::Redirected).await
+        Self::listening(Logs::Redirected, false).await
     }
 
-    async fn listening(log_exports: Logs) -> io::Result<Self> {
+    async fn listening(log_exports: Logs, holds_traces: bool) -> io::Result<Self> {
         let state = Arc::new(Shared {
             received: Mutex::default(),
             changed: Notify::new(),
             logs: log_exports,
+            holds_traces,
         });
         #[expect(
             clippy::disallowed_methods,
@@ -237,6 +253,9 @@ impl Drop for Collector {
 // test that expects the export finds it missing.
 
 async fn traces(State(state): State<Arc<Shared>>, body: Bytes) -> Response {
+    if state.holds_traces {
+        return std::future::pending().await;
+    }
     match ExportTraceServiceRequest::decode(body) {
         Ok(export) => state.keep(|received| received.traces.push(export)),
         Err(_) => StatusCode::BAD_REQUEST.into_response(),
@@ -247,6 +266,7 @@ async fn logs(State(state): State<Arc<Shared>>, body: Bytes) -> Response {
     match state.logs {
         Logs::Taken => moved_logs(State(state), body).await,
         Logs::Refused => StatusCode::BAD_REQUEST.into_response(),
+        Logs::Held => std::future::pending().await,
         Logs::Redirected => (
             StatusCode::TEMPORARY_REDIRECT,
             [(header::LOCATION, MOVED_LOGS)],

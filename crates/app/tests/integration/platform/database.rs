@@ -1,13 +1,18 @@
+use std::{sync::Arc, time::Duration};
+
 use futures_util::FutureExt;
 use platform::{
     blocking::Workers,
+    clock::{SharedClock, TestClock},
     db::{BootstrapError, ConnectError, Database, DatabaseUrl, RoleProblem},
+    jobs::{Job, JobScope, Jobs},
 };
+use serde::{Deserialize, Serialize};
 
 // part: files
 use crate::support::bucket;
 // end part: files
-use crate::support::{TestDatabase, cleanup::Backlog, execute_on};
+use crate::support::{Proxy, TestDatabase, cleanup::Backlog, client, execute_on};
 
 /// Asserts that `serve` refuses to start as the role `url` connects as, for `problem`.
 async fn assert_refused(url: &DatabaseUrl, problem: &RoleProblem) {
@@ -30,6 +35,62 @@ async fn test_05_the_api_under_test_connects_as_the_app_role() {
         .await
         .unwrap();
     assert_eq!(role, "app");
+}
+
+/// A job that succeeds at once, which the test of an opening that is cancelled runs.
+#[derive(Serialize, Deserialize)]
+struct Noop;
+
+impl Job for Noop {
+    const KIND: &'static str = "tests.noop";
+}
+
+/// Waits until a session of `app` on the test database is idle inside a transaction, as the
+/// administrator sees it: the state Postgres reaches once it has run a `BEGIN` of the API's.
+async fn app_idles_in_a_transaction(db: &TestDatabase) {
+    let sql = format!(
+        "SELECT count(*)::text FROM pg_stat_activity \
+         WHERE datname = '{}' AND usename = 'app' AND state = 'idle in transaction'",
+        db.name()
+    );
+    while db.admin_reads(&sql).await == ["0"] {
+        tokio::task::yield_now().await;
+    }
+}
+
+#[tokio::test]
+async fn platform_107_after_an_opening_is_cancelled_a_statement_that_commits_by_itself_commits() {
+    let db = TestDatabase::migrated().await;
+    let proxy = Proxy::to(db.app_url().address()).await;
+    // One connection, so the job's claim and its deletion run on the cancelled opening's.
+    let database = Database::connect(&db.app_url().through(proxy.port()), 1, &app::MIGRATIONS)
+        .await
+        .unwrap();
+    let mut jobs = Jobs::new(&database, Duration::from_secs(86_400));
+    jobs.queued(|_, Noop| async { Ok(()) }).unwrap();
+    let client = client();
+    let mut uow = database.begin(&client, None).await.unwrap();
+    uow.enqueue(JobScope::for_tests(), &Noop).await.unwrap();
+    uow.commit().await.unwrap();
+    // Postgres opens the transaction, and the opening is dropped before it hears so.
+    proxy.hold_answers_from_the_next_begin();
+    let mut opening = Box::pin(database.begin(&client, None));
+    let cancelled = tokio::select! {
+        _ = &mut opening => false,
+        () = app_idles_in_a_transaction(&db) => true,
+    };
+    drop(opening);
+    proxy.thaw();
+
+    let clock: SharedClock = Arc::new(TestClock::default());
+    jobs.run_pending(&database, &clock).await;
+
+    assert!(
+        cancelled,
+        "the opening ended before Postgres's answer came back"
+    );
+    let left = db.owner_reads("SELECT count(*)::text FROM jobs").await;
+    assert_eq!(left, ["0"]);
 }
 
 #[tokio::test]

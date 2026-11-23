@@ -204,7 +204,8 @@ impl Mail {
         })
     }
 
-    /// Sends `delivery`. A replica with email off drops it, as one enqueued while email was on
+    /// Sends `delivery`, which counts as unavailable when its timeout ends it first
+    /// (PLATFORM-105). A replica with email off drops it, as one enqueued while email was on
     /// (PLATFORM-022).
     async fn deliver(&self, delivery: Delivery) -> Result<(), JobFailure> {
         let Some(sender) = &self.sender else {
@@ -213,9 +214,12 @@ impl Mail {
         };
         tokio::select! {
             sent = sender.transport.send(delivery.message_id, delivery.email) => sent,
-            () = sender.clock.sleep(SEND_TIMEOUT) => Err(JobFailure::Transient(Internal::new(
-                "the send took longer than its timeout",
-            ))),
+            () = sender.clock.sleep(SEND_TIMEOUT) => {
+                transport::count_timed_out();
+                Err(JobFailure::Transient(Internal::new(
+                    "the send took longer than its timeout",
+                )))
+            }
         }
     }
 

@@ -1,7 +1,7 @@
-//! `deploy`, `backup`, `restore`, `status`, `logs`, `remove-second-factor` and `end-sessions`,
-//! which the `just` recipes of the same names run on a developer's machine: they run the
-//! reference deployment's deploy/deploy.sh on its server over SSH (OPS-14, OPS-15, OPS-19,
-//! AUTH-072, AUTH-094). A deploy takes a release by its version: it refuses
+//! `deploy`, `backup`, `restore`, `status`, `logs`, `replace-key`, `remove-second-factor` and
+//! `end-sessions`, which the `just` recipes of the same names run on a developer's machine: they
+//! run the reference deployment's deploy/deploy.sh on its server over SSH (OPS-14, OPS-15,
+//! OPS-19, AUTH-072, AUTH-094). A deploy takes a release by its version: it refuses
 //! a version that no release has, sends the server the deployment's files from the release's tag,
 //! and runs that release's deploy.sh, which verifies the release's images before it pulls them.
 //! The other tasks run the deploy.sh of the release that the last deploy installed. The server
@@ -32,7 +32,7 @@ use crate::{
 };
 
 /// The deployment's directory on the server, in the home of the user SSH signs in as.
-const DEPLOYMENT: &str = "$HOME/deployment";
+pub const DEPLOYMENT: &str = "$HOME/deployment";
 
 /// The version of the release that `requested` names, as its tag `v<version>` and its images
 /// write it, given whether a tag exists; or why it can't be deployed.
@@ -108,7 +108,8 @@ pub fn deploy(host: &str, requested: Option<&str>, allow_restart: bool) -> ExitC
         note(&format!("Deploying {version}, the latest release."));
     }
     let release = format!("{DEPLOYMENT}/releases/{version}");
-    if let Err(error) = send_files(&root, host, &version, &release) {
+    let unpack = format!("set -e; rm -rf {release}; mkdir -p {release}; tar -x -C {release}");
+    if let Err(error) = send_files(&root, host, &version, &unpack) {
         return refuse(&format!(
             "Can't copy the release's files to {host}: {error}"
         ));
@@ -314,9 +315,10 @@ pub fn logs(host: &str, arguments: &[String]) -> ExitCode {
     on_server_with(host, &command, follows && io::stdin().is_terminal())
 }
 
-/// Copies the files of deploy/ at the tag of `version` to the directory `release` on `host`,
-/// replacing what it held.
-fn send_files(root: &Path, host: &str, version: &str, release: &str) -> Result<(), String> {
+/// Sends the files of deploy/ at the tag of `version` to `host`, as a tar archive on the input of
+/// `unpack`, a command of the server's shell that writes them out, and returns what `unpack`
+/// wrote on its standard output. Its standard error goes to this process's.
+pub fn send_files(root: &Path, host: &str, version: &str, unpack: &str) -> Result<String, String> {
     let mut archive = archive(root, &format!("v{version}:deploy"))
         .stdout(Stdio::piped())
         .spawn()
@@ -324,11 +326,10 @@ fn send_files(root: &Path, host: &str, version: &str, release: &str) -> Result<(
     let stdout = archive.stdout.take().ok_or("git archive has no output")?;
     let unpacked = Command::new("ssh")
         .arg(host)
-        .arg(format!(
-            "set -e; rm -rf {release}; mkdir -p {release}; tar -x -C {release}"
-        ))
+        .arg(unpack)
         .stdin(Stdio::from(stdout))
-        .status()
+        .stderr(Stdio::inherit())
+        .output()
         .map_err(|error| format!("can't run ssh: {error}"))?;
     let archived = archive
         .wait()
@@ -336,10 +337,13 @@ fn send_files(root: &Path, host: &str, version: &str, release: &str) -> Result<(
     if !archived.success() {
         return Err("git archive failed".to_owned());
     }
-    if !unpacked.success() {
-        return Err(format!("unpacking them on the server failed ({unpacked})"));
+    if !unpacked.status.success() {
+        return Err(format!(
+            "unpacking them on the server failed ({})",
+            unpacked.status
+        ));
     }
-    Ok(())
+    Ok(String::from_utf8_lossy(&unpacked.stdout).into_owned())
 }
 
 /// The command that writes the files of `tree` in `root` as a tar archive, as the repository
@@ -488,5 +492,106 @@ mod tests {
     fn ops_15_a_moment_reaches_the_server_s_shell_as_one_word() {
         assert_eq!(quoted("2026-10-25 10:41:31+00"), "'2026-10-25 10:41:31+00'");
         assert_eq!(quoted("it's"), r"'it'\''s'");
+    }
+
+    /// What `read_settings`, in deploy/tasks/common.sh, refuses of the settings, which a deploy
+    /// reads before it starts a service. The tests run the script in a POSIX shell, as the server
+    /// does, which Windows doesn't provide, so they compile only on Unix.
+    #[cfg(unix)]
+    mod settings {
+        use super::*;
+
+        /// The settings that `read_settings` requires, with a bundled database and no telemetry.
+        const REQUIRED: &[&str] = &[
+            "API_ADDRESS=api.example.com",
+            // part: files
+            "FILES_S3_ENDPOINT=files.example.com",
+            "FILES_S3_REGION=region",
+            "FILES_S3_BUCKET=files",
+            // end part: files
+            "BACKUP_S3_ENDPOINT=backups.example.com",
+            "BACKUP_S3_REGION=region",
+            "BACKUP_S3_BUCKET=backups",
+            "TELEMETRY=off",
+        ];
+
+        /// What `read_settings` writes to stderr as it refuses settings.env holding the required
+        /// settings, then `settings`, whose values replace theirs, or `None` when it takes them.
+        fn refusal(settings: &[&str]) -> Option<String> {
+            let lines: Vec<&str> = REQUIRED.iter().chain(settings).copied().collect();
+            let output = Command::new("sh")
+                .args([
+                    "-c",
+                    "deployment=$(mktemp -d) && printf '%s\\n' \"$1\" > \"$deployment/settings.env\" \
+                     && . \"$2\" && (read_settings); refused=$?; rm -rf \"$deployment\"; \
+                     exit $refused",
+                    "sh",
+                ])
+                .arg(lines.join("\n"))
+                .arg(root().join("deploy/tasks/common.sh"))
+                .output()
+                .unwrap();
+            (!output.status.success()).then(|| String::from_utf8_lossy(&output.stderr).into_owned())
+        }
+
+        /// Asserts that `read_settings` refuses the setting `name` set to each of `refused`,
+        /// with a message that names it, and takes it set to each of `taken`.
+        fn refuses(name: &str, refused: &[&str], taken: &[&str]) {
+            for value in refused {
+                let setting = format!("{name}={value}");
+                let message = refusal(&[setting.as_str()]);
+                assert!(
+                    message
+                        .as_deref()
+                        .is_some_and(|message| message.contains(&format!("deploy: {name} is "))),
+                    "{setting}: {message:?}"
+                );
+            }
+            for value in taken {
+                let setting = format!("{name}={value}");
+                assert_eq!(refusal(&[setting.as_str()]), None, "{setting}");
+            }
+        }
+
+        #[test]
+        fn ops_14_a_deploy_refuses_a_port_and_a_uri_style_of_the_backups_bucket_that_its_type_line_excludes()
+         {
+            refuses(
+                "BACKUP_S3_PORT",
+                &["0", "65536", "443x", "-1"],
+                &["", "1", "443", "65535"],
+            );
+            refuses(
+                "BACKUP_S3_URI_STYLE",
+                &["virtual", "Host", "host path"],
+                &["", "host", "path"],
+            );
+            // The Type line applies them with DATABASE=bundled alone.
+            assert_eq!(
+                refusal(&[
+                    "DATABASE=managed",
+                    "BACKUP_S3_PORT=443x",
+                    "BACKUP_S3_URI_STYLE=virtual"
+                ]),
+                None
+            );
+        }
+
+        // part: files
+        #[test]
+        fn ops_14_a_deploy_refuses_a_port_and_a_uri_style_of_the_files_bucket_that_its_type_line_excludes()
+         {
+            refuses(
+                "FILES_S3_PORT",
+                &["0", "65536", "443x", "-1"],
+                &["", "1", "443", "65535"],
+            );
+            refuses(
+                "FILES_S3_URI_STYLE",
+                &["virtual", "Host", "host path"],
+                &["", "host", "path"],
+            );
+        }
+        // end part: files
     }
 }

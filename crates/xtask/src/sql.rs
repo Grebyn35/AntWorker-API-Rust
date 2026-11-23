@@ -1,5 +1,5 @@
-//! The tables a query names, which `check-tenancy`, `check-table-ownership` and `check-shell`
-//! read from the SQL of the code and the scripts.
+//! The tables a query names, which `check-tenancy` and `check-table-ownership` read from the SQL
+//! of the code, and `check-tenancy` from the migrations' views too.
 
 /// The tables that `sql`, lowercase and with its strings blanked, reads or writes: the name after
 /// `FROM`, `JOIN`, `INTO`, `UPDATE` and a `USING` that names no columns, past `ONLY` and a

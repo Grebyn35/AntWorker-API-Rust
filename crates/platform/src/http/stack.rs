@@ -399,8 +399,8 @@ async fn timed_out(error: BoxError) -> Response {
     }
 }
 
-/// Refuses a body whose declared length is over the route group's limit before reading it, and
-/// limits what an extractor reads of any other body (PLATFORM-048).
+/// Refuses a body whose declared length is over the route group's limit before reading it
+/// (PLATFORM-048), and limits what an extractor reads of any other body (PLATFORM-050).
 async fn body_limit(request: Request, next: Next) -> Response {
     let declared = request.headers().get(header::CONTENT_LENGTH).map(|length| {
         length

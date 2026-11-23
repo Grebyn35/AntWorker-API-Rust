@@ -1,6 +1,7 @@
 //! The tests' stand-in provider: the settings of an API that signs in through it, what it gives,
 //! and the requests that sign in through it (the auth spec's "Signing in through a provider").
 
+use platform::telemetry::testing;
 use serde_json::{Value, json};
 
 use super::{
@@ -25,6 +26,13 @@ pub fn stand_in(upstream: &Upstream) -> Options {
         .set("STAND_IN_CLIENT_ID", "stand-in-client")
         .set("STAND_IN_CLIENT_SECRET", "stand-in-secret")
         .set("STAND_IN_REDIRECT_URIS", REDIRECT_URIS)
+}
+
+/// A stand-in provider, and an API that signs in through it.
+pub async fn standing() -> (Upstream, Api) {
+    let upstream = Upstream::start().await;
+    let api = Api::with(stand_in(&upstream)).await;
+    (upstream, api)
 }
 
 /// Makes the stand-in give a token for any code, and the claims `identity` for it.
@@ -63,4 +71,15 @@ pub async fn signed_in(api: &Api) -> SignedIn {
     let response = sign_in(api, &grant()).await;
     assert_eq!(response.status, 201, "{}", response.json());
     SignedIn::from(&response)
+}
+
+/// Whether the request whose answer `response` is logged that it ignored a token's deletion
+/// that failed, with `cause` in what it wrote of it (ERR-11).
+pub fn kept_token_logged(response: &Response, cause: &str) -> bool {
+    testing::logged(response.trace_id()).iter().any(|line| {
+        line["error.type"] == "provider_token_not_deleted"
+            && line["exception.message"]
+                .as_str()
+                .is_some_and(|message| message.contains(cause))
+    })
 }

@@ -1,6 +1,6 @@
 # Metric catalog
 
-Every metric the dashboards and alerts read: the API's own, from their declarations in code (OBS-11), and those that other parts of the stack produce, from `deploy/observability/metrics.yaml`. `just metrics` writes this file, and `check-metrics` fails while it differs from what the declarations give (OBS-12).
+Every metric the dashboards and alerts read: the API's own, from their declarations in code (OBS-11), and those that the API's OpenTelemetry SDK counts itself or other parts of the stack produce, from `deploy/observability/metrics.yaml`. `just metrics` writes this file, and `check-metrics` fails while it differs from what the declarations give (OBS-12).
 
 Prometheus stores each metric under the name in its "In Prometheus" column: its receiver of the OpenTelemetry Protocol (OTLP) turns the dots into underscores, and adds the unit and the kind as suffixes. A label's dots become underscores too.
 
@@ -29,6 +29,7 @@ Prometheus stores each metric under the name in its "In Prometheus" column: its 
 | `platform.job_delay` | gauge | `s` | none | `platform_job_delay_seconds` | `crates/platform/src/jobs/mod.rs` | How long the longest-waiting runnable job has waited past its run_at, 0 when none waits, recorded by each replica every 15 seconds. |
 | `platform.job_duration` | histogram | `s` | `job.kind` | `platform_job_duration_seconds_bucket`, `platform_job_duration_seconds_sum`, `platform_job_duration_seconds_count` | `crates/platform/src/jobs/mod.rs` | How long each job run took, by the job's kind. |
 | `platform.job_runs` | counter | `{run}` | `job.kind`, `job.outcome` | `platform_job_runs_total` | `crates/platform/src/jobs/mod.rs` | Job runs, by the job's kind and how each ended: succeeded, retried, dead_lettered, failed for a periodic run, or released at shutdown (PLATFORM-020). |
+| `platform.mail_sends` | counter | `{send}` | `mail.outcome` | `platform_mail_sends_total` | `crates/platform/src/mail/transport.rs` | Sends of emails to the mail server, by how each ended: sent, when the server took the email, refused, when it answered with a reply from 400 to 599 other than 421, or unavailable, for any other failure, such as a connection that didn't open, a reply of 421, that its service isn't available, or a send that took longer than its 30 seconds. An email that reaches no server, as one the API can't build, counts in none (PLATFORM-105). |
 | `platform.panics` | counter | `{panic}` | none | `platform_panics_total` | `crates/platform/src/telemetry/mod.rs` | Panics, wherever they happened (ERR-12). |
 | `platform.rate_limit_refusals` | counter | `{request}` | `rate_limit.bucket` | `platform_rate_limit_refusals_total` | `crates/platform/src/rate_limit.rs` | Requests that a rate limit refused, by the kind of the bucket that refused them (PLATFORM-054). |
 | `platform.scans` | counter | `{scan}` | `scanner.outcome` | `platform_scans_total` | `crates/platform/src/scanner.rs` | Scans by the malware scanner, by how each ended: clean, found, when it named a signature, failed, when it answered with an error or with what the client couldn't read, or unavailable, when it couldn't be reached, closed the connection, or didn't answer in time; a scan that its request's timeout drops first counts in none (PLATFORM-079, Design: Scanner). |
@@ -37,7 +38,7 @@ Prometheus stores each metric under the name in its "In Prometheus" column: its 
 | `platform.streams` | gauge | `{stream}` | `db.namespace` | `platform_streams` | `crates/platform/src/events/streams.rs` | The streams open on the replica, by the name of the database whose events its hub delivers (PLATFORM-034). |
 | `process.memory.usage` | gauge | `By` | none | `process_memory_usage_bytes` | `crates/platform/src/telemetry/process.rs` | The physical memory the instance's process uses: its resident set. |
 
-## Metrics of the rest of the stack
+## Metrics of the API's SDK and of the rest of the stack
 
 | In Prometheus | Kind | Produced by | Description |
 |---|---|---|---|
@@ -57,6 +58,8 @@ Prometheus stores each metric under the name in its "In Prometheus" column: its 
 | `otelcol_processor_tail_sampling_sampling_trace_dropped_too_early_total` | counter | the collector | Traces tail sampling dropped before deciding them, because it held too many. |
 | `otelcol_processor_tail_sampling_sampling_traces_on_memory` | gauge | the collector | The traces tail sampling holds while it waits to decide them. |
 | `otelcol_processor_tail_sampling_count_traces_sampled_total` | counter | the collector | Traces each sampling policy decided, by the policy and whether it kept them. |
+| `otel_sdk_processor_span_processed_total` | counter | the API's OpenTelemetry SDK | The spans that an instance's queue handed its exporter, with no error_type, and those it dropped, with error_type queue_full when they arrived while it was full (PLATFORM-106). |
+| `otel_sdk_processor_log_processed_total` | counter | the API's OpenTelemetry SDK | The log records that an instance's queue handed its exporter, with no error_type, and those it dropped, with error_type queue_full when they arrived while it was full (PLATFORM-106). |
 | `http_client_request_duration_seconds_count` | counter | the collector, from the metrics of users' clients | The requests that users' clients measured, added up over every installation, by the response's status, and for a request that got none, by error_type (CLIENT_TELEMETRY-014, CLIENT_TELEMETRY-015). |
 | `http_client_request_duration_seconds_bucket` | counter | the collector, from the metrics of users' clients | Those requests that took at most le seconds each. |
 | `otelcol_deltatocumulative_datapoints_total` | counter | the collector | The points of clients' metrics that reached the collector's sums, and with an error, those that it left out of them, by why, such as limit. |

@@ -297,11 +297,26 @@ impl Scan<'_> {
 
     /// `#[instrument(...)]`: it skips every argument, and names its fields from the list
     /// (OBS-04, OBS-05); `app` outside `main.rs` opens no spans, so it has none (OBS-06).
-    /// `#[expect(...)]`: it names a print lint only where CODE-03 allows printing.
+    /// `#[expect(...)]`: it names a print lint only where CODE-03 allows printing. Each is read
+    /// alone or inside a `cfg_attr`.
     fn attribute(&mut self, attribute: &Group) {
         let tokens: Vec<TokenTree> = attribute.stream().into_iter().collect();
-        self.printing(&tokens, attribute.span().start().line);
-        if !self.traced {
+        let line = attribute.span().start().line;
+        self.printing(&tokens, line);
+        if self.traced {
+            self.instrumented(&tokens, line);
+        }
+    }
+
+    /// The `#[instrument(...)]` of [`Self::attribute`], whose tokens are `tokens`, at `line`.
+    fn instrumented(&mut self, tokens: &[TokenTree], line: usize) {
+        if let [TokenTree::Ident(kind), TokenTree::Group(attributes), ..] = tokens
+            && kind == "cfg_attr"
+        {
+            // `cfg_attr(condition, attribute, ...)`: the attributes follow the condition.
+            for attribute in segments(attributes.stream()).iter().skip(1) {
+                self.instrumented(attribute, line);
+            }
             return;
         }
         let Some(at) = tokens
@@ -313,7 +328,6 @@ impl Scan<'_> {
         if !from_tracing(&tokens[..at]) {
             return;
         }
-        let line = attribute.span().start().line;
         if self.outside_platform {
             self.find(
                 line,
@@ -567,6 +581,25 @@ mod tests {
         assert_eq!(
             findings(PLATFORM, code),
             ["#[instrument] without skip_all (OBS-04)"]
+        );
+    }
+
+    #[test]
+    fn obs_04_an_instrument_inside_a_cfg_attr_is_read_too() {
+        let code = r#"
+            #[cfg_attr(feature = "traced", tracing::instrument(fields(http.route)))]
+            fn leaks() {}
+        "#;
+
+        assert_eq!(
+            [findings(PLATFORM, code), findings(MODULE, code)],
+            [
+                vec!["#[instrument] without skip_all (OBS-04)"],
+                vec![
+                    "#[instrument] opens a span outside `platform` and `main.rs` (OBS-06)",
+                    "#[instrument] without skip_all (OBS-04)",
+                ],
+            ]
         );
     }
 

@@ -3,34 +3,11 @@
 use platform::storage::ObjectKey;
 use serde_json::json;
 
-use super::{own::upload_own, upload};
+use super::{avatars, own::upload_own, upload, workspace_pictures};
 use crate::{
     accounts::exports::{built, document, entries},
-    support::{Api, api::Response, bucket, files, users, workspaces},
+    support::{Api, bucket, files, users, workspaces},
 };
-
-/// Sets `user`'s avatar to `bytes`.
-async fn set_avatar(api: &Api, access: &str, bytes: &[u8]) -> Response {
-    api.request(http::Method::PUT, "/v1/users/me/avatar")
-        .header("content-type", "application/octet-stream")
-        .body(bytes.to_vec())
-        .bearer(access)
-        .send()
-        .await
-}
-
-/// Sets the picture of `workspace` to `bytes`.
-async fn set_picture(api: &Api, access: &str, workspace: &str, bytes: &[u8]) -> Response {
-    api.request(
-        http::Method::PUT,
-        &format!("/v1/workspaces/{workspace}/picture"),
-    )
-    .header("content-type", "application/octet-stream")
-    .body(bytes.to_vec())
-    .bearer(access)
-    .send()
-    .await
-}
 
 /// Downloads the archive of the export `id` with `access`.
 async fn archive(api: &Api, access: &str, id: &str) -> Vec<u8> {
@@ -51,9 +28,9 @@ async fn files_025_every_upload_records_the_crc_32_of_its_bytes() {
 
     let own = upload_own(&api, &ada, "notes.txt", b"hello there", "", None).await;
     let shared = upload(&api, &ada, &acme, "plan.txt", b"the plan", None).await;
-    let avatar = set_avatar(&api, &ada.access, files::PNG).await;
+    let avatar = avatars::set(&api, &ada, files::PNG).await;
     let gif = b"GIF89a\x01\0\x01\0\0\0\0;";
-    let picture = set_picture(&api, &ada.access, &acme, gif).await;
+    let picture = workspace_pictures::set(&api, &ada, &acme, gif).await;
 
     assert_eq!(own.status, 201);
     assert_eq!(shared.status, 201);
@@ -90,16 +67,16 @@ async fn files_026_an_export_holds_the_user_s_files_their_avatar_and_their_own_w
     let own = upload_own(&api, &ada, "a/b: c.txt", b"my own words", "", None)
         .await
         .json();
-    let avatar = set_avatar(&api, &ada.access, files::PNG).await;
+    let avatar = avatars::set(&api, &ada, files::PNG).await;
     assert_eq!(avatar.status, 200);
     let mine = files::arrange(db, &own_workspace, "notes.md").await;
     // A file Ada uploaded to a workspace that has another member is the workspace's, and so is
     // that workspace's picture.
     files::arrange_uploaded(db, &shared, "shared.txt", &ada.user_id).await;
     let gif = b"GIF89a\x01\0\x01\0\0\0\0;";
-    let picture = set_picture(&api, &ada.access, &own_workspace, gif).await;
+    let picture = workspace_pictures::set(&api, &ada, &own_workspace, gif).await;
     assert_eq!(picture.status, 200);
-    let theirs = set_picture(&api, &grace.access, &shared, files::PNG).await;
+    let theirs = workspace_pictures::set(&api, &grace, &shared, files::PNG).await;
     assert_eq!(theirs.status, 200);
 
     let id = built(&api, &ada).await;

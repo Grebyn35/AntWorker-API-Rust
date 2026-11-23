@@ -4,9 +4,10 @@
 
 use std::time::Duration;
 
+use platform::telemetry::testing::collector::Collector;
 use serde_json::json;
 
-use super::{errors_of, fetch, objects, unread, uploads};
+use super::{errors_of, fetch, objects, unread, uploads_counted};
 use crate::support::{
     Api,
     api::{Options, Response},
@@ -475,14 +476,25 @@ async fn files_011_a_replaced_avatar_s_object_goes_once_its_delay_has_passed() {
 async fn files_013_an_avatar_s_upload_is_counted_by_how_it_ended() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
-    let (stored, unsupported) = (uploads("stored"), uploads("unsupported_type"));
+    let collector = Collector::start().await.unwrap();
+    let server = files::serving(api.database(), &collector, &[]).await;
+    let bearer = format!("Bearer {}", ada.access);
+    let headers = [
+        ("authorization", bearer.as_str()),
+        ("content-type", "application/octet-stream"),
+    ];
 
-    set(&api, &ada, files::PNG).await;
-    set(&api, &ada, b"hello").await;
+    for bytes in [files::PNG, b"hello"] {
+        server
+            .send("PUT", "/v1/users/me/avatar", &headers, bytes)
+            .await;
+    }
+    server.stop().await;
 
-    // Tests running alongside upload too, so the counts grow by at least these.
-    assert!(uploads("stored") >= stored + 1.0);
-    assert!(uploads("unsupported_type") >= unsupported + 1.0);
+    assert_eq!(
+        uploads_counted(&collector),
+        ["stored 1", "unsupported_type 1"]
+    );
 }
 
 #[tokio::test]
@@ -590,7 +602,7 @@ async fn accounts_010_removing_an_avatar_with_a_stale_etag_answers_412_and_with_
 }
 
 #[tokio::test]
-async fn accounts_008_setting_an_avatar_reads_no_idempotency_key() {
+async fn platform_074_setting_an_avatar_by_put_reads_no_idempotency_key() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
 

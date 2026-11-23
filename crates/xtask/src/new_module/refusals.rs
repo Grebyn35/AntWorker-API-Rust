@@ -1,7 +1,8 @@
 //! What `new-module` refuses before it writes anything: a module the repository has or had, a
-//! table or a permission of its name, and a resource whose type the module's code imports from
-//! elsewhere, each of which would fail later, in the migration or the build, with a message that
-//! says less.
+//! table or a permission of its name, or a resource whose type the module's code names already,
+//! each of which would fail later, in the migration or the build, with a message that says less;
+//! and a resource whose type's schema name a type of the code takes already, which
+//! `check-openapi` would refuse (API-17).
 
 use super::{MIGRATIONS, TEMPLATES, names::Names};
 use crate::{

@@ -6,14 +6,18 @@ use std::{io::Write, time::Duration};
 
 use flate2::{Compression, write::GzEncoder};
 use http::Method;
-use platform::telemetry::testing;
+use opentelemetry_proto::tonic::{
+    common::v1::any_value,
+    trace::v1::{Span, span::SpanKind},
+};
+use platform::telemetry::testing::collector::Collector;
 use serde_json::json;
 
-use super::{choose, read};
+use super::{CONSENT, choose, read};
 use crate::support::{
-    Api, Options,
+    Api, Options, Server, TestDatabase,
     api::{Response, refusal},
-    budgets,
+    budgets, counts,
     upstream::Upstream,
     users::{self, SignedIn},
 };
@@ -86,22 +90,6 @@ fn gzip(bytes: &[u8]) -> Vec<u8> {
     let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
     encoder.write_all(bytes).unwrap();
     encoder.finish().unwrap()
-}
-
-/// The bytes that `client_telemetry.forwarded` has counted of `signal`, in every test that runs
-/// alongside.
-fn forwarded(signal: &str) -> f64 {
-    testing::recorded("client_telemetry.forwarded")
-        .into_iter()
-        .filter(|point| {
-            point
-                .labels
-                .get("client_telemetry.signal")
-                .map(String::as_str)
-                == Some(signal)
-        })
-        .map(|point| point.value)
-        .sum()
 }
 
 /// Asserts that `response` is the 429 of the budget `name`, whose window of a minute allows
@@ -662,53 +650,82 @@ async fn client_telemetry_010_with_the_setting_the_feature_is_on() {
     assert_eq!((status, &consent["consented"]), (200, &json!(true)));
 }
 
+/// A `serve` of `api`'s database that forwards batches to `collector` within budgets that no
+/// test's batches reach, and exports its own telemetry to `exported`.
+async fn forwarding_serve(api: &Api, collector: &Upstream, exported: &Collector) -> Server {
+    let options = forwarding(collector, UNBOUNDED, UNBOUNDED);
+    let endpoint = exported.endpoint();
+    let mut env = options.env();
+    env.extend([
+        ("ENVIRONMENT", "test"),
+        ("OTEL_EXPORTER_OTLP_ENDPOINT", &endpoint),
+    ]);
+    api.database().serve(&env).await
+}
+
+/// Sends `body` to `path` of `server` as `user`, as `media_type`, with `headers` beside, and
+/// gives the answer's status.
+async fn send_to(
+    server: &Server,
+    user: &SignedIn,
+    path: &str,
+    headers: &[(&str, &str)],
+    body: &[u8],
+) -> u16 {
+    let bearer = format!("Bearer {}", user.access);
+    let mut headers = headers.to_vec();
+    headers.push(("authorization", &bearer));
+    server.send("POST", path, &headers, body).await.0
+}
+
+/// The bytes that `exported` received the count of, from a `serve` that has stopped, by the
+/// signal of their batches, such as `traces 1000` (TEST-07).
+fn forwarded_counted(exported: &Collector) -> Vec<String> {
+    counts::of(
+        &exported.received(),
+        "client_telemetry.forwarded",
+        "client_telemetry.signal",
+    )
+}
+
 #[tokio::test]
 async fn client_telemetry_013_the_bytes_of_a_batch_that_the_collector_took_are_counted_by_signal() {
-    let (_collector, api) = standing().await;
+    let (collector, api) = standing().await;
     let ada = consenting(&api, "ada@example.com").await;
-    let before = [forwarded("traces"), forwarded("logs"), forwarded("metrics")];
+    let exported = Collector::start().await.unwrap();
+    let server = forwarding_serve(&api, &collector, &exported).await;
+    let protobuf = [("content-type", PROTOBUF)];
 
-    let spans = send_bytes(&api, &ada, 1_000).await;
-    // 600,000 zeros, which gzip sends as few bytes: the count is of the bytes inflated. The tests
-    // of this file that run alongside have the collector take fewer bytes of log records than
-    // that, all together, so a count of the bytes as sent wouldn't reach it.
-    let records = api
-        .request(Method::POST, LOGS)
-        .header("content-type", PROTOBUF)
-        .header("content-encoding", "gzip")
-        .bearer(&ada.access)
-        .body(gzip(&vec![0; 600_000]))
-        .send()
-        .await;
-    let points = send(&api, &ada, METRICS, PROTOBUF, &[0; 20_000]).await;
+    let spans = send_to(&server, &ada, TRACES, &protobuf, &[0; 1_000]).await;
+    // 600,000 zeros, which gzip sends as few bytes: the count is of the bytes inflated.
+    let gzipped = [("content-type", PROTOBUF), ("content-encoding", "gzip")];
+    let records = send_to(&server, &ada, LOGS, &gzipped, &gzip(&vec![0; 600_000])).await;
+    let points = send_to(&server, &ada, METRICS, &protobuf, &[0; 20_000]).await;
+    server.stop().await;
 
-    for taken in [&spans, &records, &points] {
-        assert_eq!(taken.status, 200);
-    }
-    // Tests running alongside forward batches too, so the counts grow by at least these.
-    assert!(forwarded("traces") >= before[0] + 1_000.0);
-    assert!(forwarded("logs") >= before[1] + 600_000.0);
-    assert!(forwarded("metrics") >= before[2] + 20_000.0);
+    assert_eq!([spans, records, points], [200; 3]);
+    assert_eq!(
+        forwarded_counted(&exported),
+        ["logs 600000", "metrics 20000", "traces 1000"]
+    );
 }
 
 #[tokio::test]
 async fn client_telemetry_013_a_batch_that_the_collector_refused_or_didn_t_take_counts_no_bytes() {
-    let collector = collector().await;
-    let api = Api::with(forwarding(&collector, UNBOUNDED, UNBOUNDED)).await;
+    let (collector, api) = standing().await;
     let ada = consenting(&api, "ada@example.com").await;
-    // The tests of this file that run alongside have the collector take fewer bytes of metrics,
-    // all together, than one of these batches holds: a count that grows by less counted neither.
-    let before = forwarded("metrics");
+    let exported = Collector::start().await.unwrap();
+    let server = forwarding_serve(&api, &collector, &exported).await;
+    let protobuf = [("content-type", PROTOBUF)];
 
     collector.set("POST", "/v1/metrics", 400, json!({}));
-    let refused = send(&api, &ada, METRICS, PROTOBUF, &vec![0; 900_000]).await;
+    let refused = send_to(&server, &ada, METRICS, &protobuf, &[0; 1_000]).await;
     collector.set("POST", "/v1/metrics", 503, json!({}));
-    let untaken = send(&api, &ada, METRICS, PROTOBUF, &vec![0; 900_000]).await;
+    let untaken = send_to(&server, &ada, METRICS, &protobuf, &[0; 1_000]).await;
+    server.stop().await;
 
-    assert_eq!(refused.status, 400);
-    assert_eq!(untaken.status, 503);
-    let counted = forwarded("metrics") - before;
-    assert!(counted < 900_000.0, "{counted}");
+    assert_eq!((refused, untaken), (400, 503));
+    assert!(forwarded_counted(&exported).is_empty());
 }
 
 #[tokio::test]
@@ -801,4 +818,68 @@ async fn platform_091_the_relay_s_request_holds_the_batch_and_its_media_type_alo
         .collect();
     names.sort_unstable();
     assert_eq!(names, ["accept", "content-length", "content-type", "host"]);
+}
+
+/// Whether `span` is the client span of the relay's `POST` of a batch.
+fn is_the_relay_s(span: &Span) -> bool {
+    span.kind == i32::from(SpanKind::Client) && span.name == "POST"
+}
+
+#[tokio::test]
+async fn obs_08_the_relay_s_span_exports_the_collector_s_status_as_a_number() {
+    let collector = Collector::start().await.unwrap();
+    let database = TestDatabase::migrated().await;
+    let endpoint = collector.endpoint();
+    // Without email, an account is served without proving its address (PLATFORM-022), and the
+    // stand-in collector takes the batches too.
+    let server = database
+        .serve(&[
+            ("ENVIRONMENT", "production"),
+            ("EMAIL", "off"),
+            ("OTEL_EXPORTER_OTLP_ENDPOINT", &endpoint),
+            ("CLIENT_TELEMETRY_ENDPOINT", &endpoint),
+        ])
+        .await;
+    let registration = users::registration("ada@example.com").to_string();
+    let json_body = [("content-type", "application/json")];
+    let (registered, session) = server
+        .send("POST", "/v1/users", &json_body, registration.as_bytes())
+        .await;
+    let bearer = format!("Bearer {}", session["access_token"].as_str().unwrap());
+    let consent = json!({ "consented": true }).to_string();
+    let signed = [
+        ("authorization", bearer.as_str()),
+        ("content-type", "application/json"),
+    ];
+    let (consented, _) = server
+        .send("PUT", CONSENT, &signed, consent.as_bytes())
+        .await;
+
+    // A batch that holds one empty resource of spans.
+    let batch = [
+        ("authorization", bearer.as_str()),
+        ("content-type", PROTOBUF),
+    ];
+    let (sent, _) = server.send("POST", TRACES, &batch, b"\n\0").await;
+    let received = collector
+        .wait_for(|received| {
+            received
+                .spans()
+                .iter()
+                .any(|(_, span)| is_the_relay_s(span))
+        })
+        .await;
+
+    assert_eq!((registered, consented, sent), (201, 200, 200));
+    let (_, relay) = received
+        .spans()
+        .into_iter()
+        .find(|(_, span)| is_the_relay_s(span))
+        .unwrap();
+    let status = relay
+        .attributes
+        .iter()
+        .find(|pair| pair.key == "http.response.status_code")
+        .and_then(|pair| pair.value.as_ref()?.value.clone());
+    assert_eq!(status, Some(any_value::Value::IntValue(200)));
 }

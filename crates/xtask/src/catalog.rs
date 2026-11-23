@@ -80,8 +80,9 @@ impl Catalog {
         &self.named_checks
     }
 
-    /// Problems in how the IDs are defined: an ID defined twice, or a behavior in the spec of
-    /// another module.
+    /// Problems in how the IDs are defined: an ID defined twice, a behavior in the spec of
+    /// another module, a behavior that takes a number its spec retired, or a number below its
+    /// spec's highest that is neither a behavior nor retired.
     pub fn findings(&self) -> &[Finding] {
         &self.findings
     }
@@ -112,8 +113,23 @@ impl Catalog {
         self.prefixes.insert(expected.clone());
         let mut numbers = BTreeMap::new();
         let mut retired = BTreeMap::new();
+        // Whether the line at hand is in the spec's Behaviors, and the first there with text.
+        let (mut behaviors, mut top) = (false, false);
         for (index, line) in file.text.lines().enumerate() {
+            if let Some(heading) = line.strip_prefix("## ") {
+                (behaviors, top) = (heading == "Behaviors", true);
+                continue;
+            }
+            let first = behaviors && top && !line.trim().is_empty();
+            top &= line.trim().is_empty();
             if let Some(listed) = retired_numbers(line) {
+                if !first || !retired.is_empty() {
+                    self.findings.push(Finding::new(
+                        &file.path,
+                        index + 1,
+                        "a spec names its retired IDs in one line, the first of its Behaviors (DOC-08)",
+                    ));
+                }
                 retired.extend(listed.into_iter().map(|number| (number, index + 1)));
                 continue;
             }
@@ -296,7 +312,7 @@ pub mod tests {
             ),
             (
                 "docs/architecture.md",
-                "### What each module owns\n\n| Module | Owns |\n|---|---|\n| `widgets` | widgets |\n| `gadgets` | none |\n\n## Glossary\n\nThe documents assume a developer knows these acronyms: CI and ID. These names are written in capitals, and aren't acronyms to spell out: SHA.\n",
+                "### What each module owns\n\n| Module | Owns |\n|---|---|\n| `widgets` | widgets |\n| `gadgets` | none |\n\n## Glossary\n\nThe documents assume a developer knows these acronyms: CI and ID. These names are written in capitals, and aren't acronyms to spell out: SHA.\n\nA commit's SHA names it.\n",
             ),
         ]
     }
@@ -355,7 +371,7 @@ pub mod tests {
     fn doc_08_a_retired_number_that_a_behavior_takes_is_reported() {
         assert_eq!(
             messages(
-                "IDs 002 and 003 are retired.\n\n| GADGETS-001 | One |\n| GADGETS-003 | Again |\n"
+                "## Behaviors\n\nIDs 002 and 003 are retired.\n\n| GADGETS-001 | One |\n| GADGETS-003 | Again |\n"
             ),
             ["GADGETS-003 is retired, so no behavior takes it (DOC-08)"]
         );
@@ -364,23 +380,42 @@ pub mod tests {
     #[test]
     fn doc_08_a_number_below_the_highest_that_is_neither_a_behavior_nor_retired_is_reported() {
         assert_eq!(
-            messages("ID 002 is retired.\n\n| GADGETS-001 | One |\n| GADGETS-004 | Four |\n"),
+            messages(
+                "## Behaviors\n\nID 002 is retired.\n\n| GADGETS-001 | One |\n| GADGETS-004 | Four |\n"
+            ),
             [
                 "GADGETS-003 is neither a behavior of the spec nor retired, below its highest number (DOC-08)"
             ]
         );
         assert!(
             messages(
-                "IDs 002 and 003 are retired.\n\n| GADGETS-001 | One |\n| GADGETS-004 | Four |\n"
+                "## Behaviors\n\nIDs 002 and 003 are retired.\n\n| GADGETS-001 | One |\n| GADGETS-004 | Four |\n"
             )
             .is_empty()
         );
         assert!(
             messages(
-                "IDs 003 and 004 are retired.\n\n| GADGETS-001 | One |\n| GADGETS-002 | Two |\n"
+                "## Behaviors\n\nIDs 003 and 004 are retired.\n\n| GADGETS-001 | One |\n| GADGETS-002 | Two |\n"
             )
             .is_empty()
         );
+    }
+
+    #[test]
+    fn doc_08_a_spec_names_its_retired_ids_in_one_line_at_the_top_of_its_behaviors() {
+        let message =
+            "a spec names its retired IDs in one line, the first of its Behaviors (DOC-08)";
+
+        let found = [
+            messages("## Behaviors\n\nID 002 is retired.\n\n| GADGETS-001 | One |\n"),
+            messages("## Behaviors\n\nText.\n\nID 002 is retired.\n\n| GADGETS-001 | One |\n"),
+            messages("## Purpose\n\nID 002 is retired.\n\n## Behaviors\n\n| GADGETS-001 | One |\n"),
+            messages(
+                "## Behaviors\n\nID 002 is retired.\nID 003 is retired.\n\n| GADGETS-001 | One |\n",
+            ),
+        ];
+
+        assert_eq!(found, [vec![], vec![message], vec![message], vec![message]]);
     }
 
     #[test]

@@ -173,12 +173,7 @@ impl Auth {
         };
         let (principal, session, tokens) = self.replace_session(&mut uow, user_id, &device).await?;
         let device = self
-            .issue_device_token(
-                &mut uow,
-                user_id,
-                &address.email,
-                challenge.device_token_hash.as_ref(),
-            )
+            .issue_device_token(&mut uow, user_id, challenge.device_token_hash.as_ref())
             .await?;
         audit_log::record(
             &mut uow,

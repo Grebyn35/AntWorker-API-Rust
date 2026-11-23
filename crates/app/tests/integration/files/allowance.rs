@@ -6,9 +6,7 @@ use crate::support::{
     Api,
     api::{self, Options},
     budgets::assert_refused_by,
-    files,
-    users::{self, SignedIn},
-    workspaces,
+    files, users,
 };
 
 /// The setting of the budget.
@@ -35,17 +33,10 @@ async fn budgets(api: &Api) -> Vec<String> {
         .await
 }
 
-/// Ada, and a workspace that she owns.
-async fn owned(api: &Api) -> (SignedIn, String) {
-    let ada = users::register(api, "ada@example.com").await;
-    let workspace = workspaces::arrange(api.database(), "Acme", &[(&ada.user_id, "owner")]).await;
-    (ada, workspace)
-}
-
 #[tokio::test]
 async fn platform_093_every_upload_route_counts_its_body_s_bytes_in_its_caller_s_budget() {
     let api = Api::new().await;
-    let (ada, workspace) = owned(&api).await;
+    let (ada, workspace) = workspace_pictures::owned(&api).await;
     let image = files::PNG.len();
 
     let own = upload_own(&api, &ada, "a.txt", &text(), "", None).await;
@@ -70,7 +61,7 @@ async fn platform_093_every_upload_route_counts_its_body_s_bytes_in_its_caller_s
 #[tokio::test]
 async fn platform_093_an_upload_beyond_the_budget_answers_429_and_stores_nothing() {
     let api = Api::with(Options::default().set(SETTING, LEAST)).await;
-    let (ada, workspace) = owned(&api).await;
+    let (ada, workspace) = workspace_pictures::owned(&api).await;
     let grace = users::register(&api, "grace@example.com").await;
     assert_eq!(
         upload_own(&api, &ada, "a.txt", &text(), "", None)

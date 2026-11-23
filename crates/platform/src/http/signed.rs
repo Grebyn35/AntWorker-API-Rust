@@ -26,7 +26,7 @@ pub(crate) enum Presented {
 }
 
 /// What the query of `parts` holds of a signed URL. A parameter given more than once keeps its
-/// last value, as every query's does (PLATFORM-045).
+/// last value, as every query's does (PLATFORM-092).
 pub(crate) fn presented(parts: &Parts) -> Presented {
     let Some(query) = parts.uri.query() else {
         return Presented::None;

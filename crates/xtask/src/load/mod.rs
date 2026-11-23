@@ -11,9 +11,10 @@
 //! each step sends other requests at a rate of their own, which must pass too, so the capacity
 //! is the rate of sign-ins that leaves the other requests within the objective.
 //!
-//! Each step also compares the requests the replica served with the spans the collector
-//! accepted, so a span that the API's queue dropped under load shows as a difference (the
-//! platform spec's Telemetry export, under Batching).
+//! Each step also reports the spans the collector accepted beside the requests the replica
+//! served. A request for the capabilities writes two spans, its own and that of its rate
+//! limit's count (PLATFORM-104), so the spans that the API's queue dropped under load show as
+//! fewer than twice the requests (the platform spec's Telemetry export, under Batching).
 //!
 //! The search is a pure function, so tests cover it without Docker.
 //!

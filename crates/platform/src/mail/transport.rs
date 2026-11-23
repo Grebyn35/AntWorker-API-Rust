@@ -1,6 +1,6 @@
 //! The SMTP transport (the platform spec's Sending email): one per process, with a pool of connections,
 //! whose TLS verifies the server's certificate against the system's certificates (D38), and whose
-//! every send is a client span (OBS-06).
+//! every send is a client span (OBS-06), counted by how it ended (PLATFORM-105).
 
 use std::time::Duration;
 
@@ -17,10 +17,26 @@ use lettre::{
 use tracing::Instrument;
 
 use super::Email;
-use crate::{errors::Internal, jobs::JobFailure, telemetry::names, types::Secret};
+use crate::{
+    errors::Internal,
+    jobs::JobFailure,
+    telemetry::{metrics::Counter, names},
+    types::Secret,
+};
 
 /// How long a connection, or a reply of the server, may take.
 const REPLY_TIMEOUT: Duration = Duration::from_secs(10);
+
+static SENDS: Counter<1> = Counter::new(
+    "platform.mail_sends",
+    "{send}",
+    "Sends of emails to the mail server, by how each ended: sent, when the server took the \
+     email, refused, when it answered with a reply from 400 to 599 other than 421, or \
+     unavailable, for any other failure, such as a connection that didn't open, a reply of 421, \
+     that its service isn't available, or a send that took longer than its 30 seconds. An email \
+     that reaches no server, as one the API can't build, counts in none (PLATFORM-105).",
+    [names::MAIL_OUTCOME],
+);
 
 /// The mail server, and the sender.
 #[derive(Clone)]
@@ -108,15 +124,17 @@ impl Transport {
     }
 
     /// Sends `email` from the sender, with `message_id` (PLATFORM-025), in a client span of its
-    /// own (OBS-06). A reply from 500 to 599 fails permanently; any other failure may pass on
-    /// another attempt (PLATFORM-021).
+    /// own (OBS-06), and counts the send once it ends (PLATFORM-105). A reply from 500 to 599
+    /// fails permanently (PLATFORM-021), and so do an email that can't be built and a recipient
+    /// that isn't an address SMTP takes, which no attempt changes and no count holds; any other
+    /// failure may pass on another attempt.
     pub(super) async fn send(&self, message_id: String, email: Email) -> Result<(), JobFailure> {
         let span = tracing::info_span!(
             "smtp",
             { names::OTEL_NAME } = "smtp send",
             { names::OTEL_KIND } = "client",
             { names::SERVER_ADDRESS } = %self.host,
-            { names::SERVER_PORT } = self.port,
+            { names::SERVER_PORT } = i64::from(self.port),
         );
         async {
             let to: Address = email.to.as_str().parse().map_err(|_| {
@@ -129,10 +147,33 @@ impl Transport {
                 .message_id(Some(message_id))
                 .multipart(MultiPart::alternative_plain_html(email.text, email.html))
                 .map_err(|_| JobFailure::Permanent(Internal::new("the email can't be built")))?;
-            self.smtp.send(message).await.map(|_| ()).map_err(failure)
+            let sent = self.smtp.send(message).await.map(drop);
+            count(sent.as_ref().err().map_or("sent", outcome));
+            sent.map_err(failure)
         }
         .instrument(span)
         .await
+    }
+}
+
+/// Counts a send that its timeout, which [`super::Mail`] sets around [`Transport::send`], ended
+/// first (PLATFORM-105).
+pub(super) fn count_timed_out() {
+    count("unavailable");
+}
+
+/// Counts a send to the mail server that ended as `outcome` (PLATFORM-105).
+fn count(outcome: &'static str) {
+    SENDS.add(1, [outcome.into()]);
+}
+
+/// How a send that failed with `error` counts (PLATFORM-105): as refused when the server
+/// answered with a reply from 400 to 599 other than 421, and as unavailable otherwise, a reply
+/// of 421 among them, by which the server says that its service isn't available.
+fn outcome(error: &lettre::transport::smtp::Error) -> &'static str {
+    match error.status().map(u16::from) {
+        Some(code) if code != 421 => "refused",
+        _ => "unavailable",
     }
 }
 

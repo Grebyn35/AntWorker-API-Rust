@@ -86,6 +86,14 @@ If the failures started when a deploy did, roll it back first ([deploy.md](deplo
 For `openid_connect`, compare the addresses in the settings with the provider's discovery document too, which a provider may change; and an `ERROR` line that says its token endpoint's answer doesn't say when its token lapses clears only once the provider gives access tokens that lapse, which its own settings decide (AUTH-103). <!-- part: openid_connect -->
 For any other failure, check the provider's status page, and that the server reaches the provider's endpoints; a provider's outage clears with it, and its users sign in again once it does.
 
+## MailServerUnreachable
+
+**What it means.** For 20 minutes, the mail server took or refused none of the API's sends, while some of them failed otherwise, such as a connection that didn't open, TLS that failed, a reply of 421, by which the server says that its service isn't available, a server that can't upgrade the connection to TLS while `SMTP_SECURITY` is `starttls`, or a send that took longer than its 30 seconds (PLATFORM-105). No request waits on the mail server, so every route serves, but each email, a sign-up's verification code and a password reset's code among them, waits for its job's next attempt, and dead-letters once its 12 attempts, which span about 2 to 3.5 hours, have all failed ([platform spec](../spec/platform.md#sending-email)).
+
+**Look first.** The API platform dashboard: "Does the mail server answer?" shows since when the sends go unanswered. Each failed attempt that its job runs again writes the `WARN` line "job failed, and runs again later", whose `job.kind` is `platform.send_email`, or the job of a module that sends an email at once, such as `auth.send_verification_code`, and whose `exception.message` names the failure, such as "the connection to the mail server failed" or "the mail server replied 421", by its kind or its reply's code, never the reply's text.
+
+**What to do.** Check the provider's status page, and that the server reaches `SMTP_HOST` on `SMTP_PORT`, through its firewall and its name servers. A failure of TLS, or a server that can't upgrade the connection to it, is the settings' or the provider's: compare `SMTP_SECURITY` and the port with what the provider offers ([deploy.md](deploy.md#email)), and set them with `just server-setup <host>`. The emails that wait go out at their jobs' next attempts once the server answers; one whose last attempt failed meanwhile is a dead letter, for [JobsDeadLettered](#jobsdeadlettered). The alert clears once the server takes or refuses a send, and also once 15 minutes pass without a send that failed otherwise: the attempts of an email that waits come further apart, up to an hour, so while few emails are sent, the alert may clear and fire again within one outage.
+
 ## ApiTelemetryMissing
 
 **What it means.** No instance of the API exported metrics for five minutes. Either no instance runs, or their telemetry doesn't reach Prometheus.
@@ -100,21 +108,29 @@ For any other failure, check the provider's status page, and that the server rea
 
 **Look first.** The Telemetry pipeline dashboard: "Is the API failing to export telemetry?" names the instance and the signal.
 
-**What to do.** Check that the collector runs and accepts data, and that the instance can reach `OTEL_EXPORTER_OTLP_ENDPOINT`. A collector that answers slowly fails exports too, once each outlasts the [export timeout](../spec/platform.md#telemetry-export).
+**What to do.** Check that the collector runs and accepts data, and that the instance can reach `OTEL_EXPORTER_OTLP_ENDPOINT`. A collector that answers slowly fails exports too, once each outlasts the [export timeout](../spec/platform.md#telemetry-export); within it, it fills the instance's queues, which [ApiDroppingTelemetry](#apidroppingtelemetry) reports.
+
+## ApiDroppingTelemetry
+
+**What it means.** An instance of the API dropped spans or log records in the last 10 minutes, which arrived while its queue for them held 2,048 already, as each queue holds ([platform spec](../spec/platform.md#telemetry-export), PLATFORM-106): its exports didn't carry them away as fast as they came, as when the collector answers each export slowly, or not before the export's timeout. The API goes on serving, but the traces and logs of its requests from that time may be missing, so their trace IDs may lead nowhere.
+
+**Look first.** The Telemetry pipeline dashboard: "Is the API dropping telemetry from full queues?" names the instance and the signal, and "Is the API failing to export telemetry?" shows whether its exports fail too, which [TelemetryExportFailing](#telemetryexportfailing) reports.
+
+**What to do.** Follow [TelemetryExportFailing](#telemetryexportfailing)'s checks of the collector, whether or not it fires: a collector that answers each export within the timeout, but slowly, fails none and still fills the queues. If the collector answers promptly, the instance ended more spans or wrote more lines than its exports carried, such as in a burst of requests beyond the capacity at which its queues keep up ([platform spec](../spec/platform.md#telemetry-export)): add replicas ([deploy.md](deploy.md#scaling)). The alert clears once 10 minutes have passed without a drop.
 
 ## CollectorDroppingTelemetry
 
-**What it means.** The collector refused telemetry, failed to send it to Tempo, Loki or Prometheus, or dropped traces before tail sampling decided them, in the last 10 minutes. The alert's `receiver` names the receiver that refused, and its `exporter` the exporter that failed.
+**What it means.** The collector refused telemetry, failed to send it to Tempo, Loki or Prometheus, or to a managed backend, or dropped traces before tail sampling decided them, in the last 10 minutes. The alert's `receiver` names the receiver that refused, and its `exporter` the exporter that failed.
 
 **Look first.** The Telemetry pipeline dashboard: "Is the collector refusing telemetry?", "Is the collector failing to pass telemetry on?" and "Is tail sampling dropping traces before it decides them?" show which step loses data.
 
-**What to do.** Refused data means the collector reached its memory limit: give it more memory. Failed sends name a store: check that Tempo, Loki or Prometheus runs and has disk space. Traces dropped early mean the collector holds more undecided traces than its `num_traces`: raise it, along with the collector's memory.
+**What to do.** Refused data means the collector reached its memory limit: give it more memory. Failed sends name where they go. An exporter of [managed.yaml](../../deploy/observability/collector/managed.yaml) sends to the managed backend: check its provider's status page, and run `just server-check <host>`, which says whether the backend accepts an export signed in with the deployment's token. Any other exporter names a store: check that Tempo, Loki or Prometheus runs and has disk space. Traces dropped early mean the collector holds more undecided traces than its `num_traces`: raise it, along with the collector's memory.
 The receiver `otlp/clients` takes the batches that the telemetry proxy forwards for users' clients, and the exporters whose names end in `clients` pass them on. Its memory limit is the lower one, so it stops taking batches before the API's own receiver does: the proxy answers each batch that it doesn't take with 503, which has a client send the batch again later, and the Clients' telemetry dashboard shows what the clients send ([ClientTelemetryBudgetSpent](#clienttelemetrybudgetspent)). <!-- part: client_telemetry -->
 
 <!-- part: client_telemetry -->
 ## ClientTelemetryNotForwarded
 
-**What it means.** For 15 minutes, or since the API's replicas started if they haven't run as long, the collector took none of the batches of telemetry that the API sent it for users' clients, and neither took nor refused some of them: no connection to its receiver opened, it didn't answer within 5 seconds, or it answered neither with a 2xx nor with a refusal of the batch (CLIENT_TELEMETRY-009). The telemetry proxy answers such a batch with 503 `client_telemetry.collector_unavailable`, which has a client send it again later, so the clients' spans, log records and metrics of that time reach no store unless a client still holds them once the collector takes batches again. Every other route serves. A batch that the collector refuses, with a 4xx other than 404, 405 and 429, isn't among those, so refusals alone raise no alert: the proxy answers each with 400 `client_telemetry.batch_refused`, and "How do the clients' batches end?" on the Clients' telemetry dashboard shows them. A 404 or a 405 is among those: the proxy answers each with 503, so the alert fires while `CLIENT_TELEMETRY_ENDPOINT` names an address that answers every batch so.
+**What it means.** For 15 minutes, the collector took none of the batches of telemetry that the API sent it for users' clients, and neither took nor refused some of them: no connection to its receiver opened, it didn't answer within 5 seconds, or it answered neither with a 2xx nor with a refusal of the batch (CLIENT_TELEMETRY-009). The telemetry proxy answers such a batch with 503 `client_telemetry.collector_unavailable`, which has a client send it again later, so the clients' spans, log records and metrics of that time reach no store unless a client still holds them once the collector takes batches again. Every other route serves. A batch that the collector refuses, with a 4xx other than 404, 405 and 429, isn't among those, so refusals alone raise no alert: the proxy answers each with 400 `client_telemetry.batch_refused`, and "How do the clients' batches end?" on the Clients' telemetry dashboard shows them. A 404 or a 405 is among those: the proxy answers each with 503, so the alert fires while `CLIENT_TELEMETRY_ENDPOINT` names an address that answers every batch so.
 
 **Look first.** The Clients' telemetry dashboard: "How do the clients' batches end?" shows since when. The `ERROR` lines of the 503s name the failure, such as a connection's, or the status that the collector answered.
 
@@ -155,7 +171,7 @@ The receiver `otlp/clients` takes the batches that the telemetry proxy forwards 
 
 ## JobsDeadLettered
 
-**What it means.** A job failed on each of its attempts, or with a failure that every attempt would meet, and moved to the dead-letter state, where nothing retries it ([platform spec](../spec/platform.md#the-job-queue)). For `platform.send_email`, an email didn't go out: a mail server that refused it for good, or one that didn't answer for the hours its retries span ([platform spec](../spec/platform.md#sending-email)).
+**What it means.** A job failed on each of its attempts, or with a failure that every attempt would meet, and moved to the dead-letter state, where nothing retries it ([platform spec](../spec/platform.md#the-job-queue)). For `platform.send_email`, an email didn't go out: a mail server that refused it for good, one that didn't answer for the hours its retries span, which [MailServerUnreachable](#mailserverunreachable) pages for first, or an email that the API couldn't build, such as for a recipient that isn't an address a mail server takes ([platform spec](../spec/platform.md#sending-email)).
 
 **Look first.** The API's `ERROR` line "job dead-lettered" names the kind and the failure. With the bundled database, this lists the dead letters, without their payloads, which hold personal data such as an email's recipient:
 
@@ -177,7 +193,7 @@ With a managed database, run the same query in the provider's console. Add `payl
 One of the files bucket clears with it: follow [StorageUnreachable](#storageunreachable). <!-- part: files -->
 A run that passes its time limit, which its job's declaration sets, stops where it was. The sweeps delete in batches, so the next run continues where it stopped.
 So does `files.delete_unreferenced_objects`. `files.find_unreferenced_objects` keeps what it recorded, but its next run lists the bucket from its start again, so a bucket whose listing takes longer than the hour has objects that it never reaches, which no deletion then removes: its runs fail each day, and the job needs a longer limit or a listing that resumes. <!-- part: files -->
-The alert clears 3 hours after the last failure, or, for a daily job, once a run succeeds.
+The alert clears once neither of its conditions holds: the first ends 3 hours after the failure before the last, and the second once a run succeeds, or 49 hours after the failure before the last. So the alert of an hourly job that kept failing clears 2 hours after its last failure, if a run has succeeded by then, and a daily job's once a run succeeds.
 
 ## BackupArchivingFailing
 

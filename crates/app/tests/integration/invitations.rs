@@ -408,6 +408,28 @@ async fn invitations_003_inviting_again_refreshes_the_invitation_in_place() {
 }
 
 #[tokio::test]
+async fn invitations_003_a_refreshed_invitation_lasts_the_configured_days_from_then() {
+    let api = Api::with(Options::default().set("INVITATION_EXPIRY_DAYS", 3)).await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let workspace = acme(&api, &ada, &[]).await;
+    invite(&api, &ada, &workspace, "carol@example.com", "member").await;
+    let db = api.database();
+    db.owner_executes("UPDATE invitations SET expires_at = now() + interval '1 day'")
+        .await;
+
+    let response = invite(&api, &ada, &workspace, "carol@example.com", "member").await;
+
+    assert_eq!(response.status, 200);
+    let lasts = db
+        .owner_reads(
+            "SELECT (expires_at BETWEEN now() + interval '2 days 23 hours' \
+             AND now() + interval '3 days')::text FROM invitations",
+        )
+        .await;
+    assert_eq!(lasts, ["true"]);
+}
+
+#[tokio::test]
 async fn invitations_003_an_expired_invitation_is_refreshed_in_place() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
@@ -814,6 +836,51 @@ async fn invitations_009_beyond_its_limit_a_member_s_invitation_answers_429() {
         .owner_reads("SELECT email FROM invitations")
         .await;
     assert_eq!(invited, ["dave@example.com"]);
+}
+
+#[tokio::test]
+async fn invitations_009_each_member_s_requests_count_in_a_bucket_of_their_own() {
+    let options = Options::default()
+        .set("INVITATION_LIMIT", 1)
+        .set("INVITATION_WINDOW_SECONDS", 60);
+    let api = Api::with(options).await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let bob = users::register(&api, "bob@example.com").await;
+    let workspace = acme(&api, &ada, &[(&bob, "admin")]).await;
+
+    let ada_first = invite(&api, &ada, &workspace, "carol@example.com", "member").await;
+    let ada_second = invite(&api, &ada, &workspace, "dave@example.com", "member").await;
+    let bob_first = invite(&api, &bob, &workspace, "erin@example.com", "member").await;
+
+    assert_eq!(ada_first.status, 201);
+    assert_eq!(ada_second.status, 429);
+    assert_eq!(bob_first.status, 201);
+}
+
+#[tokio::test]
+async fn invitations_009_a_request_refused_for_its_idempotency_key_counts_in_no_member_s_bucket() {
+    let options = Options::default()
+        .set("INVITATION_LIMIT", 1)
+        .set("INVITATION_WINDOW_SECONDS", 60);
+    let api = Api::with(options).await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let workspace = acme(&api, &ada, &[]).await;
+
+    // Valid fields, and a key that is no quoted string (PLATFORM-037).
+    let malformed = api
+        .post(
+            &format!("/v1/workspaces/{workspace}/invitations"),
+            &json!({ "email": "carol@example.com", "role": "member" }),
+        )
+        .bearer(&ada.access)
+        .header("idempotency-key", "k-1")
+        .send()
+        .await;
+    let invited = invite(&api, &ada, &workspace, "dave@example.com", "member").await;
+
+    assert_eq!(malformed.status, 400);
+    assert_eq!(malformed.json()["code"], "request.invalid_idempotency_key");
+    assert_eq!(invited.status, 201);
 }
 
 #[tokio::test]

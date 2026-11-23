@@ -68,7 +68,7 @@ pub(in crate::modules::auth) async fn insert_device_token(
 }
 
 /// Deletes every device token of `user_id`, whose account the unit of work deletes
-/// (ACCOUNTS-013).
+/// (ACCOUNTS-013), or whose address it changes (AUTH-051).
 pub(in crate::modules::auth) async fn delete_device_tokens(
     uow: &mut UnitOfWork,
     user_id: UserId,

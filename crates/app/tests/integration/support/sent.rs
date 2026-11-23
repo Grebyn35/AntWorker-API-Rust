@@ -7,6 +7,10 @@
 //! framework names after the test when it runs the tests on more than one thread, and `main`
 //! when it runs them on one. A request that matches no route is recorded nowhere.
 //!
+//! A request that a test sends to a server of its own, the binary's `serve`, passes no router of
+//! the test's process: `Server::send` records it, as the path of `openapi.json` that the
+//! request's path matches, a parameter standing for any one segment.
+//!
 //! The lines go to the file that `SENT_ROUTES` names, which the first request of the process
 //! empties. A run without the variable, such as `cargo test` by hand, records nothing.
 
@@ -48,6 +52,42 @@ pub(super) fn recording(router: Router) -> Router {
         }
         next.run(request)
     }))
+}
+
+/// Records, for the test whose thread calls this, a request with `method` to `path` that the
+/// test sent to a server of its own, when `SENT_ROUTES` names a file and a path of the
+/// repository's `openapi.json` matches `path`, its query aside.
+pub(super) fn sent(method: &str, path: &str) {
+    if std::env::var_os(FILE).is_none() {
+        return;
+    }
+    let path = path.split('?').next().unwrap_or_default();
+    let segments: Vec<&str> = path.split('/').collect();
+    let route = templates().iter().find(|template| {
+        let parts: Vec<&str> = template.split('/').collect();
+        parts.len() == segments.len()
+            && parts.iter().zip(&segments).all(|(part, segment)| {
+                (part.starts_with('{') && part.ends_with('}')) || part == segment
+            })
+    });
+    if let Some(route) = route {
+        let test = std::thread::current().name().unwrap_or_default().to_owned();
+        record(format!("{test}\t{method}\t{route}"));
+    }
+}
+
+/// The paths of the repository's `openapi.json`, which a test holds to the routes (API-17).
+fn templates() -> &'static [String] {
+    static TEMPLATES: OnceLock<Vec<String>> = OnceLock::new();
+    TEMPLATES.get_or_init(|| {
+        let document: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../../openapi.json"))
+                .expect("openapi.json is JSON");
+        document["paths"]
+            .as_object()
+            .map(|paths| paths.keys().cloned().collect())
+            .unwrap_or_default()
+    })
 }
 
 /// Writes `line` to the record, once.

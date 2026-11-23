@@ -4,9 +4,10 @@
 
 use std::time::Duration;
 
+use platform::telemetry::testing::collector::Collector;
 use serde_json::json;
 
-use super::{errors_of, fetch, objects, unread, uploads};
+use super::{errors_of, fetch, objects, unread, uploads_counted};
 use crate::support::{
     Api,
     api::{Options, Response},
@@ -17,7 +18,7 @@ use crate::support::{
 };
 
 /// Ada, and a workspace that she owns.
-async fn owned(api: &Api) -> (SignedIn, String) {
+pub(super) async fn owned(api: &Api) -> (SignedIn, String) {
     let ada = users::register(api, "ada@example.com").await;
     let workspace = workspaces::arrange(api.database(), "Acme", &[(&ada.user_id, "owner")]).await;
     (ada, workspace)
@@ -758,12 +759,22 @@ async fn files_011_a_replaced_picture_s_object_goes_once_its_delay_has_passed() 
 async fn files_013_a_picture_s_upload_is_counted_by_how_it_ended() {
     let api = Api::new().await;
     let (ada, workspace) = owned(&api).await;
-    let (stored, unsupported) = (uploads("stored"), uploads("unsupported_type"));
+    let collector = Collector::start().await.unwrap();
+    let server = files::serving(api.database(), &collector, &[]).await;
+    let bearer = format!("Bearer {}", ada.access);
+    let headers = [
+        ("authorization", bearer.as_str()),
+        ("content-type", "application/octet-stream"),
+    ];
+    let picture = format!("/v1/workspaces/{workspace}/picture");
 
-    set(&api, &ada, &workspace, files::PNG).await;
-    set(&api, &ada, &workspace, b"hello").await;
+    for bytes in [files::PNG, b"hello"] {
+        server.send("PUT", &picture, &headers, bytes).await;
+    }
+    server.stop().await;
 
-    // Tests running alongside upload too, so the counts grow by at least these.
-    assert!(uploads("stored") >= stored + 1.0);
-    assert!(uploads("unsupported_type") >= unsupported + 1.0);
+    assert_eq!(
+        uploads_counted(&collector),
+        ["stored 1", "unsupported_type 1"]
+    );
 }

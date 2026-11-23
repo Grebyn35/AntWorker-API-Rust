@@ -7,6 +7,7 @@ use serde_json::{Value, json};
 use crate::support::{
     Api,
     api::Response,
+    api::one,
     audit::{self, Client},
     lists, mailbox, providers, streams,
     users::{self, SignedIn},
@@ -82,11 +83,6 @@ async fn event_users(api: &Api, name: &str) -> Vec<String> {
             "SELECT user_id::text FROM events WHERE name = '{name}' ORDER BY created_at"
         ))
         .await
-}
-
-/// The one value the owner's query `sql` reads.
-async fn one(api: &Api, sql: &str) -> String {
-    api.database().owner_reads(sql).await.remove(0)
 }
 
 #[tokio::test]
@@ -518,9 +514,9 @@ async fn accounts_024_the_archive_holds_the_user_s_data_and_only_the_content_of_
  {
     let api = Api::new().await;
     let (ada, grace, own, shared) = arranged(&api).await;
-    // A code of Ada's, which a proved account holds only once a later part issues one for another
-    // purpose, so the export's document of codes has a record to show, and a name for her
-    // session's device, which is personal data the export holds (AUTH-042).
+    // A code of Ada's, which the job of a code issues no account that proved its address, as
+    // hers has (AUTH-030), so the export's document of codes has a record to show, and a name for
+    // her session's device, which is personal data the export holds (AUTH-042).
     api.database()
         .owner_executes(&format!(
             "INSERT INTO verification_codes (user_id, purpose, code_hash, expires_at) \

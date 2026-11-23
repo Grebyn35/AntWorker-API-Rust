@@ -3,6 +3,9 @@
 //! in capitals (DOC-06). The migration workspace isn't checked, as DOC-06's Check line says, and
 //! a marker of unfinished work is DOC-04's to report.
 //!
+//! Each word that the glossary lists so is one that a line of a document other than the
+//! glossary's lists uses, in its prose ([`unused`]).
+//!
 //! An acronym counts as spelled out when its first use stands alone in parentheses, as in "the
 //! Simple Mail Transfer Protocol (SMTP)", or when it, or the hyphenated name it starts, comes
 //! right before them, as in "SMTP (Simple Mail…)" or "SCRAM-SHA-256 (Salted Challenge…)".
@@ -12,7 +15,7 @@
 
 use std::collections::BTreeSet;
 
-use crate::{Finding, catalog::Catalog, docs, markdown, repo::Repo};
+use crate::{Finding, catalog::Catalog, docs, markdown, repo::Repo, text};
 
 /// The document that holds the glossary.
 const GLOSSARY: &str = "docs/architecture.md";
@@ -48,20 +51,72 @@ pub fn check(repo: &Repo, catalog: &Catalog) -> Vec<Finding> {
     findings
 }
 
-/// The words a sentence that starts with `opening` lists after its colon, such as
-/// "…: API, CI and URL." gives API, CI and URL.
+/// Each word that the glossary's sentences of acronyms and names list, and that no line of a
+/// document but those that hold such a sentence uses, outside code spans and link targets, alone
+/// or with an `s` after it (DOC-06).
+pub fn unused(repo: &Repo) -> Vec<Finding> {
+    let Some(glossary) = repo.file(GLOSSARY) else {
+        return Vec::new();
+    };
+    let mut used = BTreeSet::new();
+    for file in repo.files() {
+        if !file.path.ends_with(".md") || !docs::outside_migration(&file.path) {
+            continue;
+        }
+        for (_, line) in markdown::outside_code(&file.text) {
+            if [ASSUMED, NAMES]
+                .iter()
+                .any(|opening| line.contains(opening))
+            {
+                continue;
+            }
+            let prose = without_code_and_targets(line);
+            for (start, end) in words(&prose) {
+                let word = &prose[start..end];
+                used.insert(word.strip_suffix('s').unwrap_or(word).to_owned());
+                used.insert(word.to_owned());
+            }
+        }
+    }
+    let listed = [ASSUMED, NAMES].into_iter().filter_map(|opening| {
+        let line = text::line_of(&glossary.text, opening);
+        Some((line, listed(&glossary.text, opening)?))
+    });
+    let mut findings = Vec::new();
+    for (line, words) in listed {
+        for word in words.iter().filter(|word| !used.contains(*word)) {
+            findings.push(Finding::new(GLOSSARY, line, format!(
+                "the glossary lists {word}, which no line of the documents uses but the glossary's list (DOC-06)"
+            )));
+        }
+    }
+    findings
+}
+
+/// The words that each sentence that starts with `opening` lists after its colon, such as
+/// "…: API, CI and URL." gives API, CI and URL, or `None` while no such sentence lists any.
 fn listed(text: &str, opening: &str) -> Option<Vec<String>> {
-    let start = text.find(opening)?;
-    let sentence = &text[start..];
-    let after_colon = &sentence[sentence.find(": ")? + 2..];
-    let list = &after_colon[..after_colon.find('.')?];
-    Some(
-        list.split(", ")
-            .flat_map(|part| part.split(" and "))
-            .map(|word| word.trim().to_owned())
-            .filter(|word| !word.is_empty())
-            .collect(),
-    )
+    let mut words = Vec::new();
+    let mut found = false;
+    for (start, _) in text.match_indices(opening) {
+        let sentence = &text[start..];
+        let Some(colon) = sentence.find(": ") else {
+            continue;
+        };
+        let after_colon = &sentence[colon + 2..];
+        let Some(end) = after_colon.find('.') else {
+            continue;
+        };
+        found = true;
+        words.extend(
+            after_colon[..end]
+                .split(", ")
+                .flat_map(|part| part.split(" and "))
+                .map(|word| word.trim().to_owned())
+                .filter(|word| !word.is_empty()),
+        );
+    }
+    found.then_some(words)
 }
 
 /// Each acronym whose first use in the document isn't spelled out.
@@ -212,6 +267,50 @@ mod tests {
             findings,
             [
                 "NEW_THING isn't spelled out where the document first uses it, and the glossary doesn't list it (DOC-06)"
+            ]
+        );
+    }
+
+    #[test]
+    fn doc_06_each_sentence_of_the_glossary_that_lists_assumed_acronyms_counts() {
+        let glossary = format!(
+            "{GLOSSARY_TEXT}The documents assume a developer knows these acronyms too: PNG and \
+             SVG.\n"
+        );
+        let document = "A PNG holds an image. An SVG holds a drawing. A GIF moves.\n";
+        let repo = Repo::of(&[(GLOSSARY, &glossary), ("docs/coverage.md", document)]);
+        let catalog = Catalog::read(&repo);
+
+        let findings: Vec<String> = check(&repo, &catalog)
+            .into_iter()
+            .map(|finding| finding.message)
+            .collect();
+
+        assert_eq!(
+            findings,
+            [
+                "GIF isn't spelled out where the document first uses it, and the glossary doesn't list it (DOC-06)"
+            ]
+        );
+    }
+
+    #[test]
+    fn doc_06_a_listed_acronym_or_name_that_no_other_line_uses_fails() {
+        let glossary = "The documents assume a developer knows these acronyms: API and URL.\n\
+                        These names are written in capitals, and aren't acronyms to spell out: \
+                        SHA and W3C.\n";
+        let document = "An API names its URLs. `SHA` in code, and [W3C](https://www.w3.org).\n";
+        let repo = Repo::of(&[(GLOSSARY, glossary), ("docs/coverage.md", document)]);
+
+        let findings: Vec<String> = unused(&repo)
+            .into_iter()
+            .map(|finding| format!("{}: {}", finding.line, finding.message))
+            .collect();
+
+        assert_eq!(
+            findings,
+            [
+                "2: the glossary lists SHA, which no line of the documents uses but the glossary's list (DOC-06)",
             ]
         );
     }

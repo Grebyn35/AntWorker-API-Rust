@@ -20,6 +20,9 @@ const DOC_RULES: &str = "docs/standards/docs.md";
 /// The migration tracker.
 const TRACKER: &str = "docs/MIGRATION.md";
 
+/// The changelog, whose section of unreleased changes is empty after a release (DOC-11).
+const CHANGELOG: &str = "CHANGELOG.md";
+
 /// The columns of a table of behaviors (DOC-08).
 const BEHAVIOR_COLUMNS: [&str; 4] = ["ID", "Behavior", "Rules", "Test prefix"];
 
@@ -32,6 +35,59 @@ pub fn check(repo: &Repo) -> Vec<Finding> {
     findings.extend(rules::check(repo));
     findings.extend(tracker(repo));
     findings.extend(table_rows(repo));
+    findings.extend(shells(repo));
+    findings
+}
+
+/// In a document outside the migration workspace, whose tracker keeps an empty table by its
+/// format, the specs, whose sections [`specs`] reads, and the changelog, each table that has a
+/// delimiter row has a row under it, and each heading outside a
+/// code block has a line of text under it, a code block's among them, before the next heading
+/// of its level or a higher one, so a removal that deleted what they held leaves no shell of
+/// them (DOC-08).
+fn shells(repo: &Repo) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    let documents = repo.files().filter(|file| {
+        file.path.ends_with(".md")
+            && crate::docs::outside_migration(&file.path)
+            && document_in(&file.path, "docs/spec/").is_none()
+            && file.path != CHANGELOG
+    });
+    for file in documents {
+        for table in markdown::tables(&file.text) {
+            if let (Some((line, _)), true) = (table.delimiter, table.rows.is_empty()) {
+                findings.push(Finding::new(
+                    &file.path,
+                    line,
+                    "the table has no row (DOC-08)",
+                ));
+            }
+        }
+        let mut in_code = false;
+        let lines: Vec<Option<usize>> = file
+            .text
+            .lines()
+            .map(|line| {
+                in_code ^= line.trim_start().starts_with("```");
+                let hashes = line.len() - line.trim_start_matches('#').len();
+                (!in_code && hashes > 0 && line[hashes..].starts_with(' ')).then_some(hashes)
+            })
+            .collect();
+        let texts: Vec<&str> = file.text.lines().collect();
+        for (at, level) in lines.iter().enumerate() {
+            let Some(level) = level else { continue };
+            let under = (at + 1..lines.len())
+                .take_while(|next| lines[*next].is_none_or(|next| next > *level))
+                .any(|next| !texts[next].trim().is_empty());
+            if !under {
+                findings.push(Finding::new(
+                    &file.path,
+                    at + 1,
+                    "the heading has nothing under it before the next heading of its level (DOC-08)",
+                ));
+            }
+        }
+    }
     findings
 }
 
@@ -333,6 +389,25 @@ mod tests {
     }
 
     #[test]
+    fn doc_08_a_table_with_no_row_or_a_heading_with_nothing_under_it_fails() {
+        let notes = "# Notes\n\n## Empty\n\n## Parent\n\n### Child\n\nText.\n\n\
+                     ## Code\n\n```\n## not a heading\n```\n\n## Table\n\n| A |\n|---|\n\n## Last\n";
+        let tracker = "# Tracker\n\n## Known gaps\n\n| A |\n|---|\n";
+
+        assert_eq!(
+            findings(&[("docs/operations/notes.md", notes), (TRACKER, tracker)])
+                .into_iter()
+                .filter(|finding| finding.contains("nothing under it") || finding.contains("no row"))
+                .collect::<Vec<_>>(),
+            [
+                "docs/operations/notes.md:20: the table has no row (DOC-08)",
+                "docs/operations/notes.md:3: the heading has nothing under it before the next heading of its level (DOC-08)",
+                "docs/operations/notes.md:22: the heading has nothing under it before the next heading of its level (DOC-08)",
+            ]
+        );
+    }
+
+    #[test]
     fn doc_08_every_row_of_a_table_has_its_headers_cells() {
         let notes = "# Notes\n\n| A | B |\n|---|---|\n| one | two |\n\
                      | three || four | five |\n| `a \\| b` | six |\n| seven |\n\
@@ -419,7 +494,7 @@ mod tests {
                      - Review reads the rest.\n\n\
                      ### STYLE-06 A sixth\nThe statement.\n- Why: a reason.\n- Check: `review`.\n\
                      - A second item.\n\n\
-                     ### Not a rule\n";
+                     ### Not a rule\n\nProse.\n";
 
         assert_eq!(
             findings(&[("docs/standards/style.md", rules)]),
@@ -474,7 +549,7 @@ mod tests {
     }
 
     #[test]
-    fn doc_14_the_tracker_has_the_sections_doc_16_lists_in_order() {
+    fn doc_14_the_tracker_has_the_sections_the_rule_lists_in_order() {
         let reordered = "# Tracker\n\n## Decisions\n\n## Current work\n\nNext.\n\n## Notes\n";
         let short = "# Tracker\n\n## Current work\n\nNext.\n";
 

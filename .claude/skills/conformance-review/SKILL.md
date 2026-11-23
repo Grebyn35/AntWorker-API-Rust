@@ -17,6 +17,7 @@ The caller states the scope. Without one, ask the owner.
 3. Make CI pass: `just checks` before the pass starts, and the run of the pushed commit, which may end while the reviewers read. Reviewers skip what CI enforces, so it has to hold: a failure it reports is fixed before the pass is recorded.
 4. Fix the defects already known in the scope, so the reviewers see fixed code.
 5. List what reviewers don't report again: each row of "Known gaps" and of "Rule proposals" in `docs/MIGRATION.md`, with the findings it covers.
+6. For a scope that no one agent holds, such as the whole codebase's, set its areas: groups of its files, each file in one area, each of a size that one agent reads whole. Record them under "Conformance reviews" in `docs/MIGRATION.md`, each with its files, and check with a script over the tracked files that each file of the scope is in one area: the groups by which the first pass of the whole codebase was read left out the rules and the specs, which only the reviewer that reads rule by rule had read. The README's "When the review stops" then applies to each area by itself.
 
 ## Each pass
 
@@ -34,6 +35,18 @@ The caller states the scope. Without one, ask the owner.
    A commit that acts on a pass names in its message each test it deletes or renames, with the test that proves its behavior now, since no check sees a clause lose its only test.
    - `clean`: apply the `should-fix` findings one by one, and check each. The review is complete.
    - `stopped: no progress` or `stopped: six passes`: give each remaining `must-fix` finding exactly one of the README's resolutions, and check each. The review is complete.
+
+## A review in areas
+
+Where step 6 above set areas, each pass goes as above, with these differences:
+
+- Reviewer B reads each area with an agent of its own, and reviewer A reads rule by rule, in slices of its own, across the areas. From the second pass on, both read only the areas that haven't ended.
+- Each finding is recorded with its area, as the README says which area a finding counts in.
+- The pass's row in "Conformance reviews" holds the counts of the pass as a whole, and reads `next pass` while an area is left. The table of areas holds each area's state after the pass: its `must-fix` findings, and `next pass`, `clean`, `stopped: no progress` or `stopped: six passes`.
+- Act on each area by its own outcome, as step 5 above says for a review.
+- A fix that changes a file of an area that has ended is checked by itself before its commit, against the statements that the change touches.
+
+The review is complete once every area has ended.
 
 ## When the review is complete
 

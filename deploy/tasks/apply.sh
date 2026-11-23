@@ -195,6 +195,20 @@ apply() {
     cp "$previous" "$state/deploy.env.previous"
     cp "$state/deploy.env.next" "$state/deploy.env"
     changed=$(changed_single_services)
+    # The network of Caddy and the replicas, when the deployment runs with another subnet than
+    # the settings': Docker changes no network's subnet, so the deploy removes the network, once
+    # it has stopped what joins it, and Compose creates it again.
+    running_subnet=$(docker network inspect --format '{{ range .IPAM.Config }}{{ .Subnet }}{{ end }}' "${project}_proxy" 2> /dev/null || true)
+    if [ -n "$running_subnet" ] && [ "$running_subnet" != "$proxy_subnet" ]; then
+        if [ "$allow_restart" != yes ]; then
+            cp "$state/deploy.env.previous" "$state/deploy.env"
+            fail "PROXY_SUBNET is $proxy_subnet, and the network of Caddy and the replicas has the subnet $running_subnet: this deploy replaces the network, for which it stops Caddy and every replica, so no request is answered until the release's replicas serve. Deploy again with --allow-restart when that's acceptable"
+        fi
+        say "replacing the network of Caddy and the replicas, whose subnet was $running_subnet; no request is answered until the release's replicas serve"
+        compose rm --stop --force caddy api-blue api-green > /dev/null
+        docker network rm "${project}_proxy" > /dev/null
+        live=""
+    fi
     if [ -n "$changed" ] && [ "$allow_restart" != yes ]; then
         cp "$state/deploy.env.previous" "$state/deploy.env"
         interrupted="for a few seconds"

@@ -18,7 +18,7 @@
 //!   the health subcommand's probe, and the other places that [`CLIENTS_ALLOWED`] and
 //!   [`TCP_ALLOWED`] list (SEC-10).
 //!
-//! It reads each file as a token stream, with the paths its `use` declarations import (`rust`).
+//! It reads each file as a token stream (`rust`), and ARCH-08's calls as [`limits_counted`] says.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -230,8 +230,8 @@ impl<'ast> Visit<'ast> for Registered {
 /// ARCH-08: a handler calls `check` on no parameter of type `RateLimits`, since the service
 /// counts a per-action limit (the platform spec's Unit of work), and calls at most one service
 /// function; a function that no `routes!` of the module registers, of a module that registers
-/// any, calls none; and nothing opens a unit of work. The compiler reports a file that doesn't
-/// parse.
+/// any, calls none; and nothing opens a unit of work. It reads the file's free `fn` items as syn
+/// parses them, outside macros' tokens. The compiler reports a file that doesn't parse.
 fn limits_counted(file: &File, handlers: &BTreeSet<String>) -> Vec<Finding> {
     let Ok(parsed) = syn::parse_file(&file.text) else {
         return Vec::new();
@@ -253,7 +253,7 @@ struct Handlers<'a> {
 
 impl<'ast> Visit<'ast> for Handlers<'_> {
     fn visit_item_fn(&mut self, item: &'ast syn::ItemFn) {
-        let limits = typed(item, "RateLimits");
+        let limits = rate_limits(item);
         let states = states(item);
         let mut calls = Calls {
             limits: &limits,
@@ -304,8 +304,8 @@ impl<'ast> Visit<'ast> for Handlers<'_> {
     }
 }
 
-/// The names of `item`'s parameters whose type's last segment is `name`, such as `RateLimits`.
-fn typed(item: &syn::ItemFn, name: &str) -> Vec<String> {
+/// The names of `item`'s parameters whose type's last segment is `RateLimits`.
+fn rate_limits(item: &syn::ItemFn) -> Vec<String> {
     item.sig
         .inputs
         .iter()
@@ -316,7 +316,7 @@ fn typed(item: &syn::ItemFn, name: &str) -> Vec<String> {
                         .path
                         .segments
                         .last()
-                        .is_some_and(|last| last.ident == name) =>
+                        .is_some_and(|last| last.ident == "RateLimits") =>
                 {
                     Some(named.ident.to_string())
                 }
@@ -681,7 +681,7 @@ mod tests {
     }
 
     #[test]
-    fn sec_10_http_clients_are_built_only_where_sec_09_allows() {
+    fn sec_10_http_clients_and_tcp_streams_are_built_only_where_sec_10_allows() {
         let code = r#"
             use std::net::TcpStream;
             fn f() { let client = reqwest::Client::builder(); }

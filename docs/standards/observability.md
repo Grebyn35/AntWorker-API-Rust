@@ -12,25 +12,26 @@ Logs are JSON in production and human-readable in development. They go to stdout
 ### OBS-02 Every log line can be correlated
 Every JSON log line carries its time, `timestamp`, in UTC, and `service.name`, `service.version` and `deployment.environment.name`, the last once the configuration has named the environment. A line written inside a span also carries `trace_id` and `span_id`. The readable text of development carries the fields its events write.
 - Why: a log line leads to its trace, and a trace leads to its logs (D10). The lines that reach a log store are JSON (OBS-01).
-- Check: `test` (the binary's JSON lines, and the logging setup in the end-to-end suite).
+- Check: `test` (the binary's JSON lines), plus `ci: e2e` (each span and log line of the proxy that reaches a backend names its service's version).
 
 ### OBS-03 Levels have fixed meanings
 | Level | Meaning |
 |---|---|
-| `ERROR` | A human must look: a 5xx other than a disabled feature's (OPS-04), a job that failed its last attempt, a startup failure |
+| `ERROR` | A human must look: a 5xx other than a disabled feature's (OPS-04) or a health probe's (OPS-05), a job that failed its last attempt, a startup failure |
 | `WARN` | Degraded but handled: an ignored error (ERR-11), a job attempt that will be retried |
-| `INFO` | Lifecycle events, plus exactly one completion line per request (method, route, status, duration) |
+| `INFO` | Lifecycle events, plus exactly one completion line per request (method, route, status, duration), but for the health probes (OBS-15) and a request that the HTTP server refuses itself (PLATFORM-099) |
 | `DEBUG` | Diagnostics, off in production |
 
 Module code writes events only at `DEBUG`. Every `INFO`, `WARN` and `ERROR` event comes from `platform` or the binary's `main.rs`. A business event that matters is an audit entry (DATA-22), not a log line.
-- Why: a level tells the reader what to do, and every request has at least one log line (D10). When the mechanisms write every event above `DEBUG`, each kind of event is written once, in one shape.
+- Why: a level tells the reader what to do, and every request but a health probe and one that the HTTP server refuses itself has at least one log line (D10). When the mechanisms write every event above `DEBUG`, each kind of event is written once, in one shape.
 - Check: `ci: check-instrument` (the levels of events in `app`'s code outside `main.rs`), plus `review`.
 
 ### OBS-04 No personal data or secrets in telemetry
 Logs, spans and metric labels never contain personal data or secrets. `EmailAddress` redacts itself when formatted, as `Secret` does (SEC-01), and a type that holds a client's IP address or user agent either redacts its `Debug`, as `platform::types::Client` does, or has none, as an audit entry's types have none. Every `#[instrument]` uses `skip_all` and lists its fields explicitly. The reference deployment's proxy writes no field of a log line that holds personal data, and the collector keeps only the attributes of its spans whose names `platform::telemetry` lists (D53). The deployment's bundled Postgres writes an error to its log without the error's detail, which holds the values that a constraint refused, such as an address that another account holds.
+A file's name is personal data: `FileName` redacts it in its `Debug`, and the records of an export's files, whose paths hold names, have no `Debug`. <!-- part: files -->
 Of the telemetry that a user's client sends through the telemetry proxy, the collector keeps of the resource of a span or of a log record only what names the client, its version and, on spans, its installation (CLIENT_TELEMETRY-011), and of its metrics only the client's name and the attributes and values that its configuration lists (CLIENT_TELEMETRY-015); what its spans and its log records hold besides is the client's to keep free of personal data, and its user's to consent to (D7). <!-- part: client_telemetry -->
 - Why: telemetry is copied widely and kept for a long time (D7).
-- Check: `compiler` (the redacting types), `ci: check-instrument` (every `#[instrument]` has `skip_all`), plus `ci: e2e` (the proxy's span and log line hold no client address or user agent, and the bundled Postgres's log holds no value that a unique constraint refused), plus `review`.
+- Check: `compiler` (the redacting types), `ci: check-instrument` (every `#[instrument]` has `skip_all`), plus `ci: e2e` (the proxy's span, its log line and its own log hold no client address or user agent, under any name, and the bundled Postgres's log holds no value that a unique constraint refused), plus `review`.
 
 ### OBS-05 Telemetry names come from one list
 Every field name in logs and spans, and every metric label name, comes from the list in `platform::telemetry`, and code uses no other name. The list declares no field for personal data or secrets (OBS-04).
@@ -44,24 +45,25 @@ Every field name in logs and spans, and every metric label name, comes from the 
 ## Traces
 
 ### OBS-06 One server span per request, child spans for work
-Each request has one server span in the API. Database transactions, outbound calls and job runs get child spans. Behind the reference deployment's proxy, the server span is a child of the proxy's span for the request, so a trace starts at the proxy (D53). Spans come only from `platform` and the binary's `main.rs`; module code opens none. CPU-heavy work runs through the `platform` helper that adds its span (CODE-05), so slow steps such as password hashing still show in traces.
+Each request has one server span in the API, but for the health probes (OBS-15) and a request that the HTTP server refuses itself (PLATFORM-099), and each run of a job a span of its own (OBS-07). Inside either, each database transaction and each outbound call gets a child span. A transaction that runs outside every span, such as the hub's load of new events or a dispatcher's claim of jobs, gets none: its span would have no parent, and so would start a trace of its own each time (D218). Behind the reference deployment's proxy, the server span is a child of the proxy's span for the request, so a trace starts at the proxy (D53). Spans come only from `platform` and the binary's `main.rs`; module code opens none. CPU-heavy work runs through the `platform` helper that adds its span (CODE-05), so slow steps such as password hashing still show in traces.
 - Why: a trace shows where a request spent its time, and every span has the same shape wherever it comes from.
-- Check: `ci: check-instrument` (no spans in `app`'s code outside `main.rs`), plus `review`.
+- Check: `ci: check-instrument` (no spans in `app`'s code outside `main.rs`), plus `test` (PLATFORM-104, a database transaction's span inside a request's span and a job run's, and none outside every span), plus `review`.
 
 ### OBS-07 Trace context carries across work that happens later
 Inbound W3C `traceparent` from clients is accepted. Every job and event row stores the trace context that created it. The span for running that job or delivering that event links to the stored context. Outbound requests send trace context only to our own infrastructure, never to third parties.
 - Why: background work leads back to the request that caused it (D10).
-- Check: `test`.
+- Check: `test` (the inbound `traceparent` by PLATFORM-041's tests, the link of a job's run by PLATFORM-020's, and the rest by the rule's own).
 
 ### OBS-08 Errors and slow requests are always kept
-The SDK samples every trace except the health probes (OBS-15). The collector's tail sampling keeps every trace with `http.response.status_code >= 400` or an error status, every trace slower than the latency objective, and a configured share of the rest. Logs are never sampled. The dashboard of request latency lists kept traces slower than the objective in the time range it shows, as many as its limit holds, each leading to its trace.
+The SDK samples every trace except the health probes (OBS-15). The collector's tail sampling keeps every trace with `http.response.status_code >= 400` or an error status, every trace slower than the latency objective, and a configured share of the rest. It decides a trace once its wait, 15 seconds in the reference deployment, has passed since the trace's first span arrived, on the spans that have arrived, and a span that arrives later takes that decision: a request or a job's run whose failure comes after the wait leaves a trace only when the decision kept it, and its log lines and its counts stay (D222). Logs are never sampled. The dashboard of request latency lists kept traces slower than the objective in the time range it shows, as many as its limit holds, each leading to its trace.
 The spans that users' clients send through the telemetry proxy pass no tail sampling: the collector keeps each one that it admits (CLIENT_TELEMETRY-011). <!-- part: client_telemetry -->
-- Why: every trace ID a user can report as a problem resolves to a trace, a latency spike leads to the requests behind it, and every request's logs are kept (D10).
+- Why: every trace ID a user can report as a problem resolves to a trace, or, for a failure that came after the collector's wait, to its log lines; a latency spike leads to the requests behind it, and every request's logs are kept (D10).
 - Check: `ci: check-telemetry-config` (the sampling policies in the collector's configuration, and the same objective in them, the alerts and the dashboard), plus `test` (end to end).
 
-### OBS-09 Identity on spans comes from the server
-User and workspace attributes on spans come from `Principal` and `Authorized<P>`, never from client-supplied baggage.
-- Why: trace searches by user return the truth.
+### OBS-09 Identity on the API's spans comes from the server
+User and workspace attributes on the API's spans come from `Principal` and `Authorized<P>`, never from client-supplied baggage.
+The spans of users' clients, which the telemetry proxy forwards, keep the attributes that their client set, a `user.id` among them, since the collector writes only their resource anew: a trace search by user that is meant to find the API's spans names the API's `service.name` too (D178). <!-- part: client_telemetry -->
+- Why: a trace search by user among the API's spans returns the truth.
 - Check: `review`.
 
 ### OBS-10 Telemetry setup fails loudly
@@ -72,19 +74,21 @@ With telemetry enabled, startup fails if an exporter can't be built. Export fail
 ## Metrics
 
 ### OBS-11 Metrics are declared, named and bounded
-Every metric is declared once, as a `static` of one of the declaration types in `platform::telemetry::metrics`, with its name, unit, description and label names, and a histogram's bucket boundaries. Each module declares its metrics in `metrics.rs`, and `platform` declares its own in the area that records them. A name is OpenTelemetry's wherever a semantic convention defines the metric, checked against the conventions' published name as OBS-05's are. Any other name is `<module>.<name>`: the declaring module's name, `platform` for its own, then what it counts or measures in `snake_case`, such as `platform.panics`. Label names are the constants of the list in `platform::telemetry` (OBS-05), and a recording passes one value for each, in order. Labels come from bounded sets and never include IDs or personal data.
+Every metric but those that the API's OpenTelemetry SDK counts itself is declared once, as a `static` of one of the declaration types in `platform::telemetry::metrics`, with its name, unit, description and label names, and a histogram's bucket boundaries. Each module declares its metrics in `metrics.rs`, and `platform` declares its own in the area that records them. A name is OpenTelemetry's wherever a semantic convention defines the metric, checked against the conventions' published name as OBS-05's are. Any other name is `<module>.<name>`: the declaring module's name, `platform` for its own, then what it counts or measures in `snake_case`, such as `platform.panics`. Label names are the constants of the list in `platform::telemetry` (OBS-05), and a recording passes one value for each, in order. Labels come from bounded sets and never include IDs or personal data.
 - Why: every metric is known, documented and cheap to store, and an own name can't pass for one of the conventions' (D19). The conventions use `app.` for client applications.
 - Check: `compiler` (the declaration types, and the conventions' names), `clippy` (getting an OpenTelemetry meter outside the declaration types), plus `ci: check-metrics` (own names, and label names from the list).
 
 ### OBS-12 The metric catalog is generated
-`docs/operations/metrics.md` is generated from the declarations, and from `deploy/observability/metrics.yaml`, which lists the metrics that other parts of the stack produce, such as the collector's own. CI fails if the catalog is out of date, if a dashboard or alert uses a metric that neither declares, or if a metric either declares isn't used by any dashboard or alert.
+`docs/operations/metrics.md` is generated from the declarations, and from `deploy/observability/metrics.yaml`, which lists the metrics that other parts of the stack produce, such as the collector's own, and those that the API's OpenTelemetry SDK counts itself. CI fails if the catalog is out of date, if a dashboard or alert uses a metric that neither declares, or if a metric either declares isn't used by any dashboard or alert.
 - Why: dashboards, alerts and code can't drift apart (D19).
 - Check: `ci: check-metrics`.
 
 ## Dashboards and alerts
 
 ### OBS-13 Dashboards answer named questions
-Dashboards are the files in `deploy/observability/grafana/`, and read-only in Grafana: the self-hosted Grafana provisions them, and a managed Grafana, which can't read provisioning files, imports them into a folder that only the import and the managed Grafana's administrators may change (D42). One overview dashboard links to one dashboard per area, by the tag `area` that each of them carries, so a dashboard that a part of the template owns leaves no link behind once a fork leaves the part out (D119). Each panel's title is the question it answers.
+Dashboards are the files in `deploy/observability/grafana/`, and read-only in Grafana: the self-hosted Grafana provisions them, and a managed Grafana, which can't read provisioning files, imports them into a folder that only the import and the managed Grafana's administrators may change (D42). One overview dashboard links to one dashboard per area, by the tag `area` that each of them carries.
+So a dashboard that a part of the template owns leaves no link behind once a fork leaves the part out (D119). <!-- part: removal -->
+Each panel's title is the question it answers.
 - Why: a dashboard is read under pressure, and must say what it shows (D19). Whichever Grafana shows them, the files are the dashboards, and the checks read the files.
 - Check: `ci: check-metrics` (queries, titles that end in a question mark, read-only provisioning, and an overview that links to every other dashboard, by its address or by its tags), `ci: e2e` (the import into a managed Grafana), plus `review` (what each title asks, and one dashboard per area).
 

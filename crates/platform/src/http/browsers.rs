@@ -218,14 +218,25 @@ impl<S: Send + Sync> FromRequestParts<S> for Cookies {
     }
 }
 
+/// The name and value of each cookie of every `Cookie` line, in their order (PLATFORM-092). A line
+/// that holds a byte outside ASCII counts too, read as UTF-8, with the replacement character for
+/// what isn't: a value that holds such a byte is so no token, since the API issues only tokens of
+/// ASCII.
 fn pairs(headers: &HeaderMap) -> Vec<(String, String)> {
     headers
         .get_all(header::COOKIE)
         .iter()
-        .filter_map(|value| value.to_str().ok())
-        .flat_map(|value| value.split(';'))
-        .filter_map(|pair| pair.trim().split_once('='))
-        .map(|(key, value)| (key.to_owned(), value.to_owned()))
+        .flat_map(|value| value.as_bytes().split(|byte| *byte == b';'))
+        .filter_map(|pair| {
+            let mut parts = pair.trim_ascii().splitn(2, |byte| *byte == b'=');
+            Some((parts.next()?, parts.next()?))
+        })
+        .map(|(key, value)| {
+            (
+                String::from_utf8_lossy(key).into_owned(),
+                String::from_utf8_lossy(value).into_owned(),
+            )
+        })
         .collect()
 }
 
@@ -324,5 +335,25 @@ mod tests {
         };
         assert_eq!(cookies.credential("access_token").unwrap(), Some("one"));
         assert_eq!(cookies.credential("refresh_token").unwrap(), Some("two"));
+    }
+
+    #[test]
+    fn platform_092_a_cookie_line_that_holds_a_byte_outside_ascii_still_counts() {
+        let mut headers = HeaderMap::new();
+        for line in [
+            &b"__Host-access_token=caf\xc3\xa9; __Host-refresh_token=\xff"[..],
+            b"__Host-access_token=one; __Host-refresh_token=two",
+        ] {
+            headers.append(header::COOKIE, HeaderValue::from_bytes(line).unwrap());
+        }
+        let cookies = Cookies {
+            pairs: pairs(&headers),
+            may_authenticate: true,
+        };
+        assert_eq!(cookies.credential("access_token").unwrap(), Some("café"));
+        assert_eq!(
+            cookies.credential("refresh_token").unwrap(),
+            Some("\u{FFFD}")
+        );
     }
 }

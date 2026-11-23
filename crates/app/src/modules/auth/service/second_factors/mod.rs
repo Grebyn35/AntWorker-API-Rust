@@ -153,7 +153,7 @@ impl Auth {
                 .expose(),
         )?;
         let now = factors::now(&mut uow).await?;
-        let Some(step) = secret.accepts(&code, now, None) else {
+        let Some(step) = secret.accepts(&code, now, None)? else {
             metrics::factor_check(FactorCheck::WrongCode);
             return Err(self
                 .wrong_factor(uow, principal.audit_scope(), user_id, AuthError::WrongCode)

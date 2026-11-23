@@ -2,8 +2,6 @@
 //! budgets, through a route of the tests' own that counts the bytes its request names in its
 //! caller's budget (PLATFORM-089).
 
-use std::sync::Arc;
-
 use serde_json::json;
 
 use crate::support::{
@@ -325,11 +323,6 @@ async fn platform_057_no_bucket_holds_an_ip_address_an_email_or_a_user_id() {
     }
 }
 
-/// The API with the route that counts in the tests' budget.
-async fn spending() -> Api {
-    Api::with(Options::routes(fixtures::routes(Arc::default()))).await
-}
-
 /// Counts `bytes` in `user`'s budget of the tests' own.
 async fn spend(api: &Api, user: &SignedIn, bytes: u32) -> Response {
     api.post("/v1/spend", &json!({ "bytes": bytes }))
@@ -346,7 +339,7 @@ fn assert_refused(response: &Response) {
 
 #[tokio::test]
 async fn platform_089_a_budget_refuses_the_bytes_past_its_limit_and_keeps_them_counted() {
-    let api = spending().await;
+    let api = fixtures::api().await;
     let ada = users::register(&api, "ada@example.com").await;
     let grace = users::register(&api, "grace@example.com").await;
 
@@ -369,7 +362,7 @@ async fn platform_089_a_budget_refuses_the_bytes_past_its_limit_and_keeps_them_c
 
 #[tokio::test]
 async fn platform_089_a_budget_s_window_starts_again_once_it_has_ended() {
-    let api = spending().await;
+    let api = fixtures::api().await;
     let ada = users::register(&api, "ada@example.com").await;
     assert_eq!(spend(&api, &ada, SPENDING.limit).await.status, 204);
     let beyond = spend(&api, &ada, 1).await;
@@ -393,7 +386,7 @@ async fn platform_089_a_budget_s_window_starts_again_once_it_has_ended() {
 
 #[tokio::test]
 async fn platform_089_a_response_that_no_budget_refused_describes_a_bucket_of_requests() {
-    let api = spending().await;
+    let api = fixtures::api().await;
     let ada = users::register(&api, "ada@example.com").await;
 
     let taken = spend(&api, &ada, 8).await;
@@ -409,7 +402,7 @@ async fn platform_089_a_response_that_no_budget_refused_describes_a_bucket_of_re
 
 #[tokio::test]
 async fn platform_089_a_budget_s_key_holds_no_user_id() {
-    let api = spending().await;
+    let api = fixtures::api().await;
     let ada = users::register(&api, "ada@example.com").await;
     assert_eq!(spend(&api, &ada, 432).await.status, 204);
 

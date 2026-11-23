@@ -18,7 +18,8 @@ use crate::{
 /// The catalog that `just metrics` writes.
 pub const CATALOG: &str = "docs/operations/metrics.md";
 
-/// The metrics other parts of the stack produce, which dashboards and alerts read.
+/// The metrics that the API's OpenTelemetry SDK counts itself, or other parts of the stack
+/// produce, which dashboards and alerts read.
 const EXTERNAL: &str = "deploy/observability/metrics.yaml";
 
 /// A metric that another part of the stack produces, by its name in Prometheus.
@@ -131,9 +132,10 @@ fn render(declared: &[Metric], external: &[External], findings: &mut Vec<Finding
     let mut text = String::from(
         "# Metric catalog\n\n\
          Every metric the dashboards and alerts read: the API's own, from their declarations in \
-         code (OBS-11), and those that other parts of the stack produce, from \
-         `deploy/observability/metrics.yaml`. `just metrics` writes this file, and \
-         `check-metrics` fails while it differs from what the declarations give (OBS-12).\n\n\
+         code (OBS-11), and those that the API's OpenTelemetry SDK counts itself or other \
+         parts of the stack produce, from `deploy/observability/metrics.yaml`. `just metrics` \
+         writes this file, and `check-metrics` fails while it differs from what the \
+         declarations give (OBS-12).\n\n\
          Prometheus stores each metric under the name in its \"In Prometheus\" column: its \
          receiver of the OpenTelemetry Protocol (OTLP) turns the dots into underscores, and adds \
          the unit and the kind as suffixes. A label's dots become underscores too.\n\n\
@@ -170,7 +172,7 @@ fn render(declared: &[Metric], external: &[External], findings: &mut Vec<Finding
         ));
     }
     text.push_str(
-        "\n## Metrics of the rest of the stack\n\n\
+        "\n## Metrics of the API's SDK and of the rest of the stack\n\n\
          | In Prometheus | Kind | Produced by | Description |\n\
          |---|---|---|---|\n",
     );

@@ -32,7 +32,9 @@ pub fn check(repo: &Repo) -> Outcome {
 
 /// Checks that the managed backend's configuration, which the collector merges over its own,
 /// keeps its tail sampling: the merge replaces a list it sets, so the overlay sets no processors
-/// for the traces pipeline, and defines no tail sampling of its own.
+/// and no receivers for a traces pipeline, `traces` or one whose name starts with `traces/`, as
+/// a pipeline of its own takes, which could carry the API's spans past the sampling; and it
+/// defines no tail sampling of its own.
 fn overlay_keeps_sampling(repo: &Repo, findings: &mut Vec<Finding>) {
     if repo.file(stack::MANAGED).is_none() {
         return;
@@ -43,13 +45,24 @@ fn overlay_keeps_sampling(repo: &Repo, findings: &mut Vec<Finding>) {
     let source = repo
         .file(stack::MANAGED)
         .map_or("", |file| file.text.as_str());
-    if !overlay["service"]["pipelines"]["traces"]["processors"].is_null() {
-        findings.push(Finding::new(
-            stack::MANAGED,
-            text::line_of(source, "traces:"),
-            "the managed backend's configuration replaces the traces pipeline's processors, and \
-             with them the tail sampling of the collector's own (OBS-08)",
-        ));
+    let pipelines = overlay["service"]["pipelines"]
+        .as_object()
+        .into_iter()
+        .flatten();
+    for (name, pipeline) in pipelines.filter(|(name, _)| name.split('/').next() == Some("traces")) {
+        let set = ["processors", "receivers"].map(|key| !pipeline[key].is_null());
+        if set.contains(&true) {
+            findings.push(Finding::new(
+                stack::MANAGED,
+                text::line_of(source, &format!("{name}:")),
+                format!(
+                    "the managed backend's configuration sets the {} of the pipeline {name}, \
+                     which replaces the processors of the collector's own, the tail sampling \
+                     among them, or takes spans that the sampling doesn't read (OBS-08)",
+                    if set[0] { "processors" } else { "receivers" }
+                ),
+            ));
+        }
     }
     let redefines = overlay["processors"]
         .as_object()
@@ -397,6 +410,8 @@ mod tests {
     fn obs_08_the_managed_backend_s_configuration_keeps_the_collector_s_sampling() {
         let keeps = "service:\n  pipelines:\n    traces:\n      exporters: [otlp_http/managed]\n";
         let replaces = "service:\n  pipelines:\n    traces:\n      processors: [batch]\n";
+        let adds = "service:\n  pipelines:\n    traces:\n      exporters: [otlp_http/managed]\n    \
+                    traces/x:\n      receivers: [otlp]\n      exporters: [otlp_http/managed]\n";
         let redefines = "processors:\n  tail_sampling:\n    policies: []\n";
         let check_with = |overlay: &str| {
             let repo = Repo::of(&[
@@ -416,7 +431,8 @@ mod tests {
         };
 
         assert!(check_with(keeps).is_empty());
-        assert!(check_with(replaces)[0].contains("replaces the traces pipeline's processors"));
+        assert!(check_with(replaces)[0].contains("sets the processors of the pipeline traces,"));
+        assert!(check_with(adds)[0].contains("sets the receivers of the pipeline traces/x,"));
         assert!(check_with(redefines)[0].contains("defines tail sampling of its own"));
     }
 
@@ -457,14 +473,26 @@ mod tests {
         );
         assert!(kept.is_empty(), "{kept:?}");
 
-        let without_errors: String = POLICIES.lines().skip(1).collect::<Vec<_>>().join("\n");
-        let missing = findings(
-            &collector(&without_errors),
-            RULES,
-            &dashboard("{ duration > 0.5s }"),
-        );
-        assert_eq!(missing.len(), 1, "{missing:?}");
-        assert!(missing[0].contains("error status"));
+        // Each policy but the latency one, without which a finding names what it kept.
+        for (line, kept) in [
+            (0, "error status"),
+            (1, "http.response.status_code >= 400"),
+            (3, "a share of the other traces"),
+        ] {
+            let without: Vec<&str> = POLICIES
+                .lines()
+                .enumerate()
+                .filter(|(index, _)| *index != line)
+                .map(|(_, policy)| policy)
+                .collect();
+            let missing = findings(
+                &collector(&without.join("\n")),
+                RULES,
+                &dashboard("{ duration > 0.5s }"),
+            );
+            assert_eq!(missing.len(), 1, "{missing:?}");
+            assert!(missing[0].contains(kept), "{kept} in {missing:?}");
+        }
     }
 
     #[test]

@@ -93,7 +93,7 @@ fn code(plan: &mut Plan<'_>, module: &str, inserts: &Inserts) {
         &format!("`{declaration}` among the modules"),
         &|text| {
             sorted(text, module, std::slice::from_ref(&declaration), |line| {
-                entry(line, "pub(crate) mod ", ";")
+                entry(line, "pub(crate) mod ")
             })
         },
     );
@@ -128,14 +128,14 @@ fn code(plan: &mut Plan<'_>, module: &str, inserts: &Inserts) {
     plan.place(
         "crates/app/tests/integration/main.rs",
         &format!("`#[cfg(test)] mod {module};` among the test modules"),
-        &|text| sorted(text, module, &test_lines, |line| entry(line, "mod ", ";")),
+        &|text| sorted(text, module, &test_lines, |line| entry(line, "mod ")),
     );
     plan.place(
         "crates/app/tests/integration/support/mod.rs",
         &format!("`pub mod {module};` among the test support's modules"),
         &|text| {
             sorted(text, module, &[format!("pub mod {module};")], |line| {
-                entry(line, "pub mod ", ";")
+                entry(line, "pub mod ")
             })
         },
     );
@@ -179,11 +179,11 @@ fn documents(plan: &mut Plan<'_>, inserts: &Inserts) {
     );
 }
 
-/// The name that `line` declares between `start` and `end`, such as `access` in
+/// The name that `line` declares between `start` and a `;`, such as `access` in
 /// `pub(crate) mod access;`.
-fn entry(line: &str, start: &str, end: &str) -> Option<String> {
+fn entry(line: &str, start: &str) -> Option<String> {
     line.strip_prefix(start)
-        .and_then(|rest| rest.strip_suffix(end))
+        .and_then(|rest| rest.strip_suffix(';'))
         .filter(|name| {
             name.chars()
                 .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
@@ -466,7 +466,7 @@ mod tests {
         let modules = "//! Modules.\n\npub(crate) mod access;\n// part: offers\n\
                        pub(crate) mod offers;\n// end part: offers\n\
                        pub(crate) mod realtime;\n";
-        let declared = |line: &str| entry(line, "pub(crate) mod ", ";");
+        let declared = |line: &str| entry(line, "pub(crate) mod ");
 
         let between = sorted(
             modules,
@@ -495,14 +495,14 @@ mod tests {
                      // end part: offers\n";
         let lines = ["#[cfg(test)]".to_owned(), "mod items;".to_owned()];
         assert_eq!(
-            sorted(tests, "items", &lines, |line| entry(line, "mod ", ";")).unwrap(),
+            sorted(tests, "items", &lines, |line| entry(line, "mod ")).unwrap(),
             "#[cfg(test)]\nmod access;\n#[cfg(test)]\nmod items;\n// part: offers\n\
              #[cfg(test)]\nmod offers;\n// end part: offers\n"
         );
         // After the last declaration, the lines go below the end of the block that holds it.
         let lines = ["#[cfg(test)]".to_owned(), "mod widgets;".to_owned()];
         assert_eq!(
-            sorted(tests, "widgets", &lines, |line| entry(line, "mod ", ";")).unwrap(),
+            sorted(tests, "widgets", &lines, |line| entry(line, "mod ")).unwrap(),
             "#[cfg(test)]\nmod access;\n// part: offers\n#[cfg(test)]\nmod offers;\n\
              // end part: offers\n#[cfg(test)]\nmod widgets;\n"
         );
@@ -512,7 +512,7 @@ mod tests {
     #[test]
     fn arch_03_a_module_s_line_goes_in_the_order_of_the_names_above_the_next_one_s_attribute() {
         let tests = "//! Tests.\n\n#[cfg(test)]\nmod access;\n#[cfg(test)]\nmod realtime;\n";
-        let declared = |line: &str| entry(line, "mod ", ";");
+        let declared = |line: &str| entry(line, "mod ");
         let lines = |name: &str| ["#[cfg(test)]".to_owned(), format!("mod {name};")];
 
         assert_eq!(

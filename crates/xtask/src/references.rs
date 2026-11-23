@@ -6,10 +6,11 @@
 //!   only the places DOC-13 lists point into the inventory (DOC-13).
 //!
 //! It reads every Markdown document, and every comment of a file whose comments `text` can find,
-//! but the inventory's, whose IDs are its own, for test prefixes and Rust paths; and every text
-//! file but the migration workspace's, whose tracker and inventory record the codebase this one
-//! replaces, for its name, the phrases that name it and the inventory's paths, outside a comment
-//! as well as in one.
+//! but the inventory's, whose IDs are its own, for test prefixes and Rust paths. It reads every
+//! text file but the migration workspace's, whose tracker and inventory record the codebase this
+//! one replaces, for its name, and those files but the other places that DOC-13 lists, in
+//! [`INVENTORY_POINTERS`], for the phrases that name it and the inventory's paths: of a Rust
+//! file, its comments, and of any other file, every line.
 
 use crate::{Finding, catalog::Catalog, repo::Repo, text};
 
@@ -30,8 +31,8 @@ const INVENTORY_POINTERS: [&str; 4] = [
 /// The names of the codebases this one replaces (DOC-13).
 pub const OLD_NAMES: [&str; 1] = ["AntWorker-API"];
 
-/// The phrases that name the codebases this one replaces without their names (DOC-13). CLAUDE.md,
-/// a pointer into the inventory, may say what the inventory describes.
+/// The phrases that name the codebases this one replaces without their names (DOC-13). The
+/// places that may point into the inventory may say what it describes.
 const OLD_PHRASES: [&str; 3] = ["the old API", "the old client", "the old codebase"];
 
 /// Every test prefix, Rust path, old name and inventory path that the documents and comments name
@@ -68,10 +69,7 @@ pub fn check(repo: &Repo, catalog: &Catalog) -> Vec<Finding> {
                 }
             }
             for cited in described.map(rust_paths).unwrap_or_default() {
-                let exists = rust_files
-                    .iter()
-                    .any(|file| *file == cited || file.ends_with(&format!("/{cited}")));
-                if !exists {
+                if !rust_files.iter().any(|file| names(&cited, file)) {
                     found(format!(
                         "`{cited}` names no file of the repository (DOC-01)"
                     ));
@@ -110,6 +108,15 @@ pub fn check(repo: &Repo, catalog: &Catalog) -> Vec<Finding> {
         }
     }
     findings
+}
+
+/// Whether `cited`, a path or a name that [`rust_paths`] read, names the Rust file at `file`: it
+/// is the file's whole path from the repository root, or its last components.
+pub fn names(cited: &str, file: &str) -> bool {
+    file == cited
+        || file
+            .strip_suffix(cited)
+            .is_some_and(|before| before.ends_with('/'))
 }
 
 /// The test prefixes in `text`: a word of lowercase letters and underscores, then `_` and two or
@@ -151,7 +158,7 @@ pub fn test_prefixes(text: &str) -> Vec<(String, String)> {
 /// names of Rust files that stand alone between two backticks, such as `jobs.rs`, which name a
 /// file of that name in any directory. A path and a name are runs of lowercase ASCII letters,
 /// digits, `_` and, in a path, `/`; a file's name outside backticks is read as prose.
-fn rust_paths(text: &str) -> Vec<String> {
+pub fn rust_paths(text: &str) -> Vec<String> {
     let mut found = Vec::new();
     for (end, _) in text.match_indices(".rs") {
         let after = text[end + 3..].chars().next();
@@ -159,10 +166,12 @@ fn rust_paths(text: &str) -> Vec<String> {
             continue;
         }
         let start = text[..end]
-            .rfind(|c: char| {
-                !(c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '/')
+            .char_indices()
+            .rev()
+            .find(|(_, c)| {
+                !(c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '_' || *c == '/')
             })
-            .map_or(0, |at| at + 1);
+            .map_or(0, |(at, c)| at + c.len_utf8());
         let path = &text[start..end + 3];
         let before = text[..start].chars().next_back();
         let named = path.contains('/')
@@ -206,6 +215,14 @@ mod tests {
     }
 
     #[test]
+    fn doc_01_a_rust_path_after_a_character_of_several_bytes_is_read() {
+        assert_eq!(
+            rust_paths("é`a/b.rs`, —events/hub.rs and ü`jobs.rs`"),
+            ["a/b.rs", "events/hub.rs", "jobs.rs"]
+        );
+    }
+
+    #[test]
     fn doc_01_a_rust_file_s_name_alone_in_backticks_is_read() {
         assert_eq!(
             rust_paths(
@@ -216,8 +233,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn doc_13_and_doc_13_documents_and_comments_name_what_exists() {
+    /// The findings of `check` that cite `rule`, each as its file and its message, in order.
+    fn found(rule: &str) -> Vec<String> {
         let repo = Repo::of(&[
             ("docs/spec/things.md", "| ID |\n|---|\n| THINGS-001 |\n"),
             ("crates/platform/src/events/hub.rs", "// The hub.\n"),
@@ -244,32 +261,68 @@ mod tests {
                 "justfile",
                 "# things_008_ is read here, as every comment is.\n",
             ),
+            (
+                "CLAUDE.md",
+                "The old API is described in docs/inventory/.\n",
+            ),
+            (
+                "docs/standards/docs.md",
+                "The inventory, docs/inventory/, describes the old codebase.\n",
+            ),
         ]);
         let catalog = Catalog::read(&repo);
-
-        let messages: Vec<String> = check(&repo, &catalog)
+        let mut found: Vec<String> = check(&repo, &catalog)
             .into_iter()
+            .filter(|finding| finding.message.ends_with(&format!("({rule})")))
             .map(|finding| format!("{}:{}", finding.path, finding.message))
             .collect();
+        found.sort();
+        found
+    }
 
-        assert_eq!(messages.len(), 11, "{messages:#?}");
-        for expected in [
-            "docs/guide.md:`things_002` is the test prefix of THINGS-002",
-            "docs/guide.md:`events/gone.rs` names no file",
-            "docs/guide.md:`AntWorker-API` names the old codebase",
-            "docs/guide.md:\"the old API\" names the old codebase",
-            "docs/guide.md:a path into the inventory",
-            "crates/app/src/lib.rs:`things_009` is the test prefix",
-            "docs/MIGRATION.md:`things_005` is the test prefix",
-            "docs/MIGRATION.md:`gone/old.rs` names no file",
-            "deploy/tasks/old.sh:`AntWorker-API` names the old codebase",
-            "deploy/tasks/old.sh:a path into the inventory",
-            "justfile:`things_008` is the test prefix",
-        ] {
-            assert!(
-                messages.iter().any(|message| message.starts_with(expected)),
-                "{expected} in {messages:#?}"
-            );
+    /// Asserts that `found` holds a message for each of `expected`, which starts it, in order.
+    fn assert_starts(found: &[String], expected: &[&str]) {
+        assert_eq!(found.len(), expected.len(), "{found:#?}");
+        for (message, start) in found.iter().zip(expected) {
+            assert!(message.starts_with(start), "{start} in {found:#?}");
         }
+    }
+
+    #[test]
+    fn doc_12_a_test_prefix_that_a_document_or_a_comment_cites_is_of_an_id_that_exists() {
+        assert_starts(
+            &found("DOC-12"),
+            &[
+                "crates/app/src/lib.rs:`things_009` is the test prefix",
+                "docs/MIGRATION.md:`things_005` is the test prefix",
+                "docs/guide.md:`things_002` is the test prefix of THINGS-002",
+                "justfile:`things_008` is the test prefix",
+            ],
+        );
+    }
+
+    #[test]
+    fn doc_01_a_path_to_a_rust_file_names_one_that_exists() {
+        assert_starts(
+            &found("DOC-01"),
+            &[
+                "docs/MIGRATION.md:`gone/old.rs` names no file",
+                "docs/guide.md:`events/gone.rs` names no file",
+            ],
+        );
+    }
+
+    #[test]
+    fn doc_13_only_the_places_it_lists_name_the_old_codebase_or_point_into_the_inventory() {
+        assert_starts(
+            &found("DOC-13"),
+            &[
+                "deploy/tasks/old.sh:`AntWorker-API` names the old codebase",
+                "deploy/tasks/old.sh:a path into the inventory",
+                "docs/guide.md:\"the old API\" names the old codebase",
+                "docs/guide.md:`AntWorker-API` names the old codebase",
+                "docs/guide.md:a path into the inventory",
+            ],
+        );
     }
 }

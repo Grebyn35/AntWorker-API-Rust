@@ -6,10 +6,11 @@ use serde_json::json;
 use crate::support::{
     Api, Options,
     api::{PEER, Response},
+    execute_on, mailbox,
     providers::{self, gives, grant, identity},
-    second_factors,
+    queries_wait_on_locks, second_factors,
     upstream::Upstream,
-    users::{self, PASSWORD, WEB},
+    users::{self, PASSWORD, SignedIn, WEB},
 };
 
 /// Signs `email` in with `password` from the client address `peer`, with `device_token` in the
@@ -41,8 +42,8 @@ fn bucket(response: &Response) -> String {
     policy.split('"').nth(1).unwrap_or_default().to_owned()
 }
 
-/// Whether each of `tokens` is stored, by its hash, in the order of the rows' creation, each with
-/// its lifetime in seconds.
+/// Whether each of `tokens` is stored, by its hash, in the order of `tokens`: its lifetime in
+/// seconds, or `none`.
 async fn stored(api: &Api, tokens: &[&str]) -> Vec<String> {
     let mut rows = Vec::new();
     for token in tokens {
@@ -178,6 +179,86 @@ async fn auth_006_a_valid_device_token_counts_only_in_its_own_limit() {
             .header("ratelimit-policy")
             .starts_with("\"sign_in_device\";q=2;w=900")
     );
+}
+
+/// Changes the address of `user`'s account to `email`, with the code that the API's jobs send
+/// there (AUTH-048, AUTH-051).
+async fn change_address(api: &Api, user: &SignedIn, email: &str) {
+    let asked = api
+        .post("/v1/users/me/email/change", &json!({ "email": email }))
+        .bearer(&user.access)
+        .send()
+        .await;
+    assert_eq!(asked.status, 202, "{}", asked.json());
+    api.run_jobs().await;
+    let code = mailbox::to(email)
+        .await
+        .iter()
+        .find_map(|sent| mailbox::grouped_code_in(&sent.text));
+    assert!(code.is_some(), "a change code sent to {email}");
+    let confirmed = api
+        .post(
+            "/v1/users/me/email/change/confirm",
+            &json!({ "email": email, "code": code }),
+        )
+        .bearer(&user.access)
+        .send()
+        .await;
+    assert_eq!(confirmed.status, 200, "{}", confirmed.json());
+}
+
+#[tokio::test]
+async fn auth_019_a_token_got_before_a_change_of_the_address_counts_as_none_for_the_address_before()
+{
+    let api = Api::new().await;
+    let (before, after) = (mailbox::address("ada"), mailbox::address("ada-new"));
+    let registered = api
+        .post("/v1/users", &users::registration(&before))
+        .send()
+        .await;
+    let token = device_token(&registered);
+    change_address(&api, &SignedIn::from(&registered), &after).await;
+    // Another account takes the address that Ada's gave up.
+    users::register(&api, &before).await;
+
+    let signed_in = sign_in(&api, PEER, &before, PASSWORD, Some(&token)).await;
+
+    assert_eq!(signed_in.status, 201);
+    assert_eq!(bucket(&signed_in), "sign_in");
+    assert_eq!(stored(&api, &[&token]).await, ["none"]);
+}
+
+#[tokio::test]
+async fn auth_019_a_sign_in_that_waited_for_a_change_of_the_address_gets_a_token_for_the_address_after()
+ {
+    let api = Api::new().await;
+    let (before, after) = (mailbox::address("ada"), mailbox::address("ada-new"));
+    let ada = users::register(&api, &before).await;
+    let db = api.database();
+    // A change of the address that holds the user's row, as its update holds it until it
+    // commits, while a sign-in that found the account by the address before inserts its session.
+    let mut change = db
+        .holding(&format!(
+            "UPDATE users SET email = '{after}' WHERE id = '{}'",
+            ada.user_id
+        ))
+        .await;
+
+    let signing_in = {
+        let (api, before) = (api.clone(), before.clone());
+        tokio::spawn(async move { sign_in(&api, PEER, &before, PASSWORD, None).await })
+    };
+    queries_wait_on_locks(db, 1).await;
+    execute_on(&mut change, "COMMIT").await;
+    let signed_in = signing_in.await.unwrap();
+
+    assert_eq!(signed_in.status, 201, "{}", signed_in.json());
+    let token = device_token(&signed_in);
+    users::register(&api, &before).await;
+    let for_before = sign_in(&api, PEER, &before, PASSWORD, Some(&token)).await;
+    let for_after = sign_in(&api, PEER, &after, PASSWORD, Some(&token)).await;
+    assert_eq!(bucket(&for_before), "sign_in");
+    assert_eq!(bucket(&for_after), "sign_in_device");
 }
 
 #[tokio::test]

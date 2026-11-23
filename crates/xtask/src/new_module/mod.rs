@@ -7,7 +7,8 @@
 //! the files the module owns, at their paths, each ending in `.tmpl`, and `insert/` what it adds to
 //! the files every module shares, which `edits` places. Writing a module replaces each form of the
 //! template's names with the same form of the module's (`names`), once it has checked that nothing
-//! of the module exists yet, and that its names clash with none the code imports (`refusals`).
+//! of the module exists yet, that its names clash with none the code names, and that its types
+//! take no schema name that a type of the code takes (`refusals`).
 //!
 //! The module's queries need the query cache before anything that holds them builds (DATA-14), and
 //! the cache needs a database that the module's migration built, so the task writes the migration
@@ -261,7 +262,7 @@ fn leftovers<'a>(
     Ok(())
 }
 
-/// The migration's timestamp: the time now, in UTC, as `YYYYMMDDhhmmss`, or one second after the
+/// The migration's timestamp: the time now, in UTC, as `YYYYMMDDhhmmss`, or the number after the
 /// newest migration's, if that comes later, so the module's migration runs after every other.
 fn timestamp(repo: &Repo) -> Result<String, String> {
     #[expect(

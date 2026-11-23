@@ -104,7 +104,7 @@ impl Wanted {
             return Served::Whole;
         };
         match self.if_range.as_deref() {
-            Some(value) if value.trim() != quoted(tag) => Served::Whole,
+            Some(value) if value.trim_ascii() != quoted(tag) => Served::Whole,
             _ => Served::Range(range),
         }
     }
@@ -118,18 +118,19 @@ pub(crate) fn quoted(tag: &str) -> String {
 /// Whether `value`, an `If-None-Match`, is `*` or names `tag` among its entity tags, by the weak
 /// comparison it takes.
 fn names_tag(value: &str, tag: &str) -> bool {
-    let value = value.trim();
+    let value = value.trim_ascii();
     value == "*"
         || value.split(',').any(|named| {
-            let named = named.trim();
+            let named = named.trim_ascii();
             named.strip_prefix("W/").unwrap_or(named) == quoted(tag)
         })
 }
 
 /// The one range of bytes that `value`, a `Range`, asks for of `size` bytes: `bytes=first-last`,
 /// its last cut to the bytes' last, `bytes=first-`, or `bytes=-suffix`, the last `suffix`
-/// bytes, or all of them for a longer suffix. `None` for a value of several ranges, of another
-/// unit, that isn't one, or whose range starts past the last byte.
+/// bytes, or all of them for a longer suffix, its unit in any case, with white space around its
+/// parts. `None` for a value of several ranges, of another unit, that isn't one, or whose range
+/// starts past the last byte.
 fn one_range(value: &str, size: u64) -> Option<ByteRange> {
     let (unit, set) = value.trim().split_once('=')?;
     if !unit.trim().eq_ignore_ascii_case("bytes") || set.contains(',') || size == 0 {

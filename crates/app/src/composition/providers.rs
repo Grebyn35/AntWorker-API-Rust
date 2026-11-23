@@ -9,7 +9,7 @@ pub(super) fn sign_in_providers(providers: &auth::Providers) -> Vec<system::Sign
     providers
         .listed()
         .into_iter()
-        .map(|listed| system::SignInProvider {
+        .map(|listed: auth::Listed| system::SignInProvider {
             provider: listed.provider,
             name: listed.name,
             authorization_endpoint: listed.authorization_endpoint,

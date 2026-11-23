@@ -1,6 +1,6 @@
 //! Time for code that measures or waits (CODE-06). Every read of the time, and every wait for a
-//! time to pass, in the workspace but the tests' watch goes through a [`Clock`], so the tests
-//! control time (TEST-06).
+//! time to pass, in the workspace goes through a [`Clock`], so the tests control time (TEST-06),
+//! but for the tests' watch and the reads of the system's time that CODE-06 names.
 #![expect(
     clippy::disallowed_types,
     reason = "the system clock is defined here, and only the binary's main.rs uses it (CODE-06)"
@@ -36,7 +36,7 @@ pub struct SystemClock;
 impl Clock for SystemClock {
     #[expect(
         clippy::disallowed_methods,
-        reason = "the system clock is the one place that reads the time (CODE-06)"
+        reason = "the system clock reads the time for the code that CODE-06 holds to a clock"
     )]
     fn now(&self) -> Instant {
         Instant::now()
@@ -44,7 +44,7 @@ impl Clock for SystemClock {
 
     #[expect(
         clippy::disallowed_methods,
-        reason = "the system clock is the one place that waits (CODE-06)"
+        reason = "the system clock waits for the code that CODE-06 holds to a clock"
     )]
     fn sleep(&self, duration: Duration) -> Sleep {
         Box::pin(tokio::time::sleep(duration))

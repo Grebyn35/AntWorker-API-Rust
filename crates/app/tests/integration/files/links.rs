@@ -405,6 +405,30 @@ async fn auth_020_a_session_whose_account_must_verify_its_address_downloads_noth
 }
 
 #[tokio::test]
+async fn auth_020_a_session_whose_account_must_set_up_a_second_factor_downloads_nothing() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let own = upload_own(&api, &ada, "mine.txt", b"mine", "", None)
+        .await
+        .json();
+    // A replica of a deployment that requires a second factor, of which the account has none.
+    let requiring = api
+        .instance(Options::default().set("SECOND_FACTOR_REQUIRED", true))
+        .await;
+
+    let response = requiring
+        .get(own["content_url"].as_str().unwrap())
+        .send()
+        .await;
+
+    assert_eq!(response.status, 403);
+    assert_eq!(
+        response.json()["code"],
+        "request.second_factor_setup_required"
+    );
+}
+
+#[tokio::test]
 async fn files_021_a_list_links_each_private_file_for_the_caller_s_session() {
     let api = Api::new().await;
     let (workspace, ada, grace) = acme(&api, "member").await;

@@ -1,6 +1,6 @@
 //! The repository's custom CI checks, and the other tasks that `just` runs.
-//! Each subcommand runs as a `just` task (OPS-10), and the API crates never depend on this one
-//! (ARCH-01).
+//! `just` runs each subcommand but `restore-plan`, which the end-to-end tests run (OPS-10), and
+//! the API crates never depend on this one (ARCH-01).
 
 mod acronyms;
 mod alerts;
@@ -72,7 +72,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     /// Reports which spec behaviors tests prove, and fails on a test whose name doesn't start with
-    /// a behavior or rule ID that exists.
+    /// a behavior or rule ID that exists, and on the rest that the doc of `test_map` names.
     #[command(name = "check-test-map")]
     TestMap,
     /// Fails on a route that a spec's Routes table lists a behavior for and that no integration
@@ -123,8 +123,8 @@ enum Command {
     #[command(name = "check-pins")]
     Pins,
     /// Fails on a finding of shellcheck in a recipe of the justfile that runs on Linux and macOS,
-    /// or in a shell script under `deploy/`, and on a `psql` of such a script whose statement isn't
-    /// given with `-c` or names a table of the product schema.
+    /// or in a shell script under `deploy/`, and on an `echo`, a function or a `psql` of such a
+    /// script that `shell::scripts` refuses.
     #[command(name = "check-shell")]
     Shell,
     /// Fails on a function, method or macro that the locked sqlx exposes and that takes SQL text,

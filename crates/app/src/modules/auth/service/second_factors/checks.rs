@@ -186,7 +186,7 @@ impl Auth {
                 let secret =
                     AppSecret::from_bytes(self.keyring.open(&binding, &app.secret)?.expose())?;
                 let now = factors::now(uow).await?;
-                match secret.accepts(code, now, Some(app.last_used_step)) {
+                match secret.accepts(code, now, Some(app.last_used_step))? {
                     Some(step) => {
                         let resealed = self.reseal(&binding, &app.secret, &secret)?;
                         factors::record_step(uow, user_id, app.id, step, resealed.as_ref()).await?;

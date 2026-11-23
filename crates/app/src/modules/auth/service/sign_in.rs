@@ -153,7 +153,7 @@ impl Auth {
         )
         .await?;
         let device = self
-            .issue_device_token(&mut uow, user_id, &input.email, trusted.as_ref())
+            .issue_device_token(&mut uow, user_id, trusted.as_ref())
             .await?;
         audit_log::record(
             &mut uow,
@@ -178,7 +178,7 @@ impl Auth {
         if stored.starts_with(&self.current_parameters()) {
             return Ok(None);
         }
-        let (rehashed, _) = hash_in(hashing, password).await?;
+        let rehashed = hash_in(hashing, password).await?;
         Ok(Some(rehashed))
     }
 

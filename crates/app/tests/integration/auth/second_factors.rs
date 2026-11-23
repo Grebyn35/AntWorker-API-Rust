@@ -7,6 +7,7 @@ use serde_json::{Value, json};
 use crate::support::{
     Api,
     api::Response,
+    api::reads,
     mailbox,
     providers::{self, gives, identity},
     second_factors::{self, App, add_app, code, confirm, forget_steps, other_code, start_setup},
@@ -23,11 +24,6 @@ async fn entries(api: &Api, action: &str) -> Vec<String> {
              WHERE action = '{action}' ORDER BY created_at"
         ))
         .await
-}
-
-/// The first column of each row of `sql`, as the `owner` reads it.
-async fn reads(api: &Api, sql: &str) -> Vec<String> {
-    api.database().owner_reads(sql).await
 }
 
 /// Reads `user`'s second factors.
@@ -452,6 +448,36 @@ async fn auth_064_removing_the_app_deletes_it_with_its_codes_and_challenges_once
             .await
             .status,
         201
+    );
+}
+
+#[tokio::test]
+async fn auth_065_both_codes_or_a_malformed_one_answer_400_at_its_field() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let app = add_app(&api, &ada).await;
+    let padded = format!("424242{}", " ".repeat(27));
+    let bodies = [
+        json!({ "password": PASSWORD, "code": "12345" }),
+        json!({ "password": PASSWORD, "code": padded }),
+        json!({ "password": PASSWORD, "code": "424242", "recovery_code": app.recovery_codes[0] }),
+        json!({ "password": PASSWORD, "recovery_code": "ABCD-EFGH" }),
+    ];
+
+    let mut refused = Vec::new();
+    for body in &bodies {
+        let answer = api
+            .post_raw("/v1/users/me/sessions/current/reauthenticate", body)
+            .bearer(&ada.access)
+            .send()
+            .await;
+        assert_eq!(answer.status, 400, "{body}");
+        refused.push(answer.json()["errors"][0]["field"].clone());
+    }
+
+    assert_eq!(
+        refused,
+        ["/code", "/code", "/code", "/recovery_code"].map(Value::from)
     );
 }
 

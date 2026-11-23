@@ -307,7 +307,7 @@ impl Storage {
             { names::OTEL_NAME } = call.operation(),
             { names::OTEL_KIND } = "client",
             { names::SERVER_ADDRESS } = &*self.host,
-            { names::SERVER_PORT } = self.port,
+            { names::SERVER_PORT } = i64::from(self.port),
         )
     }
 }
@@ -384,7 +384,7 @@ fn answered<T: Send + 'static>(
 /// connection's: the waits for the bucket's answers are the clock's, in [`Storage`]. It follows
 /// no redirect, so a request reaches the endpoint that the settings name, or fails (SEC-10).
 fn client(ca_path: Option<&std::path::Path>) -> Result<reqwest::Client, Internal> {
-    let tls = crate::tls::client_config(true, ca_path).map_err(Internal::new)?;
+    let tls = crate::tls::client_config_trusting(true, ca_path).map_err(Internal::new)?;
     reqwest::Client::builder()
         .connect_timeout(CONNECT_TIMEOUT)
         .redirect(reqwest::redirect::Policy::none())

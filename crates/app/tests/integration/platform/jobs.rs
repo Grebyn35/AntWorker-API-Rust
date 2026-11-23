@@ -32,7 +32,7 @@ use tokio::{
     task::JoinHandle,
 };
 
-use crate::support::{self, Api, Options, TestDatabase, mailbox};
+use crate::support::{self, Api, Options, TestDatabase, hex, mailbox, users};
 
 /// How long a shutdown lets runs go on, in these tests.
 const GRACE: Duration = Duration::from_secs(5);
@@ -724,6 +724,123 @@ async fn platform_018_a_run_in_flight_goes_on_after_the_signal_until_it_ends() {
     assert_eq!(left, ["0"]);
 }
 
+/// A periodic job, every hour, named `name`, whose runs say they started on `started`, then run
+/// until the test releases them through `release`, or else until they are cancelled.
+fn held(
+    jobs: &mut Jobs,
+    name: &'static str,
+    started: mpsc::UnboundedSender<()>,
+    release: &Arc<Semaphore>,
+) {
+    let release = release.clone();
+    jobs.periodic(
+        name,
+        Duration::from_secs(3_600),
+        Duration::from_secs(3_600),
+        move |_| {
+            let (started, release) = (started.clone(), release.clone());
+            async move {
+                started.send(()).unwrap();
+                release.acquire().await.unwrap().forget();
+                Ok(())
+            }
+        },
+    )
+    .unwrap();
+}
+
+#[tokio::test]
+async fn platform_018_at_shutdown_the_scheduler_claims_nothing_more() {
+    let db = TestDatabase::migrated().await;
+    let database = db.app().await;
+    let runs = Arc::new(AtomicU32::new(0));
+    let (started, mut starts) = mpsc::unbounded_channel();
+    let release = Arc::new(Semaphore::new(1));
+    // A first replica runs `tests.periodic` once, which sets its next run an hour on.
+    let (stop_first, first) = start(
+        periodic_registry(&database, &runs, &started, &release),
+        &database,
+        &Arc::new(TestClock::default()),
+    );
+    starts.recv().await.unwrap();
+    stop_first.send_replace(true);
+    first.await.unwrap();
+    // A second replica holds a run of `tests.held` in flight, and waits for its next tick, while
+    // `tests.periodic` falls due.
+    let mut jobs = periodic_registry(&database, &runs, &started, &release);
+    let (held_started, mut held_starts) = mpsc::unbounded_channel();
+    held(&mut jobs, "tests.held", held_started, &release);
+    let (stop, running) = start(jobs, &database, &Arc::new(TestClock::default()));
+    held_starts.recv().await.unwrap();
+    db.owner_executes("UPDATE job_schedules SET next_run_at = now() WHERE name = 'tests.periodic'")
+        .await;
+
+    stop.send_replace(true);
+    // Enough for the run in flight, and for a run of `tests.periodic`, were it claimed.
+    release.add_permits(2);
+    running.await.unwrap();
+
+    assert_eq!(runs.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn platform_018_at_shutdown_a_periodic_run_still_going_at_the_deadline_is_released() {
+    let db = TestDatabase::migrated().await;
+    let database = db.app().await;
+    let mut jobs = Jobs::new(&database, Duration::from_secs(86_400));
+    let (started, mut starts) = mpsc::unbounded_channel();
+    held(
+        &mut jobs,
+        "tests.held",
+        started,
+        &Arc::new(Semaphore::new(0)),
+    );
+    let clock = Arc::new(TestClock::default());
+    let (stop, running) = start(jobs, &database, &clock);
+    starts.recv().await.unwrap();
+
+    stop.send_replace(true);
+    clock.sleeping(GRACE).await;
+    clock.advance(GRACE);
+    running.await.unwrap();
+
+    // Due and unclaimed, so another replica runs it at once.
+    let schedule = db
+        .owner_reads(
+            "SELECT (claim_id IS NULL AND lease_expires_at IS NULL)::text || ' ' \
+             || (next_run_at <= now())::text FROM job_schedules WHERE name = 'tests.held'",
+        )
+        .await;
+    assert_eq!(schedule, ["true true"]);
+}
+
+#[tokio::test]
+async fn platform_013_a_run_of_scheduled_maintenance_runs_for_no_one() {
+    let db = TestDatabase::migrated().await;
+    let database = db.app().await;
+    let (ran, mut contexts) = mpsc::unbounded_channel();
+    let mut jobs = Jobs::new(&database, Duration::from_secs(86_400));
+    jobs.periodic(
+        "tests.maintenance",
+        Duration::from_secs(3_600),
+        Duration::from_secs(3_600),
+        move |context| {
+            ran.send(context).unwrap();
+            async { Ok(()) }
+        },
+    )
+    .unwrap();
+    let clock = Arc::new(TestClock::default());
+    let (stop, running) = start(jobs, &database, &clock);
+
+    let context = contexts.recv().await.unwrap();
+    stop.send_replace(true);
+    running.await.unwrap();
+
+    assert_eq!(context.scope().user(), None);
+    assert_eq!(context.scope().workspace(), None);
+}
+
 /// A job that only the test of the runs' metric enqueues.
 #[derive(Serialize, Deserialize)]
 struct Counted;
@@ -815,6 +932,23 @@ async fn platform_020_a_runs_span_links_to_the_trace_that_enqueued_it() {
     assert_eq!(mailbox::to(&to).await.len(), 1);
 }
 
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+#[tokio::test]
+async fn obs_07_a_job_stores_the_trace_context_that_enqueued_it() {
+    let api = Api::new().await;
+
+    // A registration with email on enqueues the job that sends its first code (AUTH-027).
+    let response = api
+        .post("/v1/users", &users::registration("ada@example.com"))
+        .send()
+        .await;
+
+    assert_eq!(response.status, 201);
+    // `server-timing: trace;desc=00-<trace ID>-<span ID>-<flags>` (API-16).
+    let trace_id = response.header("server-timing").split('-').nth(1).unwrap();
+    let traceparents = api
+        .database()
+        .owner_reads("SELECT traceparent FROM jobs WHERE kind = 'auth.send_verification_code'")
+        .await;
+    assert_eq!(traceparents.len(), 1);
+    assert_eq!(traceparents[0].split('-').nth(1), Some(trace_id));
 }

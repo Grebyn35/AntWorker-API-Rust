@@ -83,10 +83,54 @@ pub async fn open(api: &Api, headers: &[(&str, &str)]) -> Opened {
             http::HeaderValue::try_from(*value).unwrap(),
         );
     }
+    answer(api, api.router(), request).await
+}
+
+/// Opens a stream as the caller whose access token is `token`, with the header `name` set to
+/// `value`, bytes that need not be text, and returns it, or the response when it isn't 200, as
+/// [`open`] does.
+pub async fn open_with_bytes(api: &Api, token: &str, name: &str, value: &[u8]) -> Opened {
+    let request = Request::builder()
+        .method(Method::GET)
+        .uri(PATH)
+        .header("authorization", format!("Bearer {token}"))
+        .header(name, http::HeaderValue::from_bytes(value).unwrap())
+        .body(Body::empty())
+        .unwrap();
+    answer(api, api.router(), request).await
+}
+
+/// Opens the stream of `token`'s caller on `router`, another application of `api`'s database,
+/// as on another replica, which must answer 200, with `Last-Event-ID` set to `last_event_id`
+/// when given.
+pub async fn connect_on(
+    api: &Api,
+    router: axum::Router,
+    token: &str,
+    last_event_id: Option<&str>,
+) -> Stream {
+    let mut builder = Request::builder()
+        .method(Method::GET)
+        .uri(PATH)
+        .header("authorization", format!("Bearer {token}"));
+    if let Some(id) = last_event_id {
+        builder = builder.header("last-event-id", id);
+    }
+    let request = builder.body(Body::empty()).unwrap();
+    answer(api, router, request)
+        .await
+        .stream()
+        .expect("the stream opened")
+}
+
+/// What `router` answers `request`, sent from the tests' peer: the stream, or the response when
+/// it isn't 200, whose status and headers, and a refusal's body, are checked against `api`'s
+/// document.
+async fn answer(api: &Api, router: axum::Router, mut request: Request<Body>) -> Opened {
     request.extensions_mut().insert(ConnectInfo(
         super::api::PEER.parse::<std::net::SocketAddr>().unwrap(),
     ));
-    let response = api.router().oneshot(request).await.unwrap();
+    let response = router.oneshot(request).await.unwrap();
     let status = response.status();
     let headers = response.headers().clone();
     if status != StatusCode::OK {
@@ -112,66 +156,6 @@ pub async fn open(api: &Api, headers: &[(&str, &str)]) -> Opened {
         buffer: String::new(),
         last_event_id: None,
     }))
-}
-
-/// Opens a stream as the caller whose access token is `token`, with the header `name` set to
-/// `value`, bytes that need not be text, and returns what that came to.
-pub async fn open_with_bytes(api: &Api, token: &str, name: &str, value: &[u8]) -> Opened {
-    let mut request = Request::builder()
-        .method(Method::GET)
-        .uri(PATH)
-        .header("authorization", format!("Bearer {token}"))
-        .header(name, http::HeaderValue::from_bytes(value).unwrap())
-        .body(Body::empty())
-        .unwrap();
-    request.extensions_mut().insert(ConnectInfo(
-        super::api::PEER.parse::<std::net::SocketAddr>().unwrap(),
-    ));
-    let response = api.router().oneshot(request).await.unwrap();
-    let status = response.status();
-    let headers = response.headers().clone();
-    api.check(&Method::GET, PATH, status, &headers, &[]);
-    Opened::Stream(Box::new(Stream {
-        contract: api.contract(),
-        headers,
-        body: response.into_body(),
-        buffer: String::new(),
-        last_event_id: None,
-    }))
-}
-
-/// Opens the stream of `token`'s caller on `router`, another application of `api`'s database,
-/// as on another replica, which must answer 200, with `Last-Event-ID` set to `last_event_id`
-/// when given.
-pub async fn connect_on(
-    api: &Api,
-    router: axum::Router,
-    token: &str,
-    last_event_id: Option<&str>,
-) -> Stream {
-    let mut builder = Request::builder()
-        .method(Method::GET)
-        .uri(PATH)
-        .header("authorization", format!("Bearer {token}"));
-    if let Some(id) = last_event_id {
-        builder = builder.header("last-event-id", id);
-    }
-    let mut request = builder.body(Body::empty()).unwrap();
-    request.extensions_mut().insert(ConnectInfo(
-        super::api::PEER.parse::<std::net::SocketAddr>().unwrap(),
-    ));
-    let response = router.oneshot(request).await.unwrap();
-    let status = response.status();
-    let headers = response.headers().clone();
-    assert_eq!(status, StatusCode::OK);
-    api.check(&Method::GET, PATH, status, &headers, &[]);
-    Stream {
-        contract: api.contract(),
-        headers,
-        body: response.into_body(),
-        buffer: String::new(),
-        last_event_id: None,
-    }
 }
 
 /// Opens a stream as the caller whose access token is `token`, and returns what that came to.
@@ -203,6 +187,11 @@ pub async fn opened(api: &Api, user: &SignedIn) -> Stream {
 }
 
 impl Stream {
+    /// The headers of the response that opened the stream.
+    pub fn headers(&self) -> &http::HeaderMap {
+        &self.headers
+    }
+
     /// The trace ID of the request that opened the stream, from its `server-timing` (API-16).
     pub fn trace_id(&self) -> String {
         let timing = self.headers["server-timing"].to_str().unwrap();
@@ -261,6 +250,15 @@ impl Stream {
             self.last_event_id
         );
         frame
+    }
+
+    /// The next `count` frames that aren't heartbeats, each as [`Stream::event`] reads it.
+    pub async fn events(&mut self, count: usize) -> Vec<Frame> {
+        let mut frames = Vec::new();
+        for _ in 0..count {
+            frames.push(self.event().await);
+        }
+        frames
     }
 
     /// The next frame, which must be `stream.opened`. It skips no heartbeat, so a stream that

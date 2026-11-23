@@ -195,11 +195,11 @@ async fn remove_second_factor(
     match auth::remove_second_factor(database, mail, &email).await? {
         auth::Removal::Removed if mail.is_on() => Ok(
             "removed the account's authenticator app and recovery codes, and ended every \
-             session of it; the account signs in with its password alone, and its address is told",
+             session of it; the account signs in without a second factor, and its address is told",
         ),
         auth::Removal::Removed => Ok(
             "removed the account's authenticator app and recovery codes, and ended every \
-             session of it; the account signs in with its password alone, and email is off, so \
+             session of it; the account signs in without a second factor, and email is off, so \
              its address isn't told",
         ),
         auth::Removal::NoAccount => Err(RemovalRefused::NoAccount),
@@ -369,8 +369,8 @@ pub enum SuperadminRefused {
     NoAccount,
     /// Email is on, and the account that holds the address hasn't proved it.
     #[error(
-        "the account that holds the address hasn't proved it, so it may not be its owner's: \
-         nothing changed; run it again once the account has proved the address"
+        "the account that holds the address hasn't proved it, so the address may not be the \
+         account's user's: nothing changed; run it again once the account has proved the address"
     )]
     AddressUnproved,
     /// The account is a superadmin already.

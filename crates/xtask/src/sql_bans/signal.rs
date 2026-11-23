@@ -17,9 +17,9 @@
 //! a SQL value, which runs only through a function with a SQL-typed parameter, so they don't
 //! count. A return type is never SQL text.
 //!
-//! A `macro_rules!` macro takes SQL text outside the checked macros when its body passes
-//! `checked = false` to the macro that expands queries, as the `_unchecked` macros do, or names a
-//! function that takes SQL text.
+//! A `macro_rules!` macro takes SQL text outside the checked macros when its body invokes a macro,
+//! whichever it is, whose arguments hold `checked = false`, as the `_unchecked` macros pass it to
+//! the macro that expands queries, or names a function that takes SQL text.
 
 use std::collections::BTreeSet;
 

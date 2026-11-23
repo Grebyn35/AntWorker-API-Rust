@@ -258,6 +258,29 @@ mod tests {
     }
 
     #[test]
+    fn api_05_a_component_that_a_request_s_or_a_response_s_component_refers_to_is_read_as_theirs() {
+        let nullable = json!({ "properties": { "note": { "type": ["string", "null"] } } });
+        let schemas = json!({
+            "Thing": { "required": ["shared"], "properties": { "shared": reference("Shared") } },
+            "NewThing": { "properties": {
+                "part": reference("NewPart"),
+                "shared": reference("Shared"),
+            } },
+            "NewPart": nullable,
+            "Shared": nullable,
+        });
+
+        assert_eq!(
+            messages(&reference("Thing"), &schemas),
+            [
+                "schema Shared has a property that may be null, and both a request and a response \
+                 refer to it: a request may leave the field out, and a response holds it, so each \
+                 takes a type of its own (API-05)"
+            ]
+        );
+    }
+
+    #[test]
     fn api_05_a_component_that_nothing_refers_to_is_read_as_a_response_s() {
         let schemas = json!({
             "Item": { "properties": { "ended_at": { "type": ["string", "null"] } } },

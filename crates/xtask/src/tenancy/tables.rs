@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 
 use super::{MIGRATIONS, views::View, words};
-use crate::repo::Repo;
+use crate::{Finding, repo::Repo};
 
 /// A table the migrations create, or a view, with its columns, and where it is created.
 pub struct Table {
@@ -172,6 +172,84 @@ fn queried(statement: &[&str]) -> bool {
         }
     }
     false
+}
+
+/// Every statement of a migration that creates a table or a view, or adds a column, in a form
+/// that [`tables`] doesn't read.
+pub(super) fn refused(repo: &Repo) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    for file in repo
+        .files()
+        .filter(|file| file.path.starts_with(MIGRATIONS) && file.path.ends_with(".sql"))
+    {
+        for (line, statement) in unread(&file.text) {
+            findings.push(Finding::new(&file.path, line, format!(
+                "`{statement}`: check-tenancy reads a table from `CREATE TABLE <name> (`, which no \
+                 `AS` follows, and a view from `CREATE VIEW <name>` or `CREATE OR REPLACE VIEW \
+                 <name>`, each name a word without quotes or a schema's name, as the doc of \
+                 crates/xtask/src/tenancy/mod.rs says, so it places and checks nothing of what \
+                 this statement creates (DATA-16)"
+            )));
+        }
+        for (line, statement) in unread_additions(&file.text) {
+            findings.push(Finding::new(
+                &file.path,
+                line,
+                format!(
+                    "`{statement}`: check-tenancy reads the column that an `ALTER TABLE <name> ADD \
+                 COLUMN <column>` adds as the statement's first action, as the doc of \
+                 crates/xtask/src/tenancy/mod.rs says, and no other column that a statement adds \
+                 or renames, nor a table's new name, so it places the table as it was (DATA-16)"
+                ),
+            ));
+        }
+    }
+    findings
+}
+
+/// The words that an `ADD` of an `ALTER TABLE` takes before a constraint, rather than a column.
+const CONSTRAINTS: [&str; 6] = [
+    "constraint",
+    "primary",
+    "unique",
+    "check",
+    "foreign",
+    "exclude",
+];
+
+/// The line of each `ALTER TABLE` of `text` that adds a column where [`tables`] doesn't read it,
+/// or renames something, with the text of that line: a statement that holds a `RENAME`, or an
+/// `ADD` that no word of [`CONSTRAINTS`] follows, but the `ADD COLUMN <column>` that follows
+/// `ALTER TABLE <name>`, whose column isn't `IF`.
+fn unread_additions(text: &str) -> Vec<(usize, String)> {
+    let tokens: Vec<(String, usize)> = text
+        .lines()
+        .enumerate()
+        .flat_map(|(number, line)| {
+            let code = line.split("--").next().unwrap_or_default();
+            super::views::tokens(code)
+                .into_iter()
+                .map(move |token| (token, number + 1))
+        })
+        .collect();
+    let mut found = Vec::new();
+    for (index, (token, line)) in tokens.iter().enumerate() {
+        let at = |offset: usize| tokens.get(index + offset).map_or("", |(token, _)| token);
+        if token != "alter" || at(1) != "table" {
+            continue;
+        }
+        let statement = tokens[index..].iter().take_while(|(token, _)| token != ";");
+        let read = |offset: usize| offset == 3 && at(4) == "column" && at(5) != "if";
+        let added = statement.enumerate().any(|(offset, (token, _))| {
+            token == "rename"
+                || token == "add" && !CONSTRAINTS.contains(&at(offset + 1)) && !read(offset)
+        });
+        if added {
+            let text = text.lines().nth(line - 1).unwrap_or_default();
+            found.push((*line, text.trim().to_owned()));
+        }
+    }
+    found
 }
 
 /// The line of each `CREATE` of `text` that [`created`] says [`tables`] doesn't read, with the
