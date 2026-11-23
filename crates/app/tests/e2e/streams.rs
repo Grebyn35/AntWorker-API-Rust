@@ -29,6 +29,10 @@ const AHEAD: usize = 50;
 /// How many times the client opens its stream before it gives up.
 const CONNECTIONS: usize = 30;
 
+/// How long the test waits for the next of what the client sends it: a wait that runs past it
+/// fails the test (TEST-06).
+const DELIVERY: Duration = Duration::from_secs(60);
+
 /// What the client of the stream saw.
 #[derive(Debug, Default)]
 struct Seen {
@@ -153,12 +157,30 @@ impl StreamClient {
     }
 }
 
+/// What the client sends on `channel` next, or `None` once the client has ended, which drops its
+/// sender, or the error that fails the test once [`DELIVERY`] passes without either (TEST-06).
+#[expect(
+    clippy::disallowed_methods,
+    reason = "an end-to-end test's wait for the stream ends at a timeout, which fails the test \
+              (TEST-06)"
+)]
+fn next_from_the_client<T>(channel: &mpsc::Receiver<T>) -> Result<Option<T>, String> {
+    match channel.recv_timeout(DELIVERY) {
+        Ok(sent) => Ok(Some(sent)),
+        Err(mpsc::RecvTimeoutError::Disconnected) => Ok(None),
+        Err(mpsc::RecvTimeoutError::Timeout) => Err(format!(
+            "the client sent nothing that the test waits for within {DELIVERY:?}"
+        )),
+    }
+}
+
 /// Removes the workspace's members one after another, from a thread of its own, until stopped,
 /// with at most [`AHEAD`] of them not yet received by the stream, then waits until the stream has
-/// received them all, and returns them in the order it removed them.
+/// received them all, and returns them in the order it removed them, or, once a wait for the
+/// stream's next removal runs past [`DELIVERY`], the error that fails the test.
 struct Remover {
     stop: Arc<AtomicBool>,
-    thread: JoinHandle<Vec<String>>,
+    thread: JoinHandle<Result<Vec<String>, String>>,
 }
 
 impl Remover {
@@ -180,8 +202,8 @@ impl Remover {
                 }
                 while waiting >= AHEAD {
                     // A client that gave up drops its sender, which ends the wait.
-                    if received.recv().is_err() {
-                        return removed;
+                    if next_from_the_client(&received)?.is_none() {
+                        return Ok(removed);
                     }
                     waiting -= 1;
                 }
@@ -191,16 +213,16 @@ impl Remover {
                 waiting += 1;
             }
             for _ in 0..waiting {
-                if received.recv().is_err() {
+                if next_from_the_client(&received)?.is_none() {
                     break;
                 }
             }
-            removed
+            Ok(removed)
         });
         Self { stop, thread }
     }
 
-    fn stop(self) -> Vec<String> {
+    fn stop(self) -> Result<Vec<String>, String> {
         self.stop.store(true, Ordering::Relaxed);
         self.thread.join().expect("the removals")
     }
@@ -232,7 +254,8 @@ async fn realtime_004_a_deploy_with_an_open_stream_loses_no_event() {
         opening,
         sender,
     );
-    opened.recv().expect("the stream opened");
+    let first_opening = next_from_the_client(&opened);
+    assert_eq!(first_opening, Ok(Some(())), "the stream's opening");
     let remover = Remover::start(
         root,
         deployment.url("https", 443, &format!("/v1/workspaces/{workspace}/members")),
@@ -245,6 +268,7 @@ async fn realtime_004_a_deploy_with_an_open_stream_loses_no_event() {
     let seen = client.stop();
 
     assert!(second.status.success(), "{}", lossy(&second));
+    let removed = removed.expect("the removals, each of which the stream brought in time");
     assert!(removed.len() > AHEAD, "only {} removals", removed.len());
     assert!(seen.failures.is_empty(), "{:?}", seen.failures);
     assert!(!seen.truncated);

@@ -5,7 +5,8 @@
 //! span's or a log record's resource only what names the client, its version and, on spans, its
 //! installation, and of the metrics what the configuration lists, added up over every
 //! installation. And through a deployment whose telemetry goes to a managed backend
-//! (CLIENT_TELEMETRY-016).
+//! (CLIENT_TELEMETRY-016). A body that isn't the protocol's request, which the stack's collector
+//! refuses, answers 400 `client_telemetry.batch_refused` (CLIENT_TELEMETRY-009).
 
 use std::{net::SocketAddr, process::Output, time::Duration};
 

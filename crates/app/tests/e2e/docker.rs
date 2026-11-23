@@ -3,12 +3,16 @@
 use std::{
     io::{BufRead, BufReader},
     net::SocketAddr,
-    process::{Command, Output, Stdio},
+    process::{Command, Stdio},
 };
 
 use serde_json::Value;
 
 use crate::machine;
+
+/// Everything a process wrote, stdout then stderr, as text: the test support's `printed`, which
+/// these tests take under a name of their own.
+pub use crate::support::operator::printed as lossy;
 
 /// Runs `docker` with `args`, and returns what it wrote on stdout, trimmed. Panics with what it
 /// wrote on stderr if it fails.
@@ -182,13 +186,4 @@ impl Drop for Container {
             ),
         );
     }
-}
-
-/// Everything a process wrote, stdout then stderr, as text.
-pub fn lossy(output: &Output) -> String {
-    format!(
-        "{}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    )
 }

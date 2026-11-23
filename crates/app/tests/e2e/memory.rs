@@ -122,6 +122,10 @@ fn available_mib() -> u64 {
 pub struct Turns {
     /// How many turns there are.
     count: u64,
+    /// The free turns and the tickets. A lock that a panic poisoned still holds a whole queue,
+    /// since nothing that changes it can panic once it has written a part of it: a ticket grows by
+    /// one, `free` gets back what `take` took from it, and `take` takes from it only once it holds
+    /// enough. So it is taken as it is.
     queue: Mutex<Queue>,
     changed: Condvar,
 }

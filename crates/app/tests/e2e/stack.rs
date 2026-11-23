@@ -38,7 +38,8 @@ const PERSONAL: [&str; 9] = [
 const AGENT: &str = "the-e2e-tests-own-agent/7.1";
 
 /// The lines of the stand-in backend's file that hold `trace`, once a line of spans and one of
-/// log records do. The collector decides on a trace 15 seconds after its last span.
+/// log records do. The collector decides on a trace 15 seconds after its first span arrived
+/// (OBS-08).
 fn received(deployment: &Deployment, trace: &str) -> String {
     deployment.server.shell_ok(&format!(
         "timeout 120 sh -c 'until grep resourceSpans /root/backend/out/telemetry.json 2> /dev/null | grep -q {trace} \
@@ -340,9 +341,8 @@ async fn ops_17_the_proxy_redirects_plain_http_at_grafana_s_address_to_https() {
 }
 
 /// Of the cookies that Grafana's sign-in sets, the session's is `__Host-grafana_session`, for
-/// this host alone and for 30 days, which no script reads and no request of another site
-/// carries, and the only other is Grafana's own, of the time at which the session's token
-/// changes next (SEC-14).
+/// this host alone and for 30 days, `HttpOnly`, `Secure` and `SameSite=Lax`, and the only other
+/// is Grafana's own, of the time at which the session's token changes next (SEC-14).
 fn assert_the_session_s_cookie_is_this_host_s_alone(cookies: &[String]) {
     let session: Vec<&String> = cookies
         .iter()

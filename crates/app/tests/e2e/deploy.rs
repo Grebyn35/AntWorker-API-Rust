@@ -1,8 +1,8 @@
-//! Deploys of the reference deployment (OPS-14, OPS-17, OPS-18), and its status and logs (OPS-19),
-//! on a server of the tests' own, with a managed database on a Postgres server of its own, or the
-//! bundled one where a test says so.
+//! Deploys of the reference deployment (OPS-14, OPS-17, OPS-18), and its status, its logs and the
+//! operator's tasks on its accounts (OPS-19), on a server of the tests' own, with a managed
+//! database on a Postgres server of its own, or the bundled one where a test says so.
 
-use std::time::Duration;
+use std::{process::Output, time::Duration};
 
 use platform::errors::{ErrorCode, RequestError};
 
@@ -40,7 +40,7 @@ async fn ops_14_a_deploy_replaces_every_replica_while_every_request_succeeds() {
 }
 
 // part: files
-/// A body that sends `first`, then waits for the rest, which arrives on `rest`, telling `started`
+/// A body that sends `parts`, then waits for the rest, which arrives on `rest`, telling `started`
 /// once its first part is read.
 struct Coming {
     parts: std::vec::IntoIter<Vec<u8>>,
@@ -79,6 +79,7 @@ async fn ops_06_an_upload_whose_body_still_comes_once_its_replica_stopped_accept
     let deployment = Deployment::managed(&[]);
     let first = deployment.apply(&deployment.api, &[]).await;
     assert!(first.status.success(), "{}", lossy(&first));
+    let binary = deployment.api_binary();
     let workspace = deployment.workspace();
     let (start, rest) = (b"stored ".to_vec(), b"across a deploy".to_vec());
     let length = u64::try_from(start.len() + rest.len()).unwrap();
@@ -118,14 +119,14 @@ async fn ops_06_an_upload_whose_body_still_comes_once_its_replica_stopped_accept
         .await;
     // Each blue replica has stopped accepting connections, so its drain has begun, or has stopped
     // altogether, as one with no request in flight does.
-    deployment.server.shell_ok(
+    deployment.server.shell_ok(&format!(
         "timeout 60 sh -c 'for replica in 1 2; do \
-             until answer=$(docker exec deployment-api-blue-$replica /usr/local/bin/antworker-api health 2>&1); \
+             until answer=$(docker exec deployment-api-blue-$replica {binary} health 2>&1); \
                  case $answer in *\"can'\\''t reach\"* | *\"is not running\"* | *\"No such container\"*) true ;; *) false ;; esac; do \
                  sleep 0.2; \
              done; \
-         done'",
-    );
+         done'"
+    ));
     send_rest
         .send(rest)
         .expect("the upload still reads its body");
@@ -1310,57 +1311,96 @@ async fn ops_14_a_deploy_that_leaves_the_bundled_database_stops_it_and_its_backu
     assert_eq!(served, 200);
 }
 
-/// Runs the subcommands that an operator runs against the accounts on `deployment`, which serves:
-/// each runs with the image and the settings of the color that serves, against the deployment's
-/// database, and ends with the one line that says what it did, or why it changed nothing, which
-/// names no address (OPS-03, OBS-04).
-fn operator_subcommands_run(deployment: &Deployment) {
+/// What the subcommands that an operator runs against the accounts wrote, each run by
+/// [`operator_subcommands_run`].
+struct Operated {
+    /// `remove-second-factor` with an address that no account holds.
+    removal: Output,
+    /// `end-sessions` with an address that no account holds.
+    ending: Output,
+    /// `end-sessions --all`.
+    every_ending: Output,
+    // part: workspace_setup
+    /// `setup-workspace` with the account's address.
+    set_up: Output,
+    /// `setup-workspace` with an address that no account holds.
+    no_owner: Output,
+    // end part: workspace_setup
+    // part: superadmins
+    /// `superadmin add` with the account's address.
+    added: Output,
+    /// `superadmin remove` with an address that no account holds.
+    nobody: Output,
+    /// `superadmin list`.
+    listed: Output,
+    // end part: superadmins
+}
+
+/// Runs the subcommands that an operator runs against the accounts on `deployment`, which serves,
+/// and whose one account, `ada@example.com`'s, has one session: each runs with the image and the
+/// settings of the color that serves, against the deployment's database.
+fn operator_subcommands_run(deployment: &Deployment) -> Operated {
+    let run = |arguments: &[&str]| deployment.server.deploy(arguments);
+    Operated {
+        removal: run(&["remove-second-factor", "nobody@example.com"]),
+        ending: run(&["end-sessions", "nobody@example.com"]),
+        every_ending: run(&["end-sessions", "--all"]),
+        // part: workspace_setup
+        set_up: run(&["setup-workspace", "Acme Labs", "ada@example.com"]),
+        no_owner: run(&["setup-workspace", "Globex", "nobody@example.com"]),
+        // end part: workspace_setup
+        // part: superadmins
+        added: run(&["superadmin", "add", "ada@example.com"]),
+        nobody: run(&["superadmin", "remove", "nobody@example.com"]),
+        listed: run(&["superadmin", "list"]),
+        // end part: superadmins
+    }
+}
+
+/// Asserts that each subcommand of `operated` ended with the one line that says what it did, or
+/// why it changed nothing, which names no address (OPS-03, OBS-04).
+fn assert_the_subcommands_ended(operated: &Operated) {
     // The removal of a second factor refuses an address that no account holds (AUTH-072), with
     // the message of the code's own error.
-    let removal = deployment
-        .server
-        .deploy(&["remove-second-factor", "nobody@example.com"]);
-    let written = lossy(&removal);
-    assert_eq!(removal.status.code(), Some(1), "{written}");
+    let written = lossy(&operated.removal);
+    assert_eq!(operated.removal.status.code(), Some(1), "{written}");
     assert!(written.contains("startup failed"), "{written}");
     assert!(
         written.contains(&app::RemovalRefused::NoAccount.to_string()),
         "{written}"
     );
     assert!(!written.contains("nobody@example.com"), "{written}");
-    // The end of sessions refuses an address that no account holds, and, for every account's, a
-    // deployment where no account has a session, as this one, which has no account yet
-    // (AUTH-094).
-    for (whose, refusal) in [
-        ("nobody@example.com", app::EndingRefused::NoAccount),
-        ("--all", app::EndingRefused::NoSessions),
-    ] {
-        let ending = deployment.server.deploy(&["end-sessions", whose]);
-        let written = lossy(&ending);
-        assert_eq!(ending.status.code(), Some(1), "{written}");
-        assert!(written.contains("startup failed"), "{written}");
-        assert!(written.contains(&refusal.to_string()), "{written}");
-        assert!(!written.contains("nobody@example.com"), "{written}");
-    }
+    // The end of sessions refuses an address that no account holds, and, for every account's,
+    // ends the one session that the deployment holds (AUTH-094).
+    let written = lossy(&operated.ending);
+    assert_eq!(operated.ending.status.code(), Some(1), "{written}");
+    assert!(written.contains("startup failed"), "{written}");
+    assert!(
+        written.contains(&app::EndingRefused::NoAccount.to_string()),
+        "{written}"
+    );
+    assert!(!written.contains("nobody@example.com"), "{written}");
+    let written = lossy(&operated.every_ending);
+    assert_eq!(operated.every_ending.status.code(), Some(0), "{written}");
+    assert!(written.contains("subcommand finished"), "{written}");
+    assert!(
+        written.contains("ended every session of every account: sessions 1, accounts 1"),
+        "{written}"
+    );
+    assert!(!written.contains("ada@example.com"), "{written}");
     // part: workspace_setup
     // The setup of a workspace (WORKSPACES-023): with email off, it makes the account that holds
     // the address the workspace's owner, and sets nothing up for an address that no account
     // holds (WORKSPACES-026).
-    deployment.registered("ada@example.com");
-    let set_up = deployment
-        .server
-        .deploy(&["setup-workspace", "Acme Labs", "ada@example.com"]);
-    let no_owner = deployment
-        .server
-        .deploy(&["setup-workspace", "Globex", "nobody@example.com"]);
-    let written = lossy(&set_up);
-    assert_eq!(set_up.status.code(), Some(0), "{written}");
+    let written = lossy(&operated.set_up);
+    assert_eq!(operated.set_up.status.code(), Some(0), "{written}");
     assert!(written.contains("subcommand finished"), "{written}");
     assert!(written.contains("set up the workspace"), "{written}");
     assert!(written.contains("email is off"), "{written}");
     assert!(!written.contains("Acme"), "{written}");
-    let written = lossy(&no_owner);
-    assert_eq!(no_owner.status.code(), Some(1), "{written}");
+    assert!(!written.contains("ada@example.com"), "{written}");
+    let written = lossy(&operated.no_owner);
+    assert_eq!(operated.no_owner.status.code(), Some(1), "{written}");
     assert!(
         written.contains(&app::SetupRefused::NoAccount.to_string()),
         "{written}"
@@ -1368,46 +1408,37 @@ fn operator_subcommands_run(deployment: &Deployment) {
     assert!(!written.contains("nobody@example.com"), "{written}");
     // end part: workspace_setup
     // part: superadmins
-    superadmin_subcommand_runs(deployment);
+    assert_the_superadmin_subcommand_ended(operated);
     // end part: superadmins
 }
 
 // part: superadmins
-/// Runs the subcommand `superadmin` on `deployment`, which serves, as
-/// [`operator_subcommands_run`] runs the others: with email off, the account that holds the
-/// address becomes a superadmin (SUPERADMINS-001), an address that no account holds ends none
-/// (SUPERADMINS-003), and the list shows the operator the superadmin's address, which its log
-/// doesn't hold (SUPERADMINS-008).
-fn superadmin_subcommand_runs(deployment: &Deployment) {
-    deployment.registered("sam@example.com");
-    let added = deployment
-        .server
-        .deploy(&["superadmin", "add", "sam@example.com"]);
-    let nobody = deployment
-        .server
-        .deploy(&["superadmin", "remove", "nobody@example.com"]);
-    let listed = deployment.server.deploy(&["superadmin", "list"]);
-    let written = lossy(&added);
-    assert_eq!(added.status.code(), Some(0), "{written}");
+/// Asserts what the subcommand `superadmin` wrote, as [`assert_the_subcommands_ended`] asserts
+/// what the others did: with email off, the account that holds the address became a superadmin
+/// (SUPERADMINS-001), an address that no account holds ended none (SUPERADMINS-003), and the list
+/// showed the operator the superadmin's address, which its log doesn't hold (SUPERADMINS-008).
+fn assert_the_superadmin_subcommand_ended(operated: &Operated) {
+    let written = lossy(&operated.added);
+    assert_eq!(operated.added.status.code(), Some(0), "{written}");
     assert!(written.contains("subcommand finished"), "{written}");
     assert!(
         written.contains("made the account that holds the address a superadmin"),
         "{written}"
     );
-    assert!(!written.contains("sam@example.com"), "{written}");
-    let written = lossy(&nobody);
-    assert_eq!(nobody.status.code(), Some(1), "{written}");
+    assert!(!written.contains("ada@example.com"), "{written}");
+    let written = lossy(&operated.nobody);
+    assert_eq!(operated.nobody.status.code(), Some(1), "{written}");
     assert!(
         written.contains(&app::SuperadminRefused::NoAccount.to_string()),
         "{written}"
     );
     assert!(!written.contains("nobody@example.com"), "{written}");
-    let written = lossy(&listed);
-    assert_eq!(listed.status.code(), Some(0), "{written}");
+    let written = lossy(&operated.listed);
+    assert_eq!(operated.listed.status.code(), Some(0), "{written}");
     assert!(
         written
             .lines()
-            .any(|line| line.starts_with("  sam@example.com  ")),
+            .any(|line| line.starts_with("  ada@example.com  ")),
         "{written}"
     );
     let logged: Vec<&str> = written
@@ -1419,9 +1450,21 @@ fn superadmin_subcommand_runs(deployment: &Deployment) {
         logged[0].contains("listed the deployment's superadmins: 1"),
         "{written}"
     );
-    assert!(!logged[0].contains("sam@example.com"), "{written}");
+    assert!(!logged[0].contains("ada@example.com"), "{written}");
 }
 // end part: superadmins
+
+#[tokio::test]
+async fn ops_19_the_operator_s_tasks_run_the_api_s_subcommands_against_the_deployment_s_database() {
+    let deployment = Deployment::bundled(&[]);
+    let applied = deployment.apply(&deployment.api, &[]).await;
+    assert!(applied.status.success(), "{}", lossy(&applied));
+    deployment.registered("ada@example.com");
+
+    let operated = operator_subcommands_run(&deployment);
+
+    assert_the_subcommands_ended(&operated);
+}
 
 #[tokio::test]
 async fn ops_19_status_shows_what_serves_and_the_backups_and_logs_show_the_services_output() {
@@ -1438,7 +1481,6 @@ async fn ops_19_status_shows_what_serves_and_the_backups_and_logs_show_the_servi
     let status = deployment.server.deploy(&["status"]);
     let logs = deployment.server.deploy(&["logs", "api", "caddy"]);
     let refused = deployment.server.deploy(&["logs", "--since=1h"]);
-    operator_subcommands_run(&deployment);
 
     assert!(status.status.success(), "{}", lossy(&status));
     let status = lossy(&status);
