@@ -12,7 +12,7 @@ use std::{
     time::Duration,
 };
 
-use http::{Method, StatusCode};
+use http::StatusCode;
 use opentelemetry_proto::tonic::{
     common::v1::any_value,
     metrics::v1::metric,
@@ -27,20 +27,14 @@ use platform::telemetry::testing::{
 use serde_json::json;
 
 use crate::support::{
-    Api, CHECK_INTERVAL, Options, Server, TestDatabase, fixtures, hex, jobs, mailbox, service_name,
+    Api, CHECK_INTERVAL, Options, Server, TestDatabase, counts, fixtures, hex, jobs, mailbox,
+    service_name, users,
 };
 
-/// The requests that `points` recorded with exactly `labels`.
-fn requests(points: &[Point], labels: &[(&str, &str)]) -> u64 {
-    let wanted: BTreeMap<String, String> = labels
-        .iter()
-        .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
-        .collect();
-    points
-        .iter()
-        .filter(|point| point.labels == wanted)
-        .filter_map(|point| point.count)
-        .sum()
+/// The requests whose durations `collector` received, from a `serve` that has stopped, each as
+/// its labels and how many it recorded, as [`counts::recordings`] gives them (TEST-07).
+fn requests_counted(collector: &Collector) -> Vec<String> {
+    counts::recordings(&collector.received(), "http.server.request.duration")
 }
 
 /// The seconds that `points` recorded with exactly `labels`, all requests together.
@@ -143,109 +137,123 @@ fn named<'a>(received: &'a Received, name: &str) -> &'a Span {
 
 #[tokio::test]
 async fn platform_067_a_request_records_its_method_route_and_status() {
-    let api = Api::new().await;
-    let labels = [
-        ("http.request.method", "GET"),
-        ("http.route", "/v1/capabilities"),
-        ("http.response.status_code", "200"),
-    ];
-    let before = requests(&durations(), &labels);
+    let collector = Collector::start().await.unwrap();
+    let database = TestDatabase::migrated().await;
+    let server = database.exporting_to(&collector, &[]).await;
 
-    let response = api.get("/v1/capabilities").send().await;
+    let response = server.request("GET", "/v1/capabilities", &[]).await;
+    server.stop().await;
 
-    assert_eq!(response.status, StatusCode::OK);
-    assert!(requests(&durations(), &labels) > before);
+    assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+    assert_eq!(
+        requests_counted(&collector),
+        ["http.request.method=GET http.response.status_code=200 http.route=/v1/capabilities 1"]
+    );
 }
 
 #[tokio::test]
 async fn platform_067_a_5xx_records_its_error_code_as_its_error_type() {
-    let api = Api::with(Options::routes(fixtures::routes(Arc::default()))).await;
-    let labels = [
-        ("http.request.method", "GET"),
-        ("http.route", "/v1/broken"),
-        ("http.response.status_code", "500"),
-        ("error.type", "request.internal_error"),
-    ];
-    let before = requests(&durations(), &labels);
+    let collector = Collector::start().await.unwrap();
+    let database = TestDatabase::migrated().await;
+    // A registration issues a device token (the auth spec's "Registration"), whose insert `app`
+    // may not make here, so the registration answers 500.
+    database
+        .owner_executes("REVOKE INSERT ON device_tokens FROM app")
+        .await;
+    let server = database.exporting_to(&collector, &[]).await;
+    let registration = users::registration("ada@example.com").to_string();
 
-    let response = api.get("/v1/broken").send().await;
+    let (status, _) = server
+        .send(
+            "POST",
+            "/v1/users",
+            &[("content-type", "application/json")],
+            registration.as_bytes(),
+        )
+        .await;
+    server.stop().await;
 
-    assert_eq!(response.status, StatusCode::INTERNAL_SERVER_ERROR);
-    // The route is the tests' own, which only an API in the test's process serves, where tests
-    // running alongside may send it too, so the count grows by at least this one (TEST-07).
-    assert!(requests(&durations(), &labels) > before);
+    assert_eq!(status, 500);
+    assert_eq!(
+        requests_counted(&collector),
+        [
+            "error.type=request.internal_error http.request.method=POST \
+             http.response.status_code=500 http.route=/v1/users 1"
+        ]
+    );
 }
 
 #[tokio::test]
 async fn platform_067_a_503_of_a_feature_turned_off_records_its_code_as_its_error_type() {
-    let api = Api::without_email().await;
-    let labels = [
-        ("http.request.method", "POST"),
-        ("http.route", "/v1/password-resets"),
-        ("http.response.status_code", "503"),
-        ("error.type", "request.feature_disabled"),
-    ];
-    let before = requests(&durations(), &labels);
+    let collector = Collector::start().await.unwrap();
+    let database = TestDatabase::migrated().await;
+    let server = database.exporting_to(&collector, &[("EMAIL", "off")]).await;
+    let reset = json!({ "email": "ada@example.com" }).to_string();
 
-    let response = api
-        .post(
+    let (status, _) = server
+        .send(
+            "POST",
             "/v1/password-resets",
-            &serde_json::json!({ "email": "ada@example.com" }),
+            &[("content-type", "application/json")],
+            reset.as_bytes(),
         )
-        .send()
         .await;
+    server.stop().await;
 
-    assert_eq!(response.status, StatusCode::SERVICE_UNAVAILABLE);
-    assert!(requests(&durations(), &labels) > before);
+    assert_eq!(status, 503);
+    assert_eq!(
+        requests_counted(&collector),
+        [
+            "error.type=request.feature_disabled http.request.method=POST \
+             http.response.status_code=503 http.route=/v1/password-resets 1"
+        ]
+    );
 }
 
 #[tokio::test]
 async fn platform_067_a_method_http_doesn_t_define_is_other() {
-    let api = Api::new().await;
-    let other = |points: &[Point]| -> u64 {
-        points
-            .iter()
-            .filter(|point| {
-                point.labels.get("http.request.method").map(String::as_str) == Some("_OTHER")
-                    && point
-                        .labels
-                        .get("http.response.status_code")
-                        .map(String::as_str)
-                        == Some("405")
-            })
-            .filter_map(|point| point.count)
-            .sum()
-    };
-    let before = other(&durations());
+    let collector = Collector::start().await.unwrap();
+    let database = TestDatabase::migrated().await;
+    let server = database.exporting_to(&collector, &[]).await;
+    let trace = "9c1f04e2b6a84d0f8e3a7b5c2d1e0f6a";
 
-    let response = api
-        .request(Method::from_bytes(b"PROPFIND").unwrap(), "/v1/capabilities")
-        .send()
+    let response = server
+        .request(
+            "PROPFIND",
+            "/v1/capabilities",
+            &[("traceparent", &format!("00-{trace}-b7ad6b7169203331-01"))],
+        )
         .await;
+    let written = server.stop().await;
 
-    assert_eq!(response.status, StatusCode::METHOD_NOT_ALLOWED);
-    assert!(other(&durations()) > before);
-    let traceparent = response.header("server-timing")["trace;desc=".len()..].to_owned();
-    let trace = traceparent.split('-').nth(1).unwrap().to_owned();
-    let lines = testing::logged(&trace);
+    assert!(response.starts_with("HTTP/1.1 405"), "{response}");
+    assert_eq!(
+        requests_counted(&collector),
+        ["http.request.method=_OTHER http.response.status_code=405 http.route=/v1/capabilities 1"]
+    );
+    let lines: Vec<_> = written
+        .into_iter()
+        .filter(|line| line["trace_id"] == trace)
+        .collect();
     assert_eq!(lines.len(), 1, "{lines:#?}");
     assert_eq!(lines[0]["http.request.method"], "_OTHER");
 }
 
 #[tokio::test]
 async fn platform_067_a_request_no_route_matched_records_no_route() {
-    let api = Api::new().await;
+    let collector = Collector::start().await.unwrap();
+    let database = TestDatabase::migrated().await;
+    let server = database.exporting_to(&collector, &[]).await;
+
+    let response = server.request("GET", "/v1/no-such-route", &[]).await;
+    server.stop().await;
+
+    assert!(response.starts_with("HTTP/1.1 404"), "{response}");
     // Exactly these labels: no `http.route`, and no `error.type` on a 4xx.
-    let labels = [
-        ("http.request.method", "GET"),
-        ("http.response.status_code", "404"),
-    ];
-    let before = requests(&durations(), &labels);
-
-    let response = api.get("/v1/no-such-route").send().await;
-
-    assert_eq!(response.status, StatusCode::NOT_FOUND);
-    assert!(requests(&durations(), &labels) > before);
+    assert_eq!(
+        requests_counted(&collector),
+        ["http.request.method=GET http.response.status_code=404 1"]
+    );
 }
 
 #[tokio::test]
@@ -273,46 +281,44 @@ async fn platform_067_a_request_records_how_long_it_took() {
     gate.release.notify_one();
 
     assert_eq!(held.await.unwrap(), StatusCode::NO_CONTENT);
-    // The route is the tests' own, which only an API in the test's process serves, on the test's
-    // clock, where tests running alongside may send it too, so the seconds grow by at least
-    // these (TEST-07).
+    // The two seconds pass on the clock that the pipeline measures with, which a test moves only
+    // for an API in its own process: a `serve` measures on the system's clock (TEST-06). Other
+    // tests hold the gate too, on clocks of their own, so the seconds grow by at least these
+    // (TEST-07).
     let took = seconds(&durations(), &labels) - before;
     assert!(took >= 2.0, "{took}");
 }
 
 #[tokio::test]
 async fn platform_067_patch_is_a_method_http_defines() {
-    let api = Api::new().await;
-    let labels = [
-        ("http.request.method", "PATCH"),
-        ("http.route", "/v1/capabilities"),
-        ("http.response.status_code", "405"),
-    ];
-    let before = requests(&durations(), &labels);
+    let collector = Collector::start().await.unwrap();
+    let database = TestDatabase::migrated().await;
+    let server = database.exporting_to(&collector, &[]).await;
 
-    let response = api.request(Method::PATCH, "/v1/capabilities").send().await;
+    let response = server.request("PATCH", "/v1/capabilities", &[]).await;
+    server.stop().await;
 
-    assert_eq!(response.status, StatusCode::METHOD_NOT_ALLOWED);
-    assert!(requests(&durations(), &labels) > before);
+    assert!(response.starts_with("HTTP/1.1 405"), "{response}");
+    assert_eq!(
+        requests_counted(&collector),
+        ["http.request.method=PATCH http.response.status_code=405 http.route=/v1/capabilities 1"]
+    );
 }
 
 #[tokio::test]
 async fn platform_067_query_is_a_method_http_defines() {
-    let api = Api::new().await;
-    let labels = [
-        ("http.request.method", "QUERY"),
-        ("http.route", "/v1/capabilities"),
-        ("http.response.status_code", "405"),
-    ];
-    let before = requests(&durations(), &labels);
+    let collector = Collector::start().await.unwrap();
+    let database = TestDatabase::migrated().await;
+    let server = database.exporting_to(&collector, &[]).await;
 
-    let response = api
-        .request(Method::from_bytes(b"QUERY").unwrap(), "/v1/capabilities")
-        .send()
-        .await;
+    let response = server.request("QUERY", "/v1/capabilities", &[]).await;
+    server.stop().await;
 
-    assert_eq!(response.status, StatusCode::METHOD_NOT_ALLOWED);
-    assert!(requests(&durations(), &labels) > before);
+    assert!(response.starts_with("HTTP/1.1 405"), "{response}");
+    assert_eq!(
+        requests_counted(&collector),
+        ["http.request.method=QUERY http.response.status_code=405 http.route=/v1/capabilities 1"]
+    );
 }
 
 #[tokio::test]
@@ -644,8 +650,9 @@ async fn platform_068_a_subcommand_writes_out_its_telemetry_before_it_exits() {
     assert_names_the_process(resource, "test");
     let (resource, _) = received.metrics()[0];
     assert_names_the_process(resource, "test");
+    // The last metrics count each record that the collector took.
     let exported = received.count("otel.sdk.exporter.log.exported", None);
-    assert!(exported >= 1, "{exported}");
+    assert_eq!(exported, i64::try_from(records.len()).unwrap());
 }
 
 #[tokio::test]
@@ -751,10 +758,13 @@ async fn platform_068_the_last_metrics_count_the_exports_that_failed() {
         .await;
 
     assert!(output.status.success(), "{output:?}");
-    let failed = collector
-        .received()
-        .count("otel.sdk.exporter.log.exported", Some("export_failed"));
-    assert!(failed >= 1, "{failed}");
+    let received = collector.received();
+    let failed = received.count("otel.sdk.exporter.log.exported", Some("export_failed"));
+    let handed = received.count("otel.sdk.processor.log.processed", None);
+    // The last metrics count as failed each record that the queue handed its exporter, as many
+    // as the subcommand wrote.
+    assert!(handed >= 1, "{handed}");
+    assert_eq!(failed, handed);
 }
 
 #[tokio::test]
@@ -777,7 +787,11 @@ async fn sec_10_an_exporter_follows_no_redirect() {
     let received = collector.received();
     assert!(received.logs.is_empty());
     let failed = received.count("otel.sdk.exporter.log.exported", Some("export_failed"));
-    assert!(failed >= 1, "{failed}");
+    let handed = received.count("otel.sdk.processor.log.processed", None);
+    // The last metrics count as failed each record that the queue handed its exporter, as many
+    // as the subcommand wrote.
+    assert!(handed >= 1, "{handed}");
+    assert_eq!(failed, handed);
 }
 
 #[tokio::test]
@@ -827,7 +841,11 @@ async fn obs_10_an_export_that_fails_is_counted_and_the_subcommand_goes_on() {
     let received = collector.received();
     assert!(received.logs.is_empty());
     let failed = received.count("otel.sdk.exporter.log.exported", Some("export_failed"));
-    assert!(failed >= 1, "{failed}");
+    let handed = received.count("otel.sdk.processor.log.processed", None);
+    // The last metrics count as failed each record that the queue handed its exporter, as many
+    // as the subcommand wrote.
+    assert!(handed >= 1, "{handed}");
+    assert_eq!(failed, handed);
 }
 
 /// Each metric of the scope in which the SDK counts itself, among every export of `received`, by
@@ -879,7 +897,7 @@ async fn platform_106_a_full_queue_of_spans_counts_what_it_drops_and_the_sdk_exp
     const REQUESTS: u16 = 2_000;
     let collector = Collector::holding_traces().await.unwrap();
     let database = TestDatabase::migrated().await;
-    let server = database.exporting_to(&collector).await;
+    let server = database.exporting_to(&collector, &[]).await;
 
     flood(&server, REQUESTS).await;
     // The log records aren't held: the metrics that count their export were collected after
@@ -892,6 +910,8 @@ async fn platform_106_a_full_queue_of_spans_counts_what_it_drops_and_the_sdk_exp
 
     let dropped = received.count("otel.sdk.processor.span.processed", Some("queue_full"));
     let handed = received.count("otel.sdk.processor.span.processed", None);
+    // How many spans come while the queue is full, the requests' pace against the held export's
+    // timeout decides, so each count is only asked to be some.
     assert!(dropped > 0, "{dropped}");
     assert!(handed > 0, "{handed}");
     assert_eq!(
@@ -914,7 +934,7 @@ async fn platform_106_a_full_queue_of_log_records_counts_what_it_drops() {
     const REQUESTS: u16 = 4_000;
     let collector = Collector::holding_logs().await.unwrap();
     let database = TestDatabase::migrated().await;
-    let server = database.exporting_to(&collector).await;
+    let server = database.exporting_to(&collector, &[]).await;
 
     flood(&server, REQUESTS).await;
     // The spans aren't held: the metrics that count their export were collected after the
@@ -927,6 +947,8 @@ async fn platform_106_a_full_queue_of_log_records_counts_what_it_drops() {
 
     let dropped = received.count("otel.sdk.processor.log.processed", Some("queue_full"));
     let handed = received.count("otel.sdk.processor.log.processed", None);
+    // How many records come while the queue is full, the requests' pace against the held
+    // export's timeout decides, so each count is only asked to be some.
     assert!(dropped > 0, "{dropped}");
     assert!(handed > 0, "{handed}");
 }

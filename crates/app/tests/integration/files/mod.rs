@@ -431,7 +431,7 @@ fn uploads_counted(collector: &Collector) -> Vec<String> {
 
 /// Uploads `bytes` as the file `name` to `workspace` as `user`, through `server`, with `key` as
 /// its idempotency key if given, and gives the answer's status and body.
-async fn upload_to(
+pub(crate) async fn upload_to(
     server: &Server,
     user: &SignedIn,
     workspace: &str,
@@ -1428,12 +1428,7 @@ async fn files_012_each_call_that_the_bucket_doesn_t_answer_counts_once_as_unava
     let api = Api::new().await;
     let (workspace, ada, _) = acme(&api, "member").await;
     let id = files::arrange_row(api.database(), &workspace, "Blue").await;
-    // The jobs that list and delete the bucket's objects would call it too.
-    let periodic = [
-        "files.find_unreferenced_objects",
-        "files.delete_unreferenced_objects",
-    ];
-    jobs::not_due(api.database(), &periodic).await;
+    jobs::not_due(api.database(), &files::BUCKET_JOBS).await;
     let collector = Collector::start().await.unwrap();
     // Nothing listens on port 9 of the loopback address.
     let env = [("S3_ENDPOINT", "http://127.0.0.1:9")];

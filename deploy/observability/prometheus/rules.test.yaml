@@ -1135,6 +1135,38 @@ tests:
         alertname: PeriodicJobFailing
         exp_alerts: []
 
+  # The collector creates the series of what an exporter failed to send at its first failure:
+  # one that appears with 5 spans at the 3rd minute counts at once, and for the 10 minutes after.
+  - interval: 1m
+    input_series:
+      - series: 'otelcol_exporter_send_failed_spans_total{exporter="otlp_http/tempo"}'
+        values: "_x3 5x20"
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: CollectorDroppingTelemetry
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: CollectorDroppingTelemetry
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              exporter: otlp_http/tempo
+            exp_annotations:
+              summary: The collector refused, failed to pass on, or dropped before deciding, telemetry in the last 10 minutes.
+              runbook: docs/operations/runbooks.md#collectordroppingtelemetry
+      - eval_time: 12m
+        alertname: CollectorDroppingTelemetry
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              exporter: otlp_http/tempo
+            exp_annotations:
+              summary: The collector refused, failed to pass on, or dropped before deciding, telemetry in the last 10 minutes.
+              runbook: docs/operations/runbooks.md#collectordroppingtelemetry
+      - eval_time: 13m
+        alertname: CollectorDroppingTelemetry
+        exp_alerts: []
+
   # A server with 8 gigabytes of memory, of which 500 megabytes stay available.
   - interval: 1m
     input_series:

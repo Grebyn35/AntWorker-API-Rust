@@ -290,9 +290,24 @@ groups:
           sum by (receiver) (increase(otelcol_receiver_refused_spans_total[10m])) > 0
           or sum by (receiver) (increase(otelcol_receiver_refused_log_records_total[10m])) > 0
           or sum by (receiver) (increase(otelcol_receiver_refused_metric_points_total[10m])) > 0
-          or sum by (exporter) (increase(otelcol_exporter_send_failed_spans_total[10m])) > 0
-          or sum by (exporter) (increase(otelcol_exporter_send_failed_log_records_total[10m])) > 0
-          or sum by (exporter) (increase(otelcol_exporter_send_failed_metric_points_total[10m])) > 0
+          or sum by (exporter) (
+            (increase(otelcol_exporter_send_failed_spans_total[10m])
+              and otelcol_exporter_send_failed_spans_total offset 10m)
+            or (otelcol_exporter_send_failed_spans_total
+              unless otelcol_exporter_send_failed_spans_total offset 10m)
+          ) > 0
+          or sum by (exporter) (
+            (increase(otelcol_exporter_send_failed_log_records_total[10m])
+              and otelcol_exporter_send_failed_log_records_total offset 10m)
+            or (otelcol_exporter_send_failed_log_records_total
+              unless otelcol_exporter_send_failed_log_records_total offset 10m)
+          ) > 0
+          or sum by (exporter) (
+            (increase(otelcol_exporter_send_failed_metric_points_total[10m])
+              and otelcol_exporter_send_failed_metric_points_total offset 10m)
+            or (otelcol_exporter_send_failed_metric_points_total
+              unless otelcol_exporter_send_failed_metric_points_total offset 10m)
+          ) > 0
           or sum(increase(otelcol_processor_tail_sampling_sampling_trace_dropped_too_early_total[10m])) > 0
         labels:
           severity: ticket

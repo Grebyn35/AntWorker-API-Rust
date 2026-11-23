@@ -23,6 +23,13 @@ pub async fn serving(db: &TestDatabase, collector: &Collector, env: &[(&str, &st
     db.serve(&settings).await
 }
 
+/// The periodic jobs that list and delete the bucket's objects, which a `serve` runs, calling its
+/// bucket too, unless a test makes them not due (`jobs::not_due`).
+pub const BUCKET_JOBS: [&str; 2] = [
+    "files.find_unreferenced_objects",
+    "files.delete_unreferenced_objects",
+];
+
 /// The bytes of every file a builder arranges: a text file's.
 pub const BYTES: &[u8] = b"hello";
 

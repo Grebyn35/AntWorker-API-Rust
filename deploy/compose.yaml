@@ -41,10 +41,10 @@ x-api: &api
     SHUTDOWN_DELAY_SECONDS: "5"
     # No shorter than the longest timeout of a route, so a deploy cuts no request short (OPS-06).
     SHUTDOWN_DRAIN_SECONDS: "60"
-    # Only the deployment's own containers reach a replica, on its private networks: Caddy and the
-    # deployment's other services. A replica takes the client IP from the X-Forwarded-For of any
-    # peer there, and the proxies Caddy trusts are trusted too (PLATFORM-053).
-    TRUSTED_PROXIES: "10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, fc00::/7, ${TRUSTED_PROXIES:-}"
+    # A replica takes the client IP from the X-Forwarded-For of a peer in the subnet of the
+    # network `proxy`, which only Caddy and the replicas join, or at an address that Caddy trusts
+    # in turn (SEC-13, PLATFORM-053).
+    TRUSTED_PROXIES: "${PROXY_SUBNET:-172.16.221.0/24}, ${TRUSTED_PROXIES:-}"
     CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
     RATE_LIMIT_IP_REQUESTS: ${RATE_LIMIT_IP_REQUESTS:-600}
     RATE_LIMIT_USER_REQUESTS: ${RATE_LIMIT_USER_REQUESTS:-300}
@@ -160,7 +160,7 @@ x-api: &api
         cpus: "${API_CPUS:-1}"
         memory: ${API_MEMORY:-512M}
   networks:
-    - edge
+    - proxy
     - data
     # part: files
     - scanning
@@ -287,7 +287,9 @@ services:
       retries: 10
       start_period: 10s
       start_interval: 1s
-    networks: [edge, telemetry]
+    # The replicas on `proxy`, and no other network with them, so each of its requests reaches a
+    # replica from that network's subnet, which the replicas trust (SEC-13).
+    networks: [proxy, edge]
     restart: unless-stopped
 
   api-blue:
@@ -543,9 +545,9 @@ services:
       - caddy-logs:/var/log/caddy:ro
       - collector-state:/var/lib/collector
     <<: *confined
-    # With the replicas, Caddy and the one-shot subcommands, which send it telemetry, and with
-    # the stores it writes to, which those don't reach (SEC-14).
-    networks: [telemetry, stack]
+    # With the replicas and the one-shot subcommands, and with Caddy, which send it telemetry,
+    # and with the stores it writes to, which those don't reach (SEC-14).
+    networks: [telemetry, edge, stack]
     restart: unless-stopped
 
   # The collector with a managed backend in place of the self-hosted stack (D42): the same
@@ -585,6 +587,8 @@ services:
     secrets: [managed_otlp_token]
     networks:
       telemetry:
+        aliases: [collector]
+      edge:
         aliases: [collector]
     restart: unless-stopped
 
@@ -661,7 +665,15 @@ services:
     restart: unless-stopped
 
 networks:
-  # Caddy, the replicas and Grafana.
+  # Caddy and the replicas, and nothing else. The replicas list its subnet among their trusted
+  # proxies, so the subnet is a setting, where Docker would otherwise choose one as it creates
+  # the network (SEC-13).
+  proxy:
+    ipam:
+      config:
+        - subnet: ${PROXY_SUBNET:-172.16.221.0/24}
+  # Caddy, and what it reaches beside the replicas: Grafana, and the collector, which takes its
+  # spans.
   edge:
   # The replicas, the one-shot subcommands, Postgres and its backups.
   data:
@@ -669,7 +681,7 @@ networks:
   # The replicas and the scanner, which reaches ClamAV's mirrors through it.
   scanning:
   # end part: files
-  # The collector, and what sends it telemetry: Caddy, the replicas and the one-shot subcommands.
+  # The collector, and the replicas and the one-shot subcommands, which send it telemetry.
   telemetry:
   # The collector, the stores it writes to, Alertmanager and Grafana. Prometheus, Loki, Tempo and
   # Alertmanager ask no credential, so nothing else joins it (SEC-14).

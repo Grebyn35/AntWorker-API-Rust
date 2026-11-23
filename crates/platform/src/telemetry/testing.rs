@@ -280,8 +280,8 @@ where
 }
 
 /// The data points of the metric `name`, as everything recorded in the process so far adds up
-/// to. Tests running alongside record too, so a test reads the points whose labels only it
-/// records. Empty if [`install`] hasn't run or nothing recorded the metric.
+/// to, the recordings of the tests that run alongside included: TEST-07 says how a test asserts
+/// a count of them. Empty if [`install`] hasn't run or nothing recorded the metric.
 pub fn recorded(name: &str) -> Vec<Point> {
     let Some(Some(installed)) = INSTALLED.get() else {
         return Vec::new();

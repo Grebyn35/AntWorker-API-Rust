@@ -11,7 +11,7 @@ use crate::{
         Deployment, MANAGED_TLS, Traffic, assert_all_succeeded, get, get_with_too_many_headers,
         get_within, unanswered,
     },
-    docker::lossy,
+    docker::{compose, lossy},
     server::DEPLOYMENT,
 };
 // part: files
@@ -445,6 +445,208 @@ async fn sec_12_the_proxy_sets_the_headers_that_an_answer_of_a_replica_s_own_ser
         headers["strict-transport-security"],
         "max-age=31536000; includeSubDomains"
     );
+}
+
+/// The requests that the `ip` bucket still takes of each of two clients, as the `RateLimit`
+/// headers of two answers of `replica` give them: a container on `network` of the deployment's
+/// server sends the replica itself two requests, each with an `X-Forwarded-For` that names a
+/// client of its own.
+fn left_for_two_forwarded_clients(
+    deployment: &Deployment,
+    network: &str,
+    replica: &str,
+) -> (u64, u64) {
+    let curl = compose(&[
+        "--file",
+        "../../deploy/tools/compose.yaml",
+        "config",
+        "--images",
+        "curl",
+    ]);
+    let request = |client: &str| {
+        format!(
+            "--silent --max-time 10 --output /dev/null --dump-header - \
+             --header 'X-Forwarded-For: {client}' http://{replica}:8080/v1/capabilities"
+        )
+    };
+    let answers = deployment.server.shell_ok(&format!(
+        "docker run --rm --quiet --network {network} {curl} {} --next {}",
+        request("203.0.113.9"),
+        request("203.0.113.10")
+    ));
+    let left: Vec<u64> = answers
+        .lines()
+        .filter_map(|line| line.split_once(':'))
+        .filter(|(name, _)| name.eq_ignore_ascii_case("ratelimit"))
+        .map(|(_, value)| {
+            let (_, left) = value.split_once(";r=").expect("the requests left");
+            left.chars()
+                .take_while(char::is_ascii_digit)
+                .collect::<String>()
+                .parse()
+                .expect("a number of requests")
+        })
+        .collect();
+    assert_eq!(left.len(), 2, "{network}: {answers}");
+    (left[0], left[1])
+}
+
+/// The subnet of the network that the proxy and the replicas of the deployment join.
+fn proxy_subnet(deployment: &Deployment) -> String {
+    deployment.server.shell_ok(
+        "docker network inspect --format '{{ range .IPAM.Config }}{{ .Subnet }}{{ end }}' \
+         deployment_proxy",
+    )
+}
+
+#[tokio::test]
+async fn sec_13_a_replica_takes_the_client_ip_from_a_peer_on_the_proxy_s_network_alone() {
+    let deployment = Deployment::managed(&[]);
+    let deployed = deployment.apply(&deployment.api, &[]).await;
+    assert!(deployed.status.success(), "{}", lossy(&deployed));
+    let replica = "deployment-api-blue-1";
+    let members = deployment.server.shell_ok(
+        "docker network inspect --format '{{ range .Containers }}{{ .Name }} {{ end }}' \
+         deployment_proxy",
+    );
+    let joined = deployment.server.shell_ok(&format!(
+        "docker inspect --format \
+         '{{{{ range $name, $network := .NetworkSettings.Networks }}}}{{{{ $name }}}} {{{{ end }}}}' \
+         {replica}"
+    ));
+    let proxy_addresses = deployment.server.shell_ok(
+        "docker inspect --format \
+         '{{ range .NetworkSettings.Networks }}{{ .IPAddress }} {{ end }}' deployment-caddy-1",
+    );
+
+    let left: Vec<(&str, (u64, u64))> = joined
+        .split_whitespace()
+        .map(|network| {
+            (
+                network,
+                left_for_two_forwarded_clients(&deployment, network, replica),
+            )
+        })
+        .collect();
+    deployment.registered("ada@example.com");
+    let recorded = deployment.sql("SELECT DISTINCT host(client_ip) FROM audit_entry_clients");
+
+    let mut members: Vec<&str> = members.split_whitespace().collect();
+    members.sort_unstable();
+    assert_eq!(
+        members,
+        [
+            "deployment-api-blue-1",
+            "deployment-api-blue-2",
+            "deployment-caddy-1"
+        ]
+    );
+    let trusted = left
+        .iter()
+        .filter(|(network, _)| *network == "deployment_proxy")
+        .count();
+    assert_eq!(trusted, 1, "{joined}");
+    assert!(left.len() > 1, "{joined}");
+    for (network, (first, second)) in left {
+        if network == "deployment_proxy" {
+            // From the proxy's network, each client that the header names has a bucket of its
+            // own, which took its one request.
+            assert_eq!(first, second, "{network}");
+        } else {
+            // From each other network that the replica joins, one bucket took both requests:
+            // the sender's own.
+            assert_eq!(second + 1, first, "{network}");
+        }
+    }
+    // A request through the proxy is recorded under its client's address, none of the proxy's
+    // own, which a replica that took the proxy for the client would record.
+    assert!(!recorded.is_empty());
+    for address in recorded.lines() {
+        assert!(
+            !proxy_addresses.split_whitespace().any(|own| own == address),
+            "{address} of {proxy_addresses}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn sec_13_a_deploy_refuses_a_subnet_of_the_proxy_s_network_that_is_no_ipv4_range_within_its_bounds()
+ {
+    let deployment = Deployment::managed(&[]);
+
+    for (subnet, refusal) in [
+        (
+            "fd00:221::/64",
+            "PROXY_SUBNET is an IPv4 range in CIDR notation",
+        ),
+        (
+            "172.016.221.0/24",
+            "PROXY_SUBNET is an IPv4 range in CIDR notation",
+        ),
+        (
+            "172.16.221.7/24",
+            "PROXY_SUBNET names a range by its first address",
+        ),
+        (
+            "172.16.221.0/27",
+            "PROXY_SUBNET has a prefix of 16 to 26 bits",
+        ),
+        ("10.0.0.0/8", "PROXY_SUBNET has a prefix of 16 to 26 bits"),
+    ] {
+        deployment.set(&[("PROXY_SUBNET", subnet)]);
+        let refused = deployment.apply(&deployment.api, &[]).await;
+        assert!(!refused.status.success(), "{subnet}: {}", lossy(&refused));
+        assert!(
+            lossy(&refused).contains(refusal),
+            "{subnet}: {}",
+            lossy(&refused)
+        );
+    }
+    assert!(deployment.server.running("caddy").is_empty());
+}
+
+#[tokio::test]
+async fn ops_14_a_deploy_replaces_the_network_of_the_proxy_and_the_replicas_only_when_the_operator_allows_it()
+ {
+    let deployment = Deployment::managed(&[]);
+    let first = deployment.apply(&deployment.api, &[]).await;
+    assert!(first.status.success(), "{}", lossy(&first));
+    let caddy = deployment.server.running("caddy");
+    let blue = deployment.server.running("api-blue");
+    let subnet = proxy_subnet(&deployment);
+
+    deployment.set(&[("PROXY_SUBNET", "172.16.222.0/24")]);
+    let refused = deployment.apply(&deployment.api, &[]).await;
+    let kept = (
+        deployment.server.running("caddy"),
+        deployment.server.running("api-blue"),
+        proxy_subnet(&deployment),
+    );
+    let allowed = deployment
+        .apply(&deployment.api, &["--allow-restart"])
+        .await;
+
+    assert_eq!(subnet, "172.16.221.0/24");
+    assert!(!refused.status.success(), "{}", lossy(&refused));
+    assert!(
+        lossy(&refused).contains("this deploy replaces the network"),
+        "{}",
+        lossy(&refused)
+    );
+    assert_eq!(kept, (caddy, blue, subnet));
+    assert!(allowed.status.success(), "{}", lossy(&allowed));
+    assert_eq!(proxy_subnet(&deployment), "172.16.222.0/24");
+    assert!(deployment.server.running("api-blue").is_empty());
+    assert_eq!(deployment.server.running("api-green").len(), 2);
+    let (status, _) = get(
+        deployment.server.caddy_root(),
+        deployment.url("https", 443, "/v1/capabilities"),
+    );
+    assert_eq!(status, 200);
+    // The replicas take the client IP from a peer in the subnet that the network has since.
+    let (first, second) =
+        left_for_two_forwarded_clients(&deployment, "deployment_proxy", "deployment-api-green-1");
+    assert_eq!(first, second);
 }
 
 #[tokio::test]

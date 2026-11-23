@@ -282,13 +282,15 @@ impl TestDatabase {
     }
 
     /// Starts `serve` as [`TestDatabase::serve`] does, in production, exporting its telemetry to
-    /// `collector`.
-    pub async fn exporting_to(&self, collector: &Collector) -> Server {
-        self.serve(&[
+    /// `collector`, and with `env` in place of any of those settings that it names.
+    pub async fn exporting_to(&self, collector: &Collector, env: &[(&str, &str)]) -> Server {
+        let endpoint = collector.endpoint();
+        let mut settings = vec![
             ("ENVIRONMENT", "production"),
-            ("OTEL_EXPORTER_OTLP_ENDPOINT", &collector.endpoint()),
-        ])
-        .await
+            ("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint.as_str()),
+        ];
+        settings.extend_from_slice(env);
+        self.serve(&settings).await
     }
 
     fn api_command<V: AsRef<OsStr>>(&self, args: &[&str], env: &[(&str, V)]) -> Command {
@@ -636,16 +638,21 @@ impl Server {
                 .recv()
                 .await
                 .expect("the server exited before writing the line");
-            let value: Value = if self.production {
-                serde_json::from_str(&line)
-                    .map_err(|_| format!("a line that isn't JSON: {line}"))
-                    .unwrap()
-            } else {
-                for_people(&line)
-            };
+            let value = self.read(&line);
             if matches(&value) {
                 return value;
             }
+        }
+    }
+
+    /// `line`, one that the server wrote, as JSON, as [`Server::line`] gives it.
+    fn read(&self, line: &str) -> Value {
+        if self.production {
+            serde_json::from_str(line)
+                .map_err(|_| format!("a line that isn't JSON: {line}"))
+                .unwrap()
+        } else {
+            for_people(line)
         }
     }
 
@@ -684,14 +691,20 @@ impl Server {
 
     /// Sends the server SIGTERM, as an operator's stop does, and waits until it has exited, which
     /// it does once it has written out its telemetry (PLATFORM-062, PLATFORM-068), so a collector
-    /// that it exported to then holds every count it made.
-    pub async fn stop(mut self) {
+    /// that it exported to then holds every count it made. Returns each line that it wrote after
+    /// the last one that [`Server::line`] read, as that reads them, and panics as that does on a
+    /// line of a server in production that isn't JSON.
+    pub async fn stop(mut self) -> Vec<Value> {
         let mut kill = Command::new("kill");
         kill.args(["-TERM", &self.child.id().to_string()]);
         let signalled = run(kill).await;
         assert!(signalled.status.success(), "{signalled:?}");
+        let mut lines = Vec::new();
         // Its stdout closes as it exits.
-        while self.lines.recv().await.is_some() {}
+        while let Some(line) = self.lines.recv().await {
+            lines.push(self.read(&line));
+        }
+        lines
     }
 
     /// Sends `body` as JSON to `path`, in the trace `trace`, whose ID is 32 hexadecimal digits,
