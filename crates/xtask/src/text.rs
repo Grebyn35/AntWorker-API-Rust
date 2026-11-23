@@ -131,6 +131,7 @@ pub fn comment<'a>(path: &str, line: &'a str) -> Option<&'a str> {
         ".sh",
         ".caddy",
         ".env.example",
+        ".env",
         ".conf",
         ".jq",
     ]
@@ -138,7 +139,7 @@ pub fn comment<'a>(path: &str, line: &'a str) -> Option<&'a str> {
     .any(|extension| name.ends_with(extension))
         || matches!(
             name,
-            "justfile" | ".gitignore" | ".gitattributes" | "Dockerfile" | "Caddyfile"
+            "justfile" | ".gitignore" | ".gitattributes" | ".dockerignore" | "Dockerfile" | "Caddyfile"
         )
         // The Postgres image's scripts, which take no extension, as commands on its PATH.
         || path.starts_with("deploy/postgres/bin/")
@@ -306,6 +307,11 @@ mod tests {
             Some("# why")
         );
         assert_eq!(comment("deploy/caddy/Caddyfile", "# why"), Some("# why"));
+        assert_eq!(
+            comment("crates/app/tests/e2e/image.env", "A=1 # why"),
+            Some("# why")
+        );
+        assert_eq!(comment(".dockerignore", "# why"), Some("# why"));
         assert_eq!(
             comment("deploy/postgres/pgbackrest.conf", "# why"),
             Some("# why")

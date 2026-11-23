@@ -6,10 +6,10 @@
 //!
 //! No insert of those queries gives a row its `id`, which comes from the column's default
 //! (DATA-08). The check reads each `INSERT INTO <table>` of a query's text, lowercased, with
-//! its strings in single quotes blanked and its whitespace as single spaces: the table's name
-//! is the run of ASCII letters, digits and `_` after it, and the insert's columns are what the
-//! parentheses hold that follow that name, or `AS` and an alias after it, split at commas, each
-//! without `"` around it. An insert is a finding when `id` is among them, or when neither such
+//! its strings in single quotes blanked, its `--` comments cut and its whitespace as single
+//! spaces: the table's name is the run of ASCII letters, digits and `_` after it, and the
+//! insert's columns are what the parentheses hold that follow that name, or `AS` and an alias
+//! after it, split at commas, each without `"` around it. An insert is a finding when `id` is among them, or when neither such
 //! parentheses nor `DEFAULT VALUES` follow, as when the insert lists no columns or names its
 //! table's schema. The tables of [`IDS_BEFORE_INSERT`] are exempt, each a finding itself while
 //! no query inserts its `id`.

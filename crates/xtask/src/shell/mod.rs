@@ -3,8 +3,8 @@
 //! on the line before the command it concerns, with a comment that states its reason. A script
 //! under `deploy/` writes a value with printf, never echo, and none of its functions assigns a
 //! variable that its top level sets (CODE-07). Each `psql` of a script under `deploy/` takes its
-//! statement with `-c`, with no expansion, and the statement names no table of the product schema
-//! (ARCH-14). The doc of `scripts` says how the check reads each of the three.
+//! statement with `-c`, with no expansion and no other option that could give it one, and the
+//! statement names no table of the product schema (ARCH-14). The docs of `scripts` and `psql` say how the check reads each of the three.
 //!
 //! shellcheck reports nothing in a file that a script sources, and finds the script's variables
 //! unassigned when it checks that file alone, so each script is checked with the files it
@@ -20,6 +20,7 @@
 //! the directives itself, since shellcheck applies any directive it finds, in the one form that
 //! the doc of `directive_problems` names, and refuses a comment that looks like one in another.
 
+mod psql;
 mod recipes;
 mod scripts;
 
@@ -76,7 +77,7 @@ pub fn check(repo: &Repo) -> Outcome {
             .into_iter()
             .chain(scripts::echo_problems(text))
             .map(|(line, message)| (line, message.to_owned()))
-            .chain(scripts::psql_problems(text, &tables))
+            .chain(psql::psql_problems(text, &tables))
         {
             findings.push(Finding::new(path, line, message));
         }
@@ -140,8 +141,10 @@ fn outcome(findings: Vec<Finding>) -> Outcome {
 /// line, counted from 1: one before the script's first command, which shellcheck applies to the
 /// whole script; one with no command on the line after it; and one with no comment after it that
 /// states its reason. The check reads a directive as `# shellcheck disable=` at the start of a
-/// line's text, so a comment whose first word is `shellcheck`, in any case, is a problem in any
-/// other form, such as `#shellcheck`, another directive, or one after a command.
+/// line's text, and any other line is a problem where a `#` that starts the line or follows
+/// whitespace is followed, past any whitespace, by `shellcheck` in any case, whatever comes after
+/// it, inside a quoted string too, such as `#shellcheck`, `# ShellCheck shell=bash`,
+/// `# shellchecker` or a directive after a command.
 fn directive_problems(script: &str) -> Vec<(usize, &'static str)> {
     let mut problems = Vec::new();
     let mut commanded = false;
@@ -292,7 +295,9 @@ mod tests {
         let unread = "#!/bin/sh\nset -eu\n#shellcheck disable=SC2086\nls $a\n\
                       #   shellcheck disable=SC2086 # $a splits.\nls $a\n\
                       # ShellCheck shell=bash\nls $a\n\
-                      ls $a # shellcheck disable=SC2086\n";
+                      ls $a # shellcheck disable=SC2086\n\
+                      # shellchecker is a word\nls $a\n\
+                      printf '%s\\n' \"a #shellcheck b\"\n";
 
         let lines: Vec<usize> = directive_problems(unread)
             .iter()
@@ -301,7 +306,7 @@ mod tests {
             .collect();
 
         assert_eq!(directive_problems(read), []);
-        assert_eq!(lines, [3, 5, 7, 9]);
+        assert_eq!(lines, [3, 5, 7, 9, 10, 12]);
     }
 
     #[test]

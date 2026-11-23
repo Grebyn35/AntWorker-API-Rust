@@ -373,6 +373,18 @@ mod tests {
     }
 
     #[test]
+    fn obs_12_a_listed_metric_that_nothing_reads_is_found() {
+        let rules = "groups:\n  - name: a\n    rules:\n      - alert: Panics\n        expr: platform_panics_total > 0\n";
+
+        let unread = findings(
+            &dashboard("Did anything panic?", "platform_panics_total"),
+            rules,
+        );
+
+        assert_eq!(unread, ["no dashboard or alert reads `up` (OBS-12)"]);
+    }
+
+    #[test]
     fn obs_12_a_recording_rule_counts_as_read_only_when_something_reads_it() {
         let rules = "groups:\n  - name: a\n    rules:\n      - record: job:panics:rate5m\n        expr: rate(platform_panics_total[5m])\n      - alert: Down\n        expr: up == 0\n";
         let unread = findings(&dashboard("Is it up?", "up"), rules);

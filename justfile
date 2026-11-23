@@ -25,11 +25,11 @@ xtask := "cargo run --locked --quiet --package xtask --"
 # The versions of the tools the tasks use besides the Rust toolchain, which rust-toolchain.toml
 # pins (OPS-11). `just setup` checks them, and CI installs the ones `just checks` needs, which
 # `just ci-tools` lists. CI installs `just` itself before any task can run, so its workflows pin
-# the same version. sqlx-cli matches the sqlx in Cargo.lock.
+# the same version. sqlx-cli takes the version of the sqlx in Cargo.lock, as check-pins checks.
 just_version := "1.59.0"
 cargo_deny_version := "0.20.2"
 watchexec_version := "2.8.0"
-sqlx_cli_version := "0.9.0"
+sqlx_cli_version := "0.9.1"
 
 # The registry `publish` pushes the image to. There the image takes the name of the GitHub
 # repository that publishes it, in lowercase, so no two repositories' images share a name.

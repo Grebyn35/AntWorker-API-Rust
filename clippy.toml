@@ -164,6 +164,9 @@ disallowed-macros = [
     { path = "sqlx::query_file_unchecked", reason = "queries are checked against the schema, types included (DATA-14)" },
     { path = "sqlx::query_file_as_unchecked", reason = "queries are checked against the schema, types included (DATA-14)" },
     { path = "sqlx::query_file_scalar_unchecked", reason = "queries are checked against the schema, types included (DATA-14)" },
+    { path = "sqlx::query_file", reason = "a query's text stands in its macro, where check-tenancy and check-table-ownership read it (DATA-14)" },
+    { path = "sqlx::query_file_as", reason = "a query's text stands in its macro, where check-tenancy and check-table-ownership read it (DATA-14)" },
+    { path = "sqlx::query_file_scalar", reason = "a query's text stands in its macro, where check-tenancy and check-table-ownership read it (DATA-14)" },
 ]
 
 disallowed-types = [

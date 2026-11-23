@@ -3,6 +3,7 @@
 //! workspace name (CODE-01).
 
 mod forms;
+mod locked;
 
 use forms::{has_digest, is_exact_version, is_required_variable, is_versioned_runner};
 
@@ -19,6 +20,7 @@ const WORKSPACE: &str = "Cargo.toml";
 pub fn check(repo: &Repo) -> Outcome {
     let mut findings = Vec::new();
     let just_version = justfile(repo, &mut findings);
+    locked::sqlx_cli(repo, &mut findings);
     for file in repo.files() {
         let workflow = file.path.starts_with(WORKFLOWS)
             && (file.path.ends_with(".yml") || file.path.ends_with(".yaml"));
@@ -809,6 +811,38 @@ mod tests {
         assert_eq!(
             findings,
             ["justfile:2: watchexec_version is an exact version, such as 1.2.3 (OPS-11)"]
+        );
+    }
+
+    #[test]
+    fn ops_11_the_sqlx_cli_pin_is_the_version_of_the_locked_sqlx() {
+        let lock = "[[package]]\nname = \"sqlx\"\nversion = \"0.9.1\"\n\n\
+                    [[package]]\nname = \"sqlx-core\"\nversion = \"0.9.0\"\n";
+        let with_pin = |pin: &str| {
+            let mut files = pinned();
+            files[0]
+                .1
+                .push_str(&format!("sqlx_cli_version := \"{pin}\"\n"));
+            files.push(("Cargo.lock".to_owned(), lock.to_owned()));
+            let files: Vec<(&str, &str)> = files
+                .iter()
+                .map(|(path, text)| (path.as_str(), text.as_str()))
+                .collect();
+            check(&Repo::of(&files))
+                .findings
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(with_pin("0.9.1"), Vec::<String>::new());
+        assert_eq!(
+            with_pin("0.9.0"),
+            [
+                "justfile:3: sqlx_cli_version is 0.9.0, and Cargo.lock holds sqlx 0.9.1: sqlx-cli \
+                 writes the query cache that the locked sqlx reads, so it takes that version \
+                 (OPS-11)"
+            ]
         );
     }
 

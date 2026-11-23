@@ -6,8 +6,10 @@ use serde_json::Value;
 use crate::migrated;
 
 /// The catalog, as one JSON value: the tables and views, each marked as a view or not, with their
-/// columns, their triggers and the privileges `app` holds on them, the sequences with theirs, the constraints, the indexes, the
-/// functions, and the roles' privileges and settings that DATA-12 and DATA-19 give.
+/// owners, their columns, their triggers and the privileges `app` holds on them; the sequences,
+/// with their owners and `app`'s privileges; the constraints; the indexes; the functions and the
+/// enum and domain types, with their owners; the owners of the schema and of the database; and
+/// the roles' privileges and settings that DATA-12 and DATA-19 give.
 const QUERY: &str = r"
 WITH app AS (SELECT oid FROM pg_roles WHERE rolname = 'app')
 SELECT json_build_object(

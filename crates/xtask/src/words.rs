@@ -1,6 +1,6 @@
 //! `check-docs`, the bounds on words: no sentence of a document holds more than 100 words, no
-//! paragraph and no item of a list more than 300, and no cell of a table more than 200
-//! (DOC-15). The migration workspace isn't checked, as DOC-15 says.
+//! cell of a table more than 200, and no other block below, such as a paragraph of a list's
+//! item, more than 300 (DOC-15). The migration workspace isn't checked, as DOC-15 says.
 //!
 //! What the check reads, through the Markdown parser:
 //! - A block is a paragraph, a heading, which is held to a paragraph's bound, a cell of a
@@ -20,7 +20,8 @@ use crate::{Finding, docs, repo::Repo};
 
 /// The most words a sentence holds.
 const SENTENCE: usize = 100;
-/// The most words a paragraph, or an item of a list, holds.
+/// The most words a block other than a cell holds: a paragraph, a heading, or the text of a list's
+/// item that no paragraph holds.
 const PARAGRAPH: usize = 300;
 /// The most words a cell of a table holds.
 const CELL: usize = 200;

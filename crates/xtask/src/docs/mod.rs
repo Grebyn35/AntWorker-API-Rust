@@ -224,9 +224,10 @@ fn join(directory: &str, relative: &str) -> Option<String> {
     Some(parts.join("/"))
 }
 
-/// Every rule or behavior ID cited outside the inventory, and outside a check's own tests
-/// (`text::citing_lines`), exists (DOC-12). A token whose prefix no rule or module uses, such as
-/// `SHA-256`, isn't an ID.
+/// Every rule or behavior ID cited outside the inventory, the query cache in `.sqlx/`, which
+/// sqlx-cli writes from the queries of the code, where the check reads them, and `Cargo.lock`,
+/// which Cargo writes, and outside a check's own tests (`text::citing_lines`), exists (DOC-12).
+/// A token whose prefix no rule or module uses, such as `SHA-256`, isn't an ID.
 fn ids(repo: &Repo, catalog: &Catalog) -> Vec<Finding> {
     let mut findings = Vec::new();
     let cited = repo.files().filter(|file| {

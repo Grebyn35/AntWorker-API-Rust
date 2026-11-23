@@ -1,11 +1,10 @@
 //! The shell scripts under `deploy/`, and what check-shell reads in them itself: each `echo` that
-//! writes a value ([`echo_problems`]), each function that assigns a variable of the top level
-//! ([`scope_problems`]), and each `psql`'s statement ([`psql_problems`]). A script sources a file
-//! of its own directory with a line `. "$here/<path>"`, where `here` names that directory.
+//! writes a value ([`echo_problems`]), and each function that assigns a variable of the top level
+//! ([`scope_problems`]), while the module `psql` reads the statement of each `psql`. A script
+//! sources a file of its own directory with a line `. "$here/<path>"`, where `here` names that
+//! directory.
 
-use std::collections::BTreeSet;
-
-use crate::{repo::Repo, tenancy::words};
+use crate::repo::Repo;
 
 /// Each line of `script` whose `echo`, the word `echo ` where a command starts, writes a value: an
 /// argument with an expansion, as [`writes_expansion`] reads it on the `echo`'s line, or whose
@@ -103,82 +102,6 @@ fn writes_expansion(arguments: &str) -> Echoed {
     } else {
         Echoed::Text
     }
-}
-
-/// Each line of `script` whose `psql` takes no statement with `-c` on that line, so a statement it
-/// reads from its input would go unchecked, whose statement, the text between the quotes after
-/// its ` -c `, goes on past the line, or holds a `$` or a backtick inside double quotes, whose
-/// value the check can't read, or whose statement holds a word, outside its strings and in any
-/// case, that is one of `tables` (ARCH-14).
-pub fn psql_problems(script: &str, tables: &[String]) -> Vec<(usize, String)> {
-    let mut problems = Vec::new();
-    for (index, line) in script.lines().enumerate() {
-        if line.trim_start().starts_with('#') {
-            continue;
-        }
-        for (start, _) in line.match_indices("psql") {
-            let word = !line[..start].ends_with(|c: char| c.is_alphanumeric() || c == '_')
-                && !line[start + 4..].starts_with(|c: char| c.is_alphanumeric() || c == '_');
-            if !word {
-                continue;
-            }
-            let rest = &line[start..];
-            let statement = rest.find(" -c ").and_then(|at| {
-                let argument = rest[at + 4..].trim_start();
-                let quote = argument
-                    .chars()
-                    .next()
-                    .filter(|c| *c == '\'' || *c == '"')?;
-                Some((
-                    quote,
-                    argument[1..]
-                        .split_once(quote)
-                        .map(|(statement, _)| statement),
-                ))
-            });
-            let Some((quote, statement)) = statement else {
-                problems.push((
-                    index + 1,
-                    "psql takes its statement with -c, where check-shell reads it (ARCH-14)"
-                        .to_owned(),
-                ));
-                continue;
-            };
-            let Some(statement) = statement else {
-                problems.push((
-                    index + 1,
-                    "psql's statement goes on past its line, where check-shell reads it: end it \
-                     there (ARCH-14)"
-                        .to_owned(),
-                ));
-                continue;
-            };
-            if quote == '"' && statement.contains(['$', '`']) {
-                problems.push((
-                    index + 1,
-                    "psql's statement holds an expansion, whose value check-shell can't read: \
-                     write the statement itself after -c (ARCH-14)"
-                        .to_owned(),
-                ));
-                continue;
-            }
-            let named: BTreeSet<String> =
-                words(statement).into_iter().map(|(word, _)| word).collect();
-            for table in named {
-                if tables.contains(&table) {
-                    problems.push((
-                        index + 1,
-                        format!(
-                            "a script's statement names `{table}`, a table of the product \
-                             schema: application logic runs as a subcommand of the binary \
-                             (ARCH-14)"
-                        ),
-                    ));
-                }
-            }
-        }
-    }
-    problems
 }
 
 /// The shell scripts under `deploy/`: the files named `*.sh`, and those whose shebang names a
@@ -652,59 +575,5 @@ mod tests {
             .collect();
 
         assert_eq!(lines, [3, 7, 11]);
-    }
-
-    #[test]
-    fn arch_14_a_script_s_psql_statement_names_no_table_in_any_clause_and_holds_no_expansion() {
-        let script = "#!/bin/sh\n\
-                      psql -qAt -c 'TRUNCATE sessions'\n\
-                      psql -qAt -c \"DROP TABLE public.users\"\n\
-                      psql -qAt -c 'COPY users TO STDOUT'\n\
-                      psql -qAt -c \"$statement\"\n\
-                      psql -qAt -c 'SELECT pg_is_in_recovery()'\n\
-                      psql -qAt -c \"SELECT 'sessions', count(*) FROM pg_stat_activity\"\n";
-        let tables = ["sessions".to_owned(), "users".to_owned()];
-
-        let problems: Vec<usize> = psql_problems(script, &tables)
-            .into_iter()
-            .map(|(line, _)| line)
-            .collect();
-
-        assert_eq!(problems, [2, 3, 4, 5]);
-    }
-
-    #[test]
-    fn arch_14_a_script_s_psql_names_no_table_of_the_product_schema() {
-        let script = "#!/bin/sh\n\
-                      # psql -c 'DELETE FROM users' is a comment\n\
-                      ready=$(psql -qAt -c 'SELECT pg_is_in_recovery()')\n\
-                      psql -qAt -c \"DELETE FROM sessions WHERE true\"\n\
-                      psql -qAt < cleanup.sql\n\
-                      apsql_x=1\n";
-        let tables = ["sessions".to_owned(), "users".to_owned()];
-
-        let problems: Vec<usize> = psql_problems(script, &tables)
-            .into_iter()
-            .map(|(line, _)| line)
-            .collect();
-
-        assert_eq!(problems, [4, 5]);
-    }
-
-    #[test]
-    fn arch_14_a_script_s_psql_statement_that_goes_on_past_its_line_is_found() {
-        let script = "#!/bin/sh\n\
-                      psql -qAt -c 'SELECT 1\n\
-                      FROM users'\n\
-                      psql -qAt \\\n\
-                      -c 'TRUNCATE sessions'\n\
-                      psql -qAt -c 'SELECT 1'\n";
-        let tables = ["sessions".to_owned(), "users".to_owned()];
-
-        let problems = psql_problems(script, &tables);
-
-        let lines: Vec<usize> = problems.iter().map(|(line, _)| *line).collect();
-        assert_eq!(lines, [2, 4]);
-        assert!(problems[0].1.contains("past its line"), "{problems:?}");
     }
 }

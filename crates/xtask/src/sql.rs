@@ -3,14 +3,16 @@
 
 /// The tables that `sql`, lowercase and with its strings blanked, reads or writes: the name after
 /// `FROM`, `JOIN`, `INTO`, `UPDATE` and a `USING` that names no columns, past `ONLY` and a
-/// schema's name, and each further name of a `FROM` or `USING` list, after an alias.
+/// schema's name, and each further name of a list of `FROM`, `USING` or `JOIN`, after a comma
+/// that follows an item's alias, or after a join's `USING` and its columns or its `ON` and its
+/// condition, which runs to the first comma, word of [`CLAUSES`] or `)` outside its parentheses.
 pub fn referenced(sql: &str) -> Vec<String> {
     let tokens = sql_tokens(sql);
     let at = |index: usize| tokens.get(index).map_or("", String::as_str);
     let mut tables = Vec::new();
     for (index, token) in tokens.iter().enumerate() {
-        let listed = token == "from" || token == "using";
-        if !(listed || ["join", "into", "update"].contains(&token.as_str()))
+        let listed = ["from", "using", "join"].contains(&token.as_str());
+        if !(listed || ["into", "update"].contains(&token.as_str()))
             || (token == "using" && at(index + 1) == "(")
         {
             continue;
@@ -25,6 +27,11 @@ pub fn referenced(sql: &str) -> Vec<String> {
             let alias = at(next);
             if alias.starts_with(|c: char| c.is_ascii_alphabetic()) && !CLAUSES.contains(&alias) {
                 next += 1;
+            }
+            if token == "join" && at(next) == "using" && at(next + 1) == "(" {
+                next = past(&tokens, next + 1);
+            } else if token == "join" && at(next) == "on" {
+                next = condition_end(&tokens, next + 1);
             }
             if !(listed && at(next) == ",") {
                 break;
@@ -63,11 +70,29 @@ const CLAUSES: [&str; 24] = [
     "select",
 ];
 
+/// Where the condition of a join that starts at `start` of `tokens` ends: at the first comma, word
+/// of [`CLAUSES`] or `)` outside the condition's own parentheses, or at the end.
+fn condition_end(tokens: &[String], start: usize) -> usize {
+    let mut depth = 0;
+    let mut end = start;
+    while let Some(token) = tokens.get(end) {
+        match token.as_str() {
+            "(" => depth += 1,
+            ")" if depth == 0 => break,
+            ")" => depth -= 1,
+            word if depth == 0 && (word == "," || CLAUSES.contains(&word)) => break,
+            _ => {}
+        }
+        end += 1;
+    }
+    end
+}
+
 /// The item of a table list at `start` of `tokens`, and where the tokens after it start: a table's
-/// name, past `ONLY` and a schema's name; or, in a list of `FROM` or `USING`, which `listed` says,
-/// a subquery or a function, such as `unnest($1)`, whose rows a list joins with tables, and whose
-/// own tables its own `FROM` names. `None` where no item stands. After `INTO`, parentheses list
-/// the columns.
+/// name, past `ONLY` and a schema's name; or, in a list of `FROM`, `USING` or `JOIN`, which
+/// `listed` says, a subquery or a function, such as `unnest($1)`, whose rows a list joins with
+/// tables, and whose own tables its own `FROM` names. `None` where no item stands. After `INTO`,
+/// parentheses list the columns.
 fn item(tokens: &[String], start: usize, listed: bool) -> Option<(Option<String>, usize)> {
     let at = |index: usize| tokens.get(index).map_or("", String::as_str);
     let mut next = start;
@@ -163,6 +188,26 @@ mod tests {
         assert_eq!(
             referenced("update rate_limit_buckets set count = count + 1, window = now()"),
             ["rate_limit_buckets"]
+        );
+    }
+
+    #[test]
+    fn arch_06_a_from_list_goes_on_past_a_join() {
+        assert_eq!(
+            referenced("select 1 from a join b on a.id = b.id, c where c.id = a.id"),
+            ["a", "b", "c"]
+        );
+        assert_eq!(
+            referenced("select 1 from a join b on b.id in (select id from d), c"),
+            ["a", "b", "c", "d"]
+        );
+        assert_eq!(
+            referenced("select 1 from a join b using (id), c cross join e, f"),
+            ["a", "b", "c", "e", "f"]
+        );
+        assert_eq!(
+            referenced("select 1 from a left join (select 1 from d) s on true, c"),
+            ["a", "c", "d"]
         );
     }
 }

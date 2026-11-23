@@ -307,9 +307,11 @@ check-table-ownership:
     {{ xtask }} check-table-ownership
 
 # Fails on a migration whose name holds no module, on one that the newest release holds and the
-# working tree changed or deleted, and on one that builds an index of another migration's table
-# in its transaction. It reads the release from git's tags.
-[doc("Fails on a migration misnamed, changed since a release holds it, or indexing an earlier table in its transaction")]
+# working tree changed or deleted, on one that builds an index of another migration's table in
+# its transaction, and on one that adds a constraint to such a table other than `NOT VALID` or
+# with `USING INDEX`, or validates one that it adds, as the check-migrations row of
+# docs/operations/ci.md says. It reads the release from git's tags.
+[doc("Fails on a migration misnamed, changed since a release holds it, or indexing or constraining an earlier table in its transaction")]
 [group('check')]
 check-migrations:
     {{ xtask }} check-migrations

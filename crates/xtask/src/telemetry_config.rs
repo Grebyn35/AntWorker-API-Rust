@@ -553,6 +553,37 @@ mod tests {
     }
 
     #[test]
+    fn obs_08_a_latency_policy_with_an_upper_threshold_fails() {
+        let bounded = POLICIES.replace(
+            "{threshold_ms: 500}",
+            "{threshold_ms: 500, upper_threshold_ms: 10000}",
+        );
+
+        let found = findings(
+            &collector(&bounded),
+            RULES,
+            &dashboard("{ duration > 500ms }"),
+        );
+
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].contains("with no upper threshold"), "{found:?}");
+    }
+
+    #[test]
+    fn obs_08_a_dashboard_lists_the_traces_slower_than_the_objective() {
+        let found = findings(
+            &collector(POLICIES),
+            RULES,
+            &dashboard("{ status = error }"),
+        );
+
+        assert_eq!(
+            found,
+            ["no dashboard lists the traces slower than the latency objective (OBS-08)"]
+        );
+    }
+
+    #[test]
     fn obs_08_a_policy_that_drops_fails() {
         let dropping = format!("{POLICIES}\n      - {{name: no, type: drop, drop: {{}}}}");
         let found = findings(

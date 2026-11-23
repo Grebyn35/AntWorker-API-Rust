@@ -17,7 +17,8 @@
 //!   an `AS` outside parentheses follows that `(`'s list before the statement's `;`, as one does
 //!   where a query fills the table. Each query of one in the code of `platform` and `app`, in a
 //!   `sqlx` macro, names its tenant: a `workspace_id`, or for a table that also has a `user_id`, a
-//!   `user_id`, compared in its `WHERE` or among the columns it inserts. A macro named as one of
+//!   `user_id`, compared in its `WHERE` or among the columns it inserts, outside its strings in
+//!   single quotes and its `--` comments. A macro named as one of
 //!   those that `functions::MACROS` lists, `!` after it, is a finding unless it is written
 //!   `sqlx::<macro>!( ... )`, with parentheses, the one form whose query the check reads. A table of [`ADDRESSED`]
 //!   is also reached by the address of the user its rows are addressed to, which their own queries
@@ -455,21 +456,22 @@ pub fn words(text: &str) -> Vec<(String, usize)> {
     words
 }
 
-/// `sql` with the text of its quoted strings blanked, so a string never reads as a column.
+/// `sql` with the text of its quoted strings blanked, so a string never reads as a column, and
+/// without its comments, each from a `--` outside a string to the end of its line.
 pub fn unquoted(sql: &str) -> String {
     let mut quoted = false;
-    sql.chars()
-        .map(|c| {
-            if c == '\'' {
-                quoted = !quoted;
-                c
-            } else if quoted {
-                ' '
-            } else {
-                c
-            }
-        })
-        .collect()
+    let mut comment = false;
+    let mut chars = sql.chars().peekable();
+    let mut kept = String::with_capacity(sql.len());
+    while let Some(c) = chars.next() {
+        comment = (comment && c != '\n') || (!quoted && c == '-' && chars.peek() == Some(&'-'));
+        if comment {
+            continue;
+        }
+        quoted ^= c == '\'';
+        kept.push(if quoted && c != '\'' { ' ' } else { c });
+    }
+    kept
 }
 
 fn words_of(text: &str) -> Vec<String> {
@@ -596,6 +598,40 @@ CREATE TABLE notes (id uuid PRIMARY KEY, body text);
                 "crates/app/src/modules/things/repo.rs:4",
                 "crates/app/src/modules/things/repo.rs:7",
                 "crates/app/src/modules/things/repo.rs:8",
+            ]
+        );
+    }
+
+    #[test]
+    fn data_16_a_query_s_comment_hides_none_of_its_text_and_names_no_tenant() {
+        let code = r#"
+            fn f() {
+                sqlx::query!(
+                    "-- the owner's things
+                    SELECT name FROM things WHERE id = $1 -- it's
+                    ",
+                    id,
+                );
+                sqlx::query!(
+                    "SELECT name FROM things -- WHERE workspace_id = $1
+                    WHERE id = $2",
+                    id,
+                );
+            }
+        "#;
+
+        let found = findings(code);
+
+        let lines: Vec<&str> = found
+            .iter()
+            .filter(|finding| finding.contains("names no"))
+            .map(|finding| finding.split(": ").next().unwrap())
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                "crates/app/src/modules/things/repo.rs:4",
+                "crates/app/src/modules/things/repo.rs:10",
             ]
         );
     }
