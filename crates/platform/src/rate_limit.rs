@@ -284,4 +284,21 @@ mod tests {
         ));
         assert_eq!(counted.tightest().unwrap().bucket.name, "sign_in");
     }
+
+    #[test]
+    fn platform_056_of_two_buckets_with_as_few_requests_left_the_tightest_ends_last() {
+        let counted = Counted::default();
+        counted.push(count(BUCKET, 3, 10));
+        counted.push(count(
+            Bucket {
+                name: "user",
+                ..BUCKET
+            },
+            3,
+            600,
+        ));
+        let tightest = counted.tightest().unwrap();
+        assert_eq!(tightest.bucket.name, "user");
+        assert_eq!(tightest.remaining(), 7);
+    }
 }
