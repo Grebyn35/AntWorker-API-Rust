@@ -138,7 +138,8 @@ impl Hub {
     }
 
     /// Opens `principal`'s stream, which resumes after the event `last_event_id` names, or,
-    /// without one, starts with what commits next (PLATFORM-028, REALTIME-004).
+    /// without one or with a blank one, starts with what commits next (PLATFORM-028,
+    /// REALTIME-004).
     pub async fn subscribe(
         &self,
         principal: &Principal,

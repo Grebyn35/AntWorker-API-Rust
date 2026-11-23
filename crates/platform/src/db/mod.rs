@@ -178,8 +178,13 @@ impl Database {
         publisher: Option<UserId>,
     ) -> Result<UnitOfWork, Internal> {
         let span = self.transaction();
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the unit of work opens the only transaction (DATA-15)"
+        )]
+        let tx = self.pool.begin().await?;
         Ok(UnitOfWork {
-            tx: self.pool.begin().await?,
+            tx,
             client,
             publisher,
             claimed: None,

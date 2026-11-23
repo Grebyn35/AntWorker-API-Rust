@@ -4,6 +4,7 @@
 
 use std::{
     collections::HashMap,
+    fmt,
     sync::{Arc, Mutex, PoisonError},
     time::Duration,
 };
@@ -110,7 +111,6 @@ impl UploadTurns {
 /// the replica's turns, with the request's `Idempotency-Key`, if it is a `POST` that sent one
 /// (PLATFORM-074). An upload route's group sets no body limit of its own, so nothing reads the
 /// body before the handler does.
-#[derive(Debug)]
 pub struct Upload {
     body: Body,
     /// The body's declared length: `None` without `Content-Length`, and `Some(None)` for one that
@@ -127,6 +127,19 @@ pub struct Upload {
     /// The request's rate limits, with which [`Upload::read`] counts the body's bytes: every
     /// request that the pipeline's IP limit counted has them (PLATFORM-054).
     limits: Option<RateLimits>,
+}
+
+/// Prints neither the file's name, which `Content-Disposition` gives, nor its bytes: both are
+/// personal data (OBS-04).
+impl fmt::Debug for Upload {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("Upload")
+            .field("declared", &self.declared)
+            .field("method", &self.method)
+            .field("path", &self.path)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<S: Send + Sync> FromRequest<S> for Upload {
@@ -184,13 +197,23 @@ impl<S: Send + Sync> FromRequest<S> for Upload {
 /// An upload's bytes, which [`Upload::read`] read, and its key, with the fingerprint of its
 /// method, path, query, `Content-Disposition` and bytes (PLATFORM-036, API-12). It holds the replica's turn until it is dropped,
 /// so the handler keeps it until it has done with the bytes (PLATFORM-074).
-#[derive(Debug)]
 pub struct Uploaded {
     /// The bytes.
     pub bytes: Bytes,
     /// The key, which the operation's unit of work claims.
     pub key: Option<IdempotencyKey>,
     _turn: Turn,
+}
+
+/// Prints how many bytes the file holds, and not the bytes, which are personal data (OBS-04).
+impl fmt::Debug for Uploaded {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("Uploaded")
+            .field("length", &self.bytes.len())
+            .field("key", &self.key)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Upload {
@@ -355,6 +378,22 @@ mod tests {
     /// The user numbered `number`.
     fn user(number: u128) -> UserId {
         UserId::from_uuid(uuid::Uuid::from_u128(number))
+    }
+
+    #[tokio::test]
+    async fn obs_04_an_upload_prints_neither_its_file_s_name_nor_its_bytes() {
+        let mut upload = upload("the file's bytes", &turns());
+        upload.disposition = Some(HeaderValue::from_static(
+            "attachment; filename=\"Ada's notes.pdf\"",
+        ));
+
+        let unread = format!("{upload:?}");
+        let read = format!("{:?}", upload.held(user(1), 64).await.unwrap());
+
+        for printed in [unread, read] {
+            assert!(!printed.contains("notes"), "{printed}");
+            assert!(!printed.contains("the file"), "{printed}");
+        }
     }
 
     #[tokio::test]

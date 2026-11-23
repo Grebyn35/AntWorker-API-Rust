@@ -1,9 +1,9 @@
 //! Routes that only the tests serve, registered the way a module registers its own, for the
 //! behaviors of the pipeline that no route of the API shows, or that only the routes of a part of
 //! the template show, which a fork may not keep: a request that waits, one that never ends, a
-//! panic, an internal error, an insert that a foreign key refuses, a keyed operation that
-//! publishes an event, a rank refusal after a write, bytes counted in a budget, and an email sent
-//! (TEST-04).
+//! panic, in a handler or in a body that it answers, an internal error, an insert that a foreign
+//! key refuses, a keyed operation that publishes an event, a rank refusal after a write, bytes
+//! counted in a budget, and an email sent (TEST-04).
 
 use std::{
     sync::{
@@ -13,7 +13,14 @@ use std::{
     time::Duration,
 };
 
-use axum::{Extension, Json, extract::State, http::StatusCode};
+use axum::{
+    Extension, Json,
+    body::Bytes,
+    extract::State,
+    http::StatusCode,
+    response::{IntoResponse, Response},
+};
+use futures_util::StreamExt;
 use platform::{
     authn::Principal,
     authz::{self, Authorize, Authorizer, Permission},
@@ -55,6 +62,31 @@ async fn gate(State(gate): State<Arc<Gate>>) -> StatusCode {
 #[expect(clippy::panic, reason = "the fixture proves the catch layer (ERR-12)")]
 async fn panics() -> StatusCode {
     panic!("the fixture panicked");
+}
+
+/// Answers 200 with a body whose first part comes at once, and whose next panics once the test
+/// releases the gate, after the response's status has gone out.
+#[utoipa::path(get, path = "/v1/panicking-body", responses((status = 200, description = "A body cut short.")))]
+async fn panicking_body(State(gate): State<Arc<Gate>>) -> Response {
+    let first = futures_util::stream::once(async { Ok(Bytes::from_static(b"the first part")) });
+    let next = futures_util::stream::once(async move {
+        gate.release.notified().await;
+        body_panicked()
+    });
+    (
+        StatusCode::OK,
+        axum::body::Body::from_stream(first.chain(next)),
+    )
+        .into_response()
+}
+
+/// Panics, as a body's part.
+#[expect(
+    clippy::panic,
+    reason = "the fixture proves a panic while a body is read (ERR-12)"
+)]
+fn body_panicked() -> Result<Bytes, std::io::Error> {
+    panic!("the fixture's body panicked");
 }
 
 /// Fails with an internal error whose cause is known.
@@ -318,6 +350,11 @@ pub fn routes(held: Arc<Gate>) -> Routes {
     let routes = Routes::new()
         .public(routes!(panics), &[])
         .merge(Routes::new().public(routes!(broken), &[]))
+        .merge(
+            Routes::new()
+                .public(routes!(panicking_body), &[])
+                .with_state(held.clone()),
+        )
         .merge(Routes::new().public(routes!(gate), &[]).with_state(held));
     let routes = routes.merge(Routes::new().user(routes!(spend), &[]));
     let routes = routes.merge(Routes::new().user(routes!(orphan), &[]));

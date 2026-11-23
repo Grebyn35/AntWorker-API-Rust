@@ -21,6 +21,7 @@ use platform::{
         testing::{
             self,
             collector::{Collector, attribute},
+            spans::EndedSpans,
         },
     },
     types::{SessionId, UserId},
@@ -31,6 +32,7 @@ use tokio::{
     sync::{Semaphore, mpsc, watch},
     task::JoinHandle,
 };
+use tracing::instrument::WithSubscriber;
 
 use crate::support::{self, Api, Options, TestDatabase, hex, mailbox, users};
 
@@ -930,6 +932,86 @@ async fn platform_020_a_runs_span_links_to_the_trace_that_enqueued_it() {
         Some("platform.send_email")
     );
     assert_eq!(mailbox::to(&to).await.len(), 1);
+}
+
+#[tokio::test]
+async fn platform_020_the_span_of_a_run_that_fails_carries_an_error_status() {
+    let db = TestDatabase::migrated().await;
+    let database = db.app().await;
+    let (steering, _starts) = Steering::new(&[Act::Fail]);
+    let jobs = registry(&database, &steering);
+    let clock: SharedClock = Arc::new(TestClock::default());
+    enqueue(&database, JobScope::for_tests(), &probe("traced")).await;
+    let spans = EndedSpans::default();
+
+    async {
+        jobs.run_pending(&database, &clock).await;
+        db.owner_executes("UPDATE jobs SET run_at = now()").await;
+        jobs.run_pending(&database, &clock).await;
+    }
+    .with_subscriber(spans.dispatch())
+    .await;
+
+    // The first run fails, and the second succeeds.
+    assert_eq!(spans.statuses(Probe::KIND), ["error", "unset"]);
+}
+
+#[tokio::test]
+async fn platform_020_the_span_of_a_run_that_dead_letters_a_lost_last_attempt_carries_an_error_status()
+ {
+    let db = TestDatabase::migrated().await;
+    let database = db.app().await;
+    let (steering, _starts) = Steering::new(&[]);
+    // A job at its last attempt, whose replica stopped during it: its lease ran out.
+    db.owner_executes(&format!(
+        "INSERT INTO jobs (kind, payload, attempts, claim_id, lease_expires_at) \
+         VALUES ('tests.probe', '{{\"label\": \"lost\"}}', {}, gen_random_uuid(), \
+         now() - interval '1 second')",
+        Probe::MOST_ATTEMPTS
+    ))
+    .await;
+    let clock: SharedClock = Arc::new(TestClock::default());
+    let spans = EndedSpans::default();
+
+    registry(&database, &steering)
+        .run_pending(&database, &clock)
+        .with_subscriber(spans.dispatch())
+        .await;
+
+    assert_eq!(spans.statuses(Probe::KIND), ["error"]);
+}
+
+#[tokio::test]
+async fn platform_020_the_span_of_a_periodic_run_that_fails_carries_an_error_status() {
+    let db = TestDatabase::migrated().await;
+    let database = db.app().await;
+    let mut jobs = Jobs::new(&database, Duration::from_secs(86_400));
+    let (started, mut starts) = mpsc::unbounded_channel();
+    let hour = Duration::from_secs(3_600);
+    jobs.periodic("tests.failing", hour, hour, move |_| {
+        let started = started.clone();
+        async move {
+            started.send(()).unwrap();
+            Err(Internal::new("the periodic job failed"))
+        }
+    })
+    .unwrap();
+    let spans = EndedSpans::default();
+    // The scheduler runs each periodic job in a task of its own, which runs on the test's thread.
+    let on_this_thread = tracing::dispatcher::set_default(&spans.dispatch());
+
+    let (stop, running) = start(jobs, &database, &Arc::new(TestClock::default()));
+    starts.recv().await.unwrap();
+    stop.send_replace(true);
+    running.await.unwrap();
+    drop(on_this_thread);
+
+    assert_eq!(spans.statuses("tests.failing"), ["error"]);
+    // A sweep, due at once too, succeeds.
+    assert_eq!(
+        spans.statuses("platform.expire_rate_limit_buckets"),
+        ["unset"]
+    );
 }
 
 #[tokio::test]

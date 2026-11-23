@@ -397,6 +397,31 @@ async fn realtime_004_an_id_the_api_doesn_t_hold_truncates_the_replay() {
 }
 
 #[tokio::test]
+async fn realtime_004_a_blank_last_event_id_is_none() {
+    let api = announcements::api().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    // The registration's session published its start (AUTH-046).
+    api.database().owner_executes("DELETE FROM events").await;
+    announcements::announce(&api, &ada, 1).await;
+
+    let mut opened = Vec::new();
+    for blank in ["", "  "] {
+        let mut stream = streams::connect(&api, &ada.access, Some(blank)).await;
+        opened.push(stream.opened().await);
+    }
+
+    let announced = api
+        .database()
+        .owner_reads("SELECT id::text FROM events")
+        .await;
+    for opened in opened {
+        // As without the header: no replay, and a reconnect resumes after the newest event.
+        assert_eq!(opened.payload()["truncated"], false);
+        assert_eq!(opened.id.as_deref(), Some(announced[0].as_str()));
+    }
+}
+
+#[tokio::test]
 async fn realtime_004_a_stream_that_closes_before_its_first_event_resumes_where_it_started() {
     let api = announcements::api().await;
     let ada = users::register(&api, "ada@example.com").await;

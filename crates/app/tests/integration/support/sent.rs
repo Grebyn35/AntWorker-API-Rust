@@ -33,7 +33,7 @@ const FILE: &str = "SENT_ROUTES";
 /// The record of the process, once its first request opened it, or `None` without the variable.
 static RECORD: OnceLock<Option<Mutex<Record>>> = OnceLock::new();
 
-/// A record: its file, and the lines that the file holds.
+/// A record: its file, and the lines that the file holds, each written whole.
 struct Record {
     file: File,
     lines: HashSet<String>,
@@ -90,7 +90,9 @@ fn templates() -> &'static [String] {
     })
 }
 
-/// Writes `line` to the record, once.
+/// Writes `line` to the record, once. A lock that a panic poisoned is taken as it is: a line joins
+/// `lines` only once the file holds it, so `lines` names no line that the file lacks, and a line
+/// whose write panicked is written by its next request.
 #[expect(
     clippy::disallowed_methods,
     reason = "the test support may block: it writes a line of a local file once for each route \
@@ -110,7 +112,8 @@ fn record(line: String) {
         return;
     };
     let mut record = record.lock().unwrap_or_else(PoisonError::into_inner);
-    if record.lines.insert(line.clone()) {
+    if !record.lines.contains(&line) {
         writeln!(record.file, "{line}").expect("a line of SENT_ROUTES");
+        record.lines.insert(line);
     }
 }

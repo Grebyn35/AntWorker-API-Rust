@@ -131,7 +131,8 @@ fn number(text: &str) -> Option<u64> {
         .flatten()
 }
 
-/// The size of the whole that a `Content-Range` names, such as the 1000 of `bytes 10-19/1000`.
+/// The size of the whole that a `Content-Range` names, such as the 1000 of `bytes 10-19/1000`,
+/// when its first byte and its last are in that order and within the whole.
 fn whole(content_range: &str) -> Option<u64> {
     let (range, whole) = content_range.strip_prefix("bytes ")?.split_once('/')?;
     let (first, last) = range.split_once('-')?;

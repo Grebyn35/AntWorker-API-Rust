@@ -898,6 +898,50 @@ mod tests {
         }
     }
 
+    /// Every version of the package `name` that `Cargo.lock` holds.
+    fn locked(name: &str) -> Vec<&'static str> {
+        let lock = include_str!("../../../../Cargo.lock");
+        lock.split("[[package]]")
+            .filter(|package| {
+                package
+                    .lines()
+                    .any(|line| line == format!("name = \"{name}\""))
+            })
+            .filter_map(|package| {
+                package
+                    .lines()
+                    .find_map(|line| line.strip_prefix("version = \""))
+                    .and_then(|version| version.strip_suffix('"'))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn ops_01_the_libpq_variables_are_those_of_the_locked_sqlx_postgres() {
+        let read = "0.9.1";
+        assert_eq!(
+            locked("sqlx-postgres"),
+            [read],
+            "LIBPQ_VARIABLES lists what sqlx-postgres {read} reads: read the variables that the \
+             locked version's src/options/ reads, `PgConnectOptions::new` and the password file \
+             among them, against the list and its comment, then name that version here"
+        );
+    }
+
+    #[test]
+    fn platform_065_the_sdk_s_variables_are_those_of_the_locked_sdk_and_exporter() {
+        let read = "0.33.1";
+        for package in ["opentelemetry_sdk", "opentelemetry-otlp"] {
+            assert_eq!(
+                locked(package),
+                [read],
+                "OTEL_VARIABLES lists the OTEL_ variables that {package} {read} reads: read \
+                 those that the locked version's src/ reads against the list, then name that \
+                 version here"
+            );
+        }
+    }
+
     #[test]
     fn ops_02_env_example_names_every_libpq_variable_that_must_be_unset() {
         let example = include_str!("../../../../.env.example");

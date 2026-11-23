@@ -16,7 +16,7 @@ use platform::{
     hashing::HmacKey,
     http::Routes,
     jobs::Jobs,
-    lifecycle::Readiness,
+    lifecycle::{self, Readiness, Shutdown},
     mail::Mail,
     telemetry::{self, Service},
 };
@@ -227,6 +227,39 @@ pub async fn application(
         hub,
         workers,
     }
+}
+
+/// The API's application with `options`, on a database of its own, which it returns, served by
+/// `platform::lifecycle::serve` as `serve` serves it, on a free port of 127.0.0.1, which it
+/// returns too, until the test's runtime ends: for a test of what a connection carries, such as
+/// a response cut short.
+pub async fn served(options: Options) -> (TestDatabase, SocketAddr) {
+    let database = TestDatabase::migrated().await;
+    let clock = Arc::new(TestClock::default());
+    let readiness = Readiness::new();
+    let router = application(
+        &database.app().await,
+        options,
+        clock.clone(),
+        readiness.clone(),
+    )
+    .await
+    .router;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let shutdown = Shutdown {
+        delay: Duration::ZERO,
+        drain: Duration::ZERO,
+    };
+    tokio::spawn(lifecycle::serve(
+        listener,
+        router,
+        readiness,
+        clock,
+        shutdown,
+        std::future::pending(),
+    ));
+    (database, address)
 }
 
 /// The routes under test inside the request pipeline, on a database of their own, with a test

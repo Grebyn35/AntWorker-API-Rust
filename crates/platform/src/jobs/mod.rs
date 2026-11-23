@@ -365,6 +365,12 @@ fn count(kind: &'static str, outcome: Outcome) {
     RUNS.add(1, [kind.into(), outcome.label().into()]);
 }
 
+/// Gives the span of the run that the caller runs in, its job's span, an error status, as a 5xx
+/// gives a request's, which the collector's sampling reads (PLATFORM-020, OBS-08).
+fn failed() {
+    tracing::Span::current().record(names::OTEL_STATUS_CODE, "error");
+}
+
 /// Renews the lease of a run every [`RENEWAL`], for as long as the run lasts. A renewal that
 /// fails is logged, and the next one tries again; the lease outlasts two that fail.
 async fn renew_every<F, Fut>(clock: &SharedClock, renew: F) -> std::convert::Infallible

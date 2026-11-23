@@ -85,7 +85,7 @@ An error is deliberately ignored only through `platform::errors::ignore(error, r
 - Check: `clippy` (`let_underscore_must_use`, and `unused_result_ok` for a `Result` dropped with `.ok()`), `test` (the line and the count), plus `review` (a `Result` dropped another way, such as one that holds nothing and ends in `unwrap_or_default`, which no lint tells from a value's default).
 
 ### ERR-12 Panics become a 500 and are counted
-A catch-panic layer turns any panic in a request into the ERR-08 response. In every subcommand that logs, each panic is logged at `ERROR` and counted in `platform.panics`, on whatever thread it happens. Panics are still not allowed in code (CODE-03); the layer is the last line of defense.
+A catch-panic layer turns a panic in what it wraps, the layers that follow it in [architecture §6](../architecture.md#6-request-lifecycle)'s order and the route they pass the request to, into the ERR-08 response. A panic while the server reads a response's body comes once its status has gone out, and becomes no response: the connection ends, cutting the body short, and the request's completion line and span, where it has them, keep that status. In every subcommand that logs, each panic is logged at `ERROR` and counted in `platform.panics`, on whatever thread it happens. Panics are still not allowed in code (CODE-03); the layer is the last line of defense.
 - Why: one bug must never take down the process or leak a stack trace.
 - Check: `test`.
 

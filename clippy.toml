@@ -111,6 +111,8 @@ disallowed-methods = [
     { path = "sqlx::Connection::connect_with", reason = "only platform::db opens connections (DATA-15)" },
     { path = "sqlx::Connection::begin", reason = "the unit of work is the only transaction (DATA-15, ARCH-11)" },
     { path = "sqlx::Connection::begin_with", reason = "the unit of work is the only transaction, and SQL goes through the query! macros (DATA-14, DATA-15, ARCH-11)" },
+    { path = "sqlx::Pool::begin", reason = "the unit of work is the only transaction (DATA-15, ARCH-11)" },
+    { path = "sqlx::Pool::try_begin", reason = "the unit of work is the only transaction (DATA-15, ARCH-11)" },
     { path = "sqlx::Pool::begin_with", reason = "the unit of work is the only transaction, and SQL goes through the query! macros (DATA-14, DATA-15, ARCH-11)" },
     { path = "sqlx::Pool::try_begin_with", reason = "the unit of work is the only transaction, and SQL goes through the query! macros (DATA-14, DATA-15, ARCH-11)" },
     { path = "sqlx::Transaction::begin", reason = "the unit of work is the only transaction, and SQL goes through the query! macros (DATA-14, DATA-15, ARCH-11)" },

@@ -4,11 +4,11 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use tokio::sync::watch;
-use tracing::Instrument;
+use tracing::{Instrument, field::Empty};
 use uuid::Uuid;
 
 use super::{
-    DURATION, JobContext, JobFailure, JobScope, LEASE, Outcome, Queued, count, renew_every,
+    DURATION, JobContext, JobFailure, JobScope, LEASE, Outcome, Queued, count, failed, renew_every,
     runs::Runs,
 };
 use crate::{
@@ -96,7 +96,8 @@ pub(super) async fn dispatch(
 /// Runs `job` in a span of its own, linked to the span that enqueued it (OBS-07), renewing its
 /// lease while it runs and cancelling it at its time limit (PLATFORM-017), then writes its
 /// outcome by its claim, so a run whose lease ran out, while another replica claimed the job,
-/// changes nothing.
+/// changes nothing. The span of a run that fails, or that moves its job to the dead-letter
+/// state, ends with an error status (PLATFORM-020).
 pub(super) async fn run_job(
     queued: Queued,
     job: ClaimedJob,
@@ -109,6 +110,7 @@ pub(super) async fn run_job(
         "job",
         { names::OTEL_NAME } = queued.kind,
         { names::OTEL_KIND } = "consumer",
+        { names::OTEL_STATUS_CODE } = Empty,
         { names::JOB_KIND } = queued.kind,
         { names::JOB_ID } = %job.id,
         { names::JOB_ATTEMPT } = i64::from(attempt),
@@ -132,6 +134,7 @@ async fn run(
     let outcome = if attempt > queued.most_attempts {
         // The replica that ran its last attempt stopped before the attempt ended.
         let failure = "the replica of its last attempt stopped during it";
+        failed();
         tracing::error!(
             { names::JOB_KIND } = queued.kind,
             { names::EXCEPTION_MESSAGE } = failure,
@@ -158,6 +161,9 @@ async fn run(
             ))),
             never = renew_every(&clock, || database.renew_job(id, claim, LEASE)) => match never {},
         };
+        if result.is_err() {
+            failed();
+        }
         DURATION.observe(
             clock.now().duration_since(started).as_secs_f64(),
             [queued.kind.into()],

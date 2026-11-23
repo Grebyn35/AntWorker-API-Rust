@@ -4,11 +4,12 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use tokio::sync::watch;
-use tracing::Instrument;
+use tracing::{Instrument, field::Empty};
 use uuid::Uuid;
 
 use super::{
-    DURATION, JobContext, JobScope, LEASE, Outcome, Periodic, count, renew_every, runs::Runs,
+    DURATION, JobContext, JobScope, LEASE, Outcome, Periodic, count, failed, renew_every,
+    runs::Runs,
 };
 use crate::{
     clock::SharedClock,
@@ -94,7 +95,7 @@ pub(super) async fn schedule(
 
 /// Runs a periodic job in a span of its own, renewing its lease while it runs and cancelling it
 /// at its time limit, then sets its next run one interval after this one began. A failed run
-/// waits for its next interval too.
+/// waits for its next interval too, and its span ends with an error status (PLATFORM-020).
 async fn run_periodic(
     job: Periodic,
     schedule: ClaimedSchedule,
@@ -105,6 +106,7 @@ async fn run_periodic(
         parent: None,
         "job",
         { names::OTEL_NAME } = job.name,
+        { names::OTEL_STATUS_CODE } = Empty,
         { names::JOB_KIND } = job.name,
         { names::JOB_ID } = %schedule.claim_id,
     );
@@ -133,6 +135,7 @@ async fn run(job: Periodic, schedule: ClaimedSchedule, database: Database, clock
     let outcome = match result {
         Ok(()) => Outcome::Succeeded,
         Err(error) => {
+            failed();
             tracing::warn!(
                 { names::JOB_KIND } = job.name,
                 { names::EXCEPTION_MESSAGE } = errors::chain(&error),

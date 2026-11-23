@@ -106,6 +106,10 @@ where
         };
         let mut headers = HeaderMap::new();
         headers.insert(header::ETAG, tag);
+        headers.insert(
+            header::CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static(SANDBOX),
+        );
         // part: files
         if let Some(duration) = self.public_for {
             // A number of seconds is always a header's value. Without it, no cache keeps the
@@ -147,10 +151,6 @@ where
         };
         // end part: files
         headers.insert(header::CONTENT_DISPOSITION, disposition);
-        headers.insert(
-            header::CONTENT_SECURITY_POLICY,
-            HeaderValue::from_static(SANDBOX),
-        );
         headers.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
         let Some(bytes) = self.bytes else {
             return (status, headers).into_response();
@@ -272,6 +272,34 @@ mod tests {
         assert_eq!(named, Served::NotModified);
         assert_eq!(spaced, Served::Whole);
         assert_eq!(no_range, Served::Whole);
+    }
+
+    #[test]
+    fn platform_081_a_304_carries_the_sandboxed_policy() {
+        let download = Download {
+            media_type: "application/zip".to_owned(),
+            size: 1_000,
+            served: Served::NotModified,
+            // part: files
+            inline: false,
+            public_for: None,
+            // end part: files
+            name: "export.zip".to_owned(),
+            tag: "tag".to_owned(),
+            bytes: None::<futures_util::stream::Empty<Result<Bytes, std::io::Error>>>,
+        };
+
+        let response = download.into_response();
+
+        assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
+        assert_eq!(
+            response.headers().get(header::CONTENT_SECURITY_POLICY),
+            Some(&HeaderValue::from_static(SANDBOX))
+        );
+        assert_eq!(
+            response.headers().get(header::ETAG),
+            Some(&HeaderValue::from_static("\"tag\""))
+        );
     }
 
     #[test]

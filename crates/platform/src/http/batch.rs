@@ -4,6 +4,7 @@
 
 use std::{
     collections::HashMap,
+    fmt,
     io::Read,
     sync::{Arc, Mutex, PoisonError},
 };
@@ -176,13 +177,24 @@ fn is_coding(value: &HeaderValue, coding: &str) -> bool {
 
 /// A batch that [`Batch::read`] read. It holds the replica's turn until it is dropped, so the
 /// handler keeps it until it has done with the bytes (PLATFORM-090).
-#[derive(Debug)]
 pub struct ReadBatch {
     /// How the batch is encoded.
     pub encoding: BatchEncoding,
     /// Its bytes, inflated if they came as gzip.
     pub bytes: Bytes,
     _turn: Turn,
+}
+
+/// Prints how many bytes the batch holds, and not the bytes, whose spans and records the client
+/// wrote (OBS-04).
+impl fmt::Debug for ReadBatch {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ReadBatch")
+            .field("encoding", &self.encoding)
+            .field("length", &self.bytes.len())
+            .finish_non_exhaustive()
+    }
 }
 
 impl Batch {
@@ -365,6 +377,17 @@ mod tests {
         assert_eq!(&json.bytes[..], b"{}");
         assert_eq!(&identity.bytes[..], [4]);
         assert_eq!(&gzipped.bytes[..], [5]);
+    }
+
+    #[tokio::test]
+    async fn obs_04_a_batch_prints_none_of_its_bytes() {
+        let batch = read(&[PROTOBUF], b"the batch's bytes".to_vec(), 64)
+            .await
+            .unwrap();
+
+        let printed = format!("{batch:?}");
+
+        assert!(!printed.contains("the batch"), "{printed}");
     }
 
     #[tokio::test]

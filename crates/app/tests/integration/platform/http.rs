@@ -1,15 +1,19 @@
 //! The request pipeline, through the API's routes and a few fixture routes registered the way
 //! a module registers its own.
 
-use std::{sync::Arc, time::Duration};
+use std::{io, sync::Arc, time::Duration};
 
 use http::{Method, StatusCode};
 use platform::telemetry::testing;
 use serde_json::{Value, json};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpStream,
+};
 
 use crate::support::{
     Api, Options, announcements,
-    api::Response,
+    api::{self, Response},
     execute_on,
     fixtures::{self, Gate},
     queries_wait_on_locks, query_waits_on_a_lock, streams, users, workspaces,
@@ -546,6 +550,55 @@ async fn err_12_a_panic_answers_the_internal_problem() {
     );
     assert!(internal.get("detail").is_none());
     assert!(!String::from_utf8_lossy(&response.body).contains("fixture"));
+}
+
+#[tokio::test]
+async fn err_12_a_panic_while_a_body_is_read_ends_the_connection_and_is_logged() {
+    let gate = Arc::new(Gate::default());
+    let (_database, address) = api::served(Options::routes(fixtures::routes(gate.clone()))).await;
+    let mut client = TcpStream::connect(address).await.unwrap();
+    client
+        .write_all(b"GET /v1/panicking-body HTTP/1.1\r\nHost: api\r\nConnection: close\r\n\r\n")
+        .await
+        .unwrap();
+    // The status, the headers and the body's first part.
+    let mut received = Vec::new();
+    let mut buffer = [0; 1024];
+    while !String::from_utf8_lossy(&received).contains("the first part") {
+        let read = client.read(&mut buffer).await.unwrap();
+        assert!(read > 0, "{}", String::from_utf8_lossy(&received));
+        received.extend_from_slice(&buffer[..read]);
+    }
+
+    gate.release.notify_one();
+    let ended = client.read_to_end(&mut received).await;
+
+    let received = String::from_utf8_lossy(&received);
+    assert!(received.starts_with("HTTP/1.1 200"), "{received}");
+    // The connection ends without the chunk of no bytes that ends a chunked body.
+    assert!(
+        ended.is_ok()
+            || matches!(&ended, Err(error) if error.kind() == io::ErrorKind::ConnectionReset),
+        "{ended:?}"
+    );
+    assert!(!received.ends_with("0\r\n\r\n"), "{received}");
+    let lines = testing::logged_on_this_thread();
+    let panicked: Vec<&Value> = lines
+        .iter()
+        .filter(|line| line["message"] == "panicked")
+        .collect();
+    assert_eq!(panicked.len(), 1, "{lines:#?}");
+    assert_eq!(panicked[0]["level"], "ERROR");
+    assert_eq!(
+        panicked[0]["exception.message"],
+        "the fixture's body panicked"
+    );
+    let completed: Vec<&Value> = lines
+        .iter()
+        .filter(|line| line["http.route"] == "/v1/panicking-body")
+        .collect();
+    assert_eq!(completed.len(), 1, "{lines:#?}");
+    assert_eq!(completed[0]["http.response.status_code"], 200);
 }
 
 #[tokio::test]
