@@ -44,7 +44,7 @@ A `ci:` check that isn't listed in [docs/operations/ci.md](../operations/ci.md) 
 
 ## Reviews
 
-A review checks a change, a module or the documents against these rules. It never asks for open-ended improvements. The whole codebase is reviewed once, as the migration's last review, and no review takes it as its scope again (D227): a defect that is found later is fixed as a defect, with its test, and a review reads the change.
+A review checks a change, a module or the documents against these rules. It never asks for open-ended improvements. The whole codebase is reviewed once, as the migration's last review (D227). After it, a review's scope is a change or a module, never the whole codebase again: such a review finds `must-fix` findings and has them fixed as any review does, and a defect that is found outside a review is fixed as a defect, with its test.
 
 ### Passes
 
