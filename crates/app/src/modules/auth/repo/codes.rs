@@ -84,11 +84,33 @@ pub(in crate::modules::auth) async fn find(
     user_id: UserId,
     purpose: Purpose,
 ) -> Result<Vec<StoredCode>, Internal> {
+    find_of(uow, user_id.uuid(), purpose).await
+}
+
+/// The reset codes of `user_id`, the account that holds the address that a reset's confirmation
+/// gives, as [`find`] reads them. For no account, the same statement reads those of the nil
+/// UUID, which `uuidv7()`, the database's source of users' IDs, never gives (DATA-08), so a
+/// confirmation for an address that no account holds runs the reads of one for an account
+/// (SEC-05).
+pub(in crate::modules::auth) async fn resets(
+    uow: &mut UnitOfWork,
+    user_id: Option<UserId>,
+) -> Result<Vec<StoredCode>, Internal> {
+    let id = user_id.map_or(uuid::Uuid::nil(), UserId::uuid);
+    find_of(uow, id, Purpose::PasswordReset).await
+}
+
+/// The codes for `purpose` of the user whose ID is `user_id`, the oldest first.
+async fn find_of(
+    uow: &mut UnitOfWork,
+    user_id: uuid::Uuid,
+    purpose: Purpose,
+) -> Result<Vec<StoredCode>, Internal> {
     let rows = sqlx::query!(
         r#"SELECT id, code_hash, expires_at <= now() AS "expired!" FROM verification_codes
         WHERE user_id = $1 AND purpose = $2::text::verification_purpose
         ORDER BY id"#,
-        user_id.uuid(),
+        user_id,
         purpose.name(),
     )
     .fetch_all(uow.executor())

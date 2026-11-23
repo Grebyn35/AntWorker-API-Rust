@@ -32,8 +32,29 @@ pub(in crate::modules::auth) async fn insert_password_identity(
     Ok(())
 }
 
+/// The password identity of `user_id`, with its password's hash, read without a lock, which a
+/// sign-in verifies before it locks the identity (the auth spec's "Sign-in"). For no user, the
+/// same statement reads that of the nil UUID, which `uuidv7()`, the database's source of users'
+/// IDs, never gives (DATA-08), so a sign-in for an email that no account holds runs the reads of
+/// one for an account (SEC-05).
+pub(in crate::modules::auth) async fn stored_password(
+    uow: &mut UnitOfWork,
+    user_id: Option<UserId>,
+) -> Result<Option<StoredPassword>, Internal> {
+    let row = sqlx::query!(
+        "SELECT id, password_hash FROM identities WHERE user_id = $1 AND method = 'password'",
+        user_id.map_or(uuid::Uuid::nil(), UserId::uuid),
+    )
+    .fetch_optional(uow.executor())
+    .await?;
+    Ok(row.and_then(|row| {
+        row.password_hash
+            .map(|hash| StoredPassword { id: row.id, hash })
+    }))
+}
+
 /// The password identity of `user_id`, locked until the unit of work ends, so the sign-ins of
-/// one user take turns (DATA-20).
+/// one user that start a session take turns (DATA-20).
 pub(in crate::modules::auth) async fn password_identity_for_update(
     uow: &mut UnitOfWork,
     user_id: UserId,

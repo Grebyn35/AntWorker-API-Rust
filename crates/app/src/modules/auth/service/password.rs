@@ -17,7 +17,7 @@ use super::{
     verification::{CODE_KIND, code_input},
 };
 use crate::modules::{
-    accounts,
+    accounts::{self, Address},
     audit::{self as audit_log, Entry},
     auth::{
         audit,
@@ -26,7 +26,10 @@ use crate::modules::{
         jobs::SendCode,
         metrics,
         model::{FactorProof, Password, Purpose, ResetCode, Session, Tokens},
-        repo::{self, codes},
+        repo::{
+            self,
+            codes::{self, StoredCode},
+        },
     },
 };
 
@@ -129,13 +132,22 @@ impl Auth {
                 .await?;
         }
         let mut uow = self.database.begin(client, None).await?;
-        let Some(user_id) = accounts::find_by_email(&mut uow, &confirmation.email).await? else {
+        // Read without a lock, so a wrong code waits for no other confirmation's lock, and read
+        // for an address that no account holds too, so the two run the same reads (SEC-05).
+        let (user_id, matched) = self
+            .read_reset_code(&mut uow, &confirmation.email, &confirmation.code)
+            .await?;
+        let Some(user_id) = user_id else {
             return Err(AuthError::InvalidResetCode);
         };
-        // The user's row first, as a deletion of the account locks it first, so the two take
-        // turns (DATA-20).
-        let Some(address) = accounts::address_for_update(&mut uow, user_id).await? else {
-            return Err(AuthError::InvalidResetCode);
+        // Locked once the code matched, and read again under the lock.
+        let held = if matched {
+            Some(
+                self.held_reset_code(&mut uow, user_id, &confirmation.code)
+                    .await?,
+            )
+        } else {
+            None
         };
         let scope = AuditScope::attempt(user_id);
         #[expect(
@@ -143,10 +155,7 @@ impl Auth {
             reason = "a reset enqueues its emails for the account whose code it checked (PLATFORM-013)"
         )]
         let job_scope = JobScope::attempt(Some(user_id));
-        let Some(code) = self
-            .matching_reset_code(&mut uow, user_id, &address.email, &confirmation.code)
-            .await?
-        else {
+        let Some((address, Some(code))) = held else {
             // A failed reset of an existing account is a security failure, which commits before
             // the answer (ARCH-11).
             audit_log::record(
@@ -215,43 +224,70 @@ impl Auth {
         code: &ResetCode,
     ) -> Result<(), AuthError> {
         let mut read = self.database.begin(client, None).await?;
-        let mut matched = None;
-        if let Some(user_id) = accounts::find_by_email(&mut read, email).await?
-            && let Some(address) = accounts::address(&mut read, user_id).await?
-            && self
-                .matching_reset_code(&mut read, user_id, &address.email, code)
-                .await?
-                .is_some()
-        {
-            matched = Some(user_id);
-        }
+        let (user_id, matched) = self.read_reset_code(&mut read, email, code).await?;
         drop(read);
-        match matched {
+        match user_id.filter(|_| matched) {
             Some(user_id) => self.count_reset_check(limits, user_id).await,
             None => Ok(()),
         }
     }
 
-    /// The ID of `user_id`'s reset code that lasts and is `code`, sent to `address`, their
-    /// address, if any (AUTH-037, AUTH-038). A unit of work claims it by deleting it, so it resets
-    /// nothing again: a row only one unit of work deletes.
-    async fn matching_reset_code(
+    /// The account that holds `email`, if one does, and whether `code` is one of its reset codes
+    /// that last, read without a lock. For an address that no account holds, the same
+    /// statements run, the codes' for no account (SEC-05).
+    async fn read_reset_code(
+        &self,
+        uow: &mut UnitOfWork,
+        email: &EmailAddress,
+        code: &ResetCode,
+    ) -> Result<(Option<UserId>, bool), AuthError> {
+        let user_id = accounts::find_by_email(uow, email).await?;
+        let stored = codes::resets(uow, user_id).await?;
+        // `email` is the account's address, as its index found it, which a code's keyed hash
+        // covers.
+        let matched =
+            user_id.is_some_and(|user_id| self.matching(user_id, email, code, &stored).is_some());
+        Ok((user_id, matched))
+    }
+
+    /// `user_id`'s address, with their row locked `FOR NO KEY UPDATE` for the rest of the unit
+    /// of work, as a deletion of the account locks it first, so the two take turns (DATA-20), and
+    /// the ID of their reset code that lasts and is `code`, read again under the lock, since a
+    /// confirmation that held the row first may have claimed the code; or `InvalidResetCode` once
+    /// the account is gone.
+    async fn held_reset_code(
         &self,
         uow: &mut UnitOfWork,
         user_id: UserId,
+        code: &ResetCode,
+    ) -> Result<(Address, Option<uuid::Uuid>), AuthError> {
+        let Some(address) = accounts::address_for_update(uow, user_id).await? else {
+            return Err(AuthError::InvalidResetCode);
+        };
+        let stored = codes::find(uow, user_id, Purpose::PasswordReset).await?;
+        let matched = self.matching(user_id, &address.email, code, &stored);
+        Ok((address, matched))
+    }
+
+    /// The ID of the reset code among `stored`, `user_id`'s, that lasts and is `code`, sent to
+    /// `address`, their address, if any (AUTH-037, AUTH-038). A unit of work claims it by deleting
+    /// it, so it resets nothing again: a row only one unit of work deletes.
+    fn matching(
+        &self,
+        user_id: UserId,
         address: &EmailAddress,
         code: &ResetCode,
-    ) -> Result<Option<uuid::Uuid>, Internal> {
+        stored: &[StoredCode],
+    ) -> Option<uuid::Uuid> {
         let input = code_input(user_id, address, code);
-        let stored = codes::find(uow, user_id, Purpose::PasswordReset).await?;
         // Each lasting code is compared, in constant time, so the time doesn't tell which matched.
         let mut matched = None;
-        for stored in &stored {
+        for stored in stored {
             if self.key.verify(CODE_KIND, &input, &stored.hash) && !stored.expired {
                 matched = Some(stored.id);
             }
         }
-        Ok(matched)
+        matched
     }
 
     /// Changes the caller's password, once their current one has passed the one check of a

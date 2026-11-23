@@ -19,7 +19,7 @@ use crate::modules::{
         error::AuthError,
         metrics,
         model::{DeviceToken, Password, Session, Tokens},
-        repo,
+        repo::{self, StoredPassword},
     },
 };
 
@@ -95,30 +95,33 @@ impl Auth {
         // no connection of the pool, which the other requests need (AUTH-093).
         let hashing = self.workers.turn().await.map_err(Internal::new)?;
         let mut uow = self.database.begin(client, None).await?;
-        let Some(user_id) = accounts::find_by_email(&mut uow, &input.email).await? else {
+        let user_id = accounts::find_by_email(&mut uow, &input.email).await?;
+        // Read without a lock, so a wrong password waits for no other sign-in's lock, and read
+        // for an email that no account holds too, so the two run the same reads (SEC-05).
+        let read = repo::stored_password(&mut uow, user_id).await?;
+        let Some(user_id) = user_id else {
             verify_in(hashing, self.dummy_hash.clone(), input.password).await?;
             return Err(AuthError::InvalidCredentials);
         };
-        // Locked for the rest of the unit of work, so two sign-ins of one user take turns, and
-        // one on a device ends the session the other just started there (DATA-20).
-        let Some(identity) = repo::password_identity_for_update(&mut uow, user_id).await? else {
+        let Some(read) = read else {
             verify_in(hashing, self.dummy_hash.clone(), input.password).await?;
             return Err(failed(uow, user_id).await?);
         };
         let ((matches, password), hashing) =
-            verify_in(hashing, identity.hash.clone(), input.password).await?;
+            verify_in(hashing, read.hash.clone(), input.password).await?;
+        if !matches {
+            drop(hashing);
+            return Err(failed(uow, user_id).await?);
+        }
+        let Some((identity, password, hashing)) =
+            locked(&mut uow, user_id, &read.hash, (password, hashing)).await?
+        else {
+            return Err(failed(uow, user_id).await?);
+        };
         // A password that matched is hashed again here, if its hash needs it, since no later
         // step holds the password, and the turn goes before the sign-in's writes, so the next
         // sign-in hashes while this one writes (AUTH-014, AUTH-093).
-        let rehashed = if matches {
-            self.rehashed(hashing, &identity.hash, password).await?
-        } else {
-            drop(hashing);
-            None
-        };
-        if !matches {
-            return Err(failed(uow, user_id).await?);
-        }
+        let rehashed = self.rehashed(hashing, &identity.hash, password).await?;
         // An account with an app gets a challenge, which its code completes, rather than a
         // session; its password's new hash is stored now, since no later step holds it.
         if repo::second_factors::has_app(&mut uow, user_id).await? {
@@ -211,4 +214,29 @@ async fn failed(mut uow: UnitOfWork, user_id: UserId) -> Result<AuthError, AuthE
     .await?;
     uow.commit().await?;
     Ok(AuthError::InvalidCredentials)
+}
+
+/// `user_id`'s password identity, locked for the rest of the unit of work, once the password of
+/// `matched` matched `read`, the hash that the sign-in read without the lock, so two sign-ins of
+/// one user that start a session take turns, and one on a device ends the session that the other
+/// just started there (AUTH-008, DATA-20). The identity comes back with the password and the turn
+/// at hashing of `matched`, or none, which answers as a wrong password does, when the identity is
+/// gone by then, or holds a hash that another unit of work wrote meanwhile, which the password,
+/// verified again in the turn, doesn't match (AUTH-005).
+async fn locked(
+    uow: &mut UnitOfWork,
+    user_id: UserId,
+    read: &str,
+    matched: (Password, Turn),
+) -> Result<Option<(StoredPassword, Password, Turn)>, AuthError> {
+    let (password, hashing) = matched;
+    let Some(identity) = repo::password_identity_for_update(uow, user_id).await? else {
+        return Ok(None);
+    };
+    if identity.hash == read {
+        return Ok(Some((identity, password, hashing)));
+    }
+    let ((matches, password), hashing) =
+        verify_in(hashing, identity.hash.clone(), password).await?;
+    Ok(matches.then_some((identity, password, hashing)))
 }

@@ -5,7 +5,7 @@
 use serde_json::{Value, json};
 
 use crate::support::{
-    Api, Options,
+    Api, Options, answer_before_a_lock_wait,
     api::Response,
     execute_on, mailbox, queries_wait_on_locks, second_factors,
     users::{self, SignedIn},
@@ -690,6 +690,34 @@ async fn auth_037_of_two_that_confirm_one_code_at_once_only_one_resets_the_passw
         users::sign_in(&api, &address, users::PASSWORD).await.status,
         201
     );
+}
+
+#[tokio::test]
+async fn sec_05_a_wrong_reset_code_answers_401_while_another_transaction_holds_the_account() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let ada = users::register(&api, &address).await;
+    ask(&api, &address).await;
+    let wrong = mailbox::other_grouped_code(&code_sent(&api, &address).await);
+    let db = api.database();
+    // Held as a confirmation whose code matched holds it until it commits.
+    let mut held = db
+        .holding(&format!(
+            "SELECT 1 FROM users WHERE id = '{}' FOR NO KEY UPDATE",
+            ada.user_id
+        ))
+        .await;
+
+    let answer = answer_before_a_lock_wait(db, confirm(&api, &address, &wrong)).await;
+
+    execute_on(&mut held, "COMMIT").await;
+    assert!(
+        answer.is_some(),
+        "the confirmation waited for the account's lock"
+    );
+    let answer = answer.unwrap();
+    assert_eq!(answer.status, 401, "{}", answer.json());
+    assert_eq!(answer.json()["code"], "auth.invalid_reset_code");
 }
 
 #[tokio::test]

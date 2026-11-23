@@ -6,7 +6,9 @@ use platform::telemetry::testing::collector::Collector;
 use serde_json::json;
 
 use crate::support::{
-    Api, Options, TestDatabase, answer_before_a_lock_wait, execute_on,
+    Api, Options, TestDatabase, answer_before_a_lock_wait,
+    api::Response,
+    execute_on, query_waits_on_a_lock,
     users::{self, PASSWORD},
 };
 
@@ -246,6 +248,120 @@ async fn auth_005_an_unknown_email_and_an_account_without_a_password_verify_a_ha
             .count();
         assert_eq!(hashes, 1, "{email}");
     }
+}
+
+/// The statement that holds the row of `user`'s password identity, as a sign-in whose password
+/// matched holds it until it commits.
+fn identity_row(user: &users::SignedIn) -> String {
+    format!(
+        "SELECT 1 FROM identities WHERE user_id = '{}' FOR UPDATE",
+        user.user_id
+    )
+}
+
+/// A sign-in of `email` with [`PASSWORD`] in a task of its own, which a test holds at a lock.
+fn signing_in(api: &Api, email: &'static str) -> tokio::task::JoinHandle<Response> {
+    let api = api.clone();
+    tokio::spawn(async move { users::sign_in(&api, email, PASSWORD).await })
+}
+
+/// The `sign_in.failed` entries of `user`'s log.
+async fn failures(api: &Api, user: &users::SignedIn) -> Vec<String> {
+    api.database()
+        .owner_reads(&format!(
+            "SELECT action FROM audit_entries WHERE action = 'sign_in.failed' AND user_id = '{}'",
+            user.user_id
+        ))
+        .await
+}
+
+#[tokio::test]
+async fn sec_05_a_wrong_password_answers_401_while_another_transaction_holds_the_password_identity()
+{
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    let mut held = db.holding(&identity_row(&ada)).await;
+
+    let answer = answer_before_a_lock_wait(
+        db,
+        users::sign_in(&api, "ada@example.com", "wrong-password-123"),
+    )
+    .await;
+
+    execute_on(&mut held, "COMMIT").await;
+    assert!(
+        answer.is_some(),
+        "the sign-in waited for the identity's lock"
+    );
+    let answer = answer.unwrap();
+    assert_eq!(answer.status, 401, "{}", answer.json());
+    assert_eq!(answer.json()["code"], "auth.invalid_credentials");
+}
+
+#[tokio::test]
+async fn auth_005_a_password_that_a_change_replaced_once_the_sign_in_read_its_hash_answers_401() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    let sessions = db.owner_reads("SELECT id::text FROM sessions").await;
+    let other = Argon2::default()
+        .hash_password_with_salt(b"lantern-orchard-58-brisk", b"saltsaltsaltsalt")
+        .unwrap()
+        .to_string();
+    // A change of the password, which holds the identity as it sets the hash.
+    let mut changing = db.holding(&identity_row(&ada)).await;
+
+    let signed_in = signing_in(&api, "ada@example.com");
+    // The sign-in read the hash, which its password matched, and waits for the identity's lock.
+    query_waits_on_a_lock(db, "FROM identities").await;
+    execute_on(
+        &mut changing,
+        &format!(
+            "UPDATE identities SET password_hash = '{other}' WHERE user_id = '{}'",
+            ada.user_id
+        ),
+    )
+    .await;
+    execute_on(&mut changing, "COMMIT").await;
+    let answer = signed_in.await.unwrap();
+
+    assert_eq!(answer.status, 401, "{}", answer.json());
+    assert_eq!(answer.json()["code"], "auth.invalid_credentials");
+    assert_eq!(failures(&api, &ada).await, ["sign_in.failed"]);
+    assert_eq!(
+        db.owner_reads("SELECT id::text FROM sessions").await,
+        sessions
+    );
+}
+
+#[tokio::test]
+async fn auth_005_a_password_identity_that_went_once_the_sign_in_read_its_hash_answers_401() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    let sessions = db.owner_reads("SELECT id::text FROM sessions").await;
+    // A removal of the password, which holds the identity as it deletes it.
+    let mut removing = db.holding(&identity_row(&ada)).await;
+
+    let signed_in = signing_in(&api, "ada@example.com");
+    // The sign-in read the hash, which its password matched, and waits for the identity's lock.
+    query_waits_on_a_lock(db, "FROM identities").await;
+    execute_on(
+        &mut removing,
+        &format!("DELETE FROM identities WHERE user_id = '{}'", ada.user_id),
+    )
+    .await;
+    execute_on(&mut removing, "COMMIT").await;
+    let answer = signed_in.await.unwrap();
+
+    assert_eq!(answer.status, 401, "{}", answer.json());
+    assert_eq!(answer.json()["code"], "auth.invalid_credentials");
+    assert_eq!(failures(&api, &ada).await, ["sign_in.failed"]);
+    assert_eq!(
+        db.owner_reads("SELECT id::text FROM sessions").await,
+        sessions
+    );
 }
 
 /// Signs `email` in with [`PASSWORD`] from the client address `peer`.

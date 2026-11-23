@@ -23,10 +23,10 @@ pub(super) use device_tokens::{
     delete_device_tokens, device_token_valid, end_device_tokens, insert_device_token,
 };
 pub(super) use identities::{
-    add_password, delete_identities, delete_password_identity, delete_provider_identity,
-    insert_password_identity, insert_provider_identity, password_hash, password_identity,
-    password_identity_for_update, provider_identities, provider_subject, set_password,
-    update_password_hash, user_of_subject,
+    StoredPassword, add_password, delete_identities, delete_password_identity,
+    delete_provider_identity, insert_password_identity, insert_provider_identity, password_hash,
+    password_identity, password_identity_for_update, provider_identities, provider_subject,
+    set_password, stored_password, update_password_hash, user_of_subject,
 };
 
 // part: workspace_setup

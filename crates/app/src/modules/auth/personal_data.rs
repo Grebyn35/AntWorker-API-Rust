@@ -2,9 +2,10 @@
 //! `totp_factors`, `totp_setups`, `recovery_codes` and `sign_in_challenges` (D31): it exports
 //! them without their hashes and secrets (the accounts spec's "What an export holds"), and it
 //! deletes the user's identities, sessions, device tokens, codes and second factors before
-//! the deletion's last step locks the user's row `FOR UPDATE`, since a sign-in locks an identity,
-//! and a refresh a session, before it reads the user's row through a foreign key, and a code's
-//! job holds the code it issues until it commits (the auth spec's "Deleting an account").
+//! the deletion's last step locks the user's row `FOR UPDATE`, since a sign-in that starts a
+//! session locks an identity, and a refresh a session, before it reads the user's row through a
+//! foreign key, and a code's job holds the code it issues until it commits (the auth spec's
+//! "Deleting an account").
 
 use platform::{
     authn::{BoxFuture, Principal},
