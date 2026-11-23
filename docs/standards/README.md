@@ -48,7 +48,7 @@ A review checks a change, a module or the documents against these rules. It neve
 
 ### Passes
 
-A review runs in passes over its whole scope. Each pass is two independent reviews, by reviewers that use different models, read in different orders (one rule by rule, the other file by file), and don't see each other's findings. A pass's findings are the union of the two, with duplicates merged, and a finding is `must-fix` if either reviewer marks it so. The pass records how many findings each reviewer made and how many both made: when they share few, each one misses much, and more probably remains to find.
+A review runs in passes over its whole scope, or, where it reads the scope in areas, over the areas that haven't ended ([When the review stops](#when-the-review-stops)). Each pass is two independent reviews, by reviewers that use different models, read in different orders (one rule by rule, the other file by file), and don't see each other's findings. A pass's findings are the union of the two, with duplicates merged, and a finding is `must-fix` if either reviewer marks it so. The pass records how many findings each reviewer made and how many both made: when they share few, each one misses much, and more probably remains to find.
 
 ### Findings
 
@@ -72,6 +72,8 @@ The review stops at the first of these:
 3. **Six passes have run.**
 
 The second condition alone ends every review, because the number of `must-fix` findings has to fall with each pass. The cap bounds what a slowly falling count can cost: a scope that still yields new `must-fix` findings after five rounds of fixes points at loose rules more than at its code, and the resolutions below settle what remains.
+
+A review that reads its scope in areas, as the review of the whole codebase does, whose scope no one reviewer's agent holds, applies the three conditions to each area by itself (D223). The areas are groups of the scope's files, set before the first pass, each file in one area. A finding counts in the area that holds the file its defect is in: the code that breaks a statement, or the document whose statement says other than code that is right. After each pass, an area whose findings hold no `must-fix` one is complete, an area that made no progress stops, with the resolutions below for its remaining `must-fix` findings, and the next pass reads the areas that are left, each to its sixth pass at most. A fix that changes a file of an area that has ended is checked as a changed item, as the last step below checks one. The review is complete once every area has ended.
 
 If the review stops under 2 or 3, each remaining `must-fix` finding gets exactly one resolution. No further full pass runs.
 - **Fix.** A defect in code is fixed, with a test that fails before the fix wherever a test can show it.

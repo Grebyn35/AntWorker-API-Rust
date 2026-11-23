@@ -11,6 +11,7 @@ use crate::support::{
     queries_wait_on_locks, queries_waiting_on_locks, second_factors,
     upstream::Upstream,
     users::{self, PASSWORD, WEB, browser_sign_in, browsers_api, cookie, expires},
+    workspaces,
 };
 
 #[tokio::test]
@@ -77,6 +78,57 @@ async fn auth_009_an_authorization_header_that_holds_no_bearer_token_leaves_the_
 
     assert_eq!(response.status, 401);
     assert_eq!(response.json()["code"], "request.unauthenticated");
+}
+
+#[tokio::test]
+async fn auth_009_a_request_whose_session_ended_while_it_waited_for_a_lock_completes() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let phone = users::new_session(&api, "ada@example.com").await;
+    let db = api.database();
+    let workspace = workspaces::arrange(db, "Analytical", &[(&ada.user_id, "owner")]).await;
+    // The rename waits for the workspace's row, which the end of a session doesn't lock.
+    let mut held = db
+        .holding(&format!(
+            "SELECT 1 FROM workspaces WHERE id = '{workspace}' FOR UPDATE"
+        ))
+        .await;
+
+    let rename = tokio::spawn({
+        let api = api.clone();
+        let access = ada.access.clone();
+        let path = format!("/v1/workspaces/{workspace}");
+        async move {
+            api.patch(&path, &json!({ "name": "Engines" }))
+                .bearer(&access)
+                .send()
+                .await
+        }
+    });
+    queries_wait_on_locks(db, 1).await;
+    let ended = api
+        .request(
+            http::Method::DELETE,
+            &format!("/v1/users/me/sessions/{}", ada.session_id),
+        )
+        .bearer(&phone.access)
+        .send()
+        .await;
+    execute_on(&mut held, "ROLLBACK").await;
+    let renamed = rename.await.unwrap();
+    let next = api.get("/v1/users/me").bearer(&ada.access).send().await;
+
+    assert_eq!(ended.status, 204);
+    assert_eq!(renamed.status, 200, "{}", renamed.json());
+    assert_eq!(
+        db.owner_reads(&format!(
+            "SELECT name FROM workspaces WHERE id = '{workspace}'"
+        ))
+        .await,
+        ["Engines"]
+    );
+    assert_eq!(next.status, 401);
+    assert_eq!(next.json()["code"], "request.unauthenticated");
 }
 
 #[tokio::test]
