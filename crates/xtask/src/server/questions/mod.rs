@@ -425,10 +425,12 @@ mod tests {
     /// call for, in the file's order, so a setting added there adds an answer here.
     const NEW_SERVER: &[&str] = &[
         // IMAGE_REPOSITORY, SOURCE, API_ADDRESS, then Enter for the rest of the settings,
-        // until Grafana's address: TRUSTED_PROXIES, CORS_ALLOWED_ORIGINS, the IP and user limits,
+        // until Grafana's address: TRUSTED_PROXIES, PROXY_SUBNET, CORS_ALLOWED_ORIGINS, the IP and
+        // user limits,
         "",
         "",
         "api.example.com",
+        "",
         "",
         "",
         "",
@@ -824,8 +826,8 @@ mod tests {
         };
         // IMAGE_REPOSITORY and SOURCE, an empty API_ADDRESS, then API_ADDRESS again.
         let mut answers = vec!["", "", "", "api.example.com"];
-        // TRUSTED_PROXIES, CORS_ALLOWED_ORIGINS, and the IP and user limits.
-        answers.extend(["", "", "", ""]);
+        // TRUSTED_PROXIES, PROXY_SUBNET, CORS_ALLOWED_ORIGINS, and the IP and user limits.
+        answers.extend(["", "", "", "", ""]);
         // part: files
         // The public downloads' limit.
         answers.push("");

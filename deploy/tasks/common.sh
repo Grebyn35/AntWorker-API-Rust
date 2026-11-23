@@ -22,6 +22,25 @@ whole_number() {
     if [ "$2" -lt "$3" ] || [ "$2" -gt "$4" ]; then fail "$1 is a whole number from $3 to $4, not $2"; fi
 }
 
+# Fails unless $2, the value of the setting $1, is an IPv4 range in CIDR notation as Docker writes
+# one, so that the two compare as text: four numbers from 0 to 255, none with a leading zero, a
+# prefix of $3 to $4 bits, and no bit set beyond the prefix.
+ipv4_range() {
+    octet='(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])'
+    if ! printf '%s\n' "$2" | grep -Eqx "($octet\.){3}$octet/[1-9][0-9]?"; then
+        fail "$1 is an IPv4 range in CIDR notation, such as 172.16.221.0/24, not '$2'"
+    fi
+    bits=${2##*/}
+    if [ "$bits" -lt "$3" ] || [ "$bits" -gt "$4" ]; then fail "$1 has a prefix of $3 to $4 bits, not $bits"; fi
+    IFS=. read -r first second third fourth << EOF
+${2%/*}
+EOF
+    address=$(((first << 24) + (second << 16) + (third << 8) + fourth))
+    if [ $((address & ((1 << (32 - bits)) - 1))) -ne 0 ]; then
+        fail "$1 names a range by its first address, such as 172.16.221.0/24, and '$2' sets a bit beyond its prefix"
+    fi
+}
+
 compose() {
     # shellcheck disable=SC2086 # $profiles holds one --profile option per word.
     docker compose --project-name "$project" --project-directory "$deployment" \
@@ -231,6 +250,10 @@ read_settings() {
     whole_number DATABASE_MAX_CONNECTIONS "$pool" 1 1000
     whole_number POSTGRES_MAX_CONNECTIONS "$connections" 20 10000
     if [ -z "$(setting API_ADDRESS)" ]; then fail "API_ADDRESS is required"; fi
+    # The subnet of the network that only Caddy and the replicas join, which the replicas trust
+    # (SEC-13): 64 addresses hold Caddy and both colors of 20 replicas.
+    proxy_subnet=$(setting PROXY_SUBNET 172.16.221.0/24)
+    ipv4_range PROXY_SUBNET "$proxy_subnet" 16 26
     # Email goes unencrypted only to a mail server on this server itself, at one of its own
     # addresses, since every connection that the deployment opens beyond the server uses TLS
     # (OPS-17): an email holds the code that proves an address, or resets a password.

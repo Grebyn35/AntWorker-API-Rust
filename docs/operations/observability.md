@@ -72,7 +72,7 @@ They keep the clients' spans and log records as long (D178), and Prometheus the 
 
 ### On a server
 
-Prometheus, Loki, Tempo and Alertmanager ask no credential of what reaches them. Beside its own API, each answers Go's profiling endpoints, under `/debug/pprof/`: Loki's and Tempo's `register_instrumentation` keeps its default, since the one setting registers those endpoints and the `/metrics` that Prometheus scrapes, and each answers 404 at both with it off. So on a server the four join a network of their own, `stack`, which only the collector and Grafana join beside them (SEC-14). The replicas, Caddy and the API's one-shot subcommands join `telemetry`, where the collector takes what they send, and reach none of the four. Grafana, which Caddy reaches on the network that it shares with the replicas, signs each viewer in.
+Prometheus, Loki, Tempo and Alertmanager ask no credential of what reaches them. Beside its own API, each answers Go's profiling endpoints, under `/debug/pprof/`: Loki's and Tempo's `register_instrumentation` keeps its default, since the one setting registers those endpoints and the `/metrics` that Prometheus scrapes, and each answers 404 at both with it off. So on a server the four join a network of their own, `stack`, which only the collector and Grafana join beside them (SEC-14). The replicas and the API's one-shot subcommands join `telemetry`, and Caddy `edge`, where the collector takes what they send, and reach none of the four. Grafana, which Caddy reaches on `edge`, signs each viewer in.
 
 <!-- part: client_telemetry -->
 ### What the clients' telemetry adds

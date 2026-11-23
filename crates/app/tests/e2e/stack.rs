@@ -173,7 +173,11 @@ fn assert_the_stores_answer_the_collector_and_grafana_alone(deployment: &Deploym
     }
     assert_eq!(
         networks("collector"),
-        ["deployment_stack", "deployment_telemetry"]
+        [
+            "deployment_edge",
+            "deployment_stack",
+            "deployment_telemetry"
+        ]
     );
     assert_eq!(networks("grafana"), ["deployment_edge", "deployment_stack"]);
     let mut senders = [

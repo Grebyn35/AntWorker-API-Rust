@@ -35,7 +35,7 @@ The integrity of what the levels hold rests on the database, whose constraints a
 | Boundary | What crosses it | What guards it |
 |---|---|---|
 | The internet to Caddy | Every client's requests, and Grafana's viewers | HTTPS (OPS-17); only the API and a Grafana that signs viewers in are exposed (SEC-14); security headers (SEC-12) |
-| Caddy to the replicas | The requests, with the client's address in `X-Forwarded-For` | The client IP is read only from a configured trusted proxy (SEC-13, PLATFORM-053): in the reference deployment, any peer on its private networks, which only Caddy and the deployment's other services join |
+| Caddy to the replicas | The requests, with the client's address in `X-Forwarded-For` | The client IP is read only from a configured trusted proxy (SEC-13, PLATFORM-053): in the reference deployment, a peer on the network that only Caddy and the replicas join, so no other service of the deployment names a client to a replica |
 | A client to the API | Credentials, tokens, and every request's input | Authentication (SEC-06, SEC-07, API-14), authorization (SEC-08, SEC-09), strict input (API-08, API-09, API-10), rate limits (SEC-13) and load shedding (OPS-07) |
 | The API to Postgres | Every query, as the role `app` | Two roles, the API's with least privilege (DATA-12, DATA-13, DATA-19); queries checked at compile time (DATA-14); every query filters by tenant (DATA-16) |
 | The API to other systems | Email, and the exchanges of OAuth providers' codes, whose answers name a user | One of two outbound clients (SEC-10); TLS that verifies the certificate (OPS-17); no provider's token kept (AUTH-079, D139) |
