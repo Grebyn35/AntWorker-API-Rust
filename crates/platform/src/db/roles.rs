@@ -329,7 +329,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn data_14_dynamic_identifiers_and_literals_are_quoted() {
+    fn sec_20_a_role_statement_s_identifiers_and_literals_are_quoted_with_their_quotes_doubled() {
         assert_eq!(identifier(r#"we"ird"#), r#""we""ird""#);
         assert_eq!(literal("it's"), "'it''s'");
     }

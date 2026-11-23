@@ -1,5 +1,9 @@
 //! The real-time hub (the platform spec's "Events and the real-time hub"): who receives what, in
-//! which order, and when a stream closes, through the stream itself (TEST-07).
+//! which order, and when a stream closes, through the stream itself (TEST-07); the trace ID that
+//! a stream reads of an event, and the trace that its delivery links to (PLATFORM-095, OBS-07);
+//! what the hub loads and records (PLATFORM-027, PLATFORM-034, PLATFORM-035); the connections
+//! that its checks open (OPS-18); the sweep of old events (PLATFORM-019); and a wait for a line
+//! of the hub (TEST-06).
 
 use std::time::Duration;
 

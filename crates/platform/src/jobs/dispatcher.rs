@@ -244,4 +244,27 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn platform_021_the_11_retries_of_12_attempts_wait_half_of_to_all_of_12_310_seconds() {
+        // The longest that each retry of an email's job can wait, as the platform spec's Sending
+        // email sums them.
+        let longest = [10, 20, 40, 80, 160, 320, 640, 1_280, 2_560, 3_600, 3_600];
+        let all = Duration::from_secs(longest.iter().sum());
+
+        for _ in 0..100 {
+            let mut waited = Duration::ZERO;
+            for (attempt, longest) in (1..12).zip(longest) {
+                let wait = backoff(attempt).unwrap();
+                let longest = Duration::from_secs(longest);
+                assert!(
+                    wait >= longest / 2 && wait <= longest,
+                    "{wait:?} after {attempt}"
+                );
+                waited += wait;
+            }
+            assert!(waited >= all / 2 && waited <= all, "{waited:?}");
+        }
+        assert_eq!(all, Duration::from_secs(12_310));
+    }
 }

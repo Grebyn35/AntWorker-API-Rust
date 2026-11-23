@@ -1,4 +1,6 @@
-//! The logging setup (OBS-02, OBS-05), and the watch that prints a long test's lines (TEST-06).
+//! The logging setup (OBS-02, OBS-05), the answer of a request that the API's own server refuses
+//! before the router gets it, which writes no line (PLATFORM-099), and the watch that prints a
+//! long test's lines (TEST-06).
 
 use std::{
     io,

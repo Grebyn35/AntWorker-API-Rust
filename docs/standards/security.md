@@ -135,7 +135,7 @@ Caddy serves no file: it passes a request on, or answers what its sites state, a
 ### SEC-20 A value is decoded once, and encoded where it is written
 An input is decoded once, by the reader of the format it arrives in, such as a JSON body's, a query's or a `filename*`'s, only where its media type, its header or its parameter says that it is so encoded, and before its domain type checks it (API-10). No code decodes it again. A value is kept as it was given, once its domain type has normalized it, and is encoded only where it is written into another format, by that format's own writer:
 - JSON that holds a value is written by `serde_json`, from typed values, never put together as text. The one exception is the proxy's own problem, into which Caddy writes the trace ID that it made, of hexadecimal digits (OPS-05).
-- An SQL statement's values are bound parameters (DATA-14).
+- An SQL statement's values are bound parameters (DATA-14), but for the names and the literals that `platform::db` writes into the statements of the roles and their grants: each is quoted as an identifier or as a literal, such as a password's verifier, with its quotes doubled.
 - An HTML email's values are escaped by its template, and an email's headers are encoded by the mail library ([platform spec](../spec/platform.md#sending-email)).
 - A user's value in a URL is percent-encoded for its place, as the address in an authenticator app's `otpauth://` URI is (AUTH-055).
 - A download's name is written into `Content-Disposition` as RFC 6266 says (PLATFORM-081).

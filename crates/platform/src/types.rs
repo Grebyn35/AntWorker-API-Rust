@@ -191,8 +191,7 @@ fn uuid_schema() -> RefOr<Schema> {
         .into()
 }
 
-/// A moment, which the database's clock gave (DATA-03), written as RFC 3339 in UTC with a `Z`,
-/// at microsecond precision (API-11).
+/// A moment, written as RFC 3339 in UTC with a `Z`, at microsecond precision (API-11).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Timestamp(time::OffsetDateTime);
 

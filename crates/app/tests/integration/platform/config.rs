@@ -156,6 +156,76 @@ fn ops_01_each_number_setting_is_refused_just_outside_its_range() {
     }
 }
 
+/// Each setting of `.env.example` whose `Type:` line, a whole number's, holds `Optional, default `
+/// then digits that a `.` or a `,` ends, with those digits.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a test may block (CODE-05), and reads the settings' documentation"
+)]
+fn stated_defaults() -> Vec<(String, i64)> {
+    let example =
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../.env.example"))
+            .expect("read .env.example");
+    let mut found = Vec::new();
+    let mut default = None;
+    for line in example.lines() {
+        if line.starts_with("# Type: whole number") {
+            default = line.split_once("Optional, default ").and_then(|(_, rest)| {
+                let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+                let ended = matches!(rest[digits.len()..].chars().next(), Some('.' | ','));
+                digits.parse::<i64>().ok().filter(|_| ended)
+            });
+        } else if let Some((name, _)) = line.split_once('=')
+            && !line.starts_with('#')
+            && let Some(value) = default.take()
+        {
+            found.push((name.to_owned(), value));
+        }
+    }
+    found
+}
+
+/// For each setting of `.env.example` that `Settings::server` reads, with a default that
+/// `stated_defaults` reads: the `Debug` of its `ServerConfig` is the same with the setting empty as
+/// with it at that default, and differs with it at the next whole number of its range, or at the
+/// one before at its top.
+#[test]
+fn ops_02_each_default_of_a_whole_number_that_settings_server_reads_is_the_one_env_example_states()
+{
+    let read = settings_read(|settings| {
+        settings.server()?;
+        Ok(())
+    });
+    let ranges = ranged_settings();
+    let platform = |name: &str, value: &dyn ToString| {
+        format!(
+            "{:?}",
+            api::configuration(&Options::default().set(name, value.to_string())).0
+        )
+    };
+    let defaults: Vec<_> = stated_defaults()
+        .into_iter()
+        .filter(|(name, _)| read.contains(name))
+        .collect();
+
+    assert!(!defaults.is_empty(), "no default read");
+    for (name, default) in defaults {
+        let (_, _, high) = ranges.iter().find(|(each, _, _)| *each == name).unwrap();
+        let other = if default < *high {
+            default + 1
+        } else {
+            default - 1
+        };
+        let unset = platform(&name, &"");
+        assert_eq!(unset, platform(&name, &default), "{name}");
+        assert_ne!(
+            unset,
+            platform(&name, &other),
+            "{name} changes nothing that is read"
+        );
+    }
+}
+
 /// The setting of `.env.example` that Compose reads, and the API doesn't.
 const COMPOSE_SETTING: &str = "POSTGRES_PASSWORD";
 

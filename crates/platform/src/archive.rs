@@ -563,4 +563,51 @@ mod tests {
         let plain = bytes(&plain, &stored, 0..plain.size());
         assert!(!plain.windows(4).any(|window| window == signature));
     }
+
+    #[test]
+    fn platform_083_zip64_s_end_records_stand_when_one_field_of_the_end_record_passes() {
+        let field = Limits::FORMAT.field;
+        let count = Limits::FORMAT.count;
+        // Each layout passes one of the end record's fields alone: three entries pass a count of
+        // 2; a directory of 47 bytes, at 31, passes a field of 40 by its size; and one of 94
+        // bytes, at 182, passes a field of 100 by its offset.
+        let cases = [
+            (
+                "the count",
+                vec![b"".as_slice(); 3],
+                Limits { field, count: 2 },
+            ),
+            (
+                "the directory's size",
+                vec![b"".as_slice()],
+                Limits { field: 40, count },
+            ),
+            (
+                "its offset",
+                vec![[b'x'; 60].as_slice(); 2],
+                Limits { field: 100, count },
+            ),
+        ];
+        let signature = ZIP64_END.to_le_bytes();
+        for (passing, contents, limits) in cases {
+            let (entries, stored): (Vec<_>, Vec<_>) = contents
+                .iter()
+                .enumerate()
+                .map(|(index, bytes)| entry(&index.to_string(), bytes, false))
+                .unzip();
+
+            let layout = Layout::with_limits(entries, at(), limits);
+            let archive = bytes(&layout, &stored, 0..layout.size());
+
+            assert!(
+                archive.windows(4).any(|window| window == signature),
+                "{passing}"
+            );
+            let read: Vec<Vec<u8>> = read_back(archive)
+                .into_iter()
+                .map(|(_, content, _)| content)
+                .collect();
+            assert_eq!(read, contents, "{passing}");
+        }
+    }
 }

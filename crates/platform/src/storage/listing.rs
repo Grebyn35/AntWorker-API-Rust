@@ -178,6 +178,22 @@ mod tests {
     }
 
     #[test]
+    fn platform_101_a_page_outside_s3_s_namespace_fails() {
+        let page = listing(&[&format!("<Key>a</Key>{WRITTEN}")], "");
+        let s3 = "xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\"";
+        let other = page.replacen(s3, "xmlns=\"http://example.com/doc/2006-03-01/\"", 1);
+        let unnamed = page.replacen(s3, "", 1);
+
+        assert!(read(page.as_bytes()).is_ok());
+        for refused in [other, unnamed] {
+            assert!(
+                matches!(read(refused.as_bytes()), Err(StorageError::Failed(_))),
+                "{refused}"
+            );
+        }
+    }
+
+    #[test]
     fn platform_101_a_page_fails_on_a_key_no_url_addresses_and_on_a_time_it_can_t_read() {
         for object in [
             format!("<Key>avatars/../pictures/0a</Key>{WRITTEN}"),

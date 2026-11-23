@@ -493,6 +493,9 @@ mod tests {
         let no_id = whole.replacen("<VersionId>1</VersionId>", "", 1);
         let no_size = whole.replacen("<Size>1</Size>", "", 1);
         let objects = whole.replace("ListVersionsResult", "ListBucketResult");
+        let s3 = format!("xmlns=\"{NAMESPACE}\"");
+        let other = whole.replacen(&s3, "xmlns=\"http://example.com/doc/2006-03-01/\"", 1);
+        let unnamed = whole.replacen(&s3, "", 1);
         let cut = &whole[..whole.len() - 10];
 
         assert!(read(whole.as_bytes()).is_ok());
@@ -504,6 +507,8 @@ mod tests {
             &no_id,
             &no_size,
             &objects,
+            &other,
+            &unnamed,
             cut,
             "",
             "not a listing",

@@ -1,7 +1,7 @@
-//! The export of telemetry over OTLP (PLATFORM-066, PLATFORM-068, OBS-10), the counts of what its
-//! queues drop (PLATFORM-106), the metrics the pipeline and the readiness check record
-//! (PLATFORM-067, PLATFORM-069), and what the health probes leave out of the telemetry (OBS-15,
-//! PLATFORM-044).
+//! The export of telemetry over OTLP (PLATFORM-066, PLATFORM-068, OBS-10), which follows no
+//! redirect (SEC-10), the counts of what its queues drop (PLATFORM-106), the metrics of the
+//! pipeline, of the readiness check and of the process's memory (PLATFORM-067, PLATFORM-069,
+//! PLATFORM-070), and what the health probes leave out of the telemetry (OBS-15, PLATFORM-044).
 
 use std::{
     collections::BTreeMap,

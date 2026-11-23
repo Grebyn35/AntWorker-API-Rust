@@ -64,8 +64,8 @@ pub(super) struct SendCode {
 
 impl Job for SendCode {
     const KIND: &'static str = "auth.send_verification_code";
-    /// As many as `platform.send_email`'s, so a mail server down for a few hours delays a code
-    /// rather than losing it (PLATFORM-021).
+    /// As many as `platform.send_email`'s, so a mail server down for less than 1.7 hours delays a
+    /// code rather than losing it (PLATFORM-021).
     const MOST_ATTEMPTS: u32 = 12;
     const TIME_LIMIT: Duration = Duration::from_secs(60);
 }

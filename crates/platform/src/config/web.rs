@@ -208,7 +208,7 @@ mod tests {
     }
 
     #[test]
-    fn sec_03_the_hmac_key_is_base64_of_at_least_32_bytes() {
+    fn ops_01_the_hmac_key_is_base64_of_at_least_32_bytes() {
         assert!(hmac_key(&STANDARD.encode([1; 32])).is_some());
         assert!(hmac_key(&STANDARD.encode([1; 31])).is_none());
         assert!(hmac_key("not base64!").is_none());

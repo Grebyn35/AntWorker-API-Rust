@@ -599,7 +599,7 @@ mod tests {
     }
 
     #[test]
-    fn platform_064_an_invalid_value_names_the_setting_and_not_the_value() {
+    fn sec_01_an_invalid_secret_setting_names_the_setting_and_not_its_value() {
         let error = settings(
             &with(
                 &server_vars(),
@@ -680,7 +680,7 @@ mod tests {
     }
 
     #[test]
-    fn platform_064_an_unreadable_file_names_the_file_setting() {
+    fn ops_01_an_unreadable_file_names_the_file_setting() {
         let error = settings(
             &with(&server_vars(), &[("DATABASE_URL_FILE", "/missing")]),
             &[],

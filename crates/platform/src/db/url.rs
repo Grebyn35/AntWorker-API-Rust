@@ -223,8 +223,21 @@ mod tests {
     #[test]
     fn ops_02_env_example_names_every_allowed_query_parameter() {
         let example = include_str!("../../../../.env.example");
+        // The comment's lines, among those between blank ones that hold the setting DATABASE_URL.
+        let comment: Vec<&str> = example
+            .split("\n\n")
+            .find(|paragraph| {
+                paragraph
+                    .lines()
+                    .any(|line| line.starts_with("DATABASE_URL="))
+            })
+            .unwrap()
+            .lines()
+            .filter(|line| line.starts_with('#'))
+            .collect();
+        let comment = comment.join(" ");
         for parameter in QUERY_PARAMETERS {
-            assert!(example.contains(parameter), "{parameter}");
+            assert!(comment.contains(parameter), "{parameter}");
         }
     }
 
