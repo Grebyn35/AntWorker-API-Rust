@@ -73,15 +73,16 @@ If `main` takes changes only through pull requests, GitHub refuses the push, and
 
 A run on `main` that fails before its `release` job releases nothing, and creates no tag. Fix what failed, and push the fix: the first run that passes with the version releases it. A run whose version is released already publishes its commit and releases nothing: to release that commit, run `just release` with a new version.
 
-Each failure of the `release` job shows its next step on the run's page:
+A failure of the `release` job that this table names shows its message, which says what to do, on the run's page:
 
-| Failure | What to do |
+| The message starts | What to do |
 |---|---|
-| The version comes before the latest release | Run `just release` with one of the versions the error suggests |
-| The version is a final release, and `CHANGELOG.md` lacks its section, the section's upgrade notes, or a line of its capacity, as when the request reached `main` through a pull request that changed it | Write what the error names ([Before you release](#before-you-release)), and push it: its run releases the version |
-| This run's `publish` job pushed no image of the commit | Re-run the run's failed jobs |
-| The registry refused the version's tag, the signing failed, or the release doesn't verify | Re-run the job. If the signing fails again, Sigstore may be down: its status page is [status.sigstore.dev](https://status.sigstore.dev) |
-| GitHub refused the tag `v<version>` | Re-run the job |
+| "crates/app/Cargo.toml sets the version `<version>`, which no release can have" | Set the version with `just release` |
+| "crates/app/Cargo.toml sets `<version>`, so this commit isn't released. `<version>` comes before the latest release" | Run `just release` with one of the versions the message suggests |
+| "CHANGELOG.md has no section for `<version>`", or "The section of `<version>` in CHANGELOG.md has no upgrade notes", or "The section of `<version>` in CHANGELOG.md lacks what one replica serves", as when the request reached `main` through a pull request that changed it | Write what the message names ([Before you release](#before-you-release)), and push it: its run releases the version |
+| "This run's publish job pushed no image" | Re-run the run's failed jobs |
+| "The registry refused the tag", "Signing failed", "The release of `<version>` doesn't verify", or "The release of `<version>` names other images than the tested ones" | Re-run the job. If the signing fails again, Sigstore may be down: its status page is [status.sigstore.dev](https://status.sigstore.dev) |
+| "The images of `<version>` are released, but GitHub refused the tag" | Re-run the job |
 
 The tag comes last, so a version that has a tag is released completely, with its images tagged, signed and verified.
 

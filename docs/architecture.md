@@ -470,7 +470,7 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 | Second factor | A way of proving who one is beside the password: an authenticator app, with recovery codes (D134). |
 | Authenticator app | A second factor whose codes are the time-based one-time passwords (TOTP) of RFC 6238, which the API and the database call `totp`, as in `/v1/users/me/second-factors/totp` and `totp_factors`. |
 | Recovery code | One of ten codes, each of which stands in once for an authenticator app's code (AUTH-062). |
-| Challenge | What a sign-in whose password matched answers for an account with an authenticator app: a token that the app's code, or a recovery code, completes into a session (AUTH-058). |
+| Challenge | What a sign-in by a password that matched, or through a provider, answers for an account with an authenticator app: a token that the app's code, or a recovery code, completes into a session (AUTH-058). |
 | Principal | The authenticated caller of a request, produced by `platform::authn` (D18). |
 | Workspace | A space whose members share its data (§5). Owns the data its members share, and its audit log. |
 | Part | A piece of the template that a product can do without, such as a module, a sign-in provider or a way of creating workspaces, with everything that exists only for it. A fork keeps it or leaves it out when it starts (§5). |

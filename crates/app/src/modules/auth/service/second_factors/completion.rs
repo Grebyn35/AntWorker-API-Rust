@@ -1,5 +1,6 @@
-//! A sign-in's challenge, which a sign-in whose password matched issues for an account with an
-//! authenticator app, and its completion with a code (AUTH-058 to AUTH-061).
+//! A sign-in's challenge, which a sign-in by a password that matched, or through a provider,
+//! issues for an account with an authenticator app, and its completion with a code (AUTH-058 to
+//! AUTH-061).
 
 use platform::{
     authn::AuditScope,
@@ -48,9 +49,9 @@ pub(crate) struct Completion {
 }
 
 impl Auth {
-    /// Issues a challenge of `user_id`'s for a sign-in on `device`, whose password matched, with
-    /// the hash of the valid device token it brought, and records it, in the sign-in's unit of
-    /// work (AUTH-058).
+    /// Issues a challenge of `user_id`'s for a sign-in on `device`, by a password that matched or
+    /// through a provider, with the hash of the valid device token it brought, and records it, in
+    /// the sign-in's unit of work (AUTH-058).
     pub(in crate::modules::auth::service) async fn challenge(
         &self,
         uow: &mut UnitOfWork,

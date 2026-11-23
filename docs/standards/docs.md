@@ -49,7 +49,7 @@ Each technical term is defined in the glossary or in the sentence where it first
 - Check: `ci: check-docs` (where each acronym is first used, outside the migration workspace, and that a line of a document other than the glossary's list uses each word that the list names, as the doc of `crates/xtask/src/acronyms.rs` says), plus `review`.
 
 ### DOC-07 A fact lives in one place
-Each kind of fact has one home, listed below. A fact is written in its home as soon as it is known, and every other mention links to it or cites its ID instead of restating it. The threat model restates a behavior's number beside the ID that holds it, where a row says how large a mitigation is.
+Each kind of fact has one home, listed below. A fact is written in its home as soon as it is known, and every other mention links to it or cites its ID instead of restating it. The threat model restates a behavior's number beside the ID that holds it, where a row says how large a mitigation is. A spec may give a setting's range and default beside its name, where they bound what the spec states, as PLATFORM-014 gives `JOB_DEAD_LETTER_RETENTION_DAYS` (1 to 365, default 14).
 
 | Fact | Home |
 |---|---|
@@ -100,7 +100,7 @@ Each behavior in `docs/spec/<module>.md` has an ID (for example `WORKSPACES-005`
 ### DOC-10 ADRs are immutable once accepted
 An ADR has four sections: context, decision, consequences and status. After it is accepted, only its status changes, and only to "superseded by" and the ID of a later ADR that replaces it.
 - Why: the decision record stays a true record of what was decided and why.
-- Check: `ci: check-docs` (the body of an accepted ADR is unchanged in git), plus `review`.
+- Check: `review`, plus, from the first ADR on, `ci: check-docs` (the body of an accepted ADR is unchanged in git), whose check of ADRs [ci.md](../operations/ci.md#checks-that-exist) says waits for that ADR.
 
 ### DOC-11 The changelog serves forks
 `CHANGELOG.md` follows the Keep a Changelog format. Each final release has a section, whose upgrade notes tell a fork what to port, and in which security fixes are marked. What a prerelease holds stays under the changelog's `Unreleased` until the final release of its number. `just release`, and the run that releases, refuse a final release whose section, upgrade notes or capacity (OPS-16) the changelog lacks; the doc comment of `lacks` in [`notes.rs`](../../crates/xtask/src/release/notes.rs) says what they read of it.

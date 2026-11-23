@@ -234,10 +234,11 @@ check-layers:
 check-deps:
     {{ xtask }} check-deps
 
-# Fails on a source file before its tests, or a deploy script, over 500 lines, a module's file
-# outside ARCH-03's set or a module without its error.rs, an exception to dead_code in the API's
-# code, and a job declared outside its module's jobs.rs or with another module's kind.
-[doc("Fails on a file too long, or out of its place")]
+# Fails on each thing that the check's row in docs/operations/ci.md names, of the lines and the
+# parse of Rust files, the lines of deploy scripts and of the justfile's files, the tasks of each,
+# a module's files, exceptions to dead_code, platform's unused public items, and where a job is
+# declared.
+[doc("Fails on a file too long or out of its place, an exception to dead_code, an unused public item of platform, or a job out of its place, as docs/operations/ci.md says")]
 [group('check')]
 check-layout:
     {{ xtask }} check-layout

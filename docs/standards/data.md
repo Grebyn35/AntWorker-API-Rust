@@ -27,7 +27,7 @@ The migrator's own table, `_sqlx_migrations`, follows the layout sqlx gives it, 
 - Check: `ci: check-schema`.
 
 ### DATA-03 The database clock is the only clock for stored time
-Stored timestamps come from the database's clock in SQL, never from the application: `now()`, the time the transaction started, or for an event, which records when its unit of work committed, `clock_timestamp()` as it commits (PLATFORM-028). Expiry checks run in SQL against `now()`.
+Stored timestamps come from the database's clock in SQL, never from the application: `now()`, the time the transaction started, or for an event, which records when its unit of work committed, `clock_timestamp()` as it commits (PLATFORM-028). A time that the database's clock gave may be bound back into a later statement: a list's cursor compares one with its rows' times, and a timestamp stored from one is computed in SQL, as a periodic job's next run is, one interval after the `now()` of its claim (PLATFORM-015). Expiry checks run in SQL against `now()`.
 - Why: one clock, at full precision, so ordering and expiry agree across replicas (D24).
 - Check: `review`.
 

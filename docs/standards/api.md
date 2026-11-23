@@ -49,7 +49,7 @@ The telemetry proxy's routes answer what the OpenTelemetry Protocol asks of an e
 - Check: `ci: check-openapi` (the names of properties, a list's shape, and that a property which may be `null` is `required` in each schema that no request gives, as the comment of [its `presence.rs`](../../crates/xtask/src/openapi/presence.rs) says which those are), plus `review` (an array of sub-resources that a resource holds, and a field that a response may leave out).
 
 ### API-06 Lists use opaque cursors
-Every list is paginated by keyset. `limit` defaults to 50 and is capped at 100. `cursor` is an opaque base64url string that encodes the full sort key, with the row's ID as the tiebreaker. Lists move forward only, unless a module spec defines backward paging for a route.
+Every list is paginated by keyset. `limit` defaults to 50, and one outside 1 to 100 answers 400 `request.invalid_query`, naming `/limit` with the code `out_of_range` (PLATFORM-045, PLATFORM-046). `cursor` is an opaque base64url string that encodes the full sort key, with the row's ID as the tiebreaker. Lists move forward only, unless a module spec defines backward paging for a route.
 - Why: pages stay stable while rows are added, and no row is skipped or repeated (D8, DATA-17).
 - Check: `ci: check-openapi` (a list takes `limit` and `cursor`), plus `test` (each list has a test that pages across rows sharing a timestamp, such as PLATFORM-046's and AUTH-043's).
 
