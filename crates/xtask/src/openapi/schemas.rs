@@ -5,8 +5,21 @@
 //! An ID is a property or a parameter named `id` or `<name>_id`, but `trace_id`, `device_id`
 //! and `client_id`, the IDs that API-11 excepts, and a timestamp a property named `<event>_at`,
 //! as DATA-01 names their columns.
+//!
+//! The check reads the schema of each place of the document that holds one, where it stands: a
+//! member of `components/schemas`, the `schema` of a parameter and of a header, and the `schema`
+//! and the `x-itemSchema` of each content type of the `content` of a parameter, a header, a
+//! request body and a response, but a problem's, with the headers of the content type's
+//! `encoding`. It finds those in the members of `components/parameters`, `requestBodies`,
+//! `responses`, `headers`, `pathItems` and `callbacks`, and in the path items of `paths` and
+//! `webhooks`: a path item's parameters and operations, an operation's parameters, request body,
+//! responses and callbacks, a response's headers, and a callback's path items. A reference at one
+//! of those places isn't followed: it names a component of the place's kind,
+//! `#/components/<kind>/<name>`, which the check reads where it stands, or the check refuses it.
+//! It reads the IDs among the parameters of each operation there, with the names in the template
+//! of an operation's path of `paths`, and, inside a schema, the schemas that [`formats`] names.
 
-use serde_json::{Map, Value};
+use serde_json::Value;
 
 use super::{METHODS, Problem, is_snake_case, operations::parameters, quoted};
 
@@ -17,6 +30,22 @@ const NOT_UUIDS: [&str; 3] = ["trace_id", "device_id", "client_id"];
 
 /// The most references a schema follows before the check gives up on a cycle.
 const DEPTH: usize = 16;
+
+/// The keywords of JSON Schema whose value is a schema, but `properties`, which names each of
+/// its own, and the keywords whose value is an array or an object of schemas.
+const INSIDE: [&str; 11] = [
+    "items",
+    "additionalProperties",
+    "contentSchema",
+    "not",
+    "if",
+    "then",
+    "else",
+    "contains",
+    "propertyNames",
+    "unevaluatedItems",
+    "unevaluatedProperties",
+];
 
 /// `value`, or what its `$ref` points at, inside `document`.
 pub fn resolve<'a>(document: &'a Value, value: &'a Value) -> &'a Value {
@@ -34,91 +63,217 @@ pub fn resolve<'a>(document: &'a Value, value: &'a Value) -> &'a Value {
     value
 }
 
-/// Every way the document's schemas break API-11, and its request bodies API-17.
+/// Every way the document's schemas break API-11, and its request bodies API-17: those of each
+/// place that [`Places`] reads, the IDs among each operation's parameters among them.
 pub fn problems(document: &Value) -> Vec<Problem> {
-    let mut problems = Vec::new();
-    let empty = Map::new();
-    for (name, schema) in document["components"]["schemas"]
-        .as_object()
-        .unwrap_or(&empty)
-    {
-        formats(
-            document,
-            schema,
-            &format!("schema {name}"),
-            &quoted(name),
-            &mut problems,
-        );
+    let mut places = Places {
+        document,
+        problems: Vec::new(),
+    };
+    for kind in KINDS {
+        for (name, value) in members(&document["components"][kind]) {
+            let at = if kind == "schemas" {
+                format!("schema {name}")
+            } else {
+                format!("components/{kind}/{name}")
+            };
+            places.place(kind, value, &at, &quoted(name));
+        }
     }
-    for (path, item) in document["paths"].as_object().unwrap_or(&empty) {
+    for (key, prefix) in [("paths", ""), ("webhooks", "webhook ")] {
+        for (name, item) in members(&document[key]) {
+            places.place("pathItems", item, &format!("{prefix}{name}"), &quoted(name));
+        }
+    }
+    places.problems
+}
+
+/// The kinds of the members of `components` that hold a schema, or a place that does.
+const KINDS: [&str; 7] = [
+    "schemas",
+    "parameters",
+    "requestBodies",
+    "responses",
+    "headers",
+    "pathItems",
+    "callbacks",
+];
+
+/// The places of a document that hold a schema, each read where it stands: a member of a kind of
+/// [`KINDS`] of `components`, a path item of `paths` and of `webhooks`, and what [`Places::place`]
+/// reads inside each of them.
+struct Places<'a> {
+    document: &'a Value,
+    problems: Vec<Problem>,
+}
+
+impl Places<'_> {
+    /// Checks `value`, a `kind` of [`KINDS`], which findings name as `at`. A parameter and a
+    /// header hold a `schema` and a `content`, a request body and a response a `content`, a
+    /// response its `headers` too, and a callback a path item under each of its expressions. A
+    /// reference here, but a path item's, stands for all of `value`: it isn't followed, and names
+    /// a component of `kind`, which is read where it stands, or is refused.
+    fn place(&mut self, kind: &str, value: &Value, at: &str, needle: &str) {
+        if kind != "schemas"
+            && let Some(target) = value["$ref"].as_str()
+        {
+            if !names_component(target, kind) {
+                self.problems.push(refused(at, target, kind));
+            }
+            if kind != "pathItems" {
+                return;
+            }
+        }
+        match kind {
+            "schemas" => self.schema(value, at, needle),
+            "parameters" | "headers" => {
+                self.schema(&value["schema"], at, needle);
+                self.content(&value["content"], at, needle, false);
+            }
+            "requestBodies" => self.content(&value["content"], at, needle, true),
+            "responses" => {
+                self.content(&value["content"], at, needle, false);
+                for (name, header) in members(&value["headers"]) {
+                    self.place("headers", header, &format!("{at} header {name}"), needle);
+                }
+            }
+            "callbacks" => {
+                // A callback's extensions are no path items.
+                let items = members(value).filter(|(key, _)| !key.starts_with("x-"));
+                for (expression, item) in items {
+                    self.place("pathItems", item, &format!("{expression} of {at}"), needle);
+                }
+            }
+            _ => self.path_item(value, at, needle),
+        }
+    }
+
+    /// Checks `schema`, which findings name as `at`, with [`formats`].
+    fn schema(&mut self, schema: &Value, at: &str, needle: &str) {
+        formats(self.document, schema, at, needle, &mut self.problems);
+    }
+
+    /// Checks the parameters of `item`, a path item, and those of each of its operations, with
+    /// the IDs among them, the operation's request body, responses and callbacks.
+    fn path_item(&mut self, item: &Value, at: &str, needle: &str) {
+        // A path's template names parameters too, where `item` is a path item of `paths`.
+        let template = if std::ptr::eq(&self.document["paths"][at], item) {
+            at
+        } else {
+            ""
+        };
+        self.parameters(&item["parameters"], at, needle);
         for method in METHODS {
             let Some(operation) = item.get(method) else {
                 continue;
             };
-            let here = format!("{} {path}", method.to_ascii_uppercase());
-            let needle = quoted(path);
-            problems.extend(identifiers(
-                document,
-                path,
-                operation,
-                &item["parameters"],
-                &here,
-            ));
-            for parameter in parameters(document, operation, &item["parameters"]) {
-                let name = parameter["name"].as_str().unwrap_or_default();
-                let owner = format!("{here} parameter {name}");
-                formats(
-                    document,
-                    &parameter["schema"],
-                    &owner,
-                    &needle,
-                    &mut problems,
-                );
+            let here = format!("{} {at}", method.to_ascii_uppercase());
+            let shared = &item["parameters"];
+            let found = identifiers(self.document, template, operation, shared, &here, needle);
+            self.problems.extend(found);
+            self.parameters(&operation["parameters"], &here, needle);
+            if let Some(body) = operation.get("requestBody") {
+                self.place("requestBodies", body, &here, needle);
             }
-            for (media, content) in operation["requestBody"]["content"]
-                .as_object()
-                .unwrap_or(&empty)
-            {
-                let owner = format!("{here} {media} request");
-                formats(document, &content["schema"], &owner, &needle, &mut problems);
-                if media == "application/json" || media.ends_with("+json") {
-                    let mut lengths = Lengths {
-                        document,
-                        owner: &owner,
-                        needle: &needle,
-                        seen: Vec::new(),
-                        problems: Vec::new(),
-                    };
-                    lengths.walk(&content["schema"], "");
-                    problems.extend(lengths.problems);
+            for (status, response) in members(&operation["responses"]) {
+                self.place("responses", response, &format!("{here} {status}"), needle);
+            }
+            for (name, callback) in members(&operation["callbacks"]) {
+                let at = format!("the callback {name} of {here}");
+                self.place("callbacks", callback, &at, needle);
+            }
+        }
+    }
+
+    fn parameters(&mut self, parameters: &Value, at: &str, needle: &str) {
+        for parameter in parameters.as_array().into_iter().flatten() {
+            let name = parameter["name"]
+                .as_str()
+                .map_or(String::new(), |name| format!(" {name}"));
+            self.place(
+                "parameters",
+                parameter,
+                &format!("{at} parameter{name}"),
+                needle,
+            );
+        }
+    }
+
+    /// Checks of each content type of `content` its `schema` and its `x-itemSchema`, the schema of
+    /// a stream's items, where the type isn't a problem's, the headers of its `encoding`, and, in a
+    /// request body of JSON, each string's `maxLength`.
+    fn content(&mut self, content: &Value, at: &str, needle: &str, request: bool) {
+        for (media, of_media) in members(content) {
+            let owner = if request {
+                format!("{at} {media} request")
+            } else {
+                format!("{at} {media}")
+            };
+            // A problem's codes are ERR-02's, not closed sets of API-11.
+            if media != "application/problem+json" {
+                for key in ["schema", "x-itemSchema"] {
+                    self.schema(&of_media[key], &owner, needle);
                 }
             }
-            for (status, response) in operation["responses"].as_object().unwrap_or(&empty) {
-                for (media, content) in response["content"].as_object().unwrap_or(&empty) {
-                    // A problem's codes are ERR-02's, not closed sets of API-11.
-                    if media != "application/problem+json" {
-                        let owner = format!("{here} {status}");
-                        formats(document, &content["schema"], &owner, &needle, &mut problems);
-                    }
+            if request && (media == "application/json" || media.ends_with("+json")) {
+                let mut lengths = Lengths {
+                    document: self.document,
+                    owner: &owner,
+                    needle,
+                    seen: Vec::new(),
+                    problems: Vec::new(),
+                };
+                lengths.walk(&of_media["schema"], "");
+                self.problems.extend(lengths.problems);
+            }
+            for (property, encoding) in members(&of_media["encoding"]) {
+                for (name, header) in members(&encoding["headers"]) {
+                    let at = format!("{owner} {property} header {name}");
+                    self.place("headers", header, &at, needle);
                 }
             }
         }
     }
-    problems
 }
 
-/// API-11: the IDs among the names in an operation's path and its parameters, but those of
-/// [`NOT_UUIDS`], are UUIDs, each of them, of a filter that takes several, an array's item
-/// (PLATFORM-088).
+/// The members of `value`, an object, or none.
+fn members(value: &Value) -> impl Iterator<Item = (&String, &Value)> {
+    value.as_object().into_iter().flatten()
+}
+
+/// Whether `target`, a reference, names a component of `kind`: `#/components/<kind>/<name>`.
+fn names_component(target: &str, kind: &str) -> bool {
+    target
+        .strip_prefix("#/components/")
+        .and_then(|rest| rest.strip_prefix(kind))
+        .and_then(|rest| rest.strip_prefix('/'))
+        .is_some_and(|name| !name.is_empty() && !name.contains('/'))
+}
+
+/// The finding for `target`, a reference at `at`, where a component of `kind` stands.
+fn refused(at: &str, target: &str, kind: &str) -> Problem {
+    (
+        quoted(target),
+        format!(
+            "{at}: the reference {target} names no component of #/components/{kind}/, which is \
+             where the check reads what a reference here names (API-11)"
+        ),
+    )
+}
+
+/// API-11: the IDs among the names in `template`, an operation's path or none, and among its
+/// parameters, but those of [`NOT_UUIDS`], are UUIDs, each of them, of a filter that takes
+/// several, an array's item (PLATFORM-088).
 fn identifiers(
     document: &Value,
-    path: &str,
+    template: &str,
     operation: &Value,
     shared: &Value,
     here: &str,
+    needle: &str,
 ) -> Vec<Problem> {
     let parameters = parameters(document, operation, shared);
-    let mut names: Vec<String> = path
+    let mut names: Vec<String> = template
         .split('/')
         .filter_map(|segment| segment.strip_prefix('{')?.strip_suffix('}'))
         .map(str::to_owned)
@@ -145,7 +300,7 @@ fn identifiers(
         })
         .map(|name| {
             (
-                quoted(path),
+                needle.to_owned(),
                 format!("{here}: the parameter {name} isn't documented as format: uuid (API-11)"),
             )
         })
@@ -153,8 +308,10 @@ fn identifiers(
 }
 
 /// API-11: the IDs and timestamps among `schema`'s properties, and those of the schemas inside
-/// it, have their formats, and its closed sets are `snake_case`. A reference isn't followed:
-/// the components it points at are checked on their own.
+/// it, under `properties`, a keyword of [`INSIDE`], `$defs`, `patternProperties`,
+/// `dependentSchemas`, `allOf`, `anyOf`, `oneOf` and `prefixItems`, have their formats, and its
+/// closed sets are `snake_case`. A reference isn't followed: it names a component of `schemas`,
+/// which is checked where it stands, or is refused.
 fn formats(
     document: &Value,
     schema: &Value,
@@ -162,6 +319,11 @@ fn formats(
     needle: &str,
     problems: &mut Vec<Problem>,
 ) {
+    if let Some(target) = schema["$ref"].as_str()
+        && !names_component(target, "schemas")
+    {
+        problems.push(refused(owner, target, "schemas"));
+    }
     if let Some(values) = schema["enum"].as_array() {
         for value in values.iter().filter_map(Value::as_str) {
             if !is_snake_case(value) {
@@ -201,12 +363,17 @@ fn formats(
             );
         }
     }
-    for key in ["items", "additionalProperties", "contentSchema"] {
+    for key in INSIDE {
         if schema[key].is_object() {
             formats(document, &schema[key], owner, needle, problems);
         }
     }
-    for key in ["allOf", "anyOf", "oneOf"] {
+    for key in ["$defs", "patternProperties", "dependentSchemas"] {
+        for (_, part) in members(&schema[key]) {
+            formats(document, part, owner, needle, problems);
+        }
+    }
+    for key in ["allOf", "anyOf", "oneOf", "prefixItems"] {
         for part in schema[key].as_array().into_iter().flatten() {
             // An entry's action is an action's name, which the audit spec shapes, not a closed set
             // of API-11; `actions` checks it.
@@ -407,7 +574,7 @@ mod tests {
         assert_eq!(
             messages(&document),
             [
-                "GET /v1/things parameter view: the value Brief of a closed set isn't snake_case (API-11)",
+                "/v1/things parameter view: the value Brief of a closed set isn't snake_case (API-11)",
                 "GET /v1/things parameter kind: the value BigThing of a closed set isn't snake_case (API-11)",
                 "GET /v1/things parameter X-Mode: the value Slow of a closed set isn't snake_case (API-11)",
             ]
@@ -494,5 +661,205 @@ mod tests {
                 "POST /v1/things application/json request: the string at /tags/* has no maxLength (API-17)",
             ]
         );
+    }
+
+    /// A schema with an ID that isn't `format: uuid` and a closed set that isn't `snake_case`.
+    fn unformatted() -> Value {
+        json!({ "type": "object", "properties": {
+            "thing_id": { "type": "string" },
+            "kind": { "type": "string", "enum": ["Big"] },
+        } })
+    }
+
+    /// The findings of [`unformatted`] at each of `owners`.
+    fn unformatted_at(owners: &[&str]) -> Vec<String> {
+        owners
+            .iter()
+            .flat_map(|owner| {
+                [
+                    format!(
+                        "{owner}.kind: the value Big of a closed set isn't snake_case (API-11)"
+                    ),
+                    format!("{owner}: the ID thing_id isn't format: uuid (API-11)"),
+                ]
+            })
+            .collect()
+    }
+
+    #[test]
+    fn api_11_the_schema_of_each_kind_of_component_is_read() {
+        let bad = unformatted();
+        let document = json!({ "components": {
+            "parameters": { "Kind": { "name": "kind", "in": "query", "schema": bad } },
+            "requestBodies": { "Thing": { "content": { "multipart/form-data": { "schema": bad } } } },
+            "responses": { "Thing": {
+                "description": "x",
+                "content": { "application/json": { "schema": bad } },
+                "headers": { "X-Thing": { "schema": bad } },
+            } },
+            "headers": { "X-Kind": { "schema": bad } },
+            "pathItems": { "Things": { "get": { "parameters": [
+                { "name": "view", "in": "query", "schema": bad },
+            ] } } },
+            "callbacks": { "Made": { "{$request.body#/url}": { "post": { "responses": {
+                "200": { "content": { "application/json": { "schema": bad } } },
+            } } } } },
+        } });
+
+        assert_eq!(
+            messages(&document),
+            unformatted_at(&[
+                "components/parameters/Kind",
+                "components/requestBodies/Thing multipart/form-data request",
+                "components/responses/Thing application/json",
+                "components/responses/Thing header X-Thing",
+                "components/headers/X-Kind",
+                "GET components/pathItems/Things parameter view",
+                "POST {$request.body#/url} of components/callbacks/Made 200 application/json",
+            ])
+        );
+    }
+
+    #[test]
+    fn api_11_the_schema_of_each_place_of_an_operation_is_read() {
+        let bad = unformatted();
+        let document = json!({ "paths": { "/v1/things": {
+            "parameters": [{ "name": "filter", "in": "query", "content": {
+                "application/json": { "schema": bad } } }],
+            "post": {
+                "parameters": [{ "name": "view", "in": "query", "schema": bad }],
+                "requestBody": { "content": { "multipart/form-data": {
+                    "schema": bad,
+                    "encoding": { "file": { "headers": { "X-Part": { "schema": bad } } } },
+                } } },
+                "responses": { "200": {
+                    "description": "x",
+                    "content": {
+                        "application/json": { "schema": bad },
+                        "text/event-stream": { "schema": { "type": "string" }, "x-itemSchema": bad },
+                    },
+                    "headers": {
+                        "X-Thing": { "schema": bad },
+                        "X-Other": { "content": { "text/plain": { "schema": bad } } },
+                    },
+                } },
+                "callbacks": { "made": { "{$request.body#/url}": { "post": { "responses": {
+                    "200": { "content": { "application/json": { "schema": bad } } },
+                } } } } },
+            },
+        } } });
+
+        assert_eq!(
+            messages(&document),
+            unformatted_at(&[
+                "/v1/things parameter filter application/json",
+                "POST /v1/things parameter view",
+                "POST /v1/things multipart/form-data request",
+                "POST /v1/things multipart/form-data request file header X-Part",
+                "POST /v1/things 200 application/json",
+                "POST /v1/things 200 text/event-stream",
+                "POST /v1/things 200 header X-Other text/plain",
+                "POST /v1/things 200 header X-Thing",
+                "POST {$request.body#/url} of the callback made of POST /v1/things 200 application/json",
+            ])
+        );
+    }
+
+    #[test]
+    fn api_11_the_schema_of_each_place_of_a_webhook_is_read() {
+        let document = json!({ "webhooks": { "thing_made": { "post": {
+            "parameters": [{ "name": "thing_id", "in": "query", "schema": { "type": "string" } }],
+            "requestBody": { "content": { "multipart/form-data": { "schema": unformatted() } } },
+        } } } });
+
+        let mut expected = vec![
+            "POST webhook thing_made: the parameter thing_id isn't documented as format: uuid \
+             (API-11)"
+                .to_owned(),
+        ];
+        expected.extend(unformatted_at(&[
+            "POST webhook thing_made multipart/form-data request",
+        ]));
+        assert_eq!(messages(&document), expected);
+    }
+
+    #[test]
+    fn api_11_a_reference_names_a_component_of_its_place_s_kind_which_is_read_once() {
+        let document = json!({
+            "paths": { "/v1/things": { "post": {
+                "parameters": [{ "$ref": "#/paths/~1v1~1other/get/parameters/0" }],
+                "requestBody": { "$ref": "#/components/requestBodies/Thing" },
+                "responses": {
+                    "200": { "$ref": "#/components/schemas/Thing" },
+                    "201": { "description": "x", "content": { "application/json": {
+                        "schema": { "$ref": "#/x-shared/Thing" } } } },
+                },
+            } } },
+            "components": {
+                "requestBodies": { "Thing": { "content": { "multipart/form-data": {
+                    "schema": unformatted() } } } },
+                "schemas": { "Thing": { "type": "object" } },
+            },
+        });
+
+        let mut expected =
+            unformatted_at(&["components/requestBodies/Thing multipart/form-data request"]);
+        expected.extend([
+            "POST /v1/things parameter: the reference #/paths/~1v1~1other/get/parameters/0 names no \
+             component of #/components/parameters/, which is where the check reads what a \
+             reference here names (API-11)"
+                .to_owned(),
+            "POST /v1/things 200: the reference #/components/schemas/Thing names no component of \
+             #/components/responses/, which is where the check reads what a reference here names \
+             (API-11)"
+                .to_owned(),
+            "POST /v1/things 201 application/json: the reference #/x-shared/Thing names no \
+             component of #/components/schemas/, which is where the check reads what a reference \
+             here names (API-11)"
+                .to_owned(),
+        ]);
+        assert_eq!(messages(&document), expected);
+    }
+
+    #[test]
+    fn api_11_each_schema_inside_a_schema_is_read() {
+        let set = |key: &str| json!({ "type": "string", "enum": [format!("In{key}")] });
+        let ones = [
+            "items",
+            "additionalProperties",
+            "contentSchema",
+            "not",
+            "if",
+            "then",
+            "else",
+            "contains",
+            "propertyNames",
+            "unevaluatedItems",
+            "unevaluatedProperties",
+        ];
+        let mut thing = json!({ "$defs": { "Owner": unformatted() } });
+        for key in ones {
+            thing[key] = set(key);
+        }
+        for key in ["patternProperties", "dependentSchemas"] {
+            thing[key] = json!({ "a": set(key) });
+        }
+        thing["prefixItems"] = json!([set("prefixItems")]);
+        let document = json!({ "components": { "schemas": { "Thing": thing } } });
+
+        let mut found = messages(&document);
+        found.sort();
+
+        let mut expected = unformatted_at(&["schema Thing"]);
+        for key in ones
+            .iter()
+            .chain(&["patternProperties", "dependentSchemas", "prefixItems"])
+        {
+            expected.push(format!(
+                "schema Thing: the value In{key} of a closed set isn't snake_case (API-11)"
+            ));
+        }
+        expected.sort();
+        assert_eq!(found, expected);
     }
 }

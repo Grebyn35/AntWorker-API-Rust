@@ -416,6 +416,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+    use crate::openapi::events::tests::catalog_of;
 
     /// What the comparison finds of `current` against `release`, each the schema of a value
     /// named `it`, with no schema that either refers to.
@@ -771,9 +772,8 @@ mod tests {
             "Renamed": {"properties": {"event": {"enum": ["member.removed"]}, "at": {"type": "string"}}, "required": ["event"]},
             "AddedWithoutId": {"properties": {"event": {"enum": ["member.added"]}}, "required": ["event"]}
         }}});
-        let frames = |names: &[&str]| json!({"oneOf": names.iter().map(|name| json!({"$ref": format!("#/components/schemas/{name}")})).collect::<Vec<_>>()});
         let found = |side: Side, release: &[&str], current: &[&str]| {
-            let (release, current) = (frames(release), frames(current));
+            let (release, current) = (catalog_of(release), catalog_of(current));
             let mut comparison = Comparison::new(&document, &document);
             comparison.compare(&Place::root("it"), side, &[&release], &[&current]);
             comparison.findings
@@ -802,7 +802,10 @@ mod tests {
         let mut changed = document.clone();
         changed["components"]["schemas"]["Added"] =
             document["components"]["schemas"]["AddedWithoutId"].clone();
-        let (release, current) = (frames(&["Added", "Removed"]), frames(&["Added", "Removed"]));
+        let (release, current) = (
+            catalog_of(&["Added", "Removed"]),
+            catalog_of(&["Added", "Removed"]),
+        );
         let mut comparison = Comparison::new(&document, &changed);
         comparison.compare(&Place::root("it"), Side::Response, &[&release], &[&current]);
         assert_eq!(comparison.findings, ["it's `<Added>.id` is gone"]);

@@ -14,7 +14,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use proc_macro2::{TokenStream, TokenTree};
 use syn::{
-    Attribute, ImplItem, Item, LitStr, Macro, Visibility,
+    Attribute, Expr, ExprLit, ImplItem, Item, Lit, LitStr, Macro, Meta, Token, Visibility,
+    punctuated::Punctuated,
     visit::{self, Visit},
 };
 
@@ -273,16 +274,35 @@ fn attributes(item: &Item) -> &[Attribute] {
     }
 }
 
-/// Whether `attrs` compile the item only for the tests: `#[cfg(test)]`, or a `cfg` that names
-/// the `test-support` feature.
+/// Whether `attrs` compile the item only for the tests: a `cfg` whose predicate holds only with
+/// them, as [`only_with_tests`] reads it.
 fn for_tests(attrs: &[Attribute]) -> bool {
     attrs.iter().any(|attr| {
-        attr.path().is_ident("cfg")
-            && attr.meta.require_list().is_ok_and(|list| {
-                let tokens = list.tokens.to_string();
-                tokens == "test" || tokens.contains("\"test-support\"")
-            })
+        attr.path().is_ident("cfg") && attr.parse_args().is_ok_and(|meta| only_with_tests(&meta))
     })
+}
+
+/// Whether the `cfg` predicate `meta` holds only with `test` or the `test-support` feature: it is
+/// one of the two, an `all` that holds one, or an `any` of which each does. A `not` is read as
+/// holding without them.
+fn only_with_tests(meta: &Meta) -> bool {
+    match meta {
+        Meta::Path(path) => path.is_ident("test"),
+        Meta::NameValue(pair) => {
+            pair.path.is_ident("feature")
+                && matches!(&pair.value, Expr::Lit(ExprLit { lit: Lit::Str(name), .. })
+                    if name.value() == "test-support")
+        }
+        Meta::List(list) => {
+            let parts = list.parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated);
+            parts.is_ok_and(|parts| {
+                (list.path.is_ident("all") && parts.iter().any(only_with_tests))
+                    || (list.path.is_ident("any")
+                        && !parts.is_empty()
+                        && parts.iter().all(only_with_tests))
+            })
+        }
+    }
 }
 
 /// The identifiers of `code`, in its strings as well as outside them.
@@ -377,6 +397,24 @@ mod tests {
         ]);
 
         assert!(found.is_empty(), "{found:?}");
+    }
+
+    #[test]
+    fn code_15_an_item_is_the_tests_only_where_its_cfg_holds_only_with_them() {
+        let lib = "#[cfg(not(feature = \"test-support\"))]\npub fn without_support() {}\n\
+                   #[cfg(any(test, unix))]\npub fn on_unix() {}\n\
+                   #[cfg(all(unix, test))]\npub fn tested_on_unix() {}\n\
+                   #[cfg(any(test, feature = \"test-support\"))]\npub fn for_either() {}\n";
+
+        let found = findings(&[("crates/platform/src/lib.rs", lib)]);
+
+        assert_eq!(
+            found,
+            [
+                "crates/platform/src/lib.rs:2: `without_support`",
+                "crates/platform/src/lib.rs:4: `on_unix`",
+            ]
+        );
     }
 
     #[test]

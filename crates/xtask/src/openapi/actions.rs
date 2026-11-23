@@ -2,8 +2,9 @@
 //! check reads the code's actions as text: the name in double quotes that follows each
 //! `Action::new(` in a module's `audit.rs`. One that no such name follows fails, since the check
 //! couldn't read it. A name that it read and that no component of the catalog is marked with
-//! fails, as the name of an action that its module leaves out of its list does; and so does a
-//! component that the document marks as an action's and that `AuditEntry` doesn't refer to. A
+//! fails, as the name of an action that its module leaves out of its list does; so does a
+//! component that the document marks as an action's and that `AuditEntry` doesn't refer to; and
+//! so does a name that it read twice, since the catalog holds each action once. A
 //! module's `audit.rs` is the file of that name right under the module's directory, or a Rust
 //! file of its directory `audit/`, which the file becomes once it outgrows its limit (ARCH-03).
 //! A declaration that writes its type's parameters before `::new` isn't read: the check fails
@@ -11,17 +12,15 @@
 //! hold the constructor's text, as through an alias of the type, isn't read either, and review
 //! keeps the declarations to the form the check reads.
 //! AUDIT-014: each action's component gives its entries' `action` as the action's name alone.
-//! AUDIT-009: each action is named `<resource>.<verb>`, each part `snake_case`, in at most 100
-//! characters, as a log's filter takes it.
+//! AUDIT-009: each action is named as a log's filter takes it: two words joined by a dot, each
+//! of lowercase ASCII letters, digits and underscores that starts with a letter, in at most 100
+//! characters.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Value, json};
 
-use super::{
-    events::{declared, of_module, parameterized, referred},
-    is_snake_case,
-};
+use super::events::{declared, of_module, parameterized, referred};
 use crate::{Finding, repo::Repo, text::line_of};
 
 /// The most characters of an action's name that a log's filter takes (AUDIT-009).
@@ -38,11 +37,11 @@ pub(super) const MARK: &str = "x-audit-action";
 
 /// A finding for each `Action::new(` of a module's `audit.rs` that no name in double quotes
 /// follows, for each name that follows one and that no component of `document`'s catalog is
-/// marked with, and for each component of `document` marked as an action's that the catalog
-/// doesn't refer to, whose action isn't named as a log's filter takes it, or that gives its
-/// entries' `action` as anything but the action's name. `document` is the JSON of `repo`'s
-/// `openapi.json`, whose lines the findings about components name: a `repo` without that file
-/// gets none of them.
+/// marked with or that an earlier one gives, and for each component of `document` marked as an
+/// action's that the catalog doesn't refer to, whose action isn't named as a log's filter takes
+/// it, or that gives its entries' `action` as anything but the action's name. `document` is the
+/// JSON of `repo`'s `openapi.json`, whose lines the findings about components name: a `repo`
+/// without that file gets none of them.
 pub fn check(repo: &Repo, document: &Value) -> Vec<Finding> {
     let catalog = referred(document, CATALOG);
     let schemas = &document["components"]["schemas"];
@@ -51,6 +50,7 @@ pub fn check(repo: &Repo, document: &Value) -> Vec<Finding> {
         .filter_map(|component| schemas[*component][MARK].as_str())
         .collect();
     let mut findings = components(repo, document, &catalog);
+    let mut first: BTreeMap<&str, (&str, usize)> = BTreeMap::new();
     for file in repo.files().filter(|file| is_audit_file(&file.path)) {
         for line in parameterized(&file.text, &[ACTION]) {
             findings.push(Finding::new(
@@ -82,6 +82,20 @@ pub fn check(repo: &Repo, document: &Value) -> Vec<Finding> {
                          then run `just openapi` (AUDIT-012)"
                     ),
                 ));
+            }
+            match first.get(name) {
+                Some((path, at)) => findings.push(Finding::new(
+                    &file.path,
+                    line,
+                    format!(
+                        "`{name}` is declared at {path}:{at} too, and the action catalog holds \
+                         each action once, so it would document one of the two: give each action \
+                         a name of its own (AUDIT-012)"
+                    ),
+                )),
+                None => {
+                    first.insert(name, (&file.path, line));
+                }
             }
         }
     }
@@ -118,14 +132,15 @@ fn components(repo: &Repo, document: &Value, catalog: &BTreeSet<&str>) -> Vec<Fi
         let shaped = name.len() <= NAME_MAX_CHARS
             && name
                 .split_once('.')
-                .is_some_and(|(resource, verb)| is_snake_case(resource) && is_snake_case(verb));
+                .is_some_and(|(resource, verb)| is_word(resource) && is_word(verb));
         if !shaped {
             findings.push(Finding::new(
                 super::DOCUMENT,
                 line,
                 format!(
-                    "the action {name} isn't named <resource>.<verb>, each part snake_case, in at \
-                     most {NAME_MAX_CHARS} characters, as a log's filter takes it (AUDIT-009)"
+                    "the action {name} isn't named as a log's filter takes it: two words joined by \
+                     a dot, each of lowercase ASCII letters, digits and underscores that starts \
+                     with a letter, in at most {NAME_MAX_CHARS} characters (AUDIT-009)"
                 ),
             ));
         }
@@ -148,6 +163,15 @@ fn components(repo: &Repo, document: &Value, catalog: &BTreeSet<&str>) -> Vec<Fi
     findings
 }
 
+/// Whether `word` is a word of an action's name, as a log's filter reads one: lowercase ASCII
+/// letters, digits and underscores, starting with a letter (AUDIT-009).
+fn is_word(word: &str) -> bool {
+    word.starts_with(|c: char| c.is_ascii_lowercase())
+        && word
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+}
+
 /// Whether `path` is a module's `audit.rs`, or a Rust file of its directory `audit/`.
 pub fn is_audit_file(path: &str) -> bool {
     of_module(path, "audit")
@@ -165,6 +189,7 @@ pub fn declared_in(text: &str) -> Vec<(&str, usize)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::openapi::events::tests::catalog_of;
 
     /// The component of the action `name`, whose entries' `action` is `action`.
     fn component(name: &str, action: &str) -> Value {
@@ -175,15 +200,6 @@ mod tests {
             ],
             "x-audit-action": name,
         })
-    }
-
-    /// The catalog's component, which holds the components `names`.
-    fn catalog_of(names: &[&str]) -> Value {
-        let entries: Vec<Value> = names
-            .iter()
-            .map(|name| json!({ "$ref": format!("#/components/schemas/{name}") }))
-            .collect();
-        json!({ "oneOf": entries })
     }
 
     #[test]
@@ -215,6 +231,78 @@ mod tests {
             messages[1..]
                 .iter()
                 .all(|message| message.ends_with("(AUDIT-009)"))
+        );
+    }
+
+    #[test]
+    fn audit_009_an_action_s_words_are_those_that_a_log_s_filter_takes() {
+        let document = json!({ "components": { "schemas": {
+            "A": component("a_.made", "a_.made"),
+            "B": component("thing__kept.made_2", "thing__kept.made_2"),
+            "C": component("_a.made", "_a.made"),
+            "D": component("a.b.c", "a.b.c"),
+            "E": component("2fa.made", "2fa.made"),
+            "F": component("a.Made", "a.Made"),
+            "AuditEntry": catalog_of(&["A", "B", "C", "D", "E", "F"]),
+        } } });
+        let repo = Repo::of(&[("openapi.json", &document.to_string())]);
+
+        let messages: Vec<String> = check(&repo, &document)
+            .into_iter()
+            .map(|finding| finding.message)
+            .collect();
+
+        let unshaped: Vec<&str> = messages
+            .iter()
+            .filter(|message| message.ends_with("(AUDIT-009)"))
+            .filter_map(|message| message.strip_prefix("the action "))
+            .filter_map(|message| message.split_once(' ').map(|(name, _)| name))
+            .collect();
+        assert_eq!(messages.len(), 4, "{messages:?}");
+        assert_eq!(unshaped, ["_a.made", "a.b.c", "2fa.made", "a.Made"]);
+    }
+
+    #[test]
+    fn audit_012_an_action_that_two_declarations_name_fails() {
+        // An action of two modules, and one that a file declares twice.
+        let things = "const A: Action = Action::new(\"thing.made\", \"Made.\", &[THING]);\n\
+                      const B: Action = Action::new(\"thing.kept\", \"Kept.\", &[THING]);\n\
+                      const C: Action = Action::new(\"thing.kept\", \"Kept.\", &[THING]);\n";
+        let orders = "const A: Action = Action::new(\"thing.made\", \"Made.\", &[ORDER]);\n";
+        let repo = Repo::of(&[
+            ("crates/app/src/modules/orders/audit.rs", orders),
+            ("crates/app/src/modules/things/audit.rs", things),
+        ]);
+        let document = json!({ "components": { "schemas": {
+            "ThingMadeEntry": component("thing.made", "thing.made"),
+            "ThingKeptEntry": component("thing.kept", "thing.kept"),
+            "AuditEntry": catalog_of(&["ThingKeptEntry", "ThingMadeEntry"]),
+        } } });
+
+        let messages: Vec<String> = check(&repo, &document)
+            .into_iter()
+            .map(|finding| format!("{}:{}: {}", finding.path, finding.line, finding.message))
+            .collect();
+
+        assert_eq!(messages.len(), 2, "{messages:?}");
+        assert!(
+            messages[0].starts_with(
+                "crates/app/src/modules/things/audit.rs:1: `thing.made` is declared at \
+                 crates/app/src/modules/orders/audit.rs:1 too"
+            ),
+            "{messages:?}"
+        );
+        assert!(
+            messages[1].starts_with(
+                "crates/app/src/modules/things/audit.rs:3: `thing.kept` is declared at \
+                 crates/app/src/modules/things/audit.rs:2 too"
+            ),
+            "{messages:?}"
+        );
+        assert!(
+            messages
+                .iter()
+                .all(|message| message.ends_with("(AUDIT-012)"))
         );
     }
 

@@ -91,6 +91,8 @@ So a line that names an optional part either exists only for it, and carries its
   - It does the removal of each part alone too, as `just remove` does it, which keeps `removal`, where no run removes that part and no other, so a line that names a part inside the block of another, `removal`'s among them, with which every run removes it, fails; that removal reads names alone, so it is made of every part, the last one that creates workspaces among them.
   - It fails on a run that the `matrix.run` of CI's `removable` job doesn't hold, or holds twice, and on a name there that is no run's, on the repository and on what each removal that keeps `removal` leaves of the two files, so CI makes every run.
   - It fails on each of these:
+    - `crates/xtask/parts.yaml`, while it is missing, doesn't parse, or holds what the doc comment of `list` in `crates/xtask/src/parts/mod.rs` says that it can't read
+    - a name in a run's `parts` that no part of the list has
     - a marker that names no part
     - a line that holds a marker and starts a second
     - a block that no end marker closes
@@ -105,7 +107,7 @@ So a line that names an optional part either exists only for it, and carries its
     - outside them too, a line left that cites a decision, `D` and its number with no ASCII letter or digit on either side, whose row in the tracker the removal deletes, or, outside the inventory and the tests of the checks, which DOC-12 exempts, cites by its ID or its test prefix, as `check-docs` reads them, a behavior whose row in a spec, or a rule whose heading in the standards, the removal deletes
     - a line left that links, as `check-docs` reads the links of a document and of a Rust file's doc comments, to a file, or a directory, that the removal deletes whole, or to a heading's anchor that a document gives and its kept lines don't
     - a line left, outside the inventory and the files that a removal writes again, that names a Rust file, by a path or a name that `check-docs` reads of a document's line or of a comment (DOC-01), while the removal deletes every file that the path or the name names
-    - a line left, outside the migration workspace and the tests of the checks, that holds `<module>::<name>`, `::` between two whole words of ASCII letters, digits and `_`, for a name that a `pub` `use` of `crates/app/src/modules/<module>/mod.rs` gives, as a path's last name or the name after `as`, a glob giving none, only on lines that the removal deletes
+    - a line left, outside the migration workspace, the files that a removal writes again and the tests of the checks, that holds `<module>::<name>`, `::` between two whole words of ASCII letters, digits and `_`, for a name that a `pub` `use` of `crates/app/src/modules/<module>/mod.rs` gives, as a path's last name or the name after `as`, a glob giving none, only on lines that the removal deletes
   - `ci: check-removable` runs `just keep` on a copy of the repository for each run, with every part that the run doesn't remove, then `just checks` on the copy, as on a fork that has chosen its parts; for the one run whose task is `remove`, it runs `just remove` with the run's parts instead, every part that one fork can remove at once, so what that task leaves, the markers of the parts kept and the checks that read them among it, passes `just checks` too.
   - `review` covers what only the image and the end-to-end tests would show of a copy, and a line that exists only for a part without naming it.
 <!-- end part: removal -->

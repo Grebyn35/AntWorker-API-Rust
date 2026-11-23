@@ -8,8 +8,8 @@
 //! - A module names another only along an edge of the graph in architecture.md §5, which has no
 //!   cycle (ARCH-05).
 //! - No public signature of a module, and no field its public types expose, names another
-//!   module's error type: the names that module's `mod.rs` re-exports from its `error.rs`
-//!   (ERR-06).
+//!   module's error type: the names that module's `mod.rs` imports from its `error.rs`,
+//!   re-exported or not (ERR-06).
 //!
 //! It reads each file of `app`'s library as a token stream, with the paths its `use`
 //! declarations import (`rust`), so it finds a module's name inside macros and attributes too.
@@ -37,7 +37,7 @@ const GRAPH_HEADING: &str = "### Dependencies";
 struct Module {
     /// Its submodules, which its `mod.rs` declares.
     submodules: BTreeSet<String>,
-    /// The names its `mod.rs` re-exports from its `error.rs`.
+    /// The names its `mod.rs` imports from its `error.rs`, re-exported or not.
     errors: BTreeSet<String>,
     /// Every name its `mod.rs` imports, which includes what it re-exports.
     exports: BTreeSet<String>,

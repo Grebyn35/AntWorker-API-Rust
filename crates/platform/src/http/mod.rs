@@ -357,8 +357,8 @@ pub fn document(parts: impl IntoIterator<Item = OpenApi>) -> OpenApi {
 }
 
 /// The name of the component that a catalog of the document gives what `name` names, a dotted
-/// name in `snake_case`, such as an event's or an audit action's: its words, each starting with a
-/// capital, then `suffix`, so `member.removed` with `Frame` is `MemberRemovedFrame`.
+/// name, such as an event's or an audit action's: the words between its dots and underscores,
+/// each capitalized, then `suffix`, so `member.removed` with `Frame` is `MemberRemovedFrame`.
 pub fn component_name(name: &str, suffix: &str) -> String {
     let mut component: String = name
         .split(['.', '_'])

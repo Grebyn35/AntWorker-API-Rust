@@ -6,6 +6,9 @@
 //!
 //! Of each operation of the release's document, a method under a path, a finding is:
 //! - the operation, where the committed document has none under that path and method;
+//! - its access level, `x-access`, where the committed document's is another, and is neither
+//!   `public`, which takes every caller, nor, where the release's isn't `public`, `user`, which
+//!   takes every caller signed in;
 //! - a parameter, by where it stands and its name, that is gone, or whose `style` or `explode`
 //!   differs; a parameter that is required now and wasn't, a new one included; and what the
 //!   parameter's schema breaks as a request's (`schema`);
@@ -115,6 +118,7 @@ fn broken<'a>(release: &'a Value, current: &'a Value) -> Vec<String> {
                 current: of_current,
                 codes: Vec::new(),
             };
+            operation.access();
             operation.parameters();
             operation.body();
             operation.responses();
@@ -149,6 +153,19 @@ struct Operation<'a> {
 impl<'a> Operation<'a> {
     fn finding(&mut self, finding: String) {
         self.comparison.findings.push(finding);
+    }
+
+    /// The access level, where the document's may refuse a caller that the release's took.
+    fn access(&mut self) {
+        let (was, now) = (&self.release["x-access"], &self.current["x-access"]);
+        if now != was && now != "public" && (now != "user" || was == "public") {
+            let level = |access: &Value| access.as_str().unwrap_or_default().to_owned();
+            self.finding(format!(
+                "the access level `{}` is `{}` now",
+                level(was),
+                level(now)
+            ));
+        }
     }
 
     fn parameters(&mut self) {
@@ -482,6 +499,32 @@ mod tests {
 
         assert_eq!(moved, [format!("{NAME} is gone (API-18)")]);
         assert_eq!(gone, moved);
+    }
+
+    #[test]
+    fn api_18_an_operation_s_access_level_takes_each_caller_that_it_took() {
+        let changed = |was: &str, now: &str| {
+            let (mut release, mut current) = (document(), document());
+            operation(&mut release)["x-access"] = json!(was);
+            operation(&mut current)["x-access"] = json!(now);
+            broken(&release, &current)
+        };
+
+        assert_eq!(
+            changed("public", "user"),
+            [format!(
+                "{NAME}: the access level `public` is `user` now (API-18)"
+            )]
+        );
+        assert_eq!(
+            changed("user", "workspace"),
+            [format!(
+                "{NAME}: the access level `user` is `workspace` now (API-18)"
+            )]
+        );
+        assert_eq!(changed("user", "public"), Vec::<String>::new());
+        assert_eq!(changed("workspace", "user"), Vec::<String>::new());
+        assert_eq!(changed("workspace", "workspace"), Vec::<String>::new());
     }
 
     #[test]

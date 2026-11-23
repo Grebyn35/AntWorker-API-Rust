@@ -388,16 +388,15 @@ impl<'ast> Visit<'ast> for Calls<'_> {
     }
 
     fn visit_expr_call(&mut self, call: &'ast syn::ExprCall) {
-        if let Expr::Path(function) = &*call.func
-            && function.path.segments.len() > 1
-            && function
-                .path
-                .segments
-                .first()
-                .is_some_and(|first| first.ident == "service")
-        {
-            self.services
-                .push(function.path.segments[0].ident.span().start().line);
+        if let Expr::Path(function) = &*call.func {
+            let segments = &function.path.segments;
+            let line = segments[0].ident.span().start().line;
+            if segments.len() > 1 && segments[0].ident == "service" {
+                self.services.push(line);
+            }
+            if segments.last().is_some_and(|last| last.ident == "begin") {
+                self.begins.push(line);
+            }
         }
         visit::visit_expr_call(self, call);
     }
@@ -584,6 +583,22 @@ mod tests {
                  workspace route (ARCH-08)"
             ]
         );
+    }
+
+    #[test]
+    fn arch_08_a_module_s_routes_open_no_unit_of_work_through_a_path_either() {
+        let code = r#"
+            async fn list(State(files): State<Files>, client: Client) -> R {
+                let uow = Database::begin(&files.database, &client).await?;
+                service::list(uow).await
+            }
+            async fn read(State(files): State<Files>, client: Client) -> R {
+                service::read(<Database>::begin(&files.database, &client).await?).await
+            }
+        "#;
+        let opens = "a module's routes open a unit of work: the service opens it, or `Authorize` \
+                     on a workspace route (ARCH-08)";
+        assert_eq!(findings(ROUTES, code), [opens, opens]);
     }
 
     #[test]

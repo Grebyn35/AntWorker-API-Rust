@@ -246,13 +246,13 @@ pub(super) fn declared<'a>(text: &'a str, constructors: &[&str]) -> Vec<(Option<
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use serde_json::json;
 
     use super::*;
 
-    /// The catalog's component, which holds the components `names`.
-    fn catalog_of(names: &[&str]) -> Value {
+    /// A catalog's component, which holds the components `names`: a `oneOf` that refers to each.
+    pub fn catalog_of(names: &[&str]) -> Value {
         let entries: Vec<Value> = names
             .iter()
             .map(|name| json!({ "$ref": format!("#/components/schemas/{name}") }))
