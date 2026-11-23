@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Next:** step 6.3, under way. The first pass of the review of the whole codebase ([Conformance reviews](#conformance-reviews)) is acted on, and the owner decided what it left to them (D220 to D222), that the review stops area by area (D223), and that a request whose session ended once it was authenticated completes (D224). Before the second pass, the row of [Known gaps](#known-gaps) closes, and [Conformance reviews](#conformance-reviews) takes the review's areas, each with its files and the first pass's `must-fix` findings in it. **The second pass starts on the owner's word.** This repository stays public until the migration closes, then becomes the private template repository, whose `SECURITY.md` names an address the owner gives then (D208). The weekly rescan fails on 0.1.0-rc.11's Postgres image until the next release. The trial server runs that prerelease; its Grafana Cloud alerts reach no contact point. Its next release needs a B2 files bucket as [deploy.md](operations/deploy.md) asks, then `just server-setup` and `--allow-restart`, and first proves on B2 the buckets' check, the scanner's start, Caddy's certificates, a signed upload, `just restore-files`, a restore's downtime, and a restore after a restore.
+**Next:** step 6.3, under way. The first pass of the review of the whole codebase ([Conformance reviews](#conformance-reviews)) is acted on, and the owner decided what it left to them (D220 to D222), that the review stops area by area (D223), and that a request whose session ended once it was authenticated completes (D224). Before the second pass, [Conformance reviews](#conformance-reviews) takes the review's areas, each with its files and the first pass's `must-fix` findings in it. **The second pass starts on the owner's word.** This repository stays public until the migration closes, then becomes the private template repository, whose `SECURITY.md` names an address the owner gives then (D208). The weekly rescan fails on 0.1.0-rc.11's Postgres image until the next release. The trial server runs that prerelease; its Grafana Cloud alerts reach no contact point. Its next release needs a B2 files bucket as [deploy.md](operations/deploy.md) asks, then `just server-setup` and `--allow-restart`, and first proves on B2 the buckets' check, the scanner's start, Caddy's certificates, a signed upload, `just restore-files`, a restore's downtime, and a restore after a restore.
 
 ## Build order
 
@@ -113,7 +113,6 @@ Built code that doesn't follow a rule or a behavior yet ([Changing a rule](stand
 
 | Rule or behavior | Built code that doesn't follow it | Closed by |
 |---|---|---|
-| TEST-07 | About 15 tests still assert a count that the test process shares as "at least one more", and name no reason: the `platform_105_` tests of the mail's sends, six `platform_067_` tests of the request metrics, and the tests of a count that a part of the template declares, each of which a test through `serve` and the tests' collector could count exactly. A comment in `platform`'s `telemetry/testing.rs` says that a test reads the points whose labels only it records, which those tests don't | 6.3, before the second pass of the review of the whole codebase |
 
 ## Rule proposals
 
