@@ -18,13 +18,6 @@ use crate::support::{
 /// The path of the caller's identities.
 const IDENTITIES: &str = "/v1/users/me/identities";
 
-/// A stand-in provider, and an API that signs in through it.
-async fn standing() -> (Upstream, Api) {
-    let upstream = Upstream::start().await;
-    let api = Api::with(providers::stand_in(&upstream)).await;
-    (upstream, api)
-}
-
 /// Reads `user`'s identities.
 async fn read(api: &Api, user: &SignedIn) -> Response {
     api.get(IDENTITIES).bearer(&user.access).send().await
@@ -150,7 +143,7 @@ fn members(value: &Value) -> Vec<&str> {
 
 #[tokio::test]
 async fn auth_085_the_identities_are_the_password_and_each_provider_identity_the_earliest_first() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     let ada = users::register(&api, "ada@example.com").await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     assert_eq!(link(&api, &ada, &grant()).await.status, 200);
@@ -180,7 +173,7 @@ async fn auth_085_the_identities_are_the_password_and_each_provider_identity_the
 
 #[tokio::test]
 async fn auth_085_an_account_without_a_password_reads_null_for_it() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     let ada = signed_in(&api).await;
 
@@ -193,7 +186,7 @@ async fn auth_085_an_account_without_a_password_reads_null_for_it() {
 
 #[tokio::test]
 async fn auth_086_adding_a_password_needs_a_recent_proof_then_the_password_signs_in() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     let ada = signed_in(&api).await;
     users::authenticated_ago(&api, &ada, 10).await;
@@ -257,7 +250,7 @@ async fn auth_086_an_account_that_has_a_password_answers_409_and_keeps_it() {
 
 #[tokio::test]
 async fn auth_086_a_password_that_the_policy_refuses_answers_400() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     let ada = signed_in(&api).await;
 
@@ -280,7 +273,7 @@ async fn auth_086_a_password_that_the_policy_refuses_answers_400() {
 
 #[tokio::test]
 async fn auth_086_adding_a_password_whose_session_ended_once_it_was_authenticated_answers_401() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     let ada = signed_in(&api).await;
     let bucket = change_bucket(&api, &ada).await;
@@ -304,7 +297,7 @@ async fn auth_086_adding_a_password_whose_session_ended_once_it_was_authenticate
 
 #[tokio::test]
 async fn auth_087_linking_needs_a_recent_proof_then_the_provider_signs_in_to_the_account() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     let ada = users::register(&api, "ada@example.com").await;
     // The provider gives another address than the account's.
     gives(
@@ -354,7 +347,7 @@ async fn auth_087_linking_needs_a_recent_proof_then_the_provider_signs_in_to_the
 
 #[tokio::test]
 async fn auth_087_a_caller_with_an_identity_of_the_provider_answers_409_whatever_its_subject() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     let ada = users::register(&api, "ada@example.com").await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     assert_eq!(link(&api, &ada, &grant()).await.status, 200);
@@ -376,7 +369,7 @@ async fn auth_087_a_caller_with_an_identity_of_the_provider_answers_409_whatever
 
 #[tokio::test]
 async fn auth_087_a_subject_that_another_account_holds_answers_409() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "bob@example.com", true));
     let bob = signed_in(&api).await;
     let ada = users::register(&api, "ada@example.com").await;
@@ -394,7 +387,7 @@ async fn auth_087_a_subject_that_another_account_holds_answers_409() {
 
 #[tokio::test]
 async fn auth_087_the_address_that_the_provider_gives_decides_nothing() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     users::register(&api, "carol@example.com").await;
     let ada = users::register(&api, "ada@example.com").await;
     let dan = users::register(&api, "dan@example.com").await;
@@ -416,7 +409,7 @@ async fn auth_087_the_address_that_the_provider_gives_decides_nothing() {
 
 #[tokio::test]
 async fn auth_087_a_code_that_the_provider_refuses_answers_403_and_the_session_stays() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     let ada = users::register(&api, "ada@example.com").await;
     upstream.set("POST", "/token", 400, json!({ "error": "invalid_grant" }));
 
@@ -429,7 +422,7 @@ async fn auth_087_a_code_that_the_provider_refuses_answers_403_and_the_session_s
 
 #[tokio::test]
 async fn auth_087_a_malformed_link_answers_400_naming_every_field_before_the_exchange() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     let ada = users::register(&api, "ada@example.com").await;
     let malformed = json!({
         "provider": "stand_in",
@@ -462,7 +455,7 @@ async fn auth_087_a_malformed_link_answers_400_naming_every_field_before_the_exc
 
 #[tokio::test]
 async fn auth_077_a_link_answers_a_provider_it_can_t_exchange_at_as_a_sign_in_does() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     let ada = users::register(&api, "ada@example.com").await;
     let mut nobody = grant();
     nobody["provider"] = json!("nobody");
@@ -485,7 +478,7 @@ async fn auth_077_a_link_answers_a_provider_it_can_t_exchange_at_as_a_sign_in_do
 
 #[tokio::test]
 async fn auth_087_a_link_whose_session_ended_once_it_was_authenticated_answers_401() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     let ada = users::register(&api, "ada@example.com").await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     let bucket = change_bucket(&api, &ada).await;
@@ -509,7 +502,7 @@ async fn auth_087_a_link_whose_session_ended_once_it_was_authenticated_answers_4
 
 #[tokio::test]
 async fn auth_099_a_registration_that_meets_a_link_of_its_subject_answers_409() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     let carol = users::register(&api, "carol@example.com").await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     let db = api.database();
@@ -541,7 +534,7 @@ async fn auth_099_a_registration_that_meets_a_link_of_its_subject_answers_409() 
 
 #[tokio::test]
 async fn auth_073_a_sign_in_that_waited_for_the_removal_of_its_identity_reaches_no_account() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     let ada = signed_in(&api).await;
     let db = api.database();
@@ -581,7 +574,7 @@ async fn auth_073_a_sign_in_that_waited_for_the_removal_of_its_identity_reaches_
 #[tokio::test]
 async fn auth_099_a_registration_after_a_removal_that_its_sign_in_waited_for_counts_in_its_bucket()
 {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     let ada = users::register(&api, "ada@example.com").await;
     // Her account at the provider gives another address, which the provider doesn't prove.
     gives(&upstream, identity("subject-1", "other@example.com", false));
@@ -628,7 +621,7 @@ async fn auth_099_a_registration_after_a_removal_that_its_sign_in_waited_for_cou
 #[tokio::test]
 async fn auth_099_beyond_its_limit_a_registration_after_such_a_wait_answers_429_and_writes_nothing()
 {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     let ada = users::register(&api, "ada@example.com").await;
     gives(&upstream, identity("subject-1", "other@example.com", false));
     assert_eq!(link(&api, &ada, &grant()).await.status, 200);
@@ -680,7 +673,7 @@ async fn auth_099_beyond_its_limit_a_registration_after_such_a_wait_answers_429_
 #[tokio::test]
 async fn auth_099_a_registration_after_a_deletion_that_its_sign_in_waited_for_counts_in_its_bucket()
 {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     // Her provider doesn't prove her address, so her registration counted once in the address's
     // bucket of 3 (AUTH-029).
     gives(&upstream, identity("subject-1", "ada@example.com", false));
@@ -712,7 +705,7 @@ async fn auth_099_a_registration_after_a_deletion_that_its_sign_in_waited_for_co
 
 #[tokio::test]
 async fn auth_088_removing_the_password_needs_a_recent_proof_then_ends_its_other_sessions() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     let ada = users::register(&api, "ada@example.com").await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     assert_eq!(link(&api, &ada, &grant()).await.status, 200);
@@ -764,7 +757,7 @@ async fn auth_088_removing_the_password_needs_a_recent_proof_then_ends_its_other
 
 #[tokio::test]
 async fn auth_088_removing_a_provider_identity_ends_the_other_sessions_that_signed_in_through_it() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     let ada = signed_in(&api).await;
     assert_eq!(add_password(&api, &ada, PASSWORD).await.status, 200);
@@ -808,7 +801,7 @@ async fn auth_088_removing_a_provider_identity_ends_the_other_sessions_that_sign
 
 #[tokio::test]
 async fn auth_046_a_removal_of_an_identity_publishes_session_ended_for_each_session_it_ends() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     let ada = signed_in(&api).await;
     assert_eq!(add_password(&api, &ada, PASSWORD).await.status, 200);
@@ -863,7 +856,7 @@ async fn auth_088_an_identity_of_a_provider_that_the_deployment_dropped_is_remov
 
 #[tokio::test]
 async fn auth_088_the_account_s_last_identity_stays() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     let ada = users::register(&api, "ada@example.com").await;
     gives(&upstream, identity("subject-1", "bob@example.com", true));
     let bob = signed_in(&api).await;
@@ -916,7 +909,7 @@ async fn auth_088_an_id_that_names_none_of_the_caller_s_identities_answers_404_o
 
 #[tokio::test]
 async fn auth_088_two_removals_at_once_take_turns_and_leave_the_account_an_identity() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     let ada = users::register(&api, "ada@example.com").await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     assert_eq!(link(&api, &ada, &grant()).await.status, 200);
@@ -969,7 +962,7 @@ async fn auth_088_two_removals_at_once_take_turns_and_leave_the_account_an_ident
 
 #[tokio::test]
 async fn auth_088_a_removal_whose_session_ended_once_it_was_authenticated_answers_401() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     let ada = users::register(&api, "ada@example.com").await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     let bucket = change_bucket(&api, &ada).await;
@@ -995,7 +988,7 @@ async fn auth_088_a_removal_whose_session_ended_once_it_was_authenticated_answer
 
 #[tokio::test]
 async fn auth_069_a_removal_of_an_identity_deletes_the_challenges_that_its_sign_ins_issued() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     let ada = users::register(&api, "ada@example.com").await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     assert_eq!(link(&api, &ada, &grant()).await.status, 200);
@@ -1021,7 +1014,7 @@ async fn auth_069_a_removal_of_an_identity_deletes_the_challenges_that_its_sign_
 
 #[tokio::test]
 async fn data_20_a_removal_of_the_password_and_a_sign_in_with_it_never_deadlock() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     let ada = users::register(&api, "ada@example.com").await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     assert_eq!(link(&api, &ada, &grant()).await.status, 200);
@@ -1069,7 +1062,7 @@ async fn data_20_a_removal_of_the_password_and_a_sign_in_with_it_never_deadlock(
 
 #[tokio::test]
 async fn auth_089_a_link_and_a_removal_reach_the_user_s_streams() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     let ada = users::register(&api, "ada@example.com").await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     let mut stream = streams::opened(&api, &ada).await;
@@ -1092,7 +1085,7 @@ async fn auth_089_a_link_and_a_removal_reach_the_user_s_streams() {
 
 #[tokio::test]
 async fn auth_089_each_change_s_event_names_its_user_and_the_identity() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     let ada = signed_in(&api).await;
     // Another user, whom no event of hers names.
@@ -1121,7 +1114,7 @@ async fn auth_089_each_change_s_event_names_its_user_and_the_identity() {
 
 #[tokio::test]
 async fn auth_090_the_changes_of_one_s_identities_count_in_one_bucket_of_the_user_s() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     let ada = users::register(&api, "ada@example.com").await;
     let grace = users::register(&api, "grace@example.com").await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
@@ -1162,7 +1155,7 @@ async fn auth_090_the_changes_of_one_s_identities_count_in_one_bucket_of_the_use
 
 #[tokio::test]
 async fn auth_091_each_change_tells_the_address_what_happened() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     let address = mailbox::address("ada");
     gives(&upstream, identity("subject-1", &address, true));
     let ada = signed_in(&api).await;

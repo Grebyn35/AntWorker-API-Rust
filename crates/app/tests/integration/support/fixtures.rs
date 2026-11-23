@@ -30,6 +30,8 @@ use tokio::sync::Notify;
 use utoipa::ToSchema;
 use utoipa_axum::routes;
 
+use super::{Api, Options};
+
 /// Holds `GET /v1/gate` until the test releases it.
 #[derive(Default)]
 pub struct Gate {
@@ -294,6 +296,11 @@ pub fn mailing(mail: Mail) -> Routes {
         .user(routes!(send), &[])
         .merge(Routes::new().workspace::<Reading>(routes!(send_in_workspace), &[]))
         .with_state(mail)
+}
+
+/// The API, with the fixtures' routes added, whose gate no test holds.
+pub async fn api() -> Api {
+    Api::with(Options::routes(routes(Arc::default()))).await
 }
 
 /// The fixtures' routes, with `held` behind `GET /v1/gate`, which the tests add to the API's.

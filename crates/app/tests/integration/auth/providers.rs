@@ -1,40 +1,34 @@
 //! Signing in, registering and re-authenticating through a provider, which every provider shares,
 //! proven through the tests' stand-in provider (the auth spec's "Signing in through a provider").
 
-use platform::telemetry::testing;
+use platform::telemetry::testing::{self, collector::Collector};
 use serde_json::{Value, json};
 
 use crate::support::{
     Api, TestDatabase,
     api::{self, Options, Response},
-    execute_on,
-    providers::{
-        self, VERIFIER, gives, grant, identity, kept_token_logged, kept_tokens_counted, sign_in,
-        signed_in,
-    },
+    counts, execute_on,
+    providers::{self, VERIFIER, gives, grant, identity, kept_token_logged, sign_in, signed_in},
     queries_wait_on_locks, second_factors,
     upstream::Upstream,
     users::{self, SignedIn},
 };
 
-/// A stand-in provider, and an API that signs in through it.
-async fn standing() -> (Upstream, Api) {
-    let upstream = Upstream::start().await;
-    let api = Api::with(providers::stand_in(&upstream)).await;
-    (upstream, api)
-}
-
 /// The redirect URI of the stand-in's second client, whose tokens don't lapse.
 const SECOND_REDIRECT_URI: &str = "https://second.example.com/callback";
+
+/// The options of an API whose stand-in provider at `upstream` has both of its clients.
+fn both_clients(upstream: &Upstream) -> Options {
+    providers::stand_in(upstream)
+        .set("STAND_IN_SECOND_CLIENT_ID", "second-client")
+        .set("STAND_IN_SECOND_CLIENT_SECRET", "second-secret")
+        .set("STAND_IN_SECOND_REDIRECT_URIS", SECOND_REDIRECT_URI)
+}
 
 /// A stand-in provider with both of its clients, and an API that signs in through it.
 async fn standing_with_both_clients() -> (Upstream, Api) {
     let upstream = Upstream::start().await;
-    let options = providers::stand_in(&upstream)
-        .set("STAND_IN_SECOND_CLIENT_ID", "second-client")
-        .set("STAND_IN_SECOND_CLIENT_SECRET", "second-secret")
-        .set("STAND_IN_SECOND_REDIRECT_URIS", SECOND_REDIRECT_URI);
-    let api = Api::with(options).await;
+    let api = Api::with(both_clients(&upstream)).await;
     (upstream, api)
 }
 
@@ -80,7 +74,7 @@ async fn entries(api: &Api, action: &str) -> Vec<String> {
 
 #[tokio::test]
 async fn auth_073_a_linked_subject_signs_in_to_its_account_whatever_address_it_gives() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     let first = signed_in(&api).await;
     gives(
@@ -127,7 +121,7 @@ async fn auth_073_a_linked_subject_signs_in_to_its_account_whatever_address_it_g
 
 #[tokio::test]
 async fn auth_073_an_account_with_an_app_gets_a_challenge_whose_session_records_the_provider() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     let ada = signed_in(&api).await;
     let app = second_factors::add_app(&api, &ada).await;
@@ -149,7 +143,7 @@ async fn auth_073_an_account_with_an_app_gets_a_challenge_whose_session_records_
 
 #[tokio::test]
 async fn auth_074_a_new_subject_registers_with_the_provider_s_name_and_identity() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "Ada@Example.com", false));
 
     let response = sign_in(&api, &grant()).await;
@@ -193,7 +187,7 @@ async fn auth_074_a_new_subject_registers_with_the_provider_s_name_and_identity(
 
 #[tokio::test]
 async fn auth_074_without_a_name_the_address_s_part_before_its_at_names_the_account() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     gives(
         &upstream,
         json!({ "sub": "s", "email": "grace@example.com", "proved": true, "name": "  " }),
@@ -210,7 +204,7 @@ async fn auth_074_without_a_name_the_address_s_part_before_its_at_names_the_acco
 
 #[tokio::test]
 async fn auth_074_a_part_before_the_at_of_more_than_100_characters_is_cut_to_100() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     let local = format!("{}{}", "a".repeat(100), "b".repeat(20));
     gives(
         &upstream,
@@ -228,7 +222,7 @@ async fn auth_074_a_part_before_the_at_of_more_than_100_characters_is_cut_to_100
 
 #[tokio::test]
 async fn auth_074_a_registration_through_a_provider_records_user_registered_with_the_provider() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
 
     let response = sign_in(&api, &grant()).await;
@@ -251,7 +245,7 @@ async fn auth_074_a_registration_through_a_provider_records_user_registered_with
 
 #[tokio::test]
 async fn auth_075_a_provider_that_proves_the_address_registers_it_proved_and_sends_no_code() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
 
     let response = sign_in(&api, &grant()).await;
@@ -297,7 +291,7 @@ async fn auth_075_with_email_off_a_provider_that_proves_the_address_registers_it
 
 #[tokio::test]
 async fn auth_075_a_sign_in_whose_provider_proves_the_account_s_address_proves_it() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", false));
     signed_in(&api).await;
     gives(&upstream, identity("subject-1", "ADA@example.com", true));
@@ -315,7 +309,7 @@ async fn auth_075_a_sign_in_whose_provider_proves_the_account_s_address_proves_i
 
 #[tokio::test]
 async fn auth_075_a_sign_in_whose_provider_proves_another_address_proves_nothing() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", false));
     signed_in(&api).await;
     gives(
@@ -330,7 +324,7 @@ async fn auth_075_a_sign_in_whose_provider_proves_another_address_proves_nothing
 
 #[tokio::test]
 async fn auth_076_an_address_that_an_account_holds_answers_409_and_writes_nothing() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     users::register(&api, "ada@example.com").await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
 
@@ -348,7 +342,7 @@ async fn auth_076_an_address_that_an_account_holds_answers_409_and_writes_nothin
 
 #[tokio::test]
 async fn auth_076_a_provider_that_gives_no_address_answers_422() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     gives(&upstream, json!({ "sub": "s", "proved": false }));
     let response = sign_in(&api, &grant()).await;
     assert_eq!(response.status, 422);
@@ -370,7 +364,7 @@ async fn auth_076_a_provider_that_gives_no_address_answers_422() {
 
 #[tokio::test]
 async fn auth_077_the_exchange_sends_the_client_the_code_its_verifier_and_its_redirect_uri() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
 
     signed_in(&api).await;
@@ -410,7 +404,7 @@ async fn accounts(api: &Api) -> Vec<String> {
 
 #[tokio::test]
 async fn auth_077_invalid_grant_answers_401() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     upstream.set("POST", "/token", 400, json!({ "error": "invalid_grant" }));
 
     let response = sign_in(&api, &grant()).await;
@@ -421,7 +415,7 @@ async fn auth_077_invalid_grant_answers_401() {
 
 #[tokio::test]
 async fn auth_077_a_refusal_of_the_api_s_own_client_answers_503() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     upstream.set("POST", "/token", 401, json!({ "error": "invalid_client" }));
 
     let response = sign_in(&api, &grant()).await;
@@ -431,7 +425,7 @@ async fn auth_077_a_refusal_of_the_api_s_own_client_answers_503() {
 
 #[tokio::test]
 async fn auth_077_a_server_error_answers_503() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     upstream.set("POST", "/token", 500, json!({}));
 
     let response = sign_in(&api, &grant()).await;
@@ -441,7 +435,7 @@ async fn auth_077_a_server_error_answers_503() {
 
 #[tokio::test]
 async fn auth_077_an_identity_that_the_api_can_t_read_answers_503() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     upstream.set("POST", "/token", 200, json!({ "access_token": "t" }));
     upstream.set("GET", "/identity", 200, json!({ "unexpected": true }));
 
@@ -453,7 +447,7 @@ async fn auth_077_an_identity_that_the_api_can_t_read_answers_503() {
 
 #[tokio::test]
 async fn auth_077_an_identity_without_a_subject_answers_503() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     upstream.set("POST", "/token", 200, json!({ "access_token": "t" }));
     let nameless = json!({ "sub": "", "email": "ada@example.com" });
     upstream.set("GET", "/identity", 200, nameless);
@@ -466,7 +460,7 @@ async fn auth_077_an_identity_without_a_subject_answers_503() {
 
 #[tokio::test]
 async fn auth_077_a_provider_that_doesn_t_answer_answers_503_at_the_exchange_s_deadline() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     upstream.hang("POST", "/token");
     let clock = api.clock();
     let call = {
@@ -484,7 +478,7 @@ async fn auth_077_a_provider_that_doesn_t_answer_answers_503_at_the_exchange_s_d
 
 #[tokio::test]
 async fn auth_077_a_provider_whose_identity_doesn_t_come_answers_503_at_the_exchange_s_deadline() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     upstream.set("POST", "/token", 200, json!({ "access_token": "t" }));
     upstream.hang("GET", "/identity");
     let clock = api.clock();
@@ -510,7 +504,7 @@ async fn auth_077_a_provider_whose_identity_doesn_t_come_answers_503_at_the_exch
 
 #[tokio::test]
 async fn auth_100_sign_ins_that_wait_for_the_provider_hold_no_connection_of_the_pool() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     let ada = users::register(&api, "ada@example.com").await;
     upstream.hang("POST", "/token");
     // More sign-ins than the pool has connections, each of which waits for the provider.
@@ -555,7 +549,7 @@ async fn auth_100_an_unknown_provider_answers_404_and_an_unconfigured_one_503() 
 
 #[tokio::test]
 async fn auth_100_a_malformed_code_verifier_or_redirect_uri_answers_400_before_the_exchange() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     let malformed = json!({
         "provider": "stand_in",
         "code": "a code with spaces",
@@ -613,7 +607,7 @@ async fn auth_100_a_malformed_code_verifier_or_redirect_uri_answers_400_before_t
 
 #[tokio::test]
 async fn auth_100_a_code_of_2048_characters_and_verifiers_of_43_and_128_reach_the_exchange() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     upstream.set("POST", "/token", 400, json!({ "error": "invalid_grant" }));
 
     for (code, verifier) in [
@@ -642,7 +636,7 @@ fn refused_fields(response: &Response) -> Vec<String> {
 
 #[tokio::test]
 async fn auth_078_a_loopback_redirect_uri_listed_without_a_port_matches_any_port() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     let mut body = grant();
     body["redirect_uri"] = json!("http://127.0.0.1:51234/callback");
@@ -668,7 +662,7 @@ async fn auth_078_a_loopback_redirect_uri_listed_without_a_port_matches_any_port
 
 #[tokio::test]
 async fn auth_079_the_provider_s_token_reaches_no_row_and_no_answer() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", false));
 
     let response = sign_in(&api, &grant()).await;
@@ -709,7 +703,7 @@ async fn reauthenticate(api: &Api, user: &SignedIn, extra: Value) -> Response {
 
 #[tokio::test]
 async fn auth_080_the_caller_s_subject_reauthenticates_the_session() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     let ada = signed_in(&api).await;
     users::authenticated_ago(&api, &ada, 10).await;
@@ -733,7 +727,7 @@ async fn auth_080_the_caller_s_subject_reauthenticates_the_session() {
 
 #[tokio::test]
 async fn auth_101_another_subject_answers_403_records_it_and_changes_nothing() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     let ada = signed_in(&api).await;
     users::authenticated_ago(&api, &ada, 10).await;
@@ -760,7 +754,7 @@ async fn auth_101_another_subject_answers_403_records_it_and_changes_nothing() {
 
 #[tokio::test]
 async fn auth_080_an_account_with_an_app_needs_its_code_beside_the_provider_s() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     let ada = signed_in(&api).await;
     let app = second_factors::add_app(&api, &ada).await;
@@ -850,7 +844,7 @@ async fn auth_081_startup_refuses_a_redirect_uri_that_two_clients_list_or_match(
 
 #[tokio::test]
 async fn auth_081_the_capabilities_list_each_provider_that_the_deployment_configures() {
-    let (_upstream, api) = standing().await;
+    let (_upstream, api) = providers::standing().await;
 
     let capabilities = api.get("/v1/capabilities").send().await.json();
 
@@ -887,7 +881,7 @@ async fn sec_10_the_configured_client_s_test_origin_is_refused_outside_the_test_
 
 #[tokio::test]
 async fn auth_025_an_account_that_must_verify_re_authenticates_through_its_provider() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", false));
     let ada = signed_in(&api).await;
     let refused = api.get("/v1/users/me").bearer(&ada.access).send().await;
@@ -901,7 +895,7 @@ async fn auth_025_an_account_that_must_verify_re_authenticates_through_its_provi
 
 #[tokio::test]
 async fn auth_029_a_registration_through_a_provider_that_sends_a_code_counts_in_its_bucket() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     // A registration with a password counts once in the address's bucket of 3.
     users::register_unverified(&api, "ada@example.com").await;
     gives(&upstream, identity("subject-1", "ada@example.com", false));
@@ -917,7 +911,7 @@ async fn auth_029_a_registration_through_a_provider_that_sends_a_code_counts_in_
 
 #[tokio::test]
 async fn auth_099_a_linked_account_s_sign_ins_count_in_no_registration_bucket() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", false));
 
     for _ in 0..5 {
@@ -927,7 +921,7 @@ async fn auth_099_a_linked_account_s_sign_ins_count_in_no_registration_bucket() 
 
 #[tokio::test]
 async fn auth_046_a_provider_s_registration_and_sign_in_publish_session_created() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     let first = signed_in(&api).await;
     let second = signed_in(&api).await;
@@ -945,7 +939,7 @@ async fn auth_046_a_provider_s_registration_and_sign_in_publish_session_created(
 
 #[tokio::test]
 async fn auth_080_a_code_the_provider_refuses_answers_403_since_the_session_still_signs_in() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     let ada = signed_in(&api).await;
     upstream.set("POST", "/token", 400, json!({ "error": "invalid_grant" }));
@@ -958,7 +952,7 @@ async fn auth_080_a_code_the_provider_refuses_answers_403_since_the_session_stil
 
 #[tokio::test]
 async fn auth_101_an_account_without_an_identity_of_the_provider_answers_403() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     let ada = users::register(&api, "ada@example.com").await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
 
@@ -970,7 +964,7 @@ async fn auth_101_an_account_without_an_identity_of_the_provider_answers_403() {
 
 #[tokio::test]
 async fn auth_080_re_authenticating_counts_in_the_bucket_of_the_user_s_checks() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     let ada = signed_in(&api).await;
     gives(&upstream, identity("subject-2", "ada@example.com", true));
@@ -985,7 +979,7 @@ async fn auth_080_re_authenticating_counts_in_the_bucket_of_the_user_s_checks() 
 
 #[tokio::test]
 async fn auth_101_a_session_that_another_request_ended_meanwhile_answers_401() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     let ada = signed_in(&api).await;
     let db = api.database();
@@ -1028,7 +1022,7 @@ async fn auth_101_a_session_that_another_request_ended_meanwhile_answers_401() {
 
 #[tokio::test]
 async fn accounts_013_a_deletion_erases_the_user_s_provider_identities() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     let ada = signed_in(&api).await;
 
@@ -1056,7 +1050,7 @@ fn logged(text: &str) -> bool {
 
 #[tokio::test]
 async fn auth_100_the_log_of_a_refusal_names_its_status_and_rfc_6749_s_code_alone() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     upstream.set(
         "POST",
         "/token",
@@ -1119,7 +1113,7 @@ async fn auth_100_the_log_of_a_refusal_names_its_status_and_rfc_6749_s_code_alon
 
 #[tokio::test]
 async fn auth_079_the_provider_s_token_reaches_no_log() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     upstream.set(
         "POST",
         "/token",
@@ -1161,22 +1155,60 @@ async fn auth_079_a_token_that_doesn_t_lapse_is_deleted_whether_or_not_the_ident
     assert_eq!(deletions(&upstream), [bearer.clone(), bearer]);
 }
 
+/// The kind of error that a deletion of a token that failed is ignored as (ERR-11).
+const KEPT: &str = "provider_token_not_deleted";
+
 #[tokio::test]
 async fn auth_079_a_deletion_that_fails_is_logged_and_counted_and_refuses_nothing() {
-    let (upstream, api) = standing_with_both_clients().await;
+    let upstream = Upstream::start().await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     upstream.set("DELETE", "/token", 500, json!({}));
-    let before = kept_tokens_counted();
-
-    let response = sign_in(&api, &second_grant()).await;
-
-    assert_eq!(response.status, 201, "{}", response.json());
-    assert!(
-        kept_token_logged(&response, "answered 500"),
-        "ERR-11's line"
+    let (collector, database) = (
+        Collector::start().await.unwrap(),
+        TestDatabase::migrated().await,
     );
-    // Tests running alongside ignore errors too, so the count grows by at least this one.
-    assert!(kept_tokens_counted() >= before + 1.0, "ERR-11's count");
+    let options = both_clients(&upstream);
+    let endpoint = collector.endpoint();
+    let mut env = options.env();
+    env.extend([
+        ("ENVIRONMENT", "test"),
+        ("OTEL_EXPORTER_OTLP_ENDPOINT", &endpoint),
+    ]);
+    let mut server = database.serve(&env).await;
+    let grant = second_grant().to_string();
+
+    let (status, session) = server
+        .send(
+            "POST",
+            "/v1/sessions/provider",
+            &[("content-type", "application/json")],
+            grant.as_bytes(),
+        )
+        .await;
+    // The tests' environment writes its lines for people.
+    let line = server
+        .line(|line| {
+            line["text"]
+                .as_str()
+                .is_some_and(|text| text.contains(KEPT))
+        })
+        .await;
+    server.stop().await;
+
+    assert_eq!(status, 201, "{session}");
+    assert!(
+        line["text"].as_str().unwrap().contains("answered 500"),
+        "ERR-11's line: {line}"
+    );
+    let ignored = counts::of(
+        &collector.received(),
+        "platform.errors_ignored",
+        "error.type",
+    );
+    assert!(
+        ignored.contains(&format!("{KEPT} 1")),
+        "ERR-11's count: {ignored:?}"
+    );
 }
 
 #[tokio::test]
@@ -1206,8 +1238,48 @@ async fn auth_079_a_deletion_that_doesn_t_end_within_2_seconds_refuses_nothing()
 }
 
 #[tokio::test]
+async fn auth_080_a_malformed_second_factor_answers_400_at_its_field() {
+    let (upstream, api) = providers::standing().await;
+    gives(&upstream, identity("subject-1", "ada@example.com", true));
+    let ada = signed_in(&api).await;
+    // Six digits that the spaces before them take past 32 characters.
+    let long = format!("{}123456", " ".repeat(27));
+
+    for (factor, field) in [
+        (
+            json!({ "second_factor_code": "12345" }),
+            "/second_factor_code",
+        ),
+        (json!({ "second_factor_code": long }), "/second_factor_code"),
+        (
+            json!({ "second_factor_code": "123456", "recovery_code": "AAAA-AAAA-AAAA-AAAA-AAAA-AAAA" }),
+            "/second_factor_code",
+        ),
+        (json!({ "recovery_code": "AAAA" }), "/recovery_code"),
+    ] {
+        let mut body = grant();
+        body.as_object_mut()
+            .unwrap()
+            .extend(factor.as_object().unwrap().clone());
+        let refused = api
+            .post_raw(
+                "/v1/users/me/sessions/current/reauthenticate/provider",
+                &body,
+            )
+            .bearer(&ada.access)
+            .send()
+            .await;
+
+        assert_eq!(refused.status, 400, "{field}");
+        let errors = refused.json()["errors"].clone();
+        assert_eq!(errors[0]["field"], field, "{errors}");
+        assert_eq!(errors[0]["code"], "invalid_code", "{errors}");
+    }
+}
+
+#[tokio::test]
 async fn auth_080_a_wrong_second_factor_answers_403_and_a_recovery_code_proves_it() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     let ada = signed_in(&api).await;
     let app = second_factors::add_app(&api, &ada).await;
@@ -1238,7 +1310,7 @@ async fn auth_080_a_wrong_second_factor_answers_403_and_a_recovery_code_proves_i
 
 #[tokio::test]
 async fn auth_073_a_device_token_of_the_account_s_email_ends_and_one_of_another_counts_as_none() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     let bob = api
         .post("/v1/users", &users::registration("bob@example.com"))
         .send()
@@ -1281,7 +1353,7 @@ async fn auth_073_a_device_token_of_the_account_s_email_ends_and_one_of_another_
 #[tokio::test]
 async fn auth_017_a_sign_in_through_a_provider_takes_a_device_id_of_1_to_64_letters_digits_underscores_and_hyphens()
  {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     let (longest, too_long) = ("x".repeat(64), "x".repeat(65));
     for device_id in ["a", "Laptop_2-b", longest.as_str()] {
@@ -1313,7 +1385,7 @@ async fn auth_017_a_sign_in_through_a_provider_takes_a_device_id_of_1_to_64_lett
 
 #[tokio::test]
 async fn auth_008_a_sign_in_through_a_provider_on_a_device_replaces_its_session() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     let mut body = grant();
     body["device_id"] = json!("laptop");
@@ -1354,7 +1426,7 @@ async fn auth_015_a_browser_s_sign_in_through_a_provider_takes_its_tokens_in_coo
 
 #[tokio::test]
 async fn auth_042_a_sign_in_through_a_provider_keeps_its_device_s_name_normalized() {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     let mut body = grant();
     body["device_name"] = json!("  Ada's \t laptop \n");
@@ -1414,7 +1486,7 @@ async fn auth_042_a_sign_in_through_a_provider_keeps_its_device_s_name_normalize
 #[tokio::test]
 async fn auth_058_a_sign_in_through_a_provider_to_an_account_with_an_app_answers_a_challenge_that_holds_its_provider()
  {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     let registered = sign_in(&api, &grant()).await;
     assert_eq!(registered.status, 201, "{}", registered.json());
@@ -1521,7 +1593,7 @@ async fn auth_058_a_browser_s_sign_in_through_a_provider_takes_the_challenge_in_
 #[tokio::test]
 async fn auth_027_a_registration_through_a_provider_that_proves_no_address_enqueues_the_job_of_the_first_code()
  {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", false));
     let off = api
         .instance(providers::stand_in(&upstream).set("EMAIL", "off"))
@@ -1548,7 +1620,7 @@ async fn auth_027_a_registration_through_a_provider_that_proves_no_address_enque
 #[tokio::test]
 async fn auth_026_a_sign_in_and_a_re_authentication_through_a_provider_say_whether_the_account_must_prove_its_address()
  {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", false));
     let registered = signed_in(&api).await;
 
@@ -1599,7 +1671,7 @@ async fn auth_026_a_sign_in_and_a_re_authentication_through_a_provider_say_wheth
 #[tokio::test]
 async fn auth_061_a_re_authentication_through_a_provider_that_carries_a_code_counts_in_the_user_s_bucket_of_checks_of_codes()
  {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     let ada = signed_in(&api).await;
     // The confirmation of the app's setup counts once in the bucket of 10.
@@ -1654,7 +1726,7 @@ fn exchanges(upstream: &Upstream) -> Vec<crate::support::upstream::Received> {
 #[tokio::test]
 async fn auth_077_a_re_authentication_exchanges_the_code_and_answers_a_provider_it_can_t_exchange_at_as_a_sign_in_does()
  {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     let ada = signed_in(&api).await;
     let before = exchanges(&upstream).len();
@@ -1700,7 +1772,7 @@ async fn auth_077_a_re_authentication_exchanges_the_code_and_answers_a_provider_
 #[tokio::test]
 async fn auth_100_a_re_authentication_refuses_a_malformed_body_before_the_exchange_and_answers_503_at_its_deadline()
  {
-    let (upstream, api) = standing().await;
+    let (upstream, api) = providers::standing().await;
     let bob = users::register(&api, "bob@example.com").await;
     let malformed = api
         .post_raw(

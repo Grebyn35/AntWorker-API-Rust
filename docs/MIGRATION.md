@@ -113,6 +113,9 @@ Built code that doesn't follow a rule or a behavior yet ([Changing a rule](stand
 
 | Rule or behavior | Built code that doesn't follow it | Closed by |
 |---|---|---|
+| TEST-07 | About 15 tests still assert a count that the test process shares as "at least one more", and name no reason: the `platform_105_` tests of the mail's sends, six `platform_067_` tests of the request metrics, and the tests of a count that a part of the template declares, each of which a test through `serve` and the tests' collector could count exactly. A comment in `platform`'s `telemetry/testing.rs` says that a test reads the points whose labels only it records, which those tests don't | 6.3, before the second pass of the review of the whole codebase |
+| ARCH-11, AUTH-024 | A deletion of an account reads its address, counts in that address's bucket, and then waits for the user's row: when the address changes while it waits, it deletes the account and has counted the address it read, where ARCH-11 says that a unit of work which finds its read stale counts again and reads again. No statement gives the outcome, and no test makes the race | 6.3, before the second pass of the review of the whole codebase |
+| ARCH-11 | A request reads its session, and whether its account must set up a second factor, once, as it is authenticated. A route that doesn't read its session again completes, and commits, when the session ended or the operator removed the account's authenticator app while the request waited for a lock: a rename of a workspace answered 200 so, and the caller's next request 401. Statements give the answer of the routes that read the session again, and of a foreign key's refusal (PLATFORM-097), and none gives this one | 6.3, before the second pass of the review of the whole codebase |
 
 ## Rule proposals
 

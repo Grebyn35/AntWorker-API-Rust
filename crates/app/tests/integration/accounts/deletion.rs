@@ -11,7 +11,6 @@ use platform::{
 
 use crate::support::{
     Api, Options, TestDatabase,
-    api::Response,
     api::one,
     events::{self, Event},
     execute_on, fixtures, mailbox, queries_wait_on_locks, query_waits_on_a_lock, streams,
@@ -24,14 +23,6 @@ use crate::support::files;
 // part: invitations
 use crate::support::invitations;
 // end part: invitations
-
-/// Deletes `user`'s account, through a session that has just proved their password.
-async fn delete(api: &Api, user: &SignedIn) -> Response {
-    api.request(http::Method::DELETE, "/v1/users/me")
-        .bearer(&user.access)
-        .send()
-        .await
-}
 
 /// Each column that references `users`, as `table.column`, with how many of its rows name `user`,
 /// for each that any does (DATA-23).
@@ -78,7 +69,7 @@ async fn accounts_012_a_deletion_is_refused_while_the_user_owns_a_workspace_with
     .await;
     workspaces::arrange(db, "Mine", &[(&ada.user_id, "owner")]).await;
 
-    let response = delete(&api, &ada).await;
+    let response = users::delete(&api, &ada).await;
 
     assert_eq!(response.status, 409);
     assert_eq!(response.json()["code"], "auth.owns_shared_workspace");
@@ -105,7 +96,7 @@ async fn accounts_012_a_workspace_whose_only_member_is_the_user_refuses_nothing(
     let ada = users::register(&api, "ada@example.com").await;
     let mine = workspaces::arrange(api.database(), "Mine", &[(&ada.user_id, "owner")]).await;
 
-    let response = delete(&api, &ada).await;
+    let response = users::delete(&api, &ada).await;
 
     assert_eq!(response.status, 204);
     assert_eq!(
@@ -141,7 +132,7 @@ async fn accounts_013_a_deletion_erases_the_user_s_codes_as_a_step_of_its_own() 
 
     let mut deletion = tokio::spawn({
         let api = api.clone();
-        async move { delete(&api, &ada).await }
+        async move { users::delete(&api, &ada).await }
     });
     tokio::select! {
         answered = &mut deletion => panic!(
@@ -208,7 +199,7 @@ async fn accounts_013_a_deletion_erases_the_account_and_the_workspaces_only_it_b
     let export = super::exports::built(&api, &ada).await;
     let mut stream = streams::opened(&api, &other_device).await;
 
-    let response = delete(&api, &ada).await;
+    let response = users::delete(&api, &ada).await;
     stream.closed().await;
     api.run_jobs().await;
 
@@ -324,7 +315,7 @@ async fn accounts_014_leaving_a_shared_workspace_records_and_publishes_member_le
     } = shared().await;
     let mut stream = streams::opened(&api, &bob).await;
 
-    let response = delete(&api, &ada).await;
+    let response = users::delete(&api, &ada).await;
     let left = stream.event().await;
 
     assert_eq!(response.status, 204);
@@ -353,7 +344,7 @@ async fn accounts_014_the_workspace_s_log_keeps_each_entry_without_the_user_s_id
         ..
     } = shared().await;
 
-    let response = delete(&api, &ada).await;
+    let response = users::delete(&api, &ada).await;
 
     assert_eq!(response.status, 204);
     let entries = api
@@ -418,11 +409,11 @@ async fn sec_19_member_left_reaches_the_members_and_no_replay_from_before_joinin
     // Every role holds members.read, which member.left requires: no member lacks it.
     let mut member = streams::opened(&api, &grace).await;
 
-    let first = delete(&api, &ada).await;
+    let first = users::delete(&api, &ada).await;
     workspaces::join(db, &acme, &alan.user_id, "member").await;
     let mut joined = streams::connect(&api, &alan.access, before.as_deref()).await;
     joined.opened().await;
-    let second = delete(&api, &bob).await;
+    let second = users::delete(&api, &bob).await;
     let after_joining = joined.event().await;
 
     assert_eq!(first.status, 204);
@@ -450,7 +441,7 @@ async fn accounts_015_with_email_on_the_address_hears_that_the_account_is_delete
     let address = mailbox::address("ada");
     let ada = users::register(&api, &address).await;
 
-    let response = delete(&api, &ada).await;
+    let response = users::delete(&api, &ada).await;
     let job = one(
         &api,
         "SELECT coalesce(user_id::text, '-') || ' ' || coalesce(workspace_id::text, '-') \
@@ -473,7 +464,7 @@ async fn accounts_015_with_email_off_nothing_is_sent() {
     let api = Api::without_email().await;
     let ada = users::register(&api, "ada@example.com").await;
 
-    let response = delete(&api, &ada).await;
+    let response = users::delete(&api, &ada).await;
 
     assert_eq!(response.status, 204);
     assert_eq!(one(&api, "SELECT count(*)::text FROM jobs").await, "0");
@@ -511,7 +502,7 @@ async fn accounts_016_a_membership_that_a_request_added_while_the_deletion_ran_r
         ))
         .await;
 
-    let (response, ()) = tokio::join!(delete(&api, &ada), async {
+    let (response, ()) = tokio::join!(users::delete(&api, &ada), async {
         queries_wait_on_locks(db, 1).await;
         execute_on(&mut held, "COMMIT").await;
     });
@@ -538,7 +529,7 @@ async fn accounts_016_a_row_that_another_request_holds_locked_refuses_the_deleti
 
     // The lock is held until the deletion has answered, so a deletion that waited for it would
     // never answer.
-    let response = delete(&api, &ada).await;
+    let response = users::delete(&api, &ada).await;
     execute_on(&mut held, "ROLLBACK").await;
 
     assert_eq!(response.status, 409);
@@ -560,7 +551,7 @@ async fn accounts_016_an_export_that_its_job_holds_refuses_the_deletion_at_once(
         ))
         .await;
 
-    let response = delete(&api, &ada).await;
+    let response = users::delete(&api, &ada).await;
     execute_on(&mut held, "ROLLBACK").await;
 
     assert_eq!(response.status, 409);
@@ -601,7 +592,7 @@ async fn accounts_016_a_running_export_job_that_holds_the_user_s_row_refuses_the
 
     // The lock is held until the deletion has answered, so a deletion that waited for it would
     // never answer.
-    let response = delete(&api, &ada).await;
+    let response = users::delete(&api, &ada).await;
     execute_on(&mut held, "ROLLBACK").await;
 
     assert_eq!(response.status, 409);
@@ -658,10 +649,10 @@ async fn accounts_019_a_deletion_that_waited_for_another_of_the_account_answers_
         ))
         .await;
 
-    let first = delete(&api, &ada);
+    let first = users::delete(&api, &ada);
     let second = async {
         queries_wait_on_locks(db, 1).await;
-        let second = delete(&api, &other_device);
+        let second = users::delete(&api, &other_device);
         let release = async {
             queries_wait_on_locks(db, 2).await;
             execute_on(&mut held, "ROLLBACK").await;
@@ -769,7 +760,7 @@ async fn accounts_017_the_user_s_own_files_go_and_their_uploads_to_a_shared_work
     files::arrange_avatar(db, &ada.user_id).await;
     let uploaded = files::arrange_uploaded(db, &workspace, "plan.txt", &ada.user_id).await;
 
-    let response = delete(&api, &ada).await;
+    let response = users::delete(&api, &ada).await;
 
     assert_eq!(response.status, 204);
     assert_eq!(
@@ -797,7 +788,7 @@ async fn files_001_a_file_whose_uploader_s_account_is_deleted_has_no_uploader() 
     } = shared().await;
     let file = files::arrange_uploaded(api.database(), &workspace, "plan.txt", &ada.user_id).await;
 
-    let deleted = delete(&api, &ada).await;
+    let deleted = users::delete(&api, &ada).await;
     let read = api
         .get(&format!("/v1/workspaces/{workspace}/files/{file}"))
         .bearer(&bob.access)
@@ -826,7 +817,7 @@ async fn accounts_018_the_invitations_the_user_sent_and_received_stay() {
     let received = invitations::invite(&api, &carol, &labs, "ada@example.com", "member").await;
     assert_eq!(received.status, 201);
 
-    let response = delete(&api, &ada).await;
+    let response = users::delete(&api, &ada).await;
 
     assert_eq!(response.status, 204);
     assert_eq!(
@@ -855,7 +846,7 @@ async fn invitations_004_an_invitation_whose_inviter_s_account_is_deleted_lists_
     let invited = invitations::invite(&api, &ada, &workspace, "dan@example.com", "member").await;
     assert_eq!(invited.status, 201);
 
-    let deleted = delete(&api, &ada).await;
+    let deleted = users::delete(&api, &ada).await;
     let listed = api
         .get("/v1/users/me/invitations")
         .bearer(&dan.access)
@@ -882,7 +873,7 @@ async fn invitations_011_an_invitation_whose_inviter_s_account_is_deleted_shows_
     let invited = invitations::invite(&api, &ada, &workspace, "dan@example.com", "member").await;
     let id = invited.json()["id"].as_str().unwrap().to_owned();
 
-    let deleted = delete(&api, &ada).await;
+    let deleted = users::delete(&api, &ada).await;
     let read = api
         .get(&format!("/v1/workspaces/{workspace}/invitations/{id}"))
         .bearer(&bob.access)

@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 use crate::support::{
     Api, Options, api,
     api::Response,
-    providers::{VERIFIER, kept_token_logged, kept_tokens_counted},
+    providers::{VERIFIER, kept_token_logged},
     upstream::Upstream,
 };
 
@@ -146,7 +146,6 @@ async fn auth_083_a_deletion_that_fails_refuses_nothing() {
         500,
         json!({}),
     );
-    let before = kept_tokens_counted();
 
     let response = sign_in(&api).await;
 
@@ -155,8 +154,6 @@ async fn auth_083_a_deletion_that_fails_refuses_nothing() {
         kept_token_logged(&response, "answered 500"),
         "ERR-11's line"
     );
-    // Tests running alongside ignore errors too, so the count grows by at least this one.
-    assert!(kept_tokens_counted() >= before + 1.0, "ERR-11's count");
 }
 
 // part: files

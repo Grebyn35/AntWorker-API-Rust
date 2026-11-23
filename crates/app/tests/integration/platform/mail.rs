@@ -572,6 +572,9 @@ async fn platform_105_a_send_that_takes_longer_than_its_30_seconds_counts_as_una
         failure.contains("the send took longer than its timeout"),
         "{failure}"
     );
+    // The send's 30 seconds run on the test's clock, which only a mail of the test's process
+    // reads, where tests running alongside send too, so the count grows by at least this one
+    // (TEST-07).
     let after = sends("unavailable");
     assert!(after >= unavailable + 1.0, "{after} after {unavailable}");
 }

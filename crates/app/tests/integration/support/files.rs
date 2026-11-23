@@ -1,9 +1,27 @@
 //! Builders of files, through the `owner` connection and the test's bucket (TEST-05, TEST-09).
 
 use bytes::Bytes;
-use platform::storage::ObjectKey;
+use platform::{storage::ObjectKey, telemetry::testing::collector::Collector};
 
-use super::{TestDatabase, bucket};
+use super::{Server, TestDatabase, bucket, scanner};
+
+/// Starts `serve` on `db`, as [`TestDatabase::serve`] does, with the test's bucket and the
+/// tests' scanner, in the tests' environment, which takes a bucket over plain HTTP
+/// (PLATFORM-076), exporting its telemetry to `collector`, and with `env` in place of any of
+/// those settings that it names.
+pub async fn serving(db: &TestDatabase, collector: &Collector, env: &[(&str, &str)]) -> Server {
+    let (bucket, endpoint) = (db.bucket().await, collector.endpoint());
+    let mut settings = vec![
+        ("ENVIRONMENT", "test"),
+        ("S3_ENDPOINT", bucket::ENDPOINT),
+        ("S3_BUCKET", &bucket),
+        ("S3_URI_STYLE", "path"),
+        ("CLAMD_ADDRESS", scanner::ADDRESS),
+        ("OTEL_EXPORTER_OTLP_ENDPOINT", &endpoint),
+    ];
+    settings.extend_from_slice(env);
+    db.serve(&settings).await
+}
 
 /// The bytes of every file a builder arranges: a text file's.
 pub const BYTES: &[u8] = b"hello";

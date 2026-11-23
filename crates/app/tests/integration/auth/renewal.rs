@@ -15,17 +15,6 @@ use crate::support::{
     users::{self, PASSWORD, SignedIn, WEB},
 };
 
-/// Re-authenticates `user`'s session with `password`.
-async fn reauthenticate(api: &Api, user: &SignedIn, password: &str) -> Response {
-    api.post(
-        "/v1/users/me/sessions/current/reauthenticate",
-        &json!({ "password": password }),
-    )
-    .bearer(&user.access)
-    .send()
-    .await
-}
-
 /// Changes `user`'s password from [`PASSWORD`] to `new`.
 async fn change_password(api: &Api, user: &SignedIn, new: &str) -> Response {
     api.post(
@@ -81,7 +70,7 @@ async fn auth_095_a_reauthentication_gives_the_session_new_tokens_as_a_refresh_d
         ))
         .await;
 
-    let response = reauthenticate(&api, &ada, PASSWORD).await;
+    let response = users::reauthenticate(&api, &ada, PASSWORD).await;
 
     let after = renewed(&api, &ada, &response).await;
     // The refresh expiry slides, but not past the absolute lifetime, which stays.
@@ -104,7 +93,7 @@ async fn auth_095_a_reauthentication_gives_the_session_new_tokens_as_a_refresh_d
 async fn auth_095_the_refresh_token_that_a_proof_replaced_ends_the_session_when_presented() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
-    let response = reauthenticate(&api, &ada, PASSWORD).await;
+    let response = users::reauthenticate(&api, &ada, PASSWORD).await;
     let after = renewed(&api, &ada, &response).await;
 
     let reused = refresh(&api, &ada.refresh).await;
@@ -241,7 +230,7 @@ async fn auth_095_a_proof_that_fails_leaves_the_session_its_tokens() {
                   || coalesce(encode(previous_refresh_token_hash, 'hex'), '-') FROM sessions";
     let before = reads(&api, hashes).await;
 
-    let wrong = reauthenticate(&api, &ada, "not-the-password-at-all").await;
+    let wrong = users::reauthenticate(&api, &ada, "not-the-password-at-all").await;
     let wrong_change = api
         .post(
             "/v1/users/me/password/change",

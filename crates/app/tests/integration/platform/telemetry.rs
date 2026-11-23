@@ -171,6 +171,8 @@ async fn platform_067_a_5xx_records_its_error_code_as_its_error_type() {
     let response = api.get("/v1/broken").send().await;
 
     assert_eq!(response.status, StatusCode::INTERNAL_SERVER_ERROR);
+    // The route is the tests' own, which only an API in the test's process serves, where tests
+    // running alongside may send it too, so the count grows by at least this one (TEST-07).
     assert!(requests(&durations(), &labels) > before);
 }
 
@@ -271,6 +273,9 @@ async fn platform_067_a_request_records_how_long_it_took() {
     gate.release.notify_one();
 
     assert_eq!(held.await.unwrap(), StatusCode::NO_CONTENT);
+    // The route is the tests' own, which only an API in the test's process serves, on the test's
+    // clock, where tests running alongside may send it too, so the seconds grow by at least
+    // these (TEST-07).
     let took = seconds(&durations(), &labels) - before;
     assert!(took >= 2.0, "{took}");
 }
@@ -856,16 +861,6 @@ fn sdk_metrics(received: &Received) -> BTreeMap<String, Vec<String>> {
     metrics
 }
 
-/// The `serve` of `database` that exports to `collector`.
-async fn exporting_to(database: &TestDatabase, collector: &Collector) -> Server {
-    database
-        .serve(&[
-            ("ENVIRONMENT", "production"),
-            ("OTEL_EXPORTER_OTLP_ENDPOINT", &collector.endpoint()),
-        ])
-        .await
-}
-
 /// Sends `server` `requests` requests for the capabilities, 16 at a time, so a queue fills
 /// before a held export's timeout lets its processor take another batch. Each ends at least two
 /// spans, its own and its rate limit's count, and writes a log record.
@@ -884,7 +879,7 @@ async fn platform_106_a_full_queue_of_spans_counts_what_it_drops_and_the_sdk_exp
     const REQUESTS: u16 = 2_000;
     let collector = Collector::holding_traces().await.unwrap();
     let database = TestDatabase::migrated().await;
-    let server = exporting_to(&database, &collector).await;
+    let server = database.exporting_to(&collector).await;
 
     flood(&server, REQUESTS).await;
     // The log records aren't held: the metrics that count their export were collected after
@@ -919,7 +914,7 @@ async fn platform_106_a_full_queue_of_log_records_counts_what_it_drops() {
     const REQUESTS: u16 = 4_000;
     let collector = Collector::holding_logs().await.unwrap();
     let database = TestDatabase::migrated().await;
-    let server = exporting_to(&database, &collector).await;
+    let server = database.exporting_to(&collector).await;
 
     flood(&server, REQUESTS).await;
     // The spans aren't held: the metrics that count their export were collected after the

@@ -100,7 +100,9 @@ async fn platform_100_bytes_that_fail_once_the_status_is_sent_are_written_and_co
         lines[0]["exception.message"],
         "the bucket stopped answering"
     );
-    // A test that runs alongside may count one too, so the count grows by at least this.
+    // No process of the test's own serves a download whose bytes fail once its status is sent,
+    // since no stand-in bucket of the tests' stops a body midway, and tests running alongside
+    // may count one too, so the count grows by at least this one (TEST-07).
     assert!(cut() >= before + 1.0);
 }
 

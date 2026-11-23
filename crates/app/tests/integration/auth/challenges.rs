@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 use crate::support::{
     Api, Options, Server, TestDatabase, answer_before_a_lock_wait,
     api::reads,
-    execute_on, hex, http_exchange, mailbox,
+    execute_on, hex, mailbox,
     second_factors::{add_app, challenge, code, code_at, complete, forget_steps, other_code},
     users::{self, PASSWORD, WEB},
 };
@@ -1013,28 +1013,12 @@ async fn auth_066_serve_refuses_a_ring_without_a_lasting_setup_s_version_and_not
     drop(started);
 }
 
-/// POSTs `body`, as JSON, to `path` on `server`, with `headers`, and returns the answer's head and
-/// its body as JSON.
-async fn send(
-    server: &Server,
-    path: &str,
-    headers: &[(&str, &str)],
-    body: &str,
-) -> (String, Value) {
-    let length = body.len().to_string();
+/// POSTs `body`, as JSON, to `path` on `server`, with `headers`, and returns the answer's status
+/// and its body as JSON.
+async fn send(server: &Server, path: &str, headers: &[(&str, &str)], body: &str) -> (u16, Value) {
     let mut headers = headers.to_vec();
-    headers.extend([
-        ("content-type", "application/json"),
-        ("content-length", &length),
-    ]);
-    let answer = http_exchange(server.address(), "POST", path, &headers, body)
-        .await
-        .unwrap();
-    let (head, body) = answer.split_once("\r\n\r\n").unwrap();
-    (
-        head.to_owned(),
-        serde_json::from_str(body).unwrap_or_default(),
-    )
+    headers.push(("content-type", "application/json"));
+    server.send("POST", path, &headers, body.as_bytes()).await
 }
 
 /// A `serve` on `database` that exports to `collector`, without email, so that an account is
@@ -1094,7 +1078,7 @@ async fn auth_061_a_confirmation_counts_its_code_before_its_unit_of_work_opens()
         })
         .await;
 
-    assert!(confirmed.starts_with("HTTP/1.1 200"), "{confirmed}");
+    assert_eq!(confirmed, 200);
     let (_, request) = received
         .spans()
         .into_iter()

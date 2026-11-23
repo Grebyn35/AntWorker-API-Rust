@@ -47,11 +47,6 @@ fn entry(user: &SignedIn, session: &SignedIn) -> String {
     format!("{} - session {}", user.user_id, session.session_id)
 }
 
-/// The IDs of the sessions that are left, in order.
-async fn sessions(api: &Api) -> Vec<String> {
-    reads(api, "SELECT id::text FROM sessions ORDER BY 1").await
-}
-
 #[tokio::test]
 async fn auth_094_the_subcommand_ends_every_session_of_the_account_that_holds_the_address() {
     let api = Api::new().await;
@@ -75,7 +70,7 @@ async fn auth_094_the_subcommand_ends_every_session_of_the_account_that_holds_th
         "ended every session of the account that holds the address: sessions 2",
         &[&address],
     );
-    assert_eq!(sessions(&api).await, [bob.session_id.as_str()]);
+    assert_eq!(users::sessions(&api).await, [bob.session_id.as_str()]);
     let mut expected = vec![entry(&ada, &ada), entry(&ada, &second)];
     expected.sort();
     assert_eq!(ended_entries(&api).await, expected);
@@ -138,7 +133,7 @@ async fn auth_094_with_all_the_subcommand_ends_every_session_of_every_account() 
         "ended every session of every account: sessions 3, accounts 2",
         &["example.com"],
     );
-    assert!(sessions(&api).await.is_empty());
+    assert!(users::sessions(&api).await.is_empty());
     let mut expected = before;
     expected.extend([entry(&ada, &ada), entry(&ada, &second), entry(&bob, &bob)]);
     expected.sort();
@@ -210,7 +205,7 @@ async fn auth_094_with_all_the_subcommand_ends_the_sessions_of_more_users_than_o
         "ended every session of every account: sessions 1001, accounts 1001",
         &["example.com"],
     );
-    assert!(sessions(&api).await.is_empty());
+    assert!(users::sessions(&api).await.is_empty());
     assert_eq!(
         reads(
             &api,
@@ -233,7 +228,7 @@ async fn auth_094_an_address_with_all_or_neither_changes_nothing_and_exits_2() {
     for output in [&neither, &both] {
         assert_eq!(output.status.code(), Some(2), "{}", printed(output));
     }
-    assert_eq!(sessions(&api).await, [ada.session_id.as_str()]);
+    assert_eq!(users::sessions(&api).await, [ada.session_id.as_str()]);
     assert!(ended_entries(&api).await.is_empty());
 }
 
@@ -311,7 +306,7 @@ async fn auth_094_an_account_that_changes_its_address_while_the_end_waits_keeps_
         "no account holds the address: nothing changed",
         &address,
     );
-    assert_eq!(sessions(&api).await, [ada.session_id.as_str()]);
+    assert_eq!(users::sessions(&api).await, [ada.session_id.as_str()]);
 }
 
 #[tokio::test]
@@ -333,7 +328,7 @@ async fn auth_094_with_all_the_end_of_a_user_s_sessions_waits_for_their_row() {
     });
     // The end takes the user's turn before it deletes a session of theirs.
     query_waits_on_a_lock(api.database(), "FOR NO KEY UPDATE").await;
-    assert_eq!(sessions(&api).await, [ada.session_id.as_str()]);
+    assert_eq!(users::sessions(&api).await, [ada.session_id.as_str()]);
     execute_on(&mut request, "COMMIT").await;
     let ending = ending.await.unwrap();
 
@@ -343,5 +338,5 @@ async fn auth_094_with_all_the_end_of_a_user_s_sessions_waits_for_their_row() {
         "ended every session of every account: sessions 1, accounts 1",
         &["example.com"],
     );
-    assert!(sessions(&api).await.is_empty());
+    assert!(users::sessions(&api).await.is_empty());
 }

@@ -2,15 +2,15 @@
 //! (ACCOUNTS-028 to ACCOUNTS-030, AUTH-092), from the hosts that the provider names (AUTH-097), through the tests'
 //! stand-in provider, which also serves the picture.
 
-use platform::telemetry::testing;
+use platform::telemetry::testing::{self, collector::Collector};
 use serde_json::{Value, json};
 
-use super::{objects, uploads};
+use super::{objects, uploads_counted};
 use crate::support::{
     Api,
     api::reads,
     api::{self, Options},
-    execute_on, files,
+    counts, execute_on, files,
     providers::{self, gives, grant, sign_in, signed_in},
     query_waits_on_a_lock,
     scanner::{self, Script},
@@ -90,6 +90,19 @@ fn fetches(upstream: &Upstream) -> usize {
 /// of work waits for the row, and the other change gives her an avatar before it commits. Gives
 /// Ada, and the link of the avatar that the other change gave her.
 async fn overtaken(upstream: &Upstream, api: &Api) -> (SignedIn, String) {
+    let (ada, avatar, runs) = overtaken_while(upstream, api, api.run_jobs()).await;
+    assert_eq!(runs, 1);
+    (ada, avatar)
+}
+
+/// Registers Ada through the stand-in, as [`overtaken`] does, and gives her, the link of the
+/// avatar that the other change gave her, and the output of `runs`, which runs the job that copies
+/// her picture once the other change holds her row.
+async fn overtaken_while<T>(
+    upstream: &Upstream,
+    api: &Api,
+    runs: impl Future<Output = T>,
+) -> (SignedIn, String, T) {
     let ada = registered(upstream, api).await;
     let db = api.database();
     let mut change = db
@@ -99,7 +112,7 @@ async fn overtaken(upstream: &Upstream, api: &Api) -> (SignedIn, String) {
         ))
         .await;
 
-    let ((), runs) = tokio::join!(
+    let ((), ran) = tokio::join!(
         async {
             query_waits_on_a_lock(db, "SELECT id FROM users WHERE id = $1 FOR UPDATE").await;
             execute_on(
@@ -114,25 +127,33 @@ async fn overtaken(upstream: &Upstream, api: &Api) -> (SignedIn, String) {
             .await;
             execute_on(&mut change, "COMMIT").await;
         },
-        api.run_jobs()
+        runs
     );
-    assert_eq!(runs, 1);
-    (ada, format!("/v1/public/avatars/{OTHER_AVATAR}"))
+    (ada, format!("/v1/public/avatars/{OTHER_AVATAR}"), ran)
+}
+
+/// Runs a `serve` of `api`'s database, with the settings of the stand-in at `upstream`, which
+/// exports to `collector`, until it has run every job that copies a picture, then stops it.
+async fn copied_by_serve(upstream: &Upstream, api: &Api, collector: &Collector) {
+    let options = providers::stand_in(upstream).set(HOSTS_SETTING, HOSTS);
+    let env = options.env();
+    let server = files::serving(api.database(), collector, &env).await;
+    while !copies(api).await.is_empty() {
+        tokio::task::yield_now().await;
+    }
+    server.stop().await;
 }
 
 /// The ID of the avatar that another change gives Ada while the job fetches her picture.
 const OTHER_AVATAR: &str = "018f0000-0000-7000-8000-000000000001";
 
-/// How many errors the API has ignored as a picture that wasn't copied, in every test that runs
-/// alongside (ERR-11).
-fn not_copied() -> f64 {
-    testing::recorded("platform.errors_ignored")
+/// How many lines the test's jobs, which run on its thread, wrote of an error ignored as a
+/// picture that wasn't copied (ERR-11): other tests log the same kind on threads of their own.
+fn not_copied() -> usize {
+    testing::logged_on_this_thread()
         .into_iter()
-        .filter(|point| {
-            point.labels.get("error.type").map(String::as_str) == Some("picture_not_copied")
-        })
-        .map(|point| point.value)
-        .sum()
+        .filter(|line| line["error.type"] == "picture_not_copied")
+        .count()
 }
 
 #[tokio::test]
@@ -238,17 +259,23 @@ async fn accounts_030_an_account_that_gets_an_avatar_while_its_picture_is_fetche
 #[tokio::test]
 async fn files_013_a_copy_of_a_provider_s_picture_counts_as_an_avatar_s_upload() {
     let (upstream, api) = standing(Options::default()).await;
-    let (stored, failed) = (uploads("stored"), uploads("failed"));
+    let (overtaken_upstream, overtaken_api) = standing(Options::default()).await;
+    let (copying, overtaking) = (
+        Collector::start().await.unwrap(),
+        Collector::start().await.unwrap(),
+    );
 
     registered(&upstream, &api).await;
-    api.run_jobs().await;
-    let copied = uploads("stored");
-    let (overtaken_upstream, overtaken_api) = standing(Options::default()).await;
-    overtaken(&overtaken_upstream, &overtaken_api).await;
+    copied_by_serve(&upstream, &api, &copying).await;
+    overtaken_while(
+        &overtaken_upstream,
+        &overtaken_api,
+        copied_by_serve(&overtaken_upstream, &overtaken_api, &overtaking),
+    )
+    .await;
 
-    // Tests running alongside upload too, so the counts grow by at least these.
-    assert!(copied >= stored + 1.0);
-    assert!(uploads("failed") >= failed + 1.0);
+    assert_eq!(uploads_counted(&copying), ["stored 1"]);
+    assert_eq!(uploads_counted(&overtaking), ["failed 1"]);
 }
 
 #[tokio::test]
@@ -290,13 +317,21 @@ async fn accounts_029_a_picture_that_is_no_avatar_leaves_the_account_without_one
         upstream.set_bytes("GET", PICTURE, status, bytes);
         pictured(&upstream, &upstream.url(PICTURE));
         let ada = signed_in(&api).await;
-        let ignored = not_copied();
+        let collector = Collector::start().await.unwrap();
 
-        api.run_jobs().await;
+        copied_by_serve(&upstream, &api, &collector).await;
 
         assert_eq!(avatar_url(&api, &ada).await, Value::Null, "{status}");
         assert!(copies(&api).await.is_empty(), "no retry and no dead letter");
-        assert!(not_copied() >= ignored + 1.0, "ERR-11's count");
+        let ignored = counts::of(
+            &collector.received(),
+            "platform.errors_ignored",
+            "error.type",
+        );
+        assert!(
+            ignored.contains(&"picture_not_copied 1".to_owned()),
+            "{status}: ERR-11's count: {ignored:?}"
+        );
     }
 }
 
@@ -341,7 +376,7 @@ async fn accounts_029_an_address_that_the_untrusted_client_refuses_is_never_fetc
 
         assert_eq!(avatar_url(&api, &ada).await, Value::Null, "{picture}");
         assert!(copies(&api).await.is_empty(), "no retry and no dead letter");
-        assert!(not_copied() >= ignored + 1.0, "ERR-11's count");
+        assert_eq!(not_copied(), ignored + 1, "ERR-11's line");
         assert!(
             upstream
                 .received()
@@ -374,7 +409,7 @@ async fn accounts_029_a_fetch_that_fails_is_tried_again_and_the_fifth_leaves_no_
 
     assert_eq!(retried, ["waiting 1 true"]);
     assert!(copies(&api).await.is_empty(), "no dead letter");
-    assert!(not_copied() >= ignored + 1.0, "ERR-11's count");
+    assert_eq!(not_copied(), ignored + 1, "ERR-11's line");
     assert_eq!(avatar_url(&api, &ada).await, Value::Null);
 }
 
@@ -402,7 +437,7 @@ async fn accounts_029_a_scanner_that_doesn_t_answer_is_tried_again_until_the_fif
 
     assert_eq!(retried, ["waiting 1"]);
     assert!(copies(&api).await.is_empty(), "no dead letter");
-    assert!(not_copied() >= ignored + 1.0, "ERR-11's count");
+    assert_eq!(not_copied(), ignored + 1, "ERR-11's line");
     assert_eq!(avatar_url(&api, &ada).await, Value::Null);
 }
 
@@ -430,7 +465,7 @@ async fn accounts_029_a_storage_that_doesn_t_answer_is_tried_again_until_the_fif
 
     assert_eq!(retried, ["waiting 1"]);
     assert!(copies(&api).await.is_empty(), "no dead letter");
-    assert!(not_copied() >= ignored + 1.0, "ERR-11's count");
+    assert_eq!(not_copied(), ignored + 1, "ERR-11's line");
     assert_eq!(avatar_url(&api, &ada).await, Value::Null);
 }
 

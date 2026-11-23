@@ -117,6 +117,30 @@ pub async fn with_provider_alone(db: &TestDatabase, email: &str, proved: bool) -
 }
 // end part: workspace_setup
 
+/// The IDs of the sessions that exist, in order.
+pub async fn sessions(api: &Api) -> Vec<String> {
+    super::api::reads(api, "SELECT id::text FROM sessions ORDER BY 1").await
+}
+
+/// Deletes `user`'s account.
+pub async fn delete(api: &Api, user: &SignedIn) -> Response {
+    api.request(http::Method::DELETE, "/v1/users/me")
+        .bearer(&user.access)
+        .send()
+        .await
+}
+
+/// Re-authenticates `user`'s session with `password`.
+pub async fn reauthenticate(api: &Api, user: &SignedIn, password: &str) -> Response {
+    api.post(
+        "/v1/users/me/sessions/current/reauthenticate",
+        &json!({ "password": password }),
+    )
+    .bearer(&user.access)
+    .send()
+    .await
+}
+
 /// Signs `email` in with `password`, and returns the response.
 pub async fn sign_in(api: &Api, email: &str, password: &str) -> Response {
     api.post(

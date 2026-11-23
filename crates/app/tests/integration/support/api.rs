@@ -90,6 +90,14 @@ impl Options {
     pub fn email_off() -> Self {
         Self::default().set("EMAIL", "off")
     }
+
+    /// The settings, as [`TestDatabase::serve`](super::TestDatabase::serve) takes them.
+    pub fn env(&self) -> Vec<(&str, &str)> {
+        self.settings
+            .iter()
+            .map(|(name, value)| (name.as_str(), value.as_str()))
+            .collect()
+    }
 }
 
 /// The settings of the tests' API: the defaults, but limits high enough that only the tests of

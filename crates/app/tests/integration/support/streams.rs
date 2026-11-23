@@ -252,6 +252,15 @@ impl Stream {
         frame
     }
 
+    /// The next `count` frames that aren't heartbeats, each as [`Stream::event`] reads it.
+    pub async fn events(&mut self, count: usize) -> Vec<Frame> {
+        let mut frames = Vec::new();
+        for _ in 0..count {
+            frames.push(self.event().await);
+        }
+        frames
+    }
+
     /// The next frame, which must be `stream.opened`. It skips no heartbeat, so a stream that
     /// sent one before its `stream.opened` fails here (REALTIME-001).
     pub async fn opened(&mut self) -> Frame {

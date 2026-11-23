@@ -14,20 +14,10 @@ use platform::{
 use tracing::{Instrument, instrument::WithSubscriber};
 
 use crate::support::{
-    Server, TestDatabase,
+    TestDatabase,
     events::{self, Event},
     execute_on, hex, query_waits_on_a_lock, users,
 };
-
-/// A `serve` on `database` that exports to `collector`.
-async fn serve(database: &TestDatabase, collector: &Collector) -> Server {
-    database
-        .serve(&[
-            ("ENVIRONMENT", "production"),
-            ("OTEL_EXPORTER_OTLP_ENDPOINT", &collector.endpoint()),
-        ])
-        .await
-}
 
 /// The spans among `received` whose parent is `parent`.
 fn children<'a>(received: &'a Received, parent: &Span) -> Vec<&'a Span> {
@@ -73,7 +63,7 @@ fn assert_a_client_s_of(span: &Span, database: &TestDatabase, parent: &Span) {
 async fn platform_104_a_request_s_unit_of_work_and_its_limits_counts_run_in_child_spans() {
     let collector = Collector::start().await.unwrap();
     let database = TestDatabase::migrated().await;
-    let server = serve(&database, &collector).await;
+    let server = database.exporting_to(&collector).await;
     let registered = server
         .post_in_trace(
             "/v1/users",
@@ -149,7 +139,7 @@ async fn platform_104_a_request_s_unit_of_work_and_its_limits_counts_run_in_chil
 async fn platform_104_a_job_s_run_has_child_spans_for_its_unit_of_work_and_its_outcome() {
     let collector = Collector::start().await.unwrap();
     let database = TestDatabase::migrated().await;
-    let _server = serve(&database, &collector).await;
+    let _server = database.exporting_to(&collector).await;
 
     // A sweep is due once `serve` starts: it deletes in a unit of work, and the scheduler then
     // records its next run, in a statement that commits by itself.
@@ -180,7 +170,7 @@ async fn platform_104_a_job_s_run_has_child_spans_for_its_unit_of_work_and_its_o
 async fn platform_104_a_transaction_outside_every_span_opens_no_span() {
     let collector = Collector::start().await.unwrap();
     let database = TestDatabase::migrated().await;
-    let _server = serve(&database, &collector).await;
+    let _server = database.exporting_to(&collector).await;
     let user = users::without_password(&database, "u@example.com").await;
 
     // Outside every span, the scheduler has claimed the sweeps, which are due once `serve`

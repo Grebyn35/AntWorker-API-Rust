@@ -28,6 +28,13 @@ pub fn stand_in(upstream: &Upstream) -> Options {
         .set("STAND_IN_REDIRECT_URIS", REDIRECT_URIS)
 }
 
+/// A stand-in provider, and an API that signs in through it.
+pub async fn standing() -> (Upstream, Api) {
+    let upstream = Upstream::start().await;
+    let api = Api::with(stand_in(&upstream)).await;
+    (upstream, api)
+}
+
 /// Makes the stand-in give a token for any code, and the claims `identity` for it.
 pub fn gives(upstream: &Upstream, identity: Value) {
     upstream.set(
@@ -75,17 +82,4 @@ pub fn kept_token_logged(response: &Response, cause: &str) -> bool {
                 .as_str()
                 .is_some_and(|message| message.contains(cause))
     })
-}
-
-/// How many deletions of a provider's token that failed the process has counted, as ignored
-/// errors, so far (ERR-11). Tests running alongside count them too, so a test compares the
-/// count after its request with the count before it, which grows by at least its own.
-pub fn kept_tokens_counted() -> f64 {
-    testing::recorded("platform.errors_ignored")
-        .into_iter()
-        .filter(|point| {
-            point.labels.get("error.type").map(String::as_str) == Some("provider_token_not_deleted")
-        })
-        .map(|point| point.value)
-        .sum()
 }
