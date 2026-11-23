@@ -17,7 +17,7 @@ The caller states the scope. Without one, ask the owner.
 3. Make CI pass: `just checks` before the pass starts, and the run of the pushed commit, which may end while the reviewers read. Reviewers skip what CI enforces, so it has to hold: a failure it reports is fixed before the pass is recorded.
 4. Fix the defects already known in the scope, so the reviewers see fixed code.
 5. List what reviewers don't report again: each row of "Known gaps" and of "Rule proposals" in `docs/MIGRATION.md`, with the findings it covers.
-6. For a scope that no one agent holds, such as the whole codebase's, set its areas: groups of its files, each file in one area, each of a size that one agent reads whole. Record them under "Conformance reviews" in `docs/MIGRATION.md`, each with its files. The README's "When the review stops" then applies to each area by itself.
+6. For a scope that no one agent holds, such as the whole codebase's, set its areas: groups of its files, each file in one area, each of a size that one agent reads whole. Record them under "Conformance reviews" in `docs/MIGRATION.md`, each with its files, and check with a script over the tracked files that each file of the scope is in one area: the groups by which the first pass of the whole codebase was read left out the rules and the specs, which only the reviewer that reads rule by rule had read. The README's "When the review stops" then applies to each area by itself.
 
 ## Each pass
 
