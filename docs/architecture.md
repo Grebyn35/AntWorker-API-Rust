@@ -304,7 +304,7 @@ sequenceDiagram
 2. **Platform middleware**, outermost first. The security headers wrap every response that the router answers (SEC-12). The health probes are answered inside them, before the rest of the stack (OPS-05):
    - the security headers
    - trace context: the request's server span, and the trace-ID response header (D10)
-   - the request log: one line when the request completes, and the error line of a 5xx (OBS-03, ERR-10)
+   - the request log: one line when the request completes, or as it ends before any response, and the error line of a 5xx (OBS-03, ERR-10)
    - panic catching (ERR-12)
    - the client: its IP, from the trusted proxies' header, and its user agent (PLATFORM-053)
    - CORS for the listed web origins (D61)

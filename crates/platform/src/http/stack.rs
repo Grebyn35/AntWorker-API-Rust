@@ -16,7 +16,6 @@ use axum::{
 use http_body_util::Limited;
 use opentelemetry::propagation::{Extractor, TextMapPropagator};
 use opentelemetry_sdk::propagation::TraceContextPropagator;
-use opentelemetry_semantic_conventions::metric as otel;
 use tower::{
     BoxError, ServiceBuilder, limit::GlobalConcurrencyLimitLayer, load_shed::LoadShedLayer,
     timeout::TimeoutLayer,
@@ -29,6 +28,7 @@ use super::{
     browsers::{Origins, cors, cross_site},
     caller::caller_gone,
     client::{TrustedProxies, client},
+    completion::Completion,
     docs::QueryNames,
     limits::{IpLimit, ip_limit},
     query::parameter_pointer,
@@ -45,11 +45,7 @@ use crate::{
     clock::SharedClock,
     db::ACQUIRE_TIMEOUT,
     errors::{self, ErrorCode, ErrorReport, FieldError, Internal, Problem, RequestError},
-    telemetry::{
-        self,
-        metrics::Histogram,
-        names::{self, convention},
-    },
+    telemetry::{self, names},
 };
 
 /// How long a request of the `public`, `user` and `workspace` groups may run: twice the five
@@ -91,26 +87,6 @@ pub(crate) const UPLOAD_TIMEOUT: Duration = LONGEST_TIMEOUT;
 /// The method of a request whose method HTTP's specifications don't define, and the error type
 /// of a 5xx whose error the request log doesn't know (PLATFORM-067).
 const OTHER: &str = "_OTHER";
-
-static REQUEST_DURATION: Histogram<4> = Histogram::new(
-    convention(
-        "http.server.request.duration",
-        otel::HTTP_SERVER_REQUEST_DURATION,
-    ),
-    "s",
-    "How long each request took, from the request log's start to its response, health probes \
-     aside.",
-    [
-        names::HTTP_REQUEST_METHOD,
-        names::HTTP_ROUTE,
-        names::HTTP_RESPONSE_STATUS_CODE,
-        names::ERROR_TYPE,
-    ],
-    // The boundaries the conventions advise for this metric.
-    &[
-        0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5, 5.0, 7.5, 10.0,
-    ],
-);
 
 /// The `Content-Security-Policy` of a response that sets none of its own: what a browser shows of
 /// it loads nothing, sets no base address, and no page may frame it (SEC-12).
@@ -330,14 +306,14 @@ struct PanicLogged;
 /// with its cause chain, unless the 5xx answers a panic, or says that the deployment turned the
 /// route's feature off, which is no failure (PLATFORM-044, OPS-04). It records the request's
 /// duration, and gives a 5xx's error code to the metric and the request's span as `error.type`
-/// (PLATFORM-067).
+/// (PLATFORM-067). A request that ends before any response gets its line and its duration from
+/// [`Completion`].
 async fn log(State(clock): State<SharedClock>, request: Request, next: Next) -> Response {
-    let start = clock.now();
-    let method = method_name(request.method());
     let route = request
         .extensions()
         .get::<MatchedPath>()
         .map(|route| route.as_str().to_owned());
+    let completion = Completion::start(clock, method_name(request.method()), route);
     let mut response = next.run(request).await;
     let status = response.status();
     let panicked = response.extensions_mut().remove::<PanicLogged>().is_some();
@@ -356,23 +332,7 @@ async fn log(State(clock): State<SharedClock>, request: Request, next: Next) -> 
             );
         }
     }
-    let duration = clock.now().duration_since(start).as_secs_f64();
-    tracing::info!(
-        { names::HTTP_REQUEST_METHOD } = method,
-        { names::HTTP_ROUTE } = route,
-        { names::HTTP_RESPONSE_STATUS_CODE } = status.as_u16(),
-        { names::REQUEST_DURATION } = duration,
-        "request completed"
-    );
-    REQUEST_DURATION.observe(
-        duration,
-        [
-            method.into(),
-            route.into(),
-            i64::from(status.as_u16()).into(),
-            error_type.into(),
-        ],
-    );
+    completion.write(status, error_type);
     response
 }
 

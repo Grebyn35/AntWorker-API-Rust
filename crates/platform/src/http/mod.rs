@@ -8,6 +8,7 @@ mod body;
 mod browsers;
 mod caller;
 mod client;
+mod completion;
 mod docs;
 mod download;
 // part: files

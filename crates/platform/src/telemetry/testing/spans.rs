@@ -7,7 +7,7 @@
 use std::sync::{Arc, Mutex, PoisonError};
 
 use opentelemetry::trace::Status;
-use opentelemetry_sdk::trace::{InMemorySpanExporter, SdkTracerProvider};
+use opentelemetry_sdk::trace::{InMemorySpanExporter, SdkTracerProvider, SpanData};
 use tracing::{
     Dispatch, Subscriber,
     span::{Attributes, Id},
@@ -89,18 +89,36 @@ impl EndedSpans {
     /// The status of each span named `name` that has ended, in the order they ended: `error`,
     /// `ok` or `unset`.
     pub fn statuses(&self, name: &str) -> Vec<&'static str> {
-        let ended = self.exporter.get_finished_spans().unwrap_or_else(|error| {
-            crate::errors::ignore(&error, "test_spans_not_read");
-            Vec::new()
-        });
-        ended
+        self.ended(name)
             .iter()
-            .filter(|span| span.name == name)
             .map(|span| match span.status {
                 Status::Error { .. } => "error",
                 Status::Ok => "ok",
                 Status::Unset => "unset",
             })
             .collect()
+    }
+
+    /// The attribute `key` of each span named `name` that has ended, in the order they ended, as
+    /// text, or `None` for a span without it.
+    pub fn attributes(&self, name: &str, key: &str) -> Vec<Option<String>> {
+        self.ended(name)
+            .iter()
+            .map(|span| {
+                span.attributes
+                    .iter()
+                    .find(|attribute| attribute.key.as_str() == key)
+                    .map(|attribute| attribute.value.to_string())
+            })
+            .collect()
+    }
+
+    /// Each span named `name` that has ended, in the order they ended.
+    fn ended(&self, name: &str) -> Vec<SpanData> {
+        let ended = self.exporter.get_finished_spans().unwrap_or_else(|error| {
+            crate::errors::ignore(&error, "test_spans_not_read");
+            Vec::new()
+        });
+        ended.into_iter().filter(|span| span.name == name).collect()
     }
 }

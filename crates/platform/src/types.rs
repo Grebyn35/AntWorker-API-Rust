@@ -196,7 +196,8 @@ fn uuid_schema() -> RefOr<Schema> {
 pub struct Timestamp(time::OffsetDateTime);
 
 impl Timestamp {
-    /// The moment `at`, as the database returned it.
+    /// The moment `at`, which a row holds, or which the code computes from a row's, such as the
+    /// start of an authenticator app's last used time step (DATA-03).
     pub fn from_database(at: time::OffsetDateTime) -> Self {
         Self(at)
     }

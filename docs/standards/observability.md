@@ -19,7 +19,7 @@ Every JSON log line carries its time, `timestamp`, in UTC, and `service.name`, `
 |---|---|
 | `ERROR` | A human must look: a 5xx other than a disabled feature's (OPS-04) or a health probe's (OPS-05), a job that failed its last attempt, a startup failure |
 | `WARN` | Degraded but handled: an ignored error (ERR-11), a job attempt that will be retried |
-| `INFO` | Lifecycle events, plus exactly one completion line per request (method, route, status, duration), but for the health probes (OBS-15) and a request that the HTTP server refuses itself (PLATFORM-099) |
+| `INFO` | Lifecycle events, plus exactly one completion line per request (method, route, status, duration), with `error.type` in place of the status for one that ends before any response (PLATFORM-044), but for the health probes (OBS-15) and a request that the HTTP server refuses itself (PLATFORM-099) |
 | `DEBUG` | Diagnostics, off in production |
 
 Module code writes events only at `DEBUG`. Every `INFO`, `WARN` and `ERROR` event comes from `platform` or the binary's `main.rs`. A business event that matters is an audit entry (DATA-22), not a log line.

@@ -610,4 +610,50 @@ mod tests {
             assert_eq!(read, contents, "{passing}");
         }
     }
+
+    #[test]
+    fn platform_083_a_local_header_gives_both_sizes_in_zip64_s_field_when_one_passes() {
+        let limits = Limits {
+            field: 100,
+            count: Limits::FORMAT.count,
+        };
+        // 300 bytes that deflate to far fewer, and 98 distinct bytes, which deflate to more: each
+        // passes the field by one of its sizes alone.
+        let repeated = vec![b'a'; 300];
+        let scattered: Vec<u8> = (0..98_u32)
+            .map(|index| u8::try_from(index * 37 % 251).unwrap())
+            .collect();
+        for (passing, content) in [("its size", repeated), ("its stored size", scattered)] {
+            let (entry, stored) = entry("0", &content, true);
+            assert_ne!(
+                entry.size >= limits.field,
+                entry.stored_size >= limits.field,
+                "{passing}"
+            );
+
+            let layout = Layout::with_limits(vec![entry.clone()], at(), limits);
+            let archive = bytes(&layout, &[stored], 0..layout.size());
+
+            let u16_at = |at: usize| u16::from_le_bytes([archive[at], archive[at + 1]]);
+            let u32_at = |at: usize| u32::from_le_bytes(archive[at..at + 4].try_into().unwrap());
+            let u64_at = |at: usize| u64::from_le_bytes(archive[at..at + 8].try_into().unwrap());
+            assert_eq!(u16_at(4), VERSION_ZIP64, "{passing}");
+            assert_eq!(
+                (u32_at(18), u32_at(22)),
+                (0xFFFF_FFFF, 0xFFFF_FFFF),
+                "{passing}"
+            );
+            assert_eq!(u16_at(28), 20, "{passing}");
+            // The name, one byte, then the extra field: its ID, its length, the size and the
+            // stored size.
+            assert_eq!((u16_at(31), u16_at(33)), (ZIP64_EXTRA, 16), "{passing}");
+            assert_eq!(
+                (u64_at(35), u64_at(43)),
+                (entry.size, entry.stored_size),
+                "{passing}"
+            );
+            let read = read_back(archive);
+            assert_eq!(read[0].1, content, "{passing}");
+        }
+    }
 }

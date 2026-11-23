@@ -168,6 +168,8 @@ To find the slow requests of a time range instead, the API requests dashboard li
 
 The health probes don't count, since they aren't measured (OBS-15), nor the requests that the proxy answers while no replica can (OPS-05), nor, in the rules that measure the objectives, the first request of each series of the requests' durations, as the comment at the head of [rules.yaml](../../deploy/observability/prometheus/rules.yaml) says: the objectives count the API's own measurements, and `ApiTelemetryMissing` pages once no instance has exported metrics for five minutes. The latency objective is one number in four places: the collector's latency policy, the rules that count slow requests, the dashboard's list of slow traces, and the line its slowest requests' panel draws. `check-telemetry-config` fails while they differ, and `just load-test` reads it from the collector's policy.
 
+A request that ends before any response, such as one whose client closed the connection, is measured with no status (PLATFORM-067): the availability objective counts it as a request without a 5xx, and the latency objective as one within it or beyond it by how long it ran.
+
 ## Alerts
 
 Each objective has two alerts that fire on how fast the errors spend its budget (OBS-14). The fast alert pages when an hour's errors would spend 2% of a 30-day budget, or 6 hours' errors 5% of it. The slow alert opens a ticket when a day's errors would spend 10% of it, or 3 days' errors 10% of it at a steady rate. The other alerts name a cause, of the kinds that OBS-14 lists, each with its runbook in [runbooks.md](runbooks.md); those of the backups are in [backups.md](backups.md#alerts).

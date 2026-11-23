@@ -472,6 +472,35 @@ async fn auth_006_an_email_allows_its_attempts_from_every_address_together_count
 }
 
 #[tokio::test]
+async fn auth_006_by_default_an_email_allows_5_attempts_from_an_address_and_50_from_all_together() {
+    // An empty setting counts as unset (OPS-01), so each API reads the default of one of the two
+    // limits, which the test support otherwise raises.
+    let address = Api::with(Options::default().set("SIGN_IN_ATTEMPTS", "")).await;
+    let every = Api::with(Options::default().set("SIGN_IN_EMAIL_ATTEMPTS", "")).await;
+
+    let from_address = sign_in_from(&address, "192.0.2.1:50000", "nobody@example.com").await;
+    let from_every = sign_in_from(&every, "192.0.2.1:50000", "nobody@example.com").await;
+
+    // Each answer names the bucket with the fewest attempts left (PLATFORM-056).
+    assert_eq!(from_address.status, 401);
+    assert!(
+        from_address
+            .header("ratelimit-policy")
+            .starts_with("\"sign_in\";q=5;w=900"),
+        "{}",
+        from_address.header("ratelimit-policy")
+    );
+    assert_eq!(from_every.status, 401);
+    assert!(
+        from_every
+            .header("ratelimit-policy")
+            .starts_with("\"sign_in_email\";q=50;w=900"),
+        "{}",
+        from_every.header("ratelimit-policy")
+    );
+}
+
+#[tokio::test]
 async fn auth_006_an_existing_email_s_attempts_count_too_in_a_window_that_is_a_setting() {
     let options = Options::default()
         .set("SIGN_IN_ATTEMPTS", 2)

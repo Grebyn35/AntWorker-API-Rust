@@ -1,10 +1,10 @@
 //! The request pipeline, through the API's routes and a few fixture routes registered the way
 //! a module registers its own.
 
-use std::{io, sync::Arc, time::Duration};
+use std::{collections::BTreeMap, io, net::SocketAddr, sync::Arc, time::Duration};
 
 use http::{Method, StatusCode};
-use platform::telemetry::testing;
+use platform::telemetry::testing::{self, Point, spans::EndedSpans};
 use serde_json::{Value, json};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -720,6 +720,106 @@ async fn platform_044_a_503_of_a_feature_turned_off_writes_no_error_line() {
     let levels: Vec<&Value> = lines.iter().map(|line| &line["level"]).collect();
     assert_eq!(levels, ["INFO"], "{lines:#?}");
     assert_eq!(lines[0]["http.response.status_code"], 503);
+}
+
+/// Sends `method` to `/v1/gate` of the API at `address`, which holds the request in `gate`, then
+/// closes the client's side of the connection, and returns what the client read before the
+/// server closed the other side. The server closes it in the step that drops the request's work,
+/// on the test's runtime, which runs the server's tasks.
+async fn closed_while_waiting(address: SocketAddr, gate: &Gate, method: &str) -> Vec<u8> {
+    let entered = gate.entered.notified();
+    let mut client = TcpStream::connect(address).await.unwrap();
+    client
+        .write_all(format!("{method} /v1/gate HTTP/1.1\r\nHost: api\r\n\r\n").as_bytes())
+        .await
+        .unwrap();
+    entered.await;
+    client.shutdown().await.unwrap();
+    let mut received = Vec::new();
+    client.read_to_end(&mut received).await.unwrap();
+    received
+}
+
+#[tokio::test]
+async fn platform_044_a_request_that_ends_before_any_response_writes_its_line_without_a_status() {
+    let gate = Arc::new(Gate::default());
+    let (_database, address) = api::served(Options::routes(fixtures::routes(gate.clone()))).await;
+
+    let received = closed_while_waiting(address, &gate, "GET").await;
+
+    assert!(
+        received.is_empty(),
+        "{}",
+        String::from_utf8_lossy(&received)
+    );
+    // The lines of the test's runtime, which runs the server's tasks.
+    let lines: Vec<Value> = testing::logged_on_this_thread()
+        .into_iter()
+        .filter(|line| line["http.route"] == "/v1/gate")
+        .collect();
+    assert_eq!(lines.len(), 1, "{lines:#?}");
+    let line = &lines[0];
+    assert_eq!(line["level"], "INFO");
+    assert_eq!(line["message"], "request completed");
+    assert_eq!(line["http.request.method"], "GET");
+    assert_eq!(line["error.type"], "ended_before_response");
+    assert!(line.get("http.response.status_code").is_none(), "{line}");
+    assert!(line["request.duration"].as_f64().is_some(), "{line}");
+    assert!(line.get("trace_id").is_some(), "{line}");
+}
+
+#[tokio::test]
+async fn platform_067_a_request_that_ends_before_any_response_records_its_duration_without_a_status()
+ {
+    let gate = Arc::new(Gate::default());
+    let (_database, address) = api::served(Options::routes(fixtures::routes(gate.clone()))).await;
+
+    let received = closed_while_waiting(address, &gate, "HEAD").await;
+
+    assert!(
+        received.is_empty(),
+        "{}",
+        String::from_utf8_lossy(&received)
+    );
+    // No other test sends `HEAD` to the gate, so its points are this test's alone (TEST-07).
+    let points: Vec<Point> = testing::recorded("http.server.request.duration")
+        .into_iter()
+        .filter(|point| {
+            point.labels.get("http.route").map(String::as_str) == Some("/v1/gate")
+                && point.labels.get("http.request.method").map(String::as_str) == Some("HEAD")
+        })
+        .collect();
+    let labels: BTreeMap<String, String> = [
+        ("error.type", "ended_before_response"),
+        ("http.request.method", "HEAD"),
+        ("http.route", "/v1/gate"),
+    ]
+    .into_iter()
+    .map(|(name, value)| (name.to_owned(), value.to_owned()))
+    .collect();
+    assert_eq!(points.len(), 1, "{points:#?}");
+    assert_eq!(points[0].labels, labels);
+    assert_eq!(points[0].count, Some(1));
+}
+
+#[tokio::test]
+async fn platform_067_a_request_that_ends_before_any_response_gives_its_span_the_error_type_alone()
+{
+    let spans = EndedSpans::default();
+    let gate = Arc::new(Gate::default());
+    let (_database, address) = api::served(Options::routes(fixtures::routes(gate.clone()))).await;
+    // The spans that the test's runtime opens from here on, the server's tasks' among them.
+    let _spans = tracing::dispatcher::set_default(&spans.dispatch());
+
+    closed_while_waiting(address, &gate, "GET").await;
+
+    let name = "GET /v1/gate";
+    assert_eq!(
+        spans.attributes(name, "error.type"),
+        [Some("ended_before_response".to_owned())]
+    );
+    assert_eq!(spans.attributes(name, "http.response.status_code"), [None]);
+    assert_eq!(spans.statuses(name), ["unset"]);
 }
 
 #[tokio::test]

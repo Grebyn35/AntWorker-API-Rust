@@ -77,8 +77,13 @@ mod tests {
     }
 
     #[test]
-    fn sec_03_a_key_has_at_least_32_bytes() {
+    fn ops_01_an_hmac_key_has_at_least_32_bytes() {
         assert!(HmacKey::new(&[1; 31]).is_err());
+        assert!(HmacKey::new(&[1; 32]).is_ok());
+    }
+
+    #[test]
+    fn sec_01_an_hmac_key_never_prints_its_bytes() {
         assert!(!format!("{:?}", HmacKey::new(&[1; 32]).unwrap()).contains('1'));
     }
 }
