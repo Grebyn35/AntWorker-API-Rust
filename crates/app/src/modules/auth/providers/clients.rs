@@ -18,19 +18,27 @@ pub(in crate::modules::auth) struct Client {
 
 /// Whether `uri` is the redirect URI `listed`, compared as a string, but for a listed loopback
 /// one without a port, `http://127.0.0.1/<path>` or `http://[::1]/<path>`, which matches the
-/// same URI with any port, as RFC 8252 asks (AUTH-078).
+/// same string with any port after its host, as RFC 8252 asks (AUTH-078).
 pub(super) fn matches(listed: &str, uri: &str) -> bool {
     if listed == uri {
         return true;
     }
-    let (Ok(parsed), Ok(mut uri)) = (url::Url::parse(listed), url::Url::parse(uri)) else {
-        return false;
-    };
-    let any_port = parsed.scheme() == "http" && is_loopback_ip(parsed.host()) && !has_port(listed);
-    if !any_port || uri.port_or_known_default().is_none() || uri.set_port(None).is_err() {
-        return false;
-    }
-    parsed == uri
+    ["http://127.0.0.1", "http://[::1]"]
+        .into_iter()
+        .any(|host| {
+            let Some(path) = listed
+                .strip_prefix(host)
+                .filter(|path| path.starts_with('/'))
+            else {
+                return false;
+            };
+            uri.strip_prefix(host)
+                .and_then(|rest| rest.strip_prefix(':'))
+                .and_then(|rest| rest.strip_suffix(path))
+                .is_some_and(|port| {
+                    port.bytes().all(|byte| byte.is_ascii_digit()) && port.parse::<u16>().is_ok()
+                })
+        })
 }
 
 /// Whether two listed redirect URIs name one URI that a request may give: they are the same, or
@@ -43,17 +51,6 @@ pub(super) fn overlap(first: &str, second: &str) -> bool {
 fn is_loopback_ip(host: Option<url::Host<&str>>) -> bool {
     matches!(host, Some(url::Host::Ipv4(address)) if address == std::net::Ipv4Addr::LOCALHOST)
         || matches!(host, Some(url::Host::Ipv6(address)) if address == std::net::Ipv6Addr::LOCALHOST)
-}
-
-/// Whether the URI `uri`, as written, names a port, which parsing drops when it is the scheme's
-/// default, such as `:80` for `http`.
-fn has_port(uri: &str) -> bool {
-    let authority = uri
-        .split_once("://")
-        .map_or("", |(_, rest)| rest.split(['/', '?']).next().unwrap_or(""));
-    authority
-        .rsplit_once(':')
-        .is_some_and(|(host, port)| !host.ends_with(':') && !port.is_empty() && !port.contains(']'))
 }
 
 /// A client of a provider from the settings `<prefix>CLIENT_ID`, `<prefix>CLIENT_SECRET` and
@@ -150,6 +147,36 @@ mod tests {
         assert!(matches(
             "https://app.example.com/callback",
             "https://app.example.com/callback"
+        ));
+    }
+
+    #[test]
+    fn auth_078_a_loopback_redirect_uri_with_a_port_is_compared_as_a_string_but_for_the_port() {
+        let others = [
+            (
+                "http://127.0.0.1/callback",
+                "http://127.0.0.1:5000/a/../callback",
+            ),
+            (
+                "http://127.0.0.1/callback",
+                "HTTP://127.0.0.1:5000/callback",
+            ),
+            ("http://127.0.0.1/callback", "http://0x7f.1:5000/callback"),
+            (
+                "http://[::1]/callback",
+                "http://[0:0:0:0:0:0:0:1]:5000/callback",
+            ),
+        ];
+
+        let matched: Vec<_> = others
+            .into_iter()
+            .filter(|(listed, uri)| matches(listed, uri))
+            .collect();
+
+        assert!(matched.is_empty(), "{matched:?}");
+        assert!(matches(
+            "http://127.0.0.1/callback",
+            "http://127.0.0.1:5000/callback"
         ));
     }
 

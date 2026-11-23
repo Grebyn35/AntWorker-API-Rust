@@ -42,6 +42,22 @@ pub(crate) async fn record<D: Serialize>(
     }
 }
 
+/// Records `entry` as [`record`] does, but for an entry that the log's foreign key refuses,
+/// since the log's user or workspace went while the change ran, which it records nowhere, and
+/// returns whether the log was there to hold it. A unit of work whose log was gone can't go on:
+/// the caller drops it, and answers as for an account that no one holds (AUTH-005, AUTH-038).
+pub(crate) async fn record_unless_log_gone<D: Serialize>(
+    uow: &mut UnitOfWork,
+    scope: AuditScope,
+    entry: Entry<D>,
+) -> Result<bool, Internal> {
+    let admitted = entry.admitted(scope)?;
+    match repo::insert(uow, admitted, &telemetry::trace_id()).await? {
+        Inserted::Recorded => Ok(true),
+        Inserted::LogGone(_) => Ok(false),
+    }
+}
+
 /// A page of the log of the caller's workspace that `filter` keeps, the latest first: the entries
 /// whose permission the caller's role holds, or that declare none, each with its client if the
 /// role holds `audit.read_clients`, as `access` decides from the role the proof carries

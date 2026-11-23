@@ -106,7 +106,7 @@ IDs are UUID strings, which the database generates (DATA-08), in the form of 36 
 - Check: `test` (PLATFORM-036).
 
 ### API-13 Editable resources support optimistic concurrency
-A resource a client can edit returns an `ETag` built from its version (PLATFORM-071). An update carrying `If-Match` with a stale ETag fails with 412. An update without `If-Match` applies as sent. A part of a resource that is written at a path of its own, and has no representation of its own, is an update of the resource: its write takes the resource's `If-Match`, and a `PUT` of it answers the resource, with the resource's new `ETag` and a `Content-Location` that names the resource, whose representation the body is (RFC 9110, §8.7).
+A resource a client can edit returns an `ETag` built from its version (PLATFORM-071). An update carrying `If-Match` with a stale ETag fails with 412. An update without `If-Match` applies as sent. A part of an editable resource that has no representation of its own, and that a `PUT` or a `DELETE` writes at a path of its own, is an update of the resource: such a write takes the resource's `If-Match`, and a `PUT` of it answers the resource, with the resource's new `ETag` and a `Content-Location` that names the resource, whose representation the body is (RFC 9110, §8.7).
 A user's avatar and a workspace's picture are such parts (ACCOUNTS-008, WORKSPACES-019). <!-- part: files -->
 - Why: concurrent edits can't silently overwrite each other (D24).
 - Check: `test`.

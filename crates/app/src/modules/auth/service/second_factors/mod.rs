@@ -333,7 +333,7 @@ pub(in crate::modules::auth::service) async fn refuse_missing_versions(
     {
         Some(version) => Err(Internal::new(format!(
             "ENCRYPTION_KEYS lacks version {version}, under which a stored secret is encrypted: \
-             add it back, and remove it once auth.reencrypt_secrets has run"
+             add it back, and remove it once no stored secret needs it"
         ))),
         None => Ok(()),
     }

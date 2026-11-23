@@ -16,7 +16,9 @@ use serde::Deserialize;
 use utoipa::ToSchema;
 use utoipa_axum::routes;
 
-use super::{SessionResponse, created, delivery, device, held, renewed, second_factors};
+use super::{
+    SessionResponse, body_token, created, delivery, device, held, renewed, second_factors,
+};
 use crate::modules::auth::{
     error::AuthError,
     model::{DEVICE_COOKIE, DeviceId, DeviceName, FactorProof, Identities},
@@ -108,8 +110,8 @@ pub(crate) struct ProviderSignInRequest {
     #[schema(value_type = Option<DeviceName>)]
     device_name: Option<String>,
     /// The device token that the account's last sign-in on this device returned (AUTH-019). A
-    /// browser leaves it out, and its cookie carries it. One that isn't valid for the account's
-    /// email counts as none.
+    /// browser leaves it out, and its cookie carries it. One of this length that isn't valid for
+    /// the account's email counts as none.
     #[serde(default)]
     #[schema(min_length = 1, max_length = 64)]
     device_token: Option<String>,
@@ -249,7 +251,14 @@ async fn sign_in_through(
         request.device_id.as_deref(),
         request.device_name.as_deref(),
     );
-    let (grant, mut device) = errors.finish(grant.zip(device)).map_err(AuthError::from)?;
+    let device_token = body_token(
+        &mut errors,
+        ("/device_token", "invalid_device_token"),
+        request.device_token,
+    );
+    let ((grant, mut device), device_token) = errors
+        .finish(grant.zip(device).zip(device_token))
+        .map_err(AuthError::from)?;
     let provider = request.provider;
     device.provider = Some(provider.clone());
     device.held = held(&cookies);
@@ -257,7 +266,7 @@ async fn sign_in_through(
         provider,
         grant,
         device,
-        device_token: request.device_token.map(Secret::new),
+        device_token,
         device_cookies: cookies
             .starting_with(DEVICE_COOKIE)
             .into_iter()

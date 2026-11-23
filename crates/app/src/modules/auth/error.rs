@@ -88,8 +88,9 @@ pub(crate) enum AuthError {
     /// (AUTH-077).
     #[error("the provider is unavailable")]
     ProviderUnavailable(#[source] Internal),
-    /// The provider gave no address for a subject that no account is linked to (AUTH-076).
-    #[error("the provider gave no address")]
+    /// The provider gave no address, or one that ACCOUNTS-002 refuses, for a subject that no
+    /// account is linked to (AUTH-076).
+    #[error("the provider gave no address that an account can hold")]
     ProviderAddressMissing,
     /// The provider refused the code of a signed-in caller, whose session still authenticates
     /// them: a re-authentication's, or a link's (AUTH-080, AUTH-087).
@@ -325,8 +326,8 @@ impl ErrorCode for AuthError {
                     .to_owned(),
             ),
             Self::ProviderAddressMissing => Some(
-                "The provider gave no email address for the account: give it one there, or \
-                 register with a password."
+                "The provider gave no email address that an account can hold: give your \
+                 account at the provider a valid one, or register with a password."
                     .to_owned(),
             ),
             Self::ProviderProofRejected => Some(

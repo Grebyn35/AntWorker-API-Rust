@@ -23,4 +23,4 @@ pub(crate) use model::{
 };
 pub(crate) use personal_data::Contract;
 pub(crate) use routes::routes;
-pub(crate) use service::{Sink, record};
+pub(crate) use service::{Sink, record, record_unless_log_gone};

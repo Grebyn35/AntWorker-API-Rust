@@ -1,11 +1,12 @@
-//! Registration, sign-in, refresh and deleting the account (the auth spec's
-//! Routes). How a session's tokens reach its client is in `delivery.rs`. Reading, listing and
-//! ending a user's sessions, signing out among them, is in
-//! `sessions.rs`, proving the account's email address in `verification.rs`, resetting and
-//! changing the password in `password.rs`, changing the address in `email_change.rs`,
-//! re-authenticating in `reauthentication.rs`, second factors, completing a sign-in with one
-//! among them, in `second_factors.rs`, the caller's identities in `identities.rs`, and requesting
-//! an export of the caller's data, which this module confirms, in `exports.rs`.
+//! Registration, sign-in with a password, refresh and deleting the account (the auth spec's
+//! Routes). Signing in, re-authenticating and linking an identity through a provider is in
+//! `providers.rs`, and how a session's tokens reach its client in `delivery.rs`. Reading,
+//! listing and ending a user's sessions, signing out among them, is in `sessions.rs`, proving
+//! the account's email address in `verification.rs`, resetting and changing the password in
+//! `password.rs`, changing the address in `email_change.rs`, re-authenticating with the password
+//! in `reauthentication.rs`, second factors, completing a sign-in with one among them, in
+//! `second_factors.rs`, the caller's identities in `identities.rs`, and requesting an export of
+//! the caller's data, which this module confirms, in `exports.rs`.
 
 mod delivery;
 mod email_change;
@@ -26,7 +27,7 @@ use platform::{
     errors::{Problem, RequestError},
     http::{Cookies, FieldErrors, Json, Routes},
     rate_limit::RateLimits,
-    types::{Client, EmailAddress, Secret},
+    types::{Client, EmailAddress, Invalid, Secret},
 };
 use serde::Deserialize;
 use utoipa::ToSchema;
@@ -143,8 +144,8 @@ pub(crate) struct SignInRequest {
     #[schema(value_type = Option<DeviceName>)]
     device_name: Option<String>,
     /// The device token that the account's last registration or sign-in on this device returned
-    /// (AUTH-019). A browser leaves it out, and its cookie carries it. One that isn't valid for
-    /// the email counts as none.
+    /// (AUTH-019). A browser leaves it out, and its cookie carries it. One of this length that
+    /// isn't valid for the email counts as none.
     #[serde(default)]
     #[schema(min_length = 1, max_length = 64)]
     device_token: Option<String>,
@@ -162,19 +163,45 @@ impl TryFrom<SignInRequest> for SignIn {
             request.device_id.as_deref(),
             request.device_name.as_deref(),
         );
-        let device_token = request.device_token.map(Secret::new);
-        let built = email
-            .zip(password)
-            .zip(device)
-            .map(|((email, password), device)| Self {
+        let device_token = body_token(
+            &mut errors,
+            ("/device_token", "invalid_device_token"),
+            request.device_token,
+        );
+        let built = email.zip(password).zip(device).zip(device_token).map(
+            |(((email, password), device), device_token)| Self {
                 email,
                 password,
                 device,
                 device_token,
                 device_cookies: Vec::new(),
-            });
+            },
+        );
         errors.finish(built)
     }
+}
+
+/// The longest token that a body gives where a browser's cookie carries it, as the body's schema
+/// states: a device token, a refresh token or a challenge, each of which the API issues with 43
+/// characters (API-17).
+const TOKEN_MAX_CHARS: usize = 64;
+
+/// `token`, a token that a body gives at the JSON Pointer `pointer`, or none when the body gives
+/// none; or `None`, which `errors` then holds with `code`, when it is empty or longer than
+/// [`TOKEN_MAX_CHARS`] (AUTH-010, AUTH-019, AUTH-060).
+fn body_token(
+    errors: &mut FieldErrors,
+    (pointer, code): (&str, &'static str),
+    token: Option<String>,
+) -> Option<Option<Secret<String>>> {
+    let Some(token) = token else {
+        return Some(None);
+    };
+    let bounded = (1..=TOKEN_MAX_CHARS).contains(&token.chars().count());
+    let checked = bounded
+        .then(|| Secret::new(token))
+        .ok_or_else(|| Invalid::new(code, "The token must be 1 to 64 characters."));
+    errors.check(pointer, checked).map(Some)
 }
 
 /// The device of `id` and `name`, either of which may be absent, or `None` when either is
@@ -206,6 +233,21 @@ pub(crate) struct RefreshRequest {
     #[serde(default)]
     #[schema(min_length = 1, max_length = 64)]
     refresh_token: Option<String>,
+}
+
+/// The refresh token that the body gives, if any (AUTH-010).
+impl TryFrom<RefreshRequest> for Option<Secret<String>> {
+    type Error = RequestError;
+
+    fn try_from(request: RefreshRequest) -> Result<Self, Self::Error> {
+        let mut errors = FieldErrors::new();
+        let token = body_token(
+            &mut errors,
+            ("/refresh_token", "invalid_refresh_token"),
+            request.refresh_token,
+        );
+        errors.finish(token)
+    }
 }
 
 /// Registers a user, and signs them in.
@@ -288,17 +330,17 @@ async fn refresh(
     headers: HeaderMap,
     Json(request): Json<RefreshRequest>,
 ) -> Result<Response, Problem<AuthError>> {
-    let token = match request.refresh_token {
+    let token = match <Option<Secret<String>>>::try_from(request).map_err(AuthError::from)? {
         Some(token) => token,
         None => match cookies
             .credential(REFRESH_COOKIE)
             .map_err(AuthError::from)?
         {
-            Some(token) => token.to_owned(),
+            Some(token) => Secret::new(token.to_owned()),
             None => return Err(AuthError::InvalidRefreshToken.into()),
         },
     };
-    let (session, tokens) = auth.refresh(&client, &token).await?;
+    let (session, tokens) = auth.refresh(&client, token.expose()).await?;
     Ok(renewed(session, &tokens, delivery(&headers))?)
 }
 

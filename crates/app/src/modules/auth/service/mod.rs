@@ -150,7 +150,9 @@ impl Keys {
 pub(crate) struct Auth {
     database: Database,
     settings: Settings,
-    /// The key of the keyed hash of a device token's email (AUTH-019).
+    /// The key of the module's keyed hashes: of each code that an email carries, of a device
+    /// token's email, and of the name of the cookie that holds the token (SEC-03, AUTH-015,
+    /// AUTH-019).
     key: HmacKey,
     /// A hash of a random password, verified when a sign-in finds no password to check, so every
     /// failed sign-in costs the same (AUTH-005).

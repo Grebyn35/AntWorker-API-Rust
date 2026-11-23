@@ -439,6 +439,27 @@ mod tests {
     }
 
     #[test]
+    fn auth_036_the_email_holds_for_an_account_without_a_password() {
+        // An account that signs in through a provider alone has no password (AUTH-074), which a
+        // reset gives it (AUTH-037), so the email names a password only as what the code resets.
+        let to = EmailAddress::parse("alice@example.com").unwrap();
+        let code = ResetCode::parse("7KQM2XWD9RTBH4NP").unwrap();
+
+        let email = ResetCodeEmail { to, code }.render().unwrap();
+
+        for part in [&email.subject, &email.text, &email.html] {
+            let said = [
+                "password reset code",
+                "reset your password",
+                "reset the password of",
+            ]
+            .iter()
+            .fold(part.to_string(), |said, reset| said.replace(reset, ""));
+            assert!(!said.contains("password"), "{part}");
+        }
+    }
+
+    #[test]
     fn auth_068_each_change_of_a_second_factor_says_what_happened_and_what_to_do_with_no_link() {
         let to = EmailAddress::parse("alice@example.com").unwrap();
         for (change, subject, said) in [
@@ -575,6 +596,19 @@ mod tests {
     }
 
     #[test]
+    fn auth_050_the_email_holds_for_an_account_without_a_password() {
+        // An account that signs in through a provider alone has no password (AUTH-074).
+        let to = EmailAddress::parse("ada@new.example.com").unwrap();
+        let code = ChangeCode::parse("7KQM2XWD9RTBH4NP").unwrap();
+
+        let email = ChangeCodeEmail { to, code }.render().unwrap();
+
+        for part in [&email.subject, &email.text, &email.html] {
+            assert!(!part.contains("password"), "{part}");
+        }
+    }
+
+    #[test]
     fn auth_053_the_email_names_the_new_address_and_how_to_change_it_back_with_no_link() {
         let to = EmailAddress::parse("ada@example.com").unwrap();
         let new = EmailAddress::parse("ada@new.example.com").unwrap();
@@ -632,6 +666,20 @@ mod tests {
             assert!(part.contains("a newer code replaces it"), "{part}");
             assert!(part.contains("alice@example.com"), "{part}");
             assert!(!part.contains("http"), "{part}");
+        }
+    }
+
+    #[test]
+    fn auth_030_the_email_holds_for_an_account_without_a_password() {
+        // An account that registered through a provider has no password (AUTH-074), and gets the
+        // email when the provider doesn't prove its address (AUTH-075).
+        let to = EmailAddress::parse("alice@example.com").unwrap();
+        let code = VerificationCode::parse("042917").unwrap();
+
+        let email = CodeEmail { to, code }.render().unwrap();
+
+        for part in [&email.subject, &email.text, &email.html] {
+            assert!(!part.contains("password"), "{part}");
         }
     }
 }

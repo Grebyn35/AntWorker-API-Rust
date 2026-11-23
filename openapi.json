@@ -4461,7 +4461,7 @@
             ]
           },
           "device_token": {
-            "description": "The device token that the account's last sign-in on this device returned (AUTH-019). A\nbrowser leaves it out, and its cookie carries it. One that isn't valid for the account's\nemail counts as none.",
+            "description": "The device token that the account's last sign-in on this device returned (AUTH-019). A\nbrowser leaves it out, and its cookie carries it. One of this length that isn't valid for\nthe account's email counts as none.",
             "maxLength": 64,
             "minLength": 1,
             "type": [
@@ -5677,7 +5677,7 @@
             ]
           },
           "device_token": {
-            "description": "The device token that the account's last registration or sign-in on this device returned\n(AUTH-019). A browser leaves it out, and its cookie carries it. One that isn't valid for\nthe email counts as none.",
+            "description": "The device token that the account's last registration or sign-in on this device returned\n(AUTH-019). A browser leaves it out, and its cookie carries it. One of this length that\nisn't valid for the email counts as none.",
             "maxLength": 64,
             "minLength": 1,
             "type": [

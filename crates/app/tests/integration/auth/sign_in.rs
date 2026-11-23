@@ -364,6 +364,39 @@ async fn auth_005_a_password_identity_that_went_once_the_sign_in_read_its_hash_a
     );
 }
 
+#[tokio::test]
+async fn auth_005_a_wrong_password_whose_account_a_deletion_takes_before_its_record_answers_401() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    // Held as a deletion of the account holds it, before it deletes the row.
+    let mut deleting = db
+        .holding(&format!(
+            "SELECT 1 FROM users WHERE id = '{}' FOR UPDATE",
+            ada.user_id
+        ))
+        .await;
+
+    let signed_in = {
+        let api = api.clone();
+        tokio::spawn(
+            async move { users::sign_in(&api, "ada@example.com", "wrong-password-123").await },
+        )
+    };
+    // The sign-in verified the password, and its record waits for the account's row.
+    query_waits_on_a_lock(db, "INSERT INTO audit_entries").await;
+    execute_on(
+        &mut deleting,
+        &format!("DELETE FROM users WHERE id = '{}'", ada.user_id),
+    )
+    .await;
+    execute_on(&mut deleting, "COMMIT").await;
+    let answer = signed_in.await.unwrap();
+
+    assert_eq!(answer.status, 401, "{}", answer.json());
+    assert_eq!(answer.json()["code"], "auth.invalid_credentials");
+}
+
 /// Signs `email` in with [`PASSWORD`] from the client address `peer`.
 async fn sign_in_from(api: &Api, peer: &str, email: &str) -> crate::support::api::Response {
     api.post(

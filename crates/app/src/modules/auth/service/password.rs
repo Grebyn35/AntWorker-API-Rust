@@ -157,14 +157,13 @@ impl Auth {
         let job_scope = JobScope::attempt(Some(user_id));
         let Some((address, Some(code))) = held else {
             // A failed reset of an existing account is a security failure, which commits before
-            // the answer (ARCH-11).
-            audit_log::record(
-                &mut uow,
-                scope,
-                Entry::new(audit::PASSWORD_RESET_FAILED, audit::USER, user_id.uuid()),
-            )
-            .await?;
-            uow.commit().await?;
+            // the answer (ARCH-11). An account that a deletion took before the record has no log
+            // left to hold it, and the confirmation answers as for an address that no account
+            // holds.
+            let entry = Entry::new(audit::PASSWORD_RESET_FAILED, audit::USER, user_id.uuid());
+            if audit_log::record_unless_log_gone(&mut uow, scope, entry).await? {
+                uow.commit().await?;
+            }
             return Err(AuthError::InvalidResetCode);
         };
         // The app's code, or a recovery code, of an account with an app, once the reset code

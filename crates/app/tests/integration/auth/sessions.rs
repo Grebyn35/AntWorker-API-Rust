@@ -170,6 +170,36 @@ async fn auth_010_refreshing_rotates_the_pair_and_keeps_the_old_refresh_hash() {
 }
 
 #[tokio::test]
+async fn auth_010_a_refresh_token_that_is_empty_or_longer_than_64_characters_answers_400_at_its_field()
+ {
+    let api = Api::new().await;
+    let (longest, too_long) = ("x".repeat(64), "x".repeat(65));
+
+    let unknown = api
+        .post_raw("/v1/sessions/refresh", &json!({ "refresh_token": longest }))
+        .send()
+        .await;
+    for token in ["", too_long.as_str()] {
+        let response = api
+            .post_raw("/v1/sessions/refresh", &json!({ "refresh_token": token }))
+            .send()
+            .await;
+
+        assert_eq!(response.status, 400, "{token}: {}", response.json());
+        assert_eq!(
+            response.json()["errors"],
+            json!([{
+                "field": "/refresh_token",
+                "code": "invalid_refresh_token",
+                "message": "The token must be 1 to 64 characters.",
+            }])
+        );
+    }
+    assert_eq!(unknown.status, 401);
+    assert_eq!(unknown.json()["code"], "auth.invalid_refresh_token");
+}
+
+#[tokio::test]
 async fn auth_010_a_refresh_slides_the_refresh_expiry() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;

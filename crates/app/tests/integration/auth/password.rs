@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use crate::support::{
     Api, Options, answer_before_a_lock_wait,
     api::Response,
-    execute_on, mailbox, queries_wait_on_locks, second_factors,
+    execute_on, mailbox, queries_wait_on_locks, query_waits_on_a_lock, second_factors,
     users::{self, SignedIn},
 };
 
@@ -716,6 +716,40 @@ async fn sec_05_a_wrong_reset_code_answers_401_while_another_transaction_holds_t
         "the confirmation waited for the account's lock"
     );
     let answer = answer.unwrap();
+    assert_eq!(answer.status, 401, "{}", answer.json());
+    assert_eq!(answer.json()["code"], "auth.invalid_reset_code");
+}
+
+#[tokio::test]
+async fn auth_038_a_wrong_code_whose_account_a_deletion_takes_before_its_record_answers_401() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let ada = users::register(&api, &address).await;
+    ask(&api, &address).await;
+    let wrong = mailbox::other_grouped_code(&code_sent(&api, &address).await);
+    let db = api.database();
+    // Held as a deletion of the account holds it, before it deletes the row.
+    let mut deleting = db
+        .holding(&format!(
+            "SELECT 1 FROM users WHERE id = '{}' FOR UPDATE",
+            ada.user_id
+        ))
+        .await;
+
+    let confirming = {
+        let (api, address) = (api.clone(), address.clone());
+        tokio::spawn(async move { confirm(&api, &address, &wrong).await })
+    };
+    // The confirmation compared the codes, and its record waits for the account's row.
+    query_waits_on_a_lock(db, "INSERT INTO audit_entries").await;
+    execute_on(
+        &mut deleting,
+        &format!("DELETE FROM users WHERE id = '{}'", ada.user_id),
+    )
+    .await;
+    execute_on(&mut deleting, "COMMIT").await;
+    let answer = confirming.await.unwrap();
+
     assert_eq!(answer.status, 401, "{}", answer.json());
     assert_eq!(answer.json()["code"], "auth.invalid_reset_code");
 }

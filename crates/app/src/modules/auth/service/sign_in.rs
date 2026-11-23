@@ -204,15 +204,14 @@ impl Auth {
 
 /// Records in `uow` that a sign-in to `user_id`'s account failed, with a wrong password or with
 /// any password for an account that has none, a security failure, which commits before the
-/// answer, and returns the answer (AUTH-005, DATA-22, ARCH-11).
+/// answer, and returns the answer (AUTH-005, DATA-22, ARCH-11). An account that a deletion took
+/// before the record has no log left to hold it, and the sign-in answers as for an email that no
+/// account holds.
 async fn failed(mut uow: UnitOfWork, user_id: UserId) -> Result<AuthError, AuthError> {
-    audit_log::record(
-        &mut uow,
-        AuditScope::attempt(user_id),
-        Entry::new(audit::SIGN_IN_FAILED, audit::USER, user_id.uuid()),
-    )
-    .await?;
-    uow.commit().await?;
+    let entry = Entry::new(audit::SIGN_IN_FAILED, audit::USER, user_id.uuid());
+    if audit_log::record_unless_log_gone(&mut uow, AuditScope::attempt(user_id), entry).await? {
+        uow.commit().await?;
+    }
     Ok(AuthError::InvalidCredentials)
 }
 

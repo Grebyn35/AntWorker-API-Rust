@@ -342,6 +342,42 @@ async fn auth_060_an_unknown_expired_or_used_challenge_answers_invalid_challenge
 }
 
 #[tokio::test]
+async fn auth_060_a_challenge_that_is_empty_or_longer_than_64_characters_answers_400_at_its_field()
+{
+    let api = Api::new().await;
+    let (longest, too_long) = ("x".repeat(64), "x".repeat(65));
+
+    let unknown = api
+        .post_raw(
+            "/v1/sessions/second-factor",
+            &json!({ "challenge": longest, "code": "123456" }),
+        )
+        .send()
+        .await;
+    for token in ["", too_long.as_str()] {
+        let response = api
+            .post_raw(
+                "/v1/sessions/second-factor",
+                &json!({ "challenge": token, "code": "123456" }),
+            )
+            .send()
+            .await;
+
+        assert_eq!(response.status, 400, "{token}: {}", response.json());
+        assert_eq!(
+            response.json()["errors"],
+            json!([{
+                "field": "/challenge",
+                "code": "invalid_challenge",
+                "message": "The token must be 1 to 64 characters.",
+            }])
+        );
+    }
+    assert_eq!(unknown.status, 401);
+    assert_eq!(unknown.json()["code"], "auth.invalid_challenge");
+}
+
+#[tokio::test]
 async fn auth_060_a_wrong_code_answers_401_records_it_and_leaves_the_challenge() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
@@ -688,6 +724,43 @@ async fn auth_066_the_hourly_job_moves_every_secret_to_the_current_key() {
     )
     .await;
     assert_eq!(completed.status, 201, "{}", completed.json());
+}
+
+#[tokio::test]
+async fn auth_066_an_app_that_a_request_holds_is_left_for_the_next_run() {
+    let database = TestDatabase::migrated().await;
+    let api = Api::on(
+        database,
+        Options::default().set("ENCRYPTION_KEYS", format!("1:{}", key(1))),
+    )
+    .await;
+    let ada = users::register(&api, "ada@example.com").await;
+    add_app(&api, &ada).await;
+    let bob = users::register(&api, "bob@example.com").await;
+    add_app(&api, &bob).await;
+    let next = api
+        .instance(Options::default().set("ENCRYPTION_KEYS", format!("1:{},2:{}", key(1), key(2))))
+        .await;
+    let mut request = next
+        .database()
+        .holding(&format!(
+            "SELECT 1 FROM totp_factors WHERE user_id = '{}' FOR UPDATE",
+            ada.user_id
+        ))
+        .await;
+    let versions = format!(
+        "SELECT (user_id = '{}')::text || ' ' || key_version FROM totp_factors ORDER BY 1",
+        ada.user_id
+    );
+
+    // The run waits for no lock, so it ends while the row stays held.
+    next.run_periodic("auth.reencrypt_secrets").await;
+    let during = reads(&next, &versions).await;
+    execute_on(&mut request, "COMMIT").await;
+    next.run_periodic("auth.reencrypt_secrets").await;
+
+    assert_eq!(during, ["false 2", "true 1"]);
+    assert_eq!(reads(&next, &versions).await, ["false 2", "true 2"]);
 }
 
 #[tokio::test]

@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use utoipa_axum::routes;
 
-use super::{SessionResponse, created, delivery, held};
+use super::{SessionResponse, body_token, created, delivery, held};
 use crate::modules::auth::{
     error::AuthError,
     model::{AppCode, FactorProof, RecoveryCode, TokenDelivery},
@@ -120,6 +120,11 @@ impl TryFrom<CompletionRequest> for (Option<Secret<String>>, FactorProof) {
 
     fn try_from(request: CompletionRequest) -> Result<Self, Self::Error> {
         let mut errors = FieldErrors::new();
+        let challenge = body_token(
+            &mut errors,
+            ("/challenge", "invalid_challenge"),
+            request.challenge,
+        );
         let proof = factor_proof(
             &mut errors,
             ("/code", request.code.as_deref()),
@@ -127,8 +132,7 @@ impl TryFrom<CompletionRequest> for (Option<Secret<String>>, FactorProof) {
             true,
         )
         .flatten();
-        let proof = errors.finish(proof)?;
-        Ok((request.challenge.map(Secret::new), proof))
+        errors.finish(challenge.zip(proof))
     }
 }
 

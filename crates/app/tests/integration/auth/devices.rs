@@ -281,6 +281,39 @@ async fn auth_019_a_token_of_another_email_an_expired_or_an_unknown_one_counts_a
 }
 
 #[tokio::test]
+async fn auth_019_a_device_token_that_is_empty_or_longer_than_64_characters_answers_400_at_its_field()
+ {
+    let (upstream, api) = providers::standing().await;
+    users::register(&api, "ada@example.com").await;
+    gives(&upstream, identity("subject-1", "grace@example.com", true));
+    let too_long = "x".repeat(65);
+
+    for token in ["", too_long.as_str()] {
+        let mut through = grant();
+        through["device_token"] = json!(token);
+        let with_password =
+            json!({ "email": "ada@example.com", "password": PASSWORD, "device_token": token });
+
+        let answers = [
+            api.post_raw("/v1/sessions", &with_password).send().await,
+            api.post_raw("/v1/sessions/provider", &through).send().await,
+        ];
+
+        for response in answers {
+            assert_eq!(response.status, 400, "{token}: {}", response.json());
+            assert_eq!(
+                response.json()["errors"],
+                json!([{
+                    "field": "/device_token",
+                    "code": "invalid_device_token",
+                    "message": "The token must be 1 to 64 characters.",
+                }])
+            );
+        }
+    }
+}
+
+#[tokio::test]
 async fn auth_019_a_browser_s_sign_in_reads_its_device_token_from_its_cookie_which_signing_out_leaves()
  {
     let api = users::browsers_api().await;
