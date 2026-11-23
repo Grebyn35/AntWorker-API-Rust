@@ -238,11 +238,44 @@ reread_configuration() {
     done
 }
 
-# Reads and checks the settings this script acts on.
-read_settings() {
+# Fails unless each line of settings.env is of the forms that docs/operations/deploy.md's "The
+# settings file" lists, naming the first line of another form by its number and the setting it
+# sets, and nothing of its value, and then when the environment holds a variable of a name that
+# a line of the file sets, naming the first such variable that `env` prints. `form` is what a line may be, and `refused` the value of a line
+# of that form that may not be: one that starts with a quote, that starts or ends with a space
+# or with one of `spaces`, the bytes of the characters beyond ASCII that Unicode lists as white
+# space (U+0085, U+00A0, U+1680, U+2000 to U+200A, U+2028, U+2029, U+202F, U+205F and U+3000),
+# or that holds one of [:cntrl:], ASCII's control characters in the C locale, $, \, or # after
+# a space.
+settings_lines() {
     if [ ! -f "$deployment/settings.env" ]; then
         fail "$deployment/settings.env is missing; copy settings.env.example there and set its values"
     fi
+    form='^(|#.*|[A-Z][A-Z0-9_]*=.*)$'
+    spaces=$(printf '\302\205|\302\240|\341\232\200|\342\200[\200\201\202\203\204\205\206\207\210\211\212\250\251\257]|\342\201\237|\343\200\200')
+    refused="^[A-Z][A-Z0-9_]*=([ \"']|($spaces)|.*( \$|($spaces)\$|[[:cntrl:]\\\\\$]| #))"
+    number=$({
+        LC_ALL=C grep -anvE "$form" "$deployment/settings.env" || true
+        LC_ALL=C grep -anE "$refused" "$deployment/settings.env" || true
+    } | cut -d: -f1 | sort -n | head -n 1)
+    if [ -n "$number" ]; then
+        name=$(LC_ALL=C sed -n "${number}s/^\([A-Z][A-Z0-9_]*\)=.*/\1/p" "$deployment/settings.env")
+        fail "line $number of settings.env${name:+, which sets $name,} is none of the forms that a deploy reads: an empty line, a comment that starts with #, or NAME=value, with a NAME of capital letters, digits and underscores that starts with a letter, and a value that, unless empty, starts and ends with no space, of ASCII's or of Unicode's, starts with no quote, and holds no tab or other control character of ASCII's, no \$ or \\, and no # after a space (docs/operations/deploy.md#the-settings-file)"
+    fi
+    # Compose takes a variable of the environment that it runs in over settings.env's line of
+    # that name, so the services would get a value that no check of this script read.
+    set_names=$(LC_ALL=C sed -n 's/^\([A-Z][A-Z0-9_]*\)=.*/\1/p' "$deployment/settings.env")
+    if [ -n "$set_names" ]; then
+        shadowed=$(env | LC_ALL=C sed -n 's/^\([A-Z][A-Z0-9_]*\)=.*/\1/p' | LC_ALL=C grep -Fx -e "$set_names" | head -n 1)
+        if [ -n "$shadowed" ]; then
+            fail "the environment that this task runs in sets $shadowed, which Compose would take in place of settings.env's line; run the task without it (docs/operations/deploy.md#the-settings-file)"
+        fi
+    fi
+}
+
+# Reads and checks the settings this script acts on.
+read_settings() {
+    settings_lines
     database=$(setting DATABASE bundled)
     telemetry=$(setting TELEMETRY self-hosted)
     replicas=$(setting API_REPLICAS 2)

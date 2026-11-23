@@ -2,6 +2,11 @@
 # docs/operations/observability.md states the objectives and how the burn-rate alerts spend their
 # budgets. Every alert has a severity, page or ticket, a runbook section in
 # docs/operations/runbooks.md, and a test in rules.test.yaml.
+#
+# The recording rules' rate(), like increase(), counts nothing of a series' first value (the
+# comment above the alerts): a series of http_server_request_duration_seconds appears with an
+# instance's first request of its method, route, status and error type, so the ratios that the
+# burn-rate alerts read leave that request out, of the 5xx and of every request alike.
 
 groups:
   # With traffic but no 5xx, the ratio is 0 rather than empty. The 503 of a feature that the
@@ -84,6 +89,7 @@ groups:
   # increase() counts a series that existed at the window's start by its increase, and a newer
   # one by its value:
   # (increase(x[w]) and x offset w) or (x unless x offset w).
+  # check-metrics refuses an increase() of such a metric in another form (docs/operations/ci.md).
   - name: alerts
     rules:
       - alert: AvailabilityBudgetBurningFast

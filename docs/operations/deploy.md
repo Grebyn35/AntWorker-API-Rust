@@ -120,6 +120,16 @@ With them, every task names the server `production`, as the rest of this documen
 
 Run it again to change a setting, a secret or the login, signed in as on its first run, such as `just server-setup root@203.0.113.7`: for any user but `root`, it checks Docker through `sudo`, and it gives `deploy`, the user that `production` names, no `sudo`. It asks again for each setting and secret, starting from what the server holds, which Enter keeps, and keeps any setting the example doesn't list; the next deploy applies what changed. After a rollback, name the release that serves ([Rolling back](#rolling-back)). The deploy writes the other secrets the first time the services need them: the bundled database's other passwords and the URLs made from them, and [the two keys that it generates](#the-keys-that-a-deploy-generates), the key of the API's keyed hashes and the one under which Grafana encrypts what it stores. When `DATABASE` moves from `managed` to `bundled`, the deploy moves the managed database's URLs aside, to `<name>.before-bundled`, and writes the bundled one's. Compose mounts each secret file into the containers that read it, where any user of the container can read it, so each file is readable by every user, while the directory admits only the deployment's user. A container keeps the files it started with, and the setup writes each secret as a new file. The replicas that a deploy starts read the secrets as they stand. The deploy also recreates each other service whose secrets changed since it started: the backups, the collector of a managed backend, Alertmanager and Grafana restart, and Postgres only with `--allow-restart` ([below](#restarting-a-service-that-runs-once)). It finds them by their files' fingerprints, the SHA-256 of each file's SHA-256, which it records in the environments of the containers that mount them, where only those who can read the files themselves can read them (D103).
 
+### The settings file
+
+`settings.env` holds each setting on a line of its own, as `NAME=value`, which `deploy.sh` reads as the line's text, while Compose, which reads the file too, takes the quotes off a value, the spaces at its ends, and a comment after a space: of `SMTP_SECURITY="none"`, a deploy's check would read `"none"`, and the API would get `none`. So each task of `deploy.sh` that checks the settings, such as a deploy and `just server-check`, refuses the file while a line of it is none of these, and names the first such line:
+
+- an empty line;
+- a comment, whose first character is `#`;
+- `NAME=value`, with a `NAME` of capital letters, digits and underscores that starts with a letter, and a value that is empty, or that starts and ends with no space, also none of those beyond ASCII that Unicode lists as white space, such as the no-break space, starts with no quote, and holds no tab or other control character of ASCII's, no `$` or `\`, and no `#` after a space.
+
+A value is written as it is, without quotes, such as `EMAIL_FROM=AntWorker <noreply@example.com>`. Compose also takes a variable of the environment that it runs in over the file's line of that name, so such a task refuses as well while the environment that it runs in on the server sets a variable that a line of the file sets, and names the variable.
+
 ### Checking a server
 
 ```
@@ -177,6 +187,8 @@ What a deploy refuses, and what to do:
 | No release has the version | Make the release with `just release` ([release.md](release.md)), then deploy it |
 | The release doesn't verify | Read the error: the registry login on the server, or a release whose images aren't signed by your repository's CI |
 | A setting is missing or invalid | Set it with `just server-setup`, which asks for it, as `deploy/settings.env.example` describes it |
+| A line of `settings.env` is of another form than [The settings file](#the-settings-file) lists | Write the line in one of those forms, on the server or by typing its value again at `just server-setup` |
+| The environment on the server sets a variable that a line of `settings.env` sets | Take the variable out of the environment of the deployment's user on the server, such as its shell's profile |
 | A secret that the settings need is missing | Give it with `just server-setup`, which asks for each one |
 | A managed database's URL doesn't set `sslmode=verify-full` | Give the URL again with `just server-setup`, with `sslmode=verify-full` in its query, and `sslrootcert` for a provider whose authority is its own ([above](#setting-up-a-server)) |
 | The connections wouldn't fit | Lower `API_REPLICAS` or `DATABASE_MAX_CONNECTIONS`, or raise `POSTGRES_MAX_CONNECTIONS`, with `just server-setup` ([Scaling](#scaling)) |

@@ -173,16 +173,22 @@ prepare_restore() {
     # (deploy/postgres/retention.jq). It's written once the backups stop, so no expire runs
     # meanwhile, and before the replicas stop, so a mark that fails, as when the bucket stops
     # answering, or when an expire removed the backup after the restore planned it, refuses the
-    # restore with the API serving. A restore that ends later, refused or failed, leaves the mark,
-    # which keeps the backup, as a restore's does, until a backup taken after it is as old as the
-    # retention.
+    # restore before the replicas stop. It starts the backups again when Postgres runs the database
+    # the restore found, as serve_again does: otherwise their start would start Postgres on the
+    # data that a restore that failed left. A restore that ends later, refused or failed, leaves
+    # the mark, which keeps the backup, as a restore's does, until a backup taken after it is as
+    # old as the retention.
     say "stopping the backups, and marking the full backup ${set%%_*}, which the restore starts from"
     compose stop backup
     at=$(date +%s)
     if ! compose run --rm --no-deps --quiet-pull --user postgres --entrypoint pgbackrest postgres \
         --stanza=db annotate --set="${set%%_*}" --annotation="restore-$at=$at"; then
+        unmarked="couldn't mark the full backup ${set%%_*}, which the restore starts from, with pgBackRest's error above, so refused the restore before the replicas stopped"
+        if [ "$serving" != yes ]; then
+            fail "$unmarked, and started nothing, since Postgres doesn't run the database that the restore found; once the bucket answers, restore again"
+        fi
         compose up --detach --wait --quiet-pull backup
-        fail "couldn't mark the full backup ${set%%_*}, which the restore starts from, with pgBackRest's error above, so refused the restore, with the API serving, and started the backups again; once the bucket answers, restore again"
+        fail "$unmarked, with the API serving, and started the backups again; once the bucket answers, restore again"
     fi
     say "the bucket keeps the full backup ${set%%_*}, which the restore starts from, until a backup taken after the restore is as old as the retention"
     say "stopping the API's replicas"

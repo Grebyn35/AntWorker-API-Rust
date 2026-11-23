@@ -26,6 +26,22 @@ tests:
               summary: The API answers with 5xx fast enough to spend its availability budget within days.
               runbook: docs/operations/runbooks.md#availabilitybudgetburningfast
 
+  # A series of 5xx that appears with its first request in the eighth minute, within the window,
+  # and holds no other: the ratio counts nothing of it, as the comment at the head of rules.yaml
+  # says.
+  - interval: 1m
+    input_series:
+      - series: 'http_server_request_duration_seconds_count{job="api", http_response_status_code="200"}'
+        values: "0+100x10"
+      - series: 'http_server_request_duration_seconds_count{job="api", http_response_status_code="500"}'
+        values: "_x8 1x2"
+    promql_expr_test:
+      - expr: job:slo_request_errors:ratio_rate5m
+        eval_time: 10m
+        exp_samples:
+          - labels: 'job:slo_request_errors:ratio_rate5m{job="api"}'
+            value: 0
+
   # 10% of requests ask for a feature that the deployment turned off: its 503 spends no budget.
   - interval: 1m
     input_series:
@@ -493,6 +509,29 @@ tests:
       - eval_time: 12m
         alertname: TelemetryExportFailing
         exp_alerts: []
+
+  # An instance's first failed export of metric data points comes in the second minute, the first
+  # value of its series: the alert fires from then.
+  - interval: 1m
+    input_series:
+      - series: 'otel_sdk_exporter_metric_data_point_exported_total{job="api", instance="a"}'
+        values: "0+50x4"
+      - series: 'otel_sdk_exporter_metric_data_point_exported_total{job="api", instance="a", error_type="export_failed"}'
+        values: "_ _ 5 5 5"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: TelemetryExportFailing
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: TelemetryExportFailing
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              job: api
+              instance: a
+            exp_annotations:
+              summary: An instance of the API failed to export spans, log records or metrics in the last 10 minutes.
+              runbook: docs/operations/runbooks.md#telemetryexportfailing
 
   # An instance's queue of spans drops spans between the 14th and the 15th minute: the alert
   # fires from the 15th, and ends at the 24th, when the window of 10 minutes holds the count of
@@ -1166,6 +1205,50 @@ tests:
       - eval_time: 13m
         alertname: CollectorDroppingTelemetry
         exp_alerts: []
+
+  # A receiver that refuses log records, an exporter that fails to send log records and one that
+  # fails to send metric points, and the tail sampling's traces dropped before it decided, each in
+  # the second minute: the alert names each from then.
+  - interval: 1m
+    input_series:
+      - series: 'otelcol_receiver_refused_log_records_total{receiver="otlp", transport="http"}'
+        values: "0 0 3 3 3"
+      - series: 'otelcol_exporter_send_failed_log_records_total{exporter="otlp_http/loki"}'
+        values: "0 0 4 4 4"
+      - series: 'otelcol_exporter_send_failed_metric_points_total{exporter="otlp_http/prometheus"}'
+        values: "0 0 6 6 6"
+      - series: 'otelcol_processor_tail_sampling_sampling_trace_dropped_too_early_total{instance="collector:8888"}'
+        values: "0 0 2 2 2"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: CollectorDroppingTelemetry
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: CollectorDroppingTelemetry
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              receiver: otlp
+            exp_annotations:
+              summary: The collector refused, failed to pass on, or dropped before deciding, telemetry in the last 10 minutes.
+              runbook: docs/operations/runbooks.md#collectordroppingtelemetry
+          - exp_labels:
+              severity: ticket
+              exporter: otlp_http/loki
+            exp_annotations:
+              summary: The collector refused, failed to pass on, or dropped before deciding, telemetry in the last 10 minutes.
+              runbook: docs/operations/runbooks.md#collectordroppingtelemetry
+          - exp_labels:
+              severity: ticket
+              exporter: otlp_http/prometheus
+            exp_annotations:
+              summary: The collector refused, failed to pass on, or dropped before deciding, telemetry in the last 10 minutes.
+              runbook: docs/operations/runbooks.md#collectordroppingtelemetry
+          - exp_labels:
+              severity: ticket
+            exp_annotations:
+              summary: The collector refused, failed to pass on, or dropped before deciding, telemetry in the last 10 minutes.
+              runbook: docs/operations/runbooks.md#collectordroppingtelemetry
 
   # A server with 8 gigabytes of memory, of which 500 megabytes stay available.
   - interval: 1m

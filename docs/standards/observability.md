@@ -88,9 +88,9 @@ Every metric but those that the API's OpenTelemetry SDK counts itself is declare
 ### OBS-13 Dashboards answer named questions
 Dashboards are the files in `deploy/observability/grafana/`, and read-only in Grafana: the self-hosted Grafana provisions them, and a managed Grafana, which can't read provisioning files, imports them into a folder that only the import and the managed Grafana's administrators may change (D42). One overview dashboard links to one dashboard per area, by the tag `area` that each of them carries.
 So a dashboard that a part of the template owns leaves no link behind once a fork leaves the part out (D119). <!-- part: removal -->
-Each panel's title is the question it answers.
+Each panel's title is the question it answers. A panel or an alert that counts the events of a metric that the API declares within a window, with `increase()`, also counts a series that appears within the window, by its first value.
 - Why: a dashboard is read under pressure, and must say what it shows (D19). Whichever Grafana shows them, the files are the dashboards, and the checks read the files.
-- Check: `ci: check-metrics` (queries, titles that end in a question mark, read-only provisioning, and an overview that links to every other dashboard, by its address or by its tags), `ci: e2e` (the import into a managed Grafana), plus `review` (what each title asks, and one dashboard per area).
+- Check: `ci: check-metrics` (queries, the form of an `increase()` of a metric that the API declares, which [ci.md](../operations/ci.md) gives, titles that end in a question mark, read-only provisioning, and an overview that links to every other dashboard, by its address or by its tags), `ci: e2e` (the import into a managed Grafana), plus `review` (what each title asks, one dashboard per area, and what a query does with the count of that form).
 
 ### OBS-14 Alerts fire on symptoms and have runbooks
 Alerts are of two kinds:

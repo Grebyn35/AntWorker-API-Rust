@@ -922,6 +922,36 @@ async fn ops_15_a_restore_whose_mark_fails_refuses_with_the_api_serving() {
 }
 
 #[tokio::test]
+async fn ops_15_a_restore_whose_mark_fails_with_postgres_stopped_starts_nothing() {
+    let deployment = Deployment::bundled(&[]);
+    let deployed = deployment.apply(&deployment.api, &[]).await;
+    assert!(deployed.status.success(), "{}", lossy(&deployed));
+    // Postgres stopped, as a restore that failed before Postgres started leaves it, and a backup
+    // that the bucket doesn't hold, which fails the mark as a bucket that stops answering does.
+    deployment
+        .server
+        .shell_ok("docker stop deployment-postgres-1 > /dev/null");
+
+    let refused = deployment
+        .server
+        .deploy(&["restore", "", "20000101-000000F", "1"]);
+
+    assert!(!refused.status.success(), "{}", lossy(&refused));
+    assert!(
+        lossy(&refused).contains("couldn't mark the full backup 20000101-000000F"),
+        "{}",
+        lossy(&refused)
+    );
+    assert!(
+        lossy(&refused).contains("and started nothing"),
+        "{}",
+        lossy(&refused)
+    );
+    assert!(deployment.server.running("postgres").is_empty());
+    assert!(deployment.server.running("backup").is_empty());
+}
+
+#[tokio::test]
 async fn ops_15_a_restore_whose_record_of_its_timeline_fails_serves_again_and_refuses_whatever_its_options()
  {
     let deployment = Deployment::bundled(&[]);

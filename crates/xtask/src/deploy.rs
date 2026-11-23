@@ -525,8 +525,20 @@ mod tests {
         /// settings.env holding the required settings, then `settings`, or `None` when they take
         /// them.
         fn refusal_of(steps: &str, settings: &[&str]) -> Option<String> {
+            refusal_with(&[], steps, settings)
+        }
+
+        /// As `refusal_of`, in an environment that holds `PATH` and `variables` alone.
+        fn refusal_with(
+            variables: &[(&str, &str)],
+            steps: &str,
+            settings: &[&str],
+        ) -> Option<String> {
             let lines: Vec<&str> = REQUIRED.iter().chain(settings).copied().collect();
             let output = Command::new("sh")
+                .env_clear()
+                .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+                .envs(variables.iter().copied())
                 .args([
                     "-c",
                     "deployment=$(mktemp -d) && printf '%s\\n' \"$1\" > \"$deployment/settings.env\" \
@@ -583,6 +595,278 @@ mod tests {
                 ]),
                 None
             );
+        }
+
+        /// Asserts that `read_settings` refuses settings.env holding the required settings, then
+        /// each line of `refused`, with a message that names that line, and takes it with each
+        /// line of `taken`.
+        fn refuses_lines(refused: &[&str], taken: &[&str]) {
+            let named = format!("deploy: line {} of settings.env", REQUIRED.len() + 1);
+            for line in refused {
+                let message = refusal(&[*line]);
+                assert!(
+                    message
+                        .as_deref()
+                        .is_some_and(|message| message.contains(&named)),
+                    "{line:?}: {message:?}"
+                );
+            }
+            for line in taken {
+                assert_eq!(refusal(&[*line]), None, "{line:?}");
+            }
+        }
+
+        #[test]
+        fn ops_17_a_deploy_refuses_unencrypted_email_to_another_server_however_its_line_writes_it()
+        {
+            let remote = [
+                "EMAIL=smtp",
+                "SMTP_HOST=192.0.2.25",
+                "EMAIL_FROM=a@example.com",
+            ];
+            let unencrypted = [
+                r#"SMTP_SECURITY="none""#,
+                "SMTP_SECURITY='none'",
+                "SMTP_SECURITY=none # unencrypted",
+                "SMTP_SECURITY=none ",
+                "SMTP_SECURITY= none",
+            ];
+
+            let encrypted = refusal(&[&remote[..], &["SMTP_SECURITY=starttls"]].concat());
+            let refusals =
+                unencrypted.map(|security| refusal(&[&remote[..], &[security]].concat()));
+
+            assert_eq!(encrypted, None);
+            for (security, refused) in unencrypted.iter().zip(&refusals) {
+                assert!(refused.is_some(), "{security:?}");
+            }
+        }
+
+        #[test]
+        fn ops_14_a_deploy_refuses_a_quoted_value_of_settings_env() {
+            refuses_lines(
+                &[
+                    r#"SMTP_SECURITY="none""#,
+                    "SMTP_SECURITY='none'",
+                    r#"SMTP_SECURITY="none" # a comment"#,
+                    r#"EMAIL_FROM="no\nne""#,
+                ],
+                &[r#"SMTP_USERNAME=no"ne"#, "SMTP_USERNAME=it's"],
+            );
+        }
+
+        #[test]
+        fn ops_14_a_deploy_refuses_a_comment_after_a_value_of_settings_env_and_takes_a_hash_within_one()
+         {
+            refuses_lines(
+                &["SMTP_SECURITY=none # a comment", "SMTP_SECURITY=none  #"],
+                &["SMTP_USERNAME=none#x", "SMTP_USERNAME=#x"],
+            );
+        }
+
+        #[test]
+        fn ops_14_a_deploy_refuses_a_space_at_either_end_of_a_value_of_settings_env() {
+            refuses_lines(
+                &[
+                    "SMTP_SECURITY=none ",
+                    "SMTP_SECURITY= none",
+                    "SMTP_SECURITY= ",
+                ],
+                &["EMAIL_FROM=AntWorker <noreply@example.com>"],
+            );
+        }
+
+        #[test]
+        fn ops_14_a_deploy_refuses_a_line_of_settings_env_that_isn_t_empty_a_comment_or_a_name_and_its_value()
+         {
+            refuses_lines(
+                &[
+                    "export SMTP_SECURITY=none",
+                    " SMTP_SECURITY=none",
+                    "SMTP_SECURITY =none",
+                    "SMTP_SECURITY: none",
+                    "SMTP_SECURITY",
+                    "smtp_security=none",
+                    "1SMTP_SECURITY=none",
+                    " ",
+                    " # a comment",
+                ],
+                &["", "# a comment", "#SMTP_SECURITY=none"],
+            );
+        }
+
+        #[test]
+        fn ops_14_a_deploy_refuses_a_value_of_settings_env_with_a_control_character_a_dollar_or_a_backslash()
+         {
+            refuses_lines(
+                &[
+                    "SMTP_SECURITY=none\r",
+                    "SMTP_USERNAME=a\tb",
+                    "SMTP_USERNAME=a\u{7f}b",
+                    "SMTP_USERNAME=a$b",
+                    "SMTP_USERNAME=$HOME",
+                    r"SMTP_USERNAME=a\b",
+                ],
+                &["SMTP_USERNAME=~a"],
+            );
+        }
+
+        #[test]
+        fn ops_14_a_deploy_refuses_a_unicode_space_at_either_end_of_a_value_of_settings_env_and_takes_a_letter_beyond_ascii_there()
+         {
+            // Each character beyond ASCII that Unicode lists as white space, and of its one
+            // range of them the first, one within and the last.
+            let spaces = [
+                '\u{85}', '\u{a0}', '\u{1680}', '\u{2000}', '\u{2003}', '\u{200a}', '\u{2028}',
+                '\u{2029}', '\u{202f}', '\u{205f}', '\u{3000}',
+            ];
+            let refused: Vec<String> = spaces
+                .iter()
+                .flat_map(|space| {
+                    [
+                        format!("SMTP_USERNAME=none{space}"),
+                        format!("SMTP_USERNAME={space}none"),
+                    ]
+                })
+                .collect();
+            let refused: Vec<&str> = refused.iter().map(String::as_str).collect();
+
+            refuses_lines(
+                &refused,
+                &[
+                    "EMAIL_FROM=\u{c5}sa <noreply@example.com>",
+                    "EMAIL_FROM=S\u{f6}kning <noreply@example.com>",
+                    "SMTP_USERNAME=caf\u{e9}",
+                    // A space of Unicode's within a value, and the characters whose bytes
+                    // stand beside the spaces': U+00A1, U+200B and U+3001.
+                    "SMTP_USERNAME=a\u{a0}b",
+                    "SMTP_USERNAME=a\u{a1}",
+                    "SMTP_USERNAME=\u{a1}a",
+                    "SMTP_USERNAME=a\u{200b}",
+                    "SMTP_USERNAME=\u{200b}a",
+                    "SMTP_USERNAME=a\u{3001}",
+                ],
+            );
+        }
+
+        #[test]
+        fn ops_14_a_deploy_refuses_an_environment_that_sets_a_setting_of_settings_env() {
+            let set_twice = refusal_with(
+                &[("SMTP_SECURITY", "none")],
+                "read_settings",
+                &["SMTP_SECURITY=starttls"],
+            );
+            let set_empty = refusal_with(
+                &[("SMTP_SECURITY", "")],
+                "read_settings",
+                &["SMTP_SECURITY="],
+            );
+            // A variable that no line of the file sets, and one whose name only ends as a
+            // line's does.
+            let beside = refusal_with(
+                &[("SMTP_HOST", "192.0.2.25"), ("MY_SMTP_SECURITY", "none")],
+                "read_settings",
+                &["SMTP_SECURITY=starttls", "#SMTP_HOST=localhost"],
+            );
+
+            for refused in [set_twice, set_empty] {
+                assert!(
+                    refused.as_deref().is_some_and(|message| message.contains(
+                        "deploy: the environment that this task runs in sets SMTP_SECURITY"
+                    )),
+                    "{refused:?}"
+                );
+            }
+            assert_eq!(beside, None);
+        }
+
+        #[test]
+        fn ops_14_a_deploy_takes_the_lines_of_settings_env_that_compose_and_its_checks_read_alike()
+        {
+            let settings = [
+                "",
+                "# The mail server, a comment.",
+                "SMTP_PORT=",
+                "SMTP_USERNAME=first",
+                "SMTP_USERNAME=second",
+                "CORS_ALLOWED_ORIGINS=https://app.example.com,https://admin.example.com",
+                "TRUSTED_PROXIES=192.0.2.0/24 2001:db8::/32",
+                "MANAGED_GRAFANA_URL=https://stack.grafana.net/a?b=c&d=e",
+            ];
+
+            assert_eq!(refusal(&settings), None);
+        }
+
+        #[test]
+        fn ops_14_every_line_of_the_settings_example_is_of_a_form_that_a_deploy_takes() {
+            let example = String::from_utf8(
+                crate::repo::read(&root().join("deploy/settings.env.example"))
+                    .expect("read the example"),
+            )
+            .expect("UTF-8");
+            let lines: Vec<&str> = example.lines().collect();
+
+            assert_eq!(refusal_of("settings_lines", &lines), None);
+        }
+
+        /// The names of the settings that deploy/compose.yaml requires, in a `${NAME:?message}`
+        /// or a `${NAME?message}` whose message names settings.env. One whose message names
+        /// neither settings.env nor state/deploy.env, the file a deploy writes, fails.
+        fn required_by_compose() -> Vec<String> {
+            let compose = String::from_utf8(
+                crate::repo::read(&root().join("deploy/compose.yaml"))
+                    .expect("read deploy/compose.yaml"),
+            )
+            .expect("UTF-8");
+            let mut required = Vec::new();
+            for interpolation in compose.split("${").skip(1) {
+                let name: String = interpolation
+                    .chars()
+                    .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                    .collect();
+                let rest = &interpolation[name.len()..];
+                let Some(message) = rest.strip_prefix(":?").or_else(|| rest.strip_prefix('?'))
+                else {
+                    continue;
+                };
+                let message = message.split('}').next().unwrap_or_default();
+                if message.contains("settings.env") {
+                    required.push(name);
+                } else {
+                    assert!(
+                        message.contains("state/deploy.env"),
+                        "${{{name}?{message}}}"
+                    );
+                }
+            }
+            required
+        }
+
+        #[test]
+        fn ops_19_the_check_refuses_settings_env_without_each_setting_that_compose_requires_of_it()
+        {
+            let required = required_by_compose();
+
+            let refusals: Vec<(String, Option<String>)> = ["bundled", "managed"]
+                .iter()
+                .flat_map(|database| required.iter().map(move |name| (*database, name)))
+                .map(|(database, name)| {
+                    let settings = [format!("DATABASE={database}"), format!("{name}=")];
+                    let lines: Vec<&str> = settings.iter().map(String::as_str).collect();
+                    (format!("{database}: {name}"), refusal(&lines))
+                })
+                .collect();
+
+            assert!(!required.is_empty());
+            for (case, refused) in &refusals {
+                let name = case.rsplit(' ').next().unwrap_or_default();
+                assert!(
+                    refused
+                        .as_deref()
+                        .is_some_and(|message| message.contains(&format!("deploy: {name} is "))),
+                    "{case}: {refused:?}"
+                );
+            }
         }
 
         #[test]

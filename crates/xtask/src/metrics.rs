@@ -260,6 +260,81 @@ fn check_use(repo: &Repo, catalog: &Catalog, findings: &mut Vec<Finding>) {
         }
     }
     unread(catalog, &recorded, &used_metrics, &used_records, findings);
+    first_values(catalog, &dashboards, &rules, findings);
+}
+
+/// Fails each `increase(` of a panel's Prometheus query or of a rule's expression, read with its
+/// whitespace collapsed to single spaces, whose argument, the text up to the first `)` outside a
+/// string in double quotes, names a series of a metric that the API declares before its first
+/// `{` or `[`, spaces aside, unless the argument is `S[W]` and the text from the `(` before the
+/// `increase(` is `(increase(S[W]) and S offset W) or (S unless S offset W)`, which counts a
+/// series that appears within the window by its first value (OBS-13). It reads no other
+/// function, such as `rate(`.
+fn first_values(
+    catalog: &Catalog,
+    dashboards: &stack::Dashboards,
+    rules: &[stack::Rule],
+    findings: &mut Vec<Finding>,
+) {
+    let declared: BTreeSet<String> = catalog
+        .declared
+        .iter()
+        .flat_map(|metric| metric.series().unwrap_or_default())
+        .collect();
+    let panels = dashboards
+        .queries
+        .iter()
+        .filter(|query| query.store == Store::Prometheus)
+        .map(|query| (query.path.as_str(), query.line, query.query.as_str()));
+    let expressions = rules
+        .iter()
+        .map(|rule| (stack::RULES, rule.line, rule.expr.as_str()));
+    for (path, line, query) in panels.chain(expressions) {
+        let text = query.split_whitespace().collect::<Vec<_>>().join(" ");
+        for (start, _) in text.match_indices("increase(") {
+            let argument = argument(&text[start + "increase(".len()..]);
+            let name = argument.split(['{', '[']).next().unwrap_or_default().trim();
+            if !declared.contains(name) {
+                continue;
+            }
+            // The form, from the `increase(` on.
+            let form = argument
+                .strip_suffix(']')
+                .and_then(|argument| argument.rsplit_once('['))
+                .map(|(s, w)| {
+                    format!("increase({s}[{w}]) and {s} offset {w}) or ({s} unless {s} offset {w})")
+                });
+            if !form.is_some_and(|form| {
+                text[..start].ends_with('(') && text[start..].starts_with(&form)
+            }) {
+                findings.push(Finding::new(
+                    path,
+                    line,
+                    format!(
+                        "`increase({argument})` counts nothing of the first value of a series \
+                         that appears within its window: write `(increase(S[W]) and S offset W) or \
+                         (S unless S offset W)` (OBS-13)"
+                    ),
+                ));
+            }
+        }
+    }
+}
+
+/// The text of `rest` up to the first `)` outside a string in double quotes.
+fn argument(rest: &str) -> &str {
+    let mut quoted = false;
+    let mut escaped = false;
+    for (index, c) in rest.char_indices() {
+        match c {
+            _ if escaped => escaped = false,
+            '\\' if quoted => escaped = true,
+            '"' => quoted = !quoted,
+            ')' if !quoted => return &rest[..index],
+            _ => {}
+        }
+    }
+    rest
 }
 
 /// Fails each metric and recording rule that no dashboard or alert reads.
@@ -403,6 +478,49 @@ mod tests {
             )
             .is_empty()
         );
+    }
+
+    #[test]
+    fn obs_13_an_increase_of_a_declared_metric_counts_the_first_value_of_a_series_that_appears() {
+        let rules =
+            "groups:\n  - name: a\n    rules:\n      - alert: Down\n        expr: up == 0\n";
+        let form = |s: &str, w: &str| {
+            format!("(increase({s}[{w}]) and {s} offset {w}) or ({s} unless {s} offset {w})")
+        };
+        let x = "platform_panics_total";
+        let quoted = r#"platform_panics_total{a=~"(b)"}"#;
+        let counted = [
+            form(x, "5m"),
+            format!("sum({})", form(quoted, "1h")),
+            format!("increase(up[5m]) + {x}"),
+        ];
+        // An increase alone, and three that miss a first value in a form's likeness: another
+        // window, another selector, and a subquery.
+        let missed = [
+            format!("increase({x}[5m])"),
+            format!("(increase({x}[5m]) and {x} offset 5m) or ({x} unless {x} offset 10m)"),
+            format!(
+                "(increase({x}[5m]) and {x} offset 5m) or ({quoted} unless {quoted} offset 5m)"
+            ),
+            format!("(increase({x}[5m:1m]) and {x} offset 5m) or ({x} unless {x} offset 5m)"),
+        ];
+
+        let taken = counted
+            .each_ref()
+            .map(|query| findings(&dashboard("Did anything panic?", query), rules));
+        let refused = missed
+            .each_ref()
+            .map(|query| findings(&dashboard("Did anything panic?", query), rules));
+
+        for (query, found) in counted.iter().zip(&taken) {
+            assert!(found.is_empty(), "{query}: {found:?}");
+        }
+        for (query, found) in missed.iter().zip(&refused) {
+            assert!(
+                found.len() == 1 && found[0].contains("counts nothing of the first value"),
+                "{query}: {found:?}"
+            );
+        }
     }
 
     #[test]

@@ -312,6 +312,18 @@ async fn ops_17_a_deploy_refuses_a_connection_that_would_leave_the_server_unencr
         deployment.apply(&deployment.api, &[]).await,
         "SMTP_SECURITY=none sends email unencrypted".to_owned(),
     ));
+    // The same, in quotes, which Compose takes off a value, where a check of the line's text
+    // would read another value than `none`.
+    deployment.set(&[
+        ("EMAIL", "smtp"),
+        ("SMTP_HOST", "192.0.2.25"),
+        ("SMTP_SECURITY", "\"none\""),
+        ("EMAIL_FROM", "AntWorker <noreply@example.com>"),
+    ]);
+    refusals.push((
+        deployment.apply(&deployment.api, &[]).await,
+        "which sets SMTP_SECURITY, is none of the forms that a deploy reads".to_owned(),
+    ));
 
     for (refused, why) in &refusals {
         assert!(!refused.status.success(), "{why}: {}", lossy(refused));

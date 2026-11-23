@@ -364,6 +364,7 @@ remove_unused() {
 
 deploy_release() {
     version=$1
+    settings_lines
     repository=$(setting IMAGE_REPOSITORY)
     source=$(setting SOURCE)
     if [ -z "$repository" ] || [ -z "$source" ]; then fail "IMAGE_REPOSITORY and SOURCE are required"; fi

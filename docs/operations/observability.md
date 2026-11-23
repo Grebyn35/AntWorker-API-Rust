@@ -166,7 +166,7 @@ To find the slow requests of a time range instead, the API requests dashboard li
 | Availability | 99.9% of requests answer without a 5xx, the 503 of a feature that the deployment turned off aside (OPS-04) | 0.1% of requests |
 | Latency | 99% of requests answer within 0.5 seconds | 1% of requests |
 
-The health probes don't count, since they aren't measured (OBS-15), nor the requests that the proxy answers while no replica can (OPS-05): the objectives count the API's own measurements, and `ApiTelemetryMissing` pages once no instance has exported metrics for five minutes. The latency objective is one number in four places: the collector's latency policy, the rules that count slow requests, the dashboard's list of slow traces, and the line its slowest requests' panel draws. `check-telemetry-config` fails while they differ, and `just load-test` reads it from the collector's policy.
+The health probes don't count, since they aren't measured (OBS-15), nor the requests that the proxy answers while no replica can (OPS-05), nor, in the rules that measure the objectives, the first request of each series of the requests' durations, as the comment at the head of [rules.yaml](../../deploy/observability/prometheus/rules.yaml) says: the objectives count the API's own measurements, and `ApiTelemetryMissing` pages once no instance has exported metrics for five minutes. The latency objective is one number in four places: the collector's latency policy, the rules that count slow requests, the dashboard's list of slow traces, and the line its slowest requests' panel draws. `check-telemetry-config` fails while they differ, and `just load-test` reads it from the collector's policy.
 
 ## Alerts
 

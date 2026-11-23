@@ -11,7 +11,7 @@ use std::{
 use crate::{
     deployment::{
         Deployment, GRAFANA_ADDRESS, GRAFANA_ADMIN_PASSWORD, GRAFANA_ADMIN_USER, get, get_traced,
-        get_with_cookie, get_within, get_within_as, post, post_for_cookies, unanswered_as,
+        get_with_cookie, get_within, get_within_as, post, post_for_cookies, send, unanswered_as,
     },
     docker::{compose, lossy},
     server::DEPLOYMENT,
@@ -145,8 +145,8 @@ fn assert_the_proxy_answers_no_other_host(deployment: &Deployment, root: &str) {
 
 /// Asserts that Prometheus, Loki, Tempo and Alertmanager, which ask no credential, join one
 /// network, which the collector and Grafana join beside them and neither the proxy nor a replica
-/// does, and that Prometheus answers on that network and on none of the proxy's and the
-/// replicas' (SEC-14).
+/// does, that each answers Go's profiling endpoints on that network, and that Prometheus answers
+/// on that network and on none of the proxy's and the replicas' (SEC-14).
 fn assert_the_stores_answer_the_collector_and_grafana_alone(deployment: &Deployment) {
     let networks = |service: &str| {
         let mut joined: Vec<String> = deployment
@@ -212,6 +212,7 @@ fn assert_the_stores_answer_the_collector_and_grafana_alone(deployment: &Deploym
         "timeout 60 sh -c 'until {}; do sleep 1; done'",
         healthy("deployment_stack")
     ));
+    assert_each_store_answers_go_s_profiling_endpoints_on_its_network(deployment, &curl);
     for network in &senders {
         let answered = deployment.server.shell(&healthy(network));
         assert!(
@@ -219,6 +220,26 @@ fn assert_the_stores_answer_the_collector_and_grafana_alone(deployment: &Deploym
             "{network}: {}",
             lossy(&answered)
         );
+    }
+}
+
+/// Asserts that Prometheus, Loki, Tempo and Alertmanager each answer Go's profiling endpoints on
+/// the network that they join, through `curl`, the image of the tools' curl (SEC-14).
+fn assert_each_store_answers_go_s_profiling_endpoints_on_its_network(
+    deployment: &Deployment,
+    curl: &str,
+) {
+    for (store, port) in [
+        ("prometheus", 9090),
+        ("loki", 3100),
+        ("tempo", 3200),
+        ("alertmanager", 9093),
+    ] {
+        deployment.server.shell_ok(&format!(
+            "timeout 120 sh -c 'until docker run --rm --quiet --network deployment_stack {curl} \
+             --silent --fail --max-time 5 --output /dev/null http://{store}:{port}/debug/pprof/; \
+             do sleep 1; done'"
+        ));
     }
 }
 
@@ -316,6 +337,7 @@ async fn sec_14_a_server_publishes_only_the_proxy_and_grafana_signs_every_viewer
     assert_eq!(as_default, 401);
     assert_the_session_s_cookie_is_this_host_s_alone(&cookies);
     assert_a_browser_guards_grafana_s_pages(&page_headers);
+    assert_grafana_lists_no_directory_and_echoes_no_trace(&deployment, &root);
     assert_the_stores_answer_the_collector_and_grafana_alone(&deployment);
     assert_the_proxy_answers_no_other_host(&deployment, &root);
 }
@@ -342,7 +364,8 @@ async fn ops_17_the_proxy_redirects_plain_http_at_grafana_s_address_to_https() {
 
 /// Of the cookies that Grafana's sign-in sets, the session's is `__Host-grafana_session`, for
 /// this host alone and for 30 days, `HttpOnly`, `Secure` and `SameSite=Lax`, and the only other
-/// is Grafana's own, of the time at which the session's token changes next (SEC-14).
+/// is Grafana's own, of the time at which the session's token changes next, which is `Secure`
+/// and `SameSite=Lax` too (SEC-14).
 fn assert_the_session_s_cookie_is_this_host_s_alone(cookies: &[String]) {
     let session: Vec<&String> = cookies
         .iter()
@@ -365,12 +388,40 @@ fn assert_the_session_s_cookie_is_this_host_s_alone(cookies: &[String]) {
             .any(|attribute| attribute.starts_with("Domain")),
         "{cookies:?}"
     );
-    let others: Vec<&str> = cookies
+    let others: Vec<&String> = cookies
+        .iter()
+        .filter(|cookie| !cookie.starts_with("__Host-grafana_session="))
+        .collect();
+    let names: Vec<&str> = others
         .iter()
         .filter_map(|cookie| cookie.split('=').next())
-        .filter(|name| *name != "__Host-grafana_session")
         .collect();
-    assert_eq!(others, ["grafana_session_expiry"]);
+    assert_eq!(names, ["grafana_session_expiry"]);
+    let expiry: Vec<&str> = others[0].split("; ").skip(1).collect();
+    for attribute in ["Secure", "SameSite=Lax"] {
+        assert!(expiry.contains(&attribute), "{attribute}: {cookies:?}");
+    }
+}
+
+/// Asserts that Grafana answers the directories of its own assets with 404, and a `TRACE`, which
+/// Caddy passes on to it, with neither a success nor an echo of the request (SEC-14).
+fn assert_grafana_lists_no_directory_and_echoes_no_trace(deployment: &Deployment, root: &str) {
+    let listings = ["/public/", "/public/build/"].map(|directory| {
+        get(
+            root.to_owned(),
+            deployment.url_at(GRAFANA_ADDRESS, "https", 443, directory),
+        )
+        .0
+    });
+    let (traced, echo) = send(
+        root.to_owned(),
+        reqwest::Method::TRACE,
+        deployment.url_at(GRAFANA_ADDRESS, "https", 443, "/login"),
+    );
+
+    assert_eq!(listings, [404, 404]);
+    assert!(!(200..300).contains(&traced), "{traced}: {echo}");
+    assert!(!echo.contains("TRACE"), "{echo}");
 }
 
 /// The headers of a page of Grafana's tell a browser to guess no type, to name the page to no

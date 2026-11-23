@@ -593,6 +593,21 @@ pub fn post_for_cookies(root: String, url: String, body: String) -> (u16, Vec<St
     .expect("the request")
 }
 
+/// Sends a request of `method`, without a body, to `url`, through a client that trusts `root`,
+/// and returns the response's status and body.
+pub fn send(root: String, method: reqwest::Method, url: String) -> (u16, String) {
+    thread::spawn(move || {
+        let response = client(&root)
+            .request(method, &url)
+            .send()
+            .expect("an answer");
+        let status = response.status().as_u16();
+        (status, response.text().expect("a body"))
+    })
+    .join()
+    .expect("the request")
+}
+
 /// Sends `POST` to `url` with the JSON body `body`, with `token` as its Bearer access token if
 /// given, through a client that trusts `root`, and returns the response's status and body.
 pub fn post_as(root: String, url: String, token: Option<String>, body: String) -> (u16, String) {
