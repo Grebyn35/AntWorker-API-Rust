@@ -70,7 +70,7 @@ A 500 response has a fixed title and no detail. Its only identifying field is `t
 - Check: `test` (`platform`'s unit tests assert the fixed body of an error of the `Internal` category, and the integration tests' support asserts it of each 500 that it reads from the API in process).
 
 ### ERR-09 `detail` is for humans and never carries internals
-`detail` holds a human-readable sentence, which holds on every route that answers its code: it names no field or step that only some of them have. It never includes SQL, file paths, internal identifiers, stack traces or secrets. Clients act on `code`, never on the text.
+`detail` holds a human-readable sentence, which holds on every route that answers its code, for every caller that the route answers it to: it names no field or step that only some of those routes or callers have. It never includes SQL, file paths, internal identifiers, stack traces or secrets. Clients act on `code`, never on the text.
 - Why: the text can change or be translated, while the code is the contract.
 - Check: `review`.
 

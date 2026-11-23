@@ -1334,16 +1334,21 @@ async fn workspaces_013_a_change_names_a_member_a_current_version_and_a_role() {
     let stale = change_role(&api, &owner, target, "admin", Some("\"7\"")).await;
     // A change to the role they hold fails a stale precondition too.
     let stale_unchanged = change_role(&api, &owner, target, "member", Some("\"7\"")).await;
-    let not_a_role = api
-        .request(
+    let guest = |caller: &SignedIn, user: &str| {
+        api.request(
             http::Method::PATCH,
-            &format!("/v1/workspaces/{workspace}/members/{}", member.user_id),
+            &format!("/v1/workspaces/{workspace}/members/{user}"),
         )
         .header("content-type", "application/merge-patch+json")
         .body(r#"{"role": "guest"}"#)
-        .bearer(&owner.access)
+        .bearer(&caller.access)
         .send()
-        .await;
+    };
+    let not_a_role = guest(&owner, &member.user_id).await;
+    // Before the caller is authorized: whatever the path holds, and from a member, who holds no
+    // members.update.
+    let nor_an_id = guest(&owner, "nobody").await;
+    let unauthorized = guest(&member, &member.user_id).await;
 
     for missing in [&not_member, &not_an_id] {
         assert_eq!(missing.status, 404);
@@ -1353,9 +1358,12 @@ async fn workspaces_013_a_change_names_a_member_a_current_version_and_a_role() {
         assert_eq!(failed.status, 412);
         assert_eq!(failed.json()["code"], "request.precondition_failed");
     }
-    assert_eq!(not_a_role.status, 400);
-    assert_eq!(not_a_role.json()["code"], "request.invalid_fields");
-    assert_eq!(not_a_role.json()["errors"][0]["field"], "/role");
+    let invalid = [&not_a_role, &nor_an_id, &unauthorized];
+    assert_eq!(invalid.map(|response| response.status), [400; 3]);
+    for response in invalid {
+        assert_eq!(response.json()["code"], "request.invalid_fields");
+        assert_eq!(response.json()["errors"][0]["field"], "/role");
+    }
     assert_eq!(roles(&api, &workspace).await, before);
 }
 

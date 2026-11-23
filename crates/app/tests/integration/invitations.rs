@@ -906,6 +906,63 @@ async fn invitations_009_a_request_refused_for_its_idempotency_key_counts_in_no_
 }
 
 #[tokio::test]
+async fn invitations_009_a_request_refused_for_its_body_counts_in_no_member_s_bucket() {
+    let options = Options::default()
+        .set("INVITATION_LIMIT", 1)
+        .set("INVITATION_WINDOW_SECONDS", 60);
+    let api = Api::with(options).await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let workspace = acme(&api, &ada, &[]).await;
+
+    let not_json = api
+        .request(
+            http::Method::POST,
+            &format!("/v1/workspaces/{workspace}/invitations"),
+        )
+        .header("content-type", "application/json")
+        .body("{")
+        .bearer(&ada.access)
+        .send()
+        .await;
+    let invited = invite(&api, &ada, &workspace, "dave@example.com", "member").await;
+
+    assert_eq!(not_json.status, 400);
+    assert_eq!(not_json.json()["code"], "request.invalid_body");
+    assert_eq!(invited.status, 201);
+}
+
+#[tokio::test]
+async fn invitations_009_a_request_that_platform_054_refuses_counts_in_no_member_s_bucket() {
+    let options = Options::default()
+        .set("INVITATION_LIMIT", 1)
+        .set("INVITATION_WINDOW_SECONDS", 60)
+        .set("RATE_LIMIT_IP_REQUESTS", 2);
+    let api = Api::with(options).await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let workspace = acme(&api, &ada, &[]).await;
+    let full = "192.0.2.7:1";
+    for _ in 0..2 {
+        api.get("/v1/capabilities").from(full).send().await;
+    }
+    let invite_from = |peer: &str| {
+        api.post(
+            &format!("/v1/workspaces/{workspace}/invitations"),
+            &json!({ "email": "carol@example.com", "role": "member" }),
+        )
+        .bearer(&ada.access)
+        .from(peer)
+        .send()
+    };
+
+    let refused = invite_from(full).await;
+    let invited = invite_from("192.0.2.8:1").await;
+
+    assert_eq!(refused.status, 429);
+    assert!(refused.header("ratelimit-policy").starts_with("\"ip\";"));
+    assert_eq!(invited.status, 201);
+}
+
+#[tokio::test]
 async fn invitations_009_by_default_a_member_may_invite_100_times_an_hour() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;

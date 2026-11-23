@@ -164,9 +164,11 @@ impl ErrorCode for WorkspacesError {
                 Some("The malware scanner refused the image, so it wasn't stored.".to_owned())
             }
             // end part: files
-            Self::CannotRemoveSelf => {
-                Some("Leave the workspace instead of removing yourself.".to_owned())
-            }
+            Self::CannotRemoveSelf => Some(
+                "To end your own membership, leave the workspace, or, as its owner, transfer it \
+                 first or delete it."
+                    .to_owned(),
+            ),
             Self::TransferRequiresAdmin => {
                 Some("A workspace goes to one of its admins: name a member who is one.".to_owned())
             }
@@ -180,5 +182,26 @@ impl ErrorCode for WorkspacesError {
             Self::Platform(error) => error.errors(),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use platform::errors::ErrorCode;
+
+    use super::WorkspacesError;
+
+    #[test]
+    fn err_09_the_detail_of_removing_oneself_holds_for_the_owner_too() {
+        // The owner and admins may remove members (WORKSPACES-006), and the owner, who holds no
+        // `workspace.leave`, transfers or deletes the workspace to end their membership
+        // (WORKSPACES-014).
+        assert_eq!(
+            WorkspacesError::CannotRemoveSelf.detail().as_deref(),
+            Some(
+                "To end your own membership, leave the workspace, or, as its owner, transfer it \
+                 first or delete it."
+            )
+        );
     }
 }

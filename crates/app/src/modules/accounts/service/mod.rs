@@ -84,8 +84,9 @@ pub(crate) async fn find_by_email_for_key_share(
 }
 
 /// `user_id`'s address, or `None` once the account is gone. Callers pass the ID of the caller, of
-/// the user a job runs for, of the account that a reset's address names, or of the account that
-/// a sign-in or a registration starts a session for (DATA-16).
+/// the user a job runs for, of the account that a reset's address names, of the account that a
+/// sign-in or a registration starts a session for, or of the user of the session that a refresh
+/// token names (DATA-16).
 pub(crate) async fn address(
     uow: &mut UnitOfWork,
     user_id: UserId,

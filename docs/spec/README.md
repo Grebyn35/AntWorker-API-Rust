@@ -23,6 +23,8 @@ A spec has these sections, in this order:
 
 A section with nothing in it reads "None.", which a sentence that says why may follow, such as "None. No other module uses `system`."
 
+A behavior that says a request writes nothing, or answers before anything is written, speaks of what its operation writes, not of the counts of its rate limits and budgets, which commit whatever it answers (PLATFORM-011, PLATFORM-089).
+
 ## IDs
 
 A behavior's ID is the module name in capitals plus a three-digit number, such as `AUTH-004` or `WORKSPACES-002`, the next number after the highest the spec names. IDs are never reused: a deleted behavior's number is retired, in a line at the top of its spec's Behaviors, such as "IDs 014 and 015 are retired.", so no later behavior takes it. A spec covers the behaviors that have been built or are about to be built, and grows as its module does.

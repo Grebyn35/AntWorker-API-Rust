@@ -413,6 +413,20 @@ async fn files_004_a_body_over_the_limit_answers_413_and_an_empty_one_400() {
     assert_eq!(stored_names(&api, &workspace).await, ["a.txt"]);
 }
 
+#[tokio::test]
+async fn files_004_by_default_a_body_holds_at_most_10_485_760_bytes() {
+    let api = Api::new().await;
+    let (workspace, ada, _) = acme(&api, "member").await;
+    let most = 10_485_760;
+
+    let at = upload(&api, &ada, &workspace, "a.txt", &vec![b'a'; most], None).await;
+    let over = upload(&api, &ada, &workspace, "b.txt", &vec![b'a'; most + 1], None).await;
+
+    assert_eq!(at.status, 201);
+    assert_eq!(over.status, 413);
+    assert_eq!(over.json()["code"], "request.payload_too_large");
+}
+
 /// How many uploads ended as `outcome`, in every test that runs alongside.
 fn uploads(outcome: &str) -> f64 {
     testing::recorded("files.uploads")
@@ -1266,6 +1280,25 @@ async fn files_011_the_comparison_records_each_object_no_row_names_written_an_ho
 }
 
 #[tokio::test]
+async fn files_011_by_default_an_object_goes_35_days_after_the_comparison_records_it() {
+    let bucket = bucket::listing(&[("workspaces/settled", "2020-01-01T00:00:00.000Z")]).await;
+    let api = Api::with(Options::default().set("S3_ENDPOINT", &bucket.endpoint)).await;
+
+    api.run_periodic("files.find_unreferenced_objects").await;
+
+    // By the database's clock.
+    assert_eq!(
+        api.database()
+            .owner_reads(
+                "SELECT (deletable_at - now() BETWEEN interval '35 days' - interval '1 minute' \
+                 AND interval '35 days')::text FROM object_deletions"
+            )
+            .await,
+        ["true"]
+    );
+}
+
+#[tokio::test]
 async fn files_011_the_comparison_records_an_object_written_over_an_hour_ago_and_none_within_it() {
     // The bucket lists two objects that no row names, written 61 and 59 minutes before now, by
     // the database's clock, which the comparison reads them by.
@@ -1609,6 +1642,25 @@ async fn files_013_uploads_are_counted_by_how_they_ended() {
         uploads_counted(&collector),
         ["malware_detected 1", "stored 1", "unsupported_type 1"]
     );
+}
+
+#[tokio::test]
+async fn files_013_an_upload_refused_before_the_check_of_its_bytes_counts_under_no_outcome() {
+    let api = Api::new().await;
+    let (workspace, ada, _) = acme(&api, "member").await;
+    let collector = Collector::start().await.unwrap();
+    let server = files::serving(api.database(), &collector, &[("FILE_MAX_BYTES", "10")]).await;
+
+    // A name that FILES-002 refuses, an empty body and a body over the limit (FILES-004).
+    let (unnamed, _) = upload_to(&server, &ada, &workspace, " ", b"hello", None).await;
+    let (empty, _) = upload_to(&server, &ada, &workspace, "a.txt", b"", None).await;
+    let (over, _) = upload_to(&server, &ada, &workspace, "a.txt", b"0123456789A", None).await;
+    // One that reaches the check, so the count shows that the collector received it.
+    let (stored, _) = upload_to(&server, &ada, &workspace, "a.txt", b"hello", None).await;
+    server.stop().await;
+
+    assert_eq!([unnamed, empty, over, stored], [400, 400, 413, 201]);
+    assert_eq!(uploads_counted(&collector), ["stored 1"]);
 }
 
 #[tokio::test]
