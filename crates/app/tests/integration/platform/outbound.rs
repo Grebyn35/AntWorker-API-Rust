@@ -1,10 +1,11 @@
 //! The two clients of `platform::outbound`, against a server on a loopback address, the tests'
 //! origin (SEC-10).
 
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use platform::{
     config::Environment,
+    errors::Held,
     outbound::{Configured, FetchError, OutboundConfig, Request, Untrusted},
     telemetry,
 };
@@ -275,10 +276,7 @@ async fn sec_10_the_configured_client_follows_no_redirect() {
     let asked = Arc::new(Mutex::new(Vec::new()));
     let paths = asked.clone();
     let client = configured(move |path| {
-        paths
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(path.to_owned());
+        paths.lock().held().push(path.to_owned());
         Some(match path {
             "/token" => redirect("/elsewhere"),
             _ => response("200 OK", &["Content-Length: 2"], b"ok"),
@@ -292,7 +290,7 @@ async fn sec_10_the_configured_client_follows_no_redirect() {
         .unwrap();
 
     assert_eq!(answer.status, 302);
-    let asked = asked.lock().unwrap_or_else(PoisonError::into_inner);
+    let asked = asked.lock().held();
     assert_eq!(*asked, ["/token"]);
 }
 
@@ -346,10 +344,7 @@ async fn obs_07_neither_client_sends_the_trace_context_to_the_server_it_calls() 
     let (config, origin) = reading({
         let heads = heads.clone();
         move |head| {
-            heads
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .push(head.to_lowercase());
+            heads.lock().held().push(head.to_lowercase());
             Some(response("200 OK", &["Content-Length: 4"], b"\x89PNG"))
         }
     })
@@ -371,7 +366,7 @@ async fn obs_07_neither_client_sends_the_trace_context_to_the_server_it_calls() 
     assert!(sent.is_ok(), "{sent:?}");
     assert!(fetched.is_ok(), "{fetched:?}");
     assert_ne!(trace, "00000000000000000000000000000000");
-    let heads = heads.lock().unwrap_or_else(PoisonError::into_inner).clone();
+    let heads = heads.lock().held().clone();
     assert_eq!(heads.len(), 2, "{heads:?}");
     for head in &heads {
         for header in ["traceparent", "tracestate", "baggage"] {

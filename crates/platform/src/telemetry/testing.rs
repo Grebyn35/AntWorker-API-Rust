@@ -8,7 +8,7 @@ use std::{
     collections::BTreeMap,
     io,
     sync::{
-        Mutex, OnceLock, PoisonError,
+        Mutex, OnceLock,
         atomic::{AtomicU64, Ordering},
         mpsc,
     },
@@ -27,7 +27,7 @@ use serde_json::Value;
 use tracing_subscriber::{Layer, filter::LevelFilter, fmt::MakeWriter, layer::SubscriberExt};
 
 use super::{Service, TelemetryError, names};
-use crate::config::Environment;
+use crate::{config::Environment, errors::Held};
 
 /// Every line the process's logger has written, and the watches of the tests that run. A lock
 /// that a panic poisoned still holds whole lines and watches, since each change of them is one
@@ -145,7 +145,7 @@ pub fn logged(trace_id: &str) -> Vec<Value> {
 
 /// Every line logged so far, in order.
 pub fn all_logged() -> Vec<Value> {
-    let logged = LOGGED.lock().unwrap_or_else(PoisonError::into_inner);
+    let logged = LOGGED.lock().held();
     logged
         .lines
         .iter()
@@ -159,7 +159,7 @@ pub fn all_logged() -> Vec<Value> {
 /// runner runs on a thread of its own (TEST-06).
 pub fn logged_on_this_thread() -> Vec<Value> {
     let current = thread::current().id();
-    let logged = LOGGED.lock().unwrap_or_else(PoisonError::into_inner);
+    let logged = LOGGED.lock().held();
     logged
         .lines
         .iter()
@@ -188,17 +188,13 @@ impl Watch {
         let watch = NEXT_WATCH.fetch_add(1, Ordering::Relaxed);
         let current = thread::current();
         let test = current.name().unwrap_or("a test").to_owned();
-        LOGGED
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .watches
-            .push(Watched {
-                watch,
-                thread: current.id(),
-                test,
-                output: Box::new(output),
-                printing: false,
-            });
+        LOGGED.lock().held().watches.push(Watched {
+            watch,
+            thread: current.id(),
+            test,
+            output: Box::new(output),
+            printing: false,
+        });
         let (ended, waiting) = mpsc::channel::<()>();
         thread::spawn(move || {
             #[expect(
@@ -224,7 +220,7 @@ impl Drop for Watch {
     fn drop(&mut self) {
         LOGGED
             .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+            .held()
             .watches
             .retain(|watched| watched.watch != self.watch);
     }
@@ -233,7 +229,7 @@ impl Drop for Watch {
 /// Prints what the test of `watch` has logged, unless another watch of its thread already
 /// does, and marks the watch as printing each line its test logs from now on.
 fn print_logged(watch: u64, after: Duration) -> io::Result<()> {
-    let mut logged = LOGGED.lock().unwrap_or_else(PoisonError::into_inner);
+    let mut logged = LOGGED.lock().held();
     let Logged { lines, watches } = &mut *logged;
     let Some(index) = watches.iter().position(|watched| watched.watch == watch) else {
         return Ok(());
@@ -361,7 +357,7 @@ impl io::Write for Memory {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         let thread = thread::current().id();
         let line = String::from_utf8_lossy(bytes).into_owned();
-        let mut logged = LOGGED.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut logged = LOGGED.lock().held();
         // A line that can't be printed is still kept, and the logger reports the error.
         let printed = logged
             .watches

@@ -316,7 +316,7 @@ The review of the whole codebase stops area by area (D223). Its areas are the gr
 | B18-e2e-stack | every file of `crates/app/tests/e2e/` that B17 doesn't hold, and `crates/app/tests/load/` | 3 | 3 | `stopped: no progress` |
 | B19-xtask-openapi | `crates/xtask/src/openapi/` | 2 | 1 | `next pass` |
 | B20-xtask-parts | `crates/xtask/src/parts/`, `crates/xtask/parts.yaml`, `crates/xtask/src/copy.rs`, `crates/xtask/src/unused.rs` | 0 | 0 | `clean` |
-| B21-xtask-structure | `crates/xtask/src/new_module/`, `crates/xtask/templates/`, `crates/xtask/src/rename.rs`, `crates/xtask/src/layers.rs`, `crates/xtask/src/layout.rs`, `crates/xtask/src/deps/`, `crates/xtask/src/crate_deps.rs`, `crates/xtask/src/ownership.rs` | 0 | 0 | `clean` |
+| B21-xtask-structure | `crates/xtask/src/new_module/`, `crates/xtask/templates/`, `crates/xtask/src/rename.rs`, `crates/xtask/src/layers/`, `crates/xtask/src/layout.rs`, `crates/xtask/src/deps/`, `crates/xtask/src/crate_deps.rs`, `crates/xtask/src/ownership.rs` | 0 | 0 | `clean` |
 | B22-xtask-sql | `crates/xtask/src/sql_bans/`, `crates/xtask/src/tenancy/`, `crates/xtask/src/schema/`, `crates/xtask/src/migrations/`, `crates/xtask/src/sql.rs`, `crates/xtask/src/query_cache.rs`, `crates/xtask/src/migrated.rs` | 0 | 0 | `clean` |
 | B23-xtask-operate | `crates/xtask/src/server/`, `crates/xtask/src/load/`, `crates/xtask/src/restore.rs`, `crates/xtask/src/deploy.rs`, `crates/xtask/src/mirror.rs`, `crates/xtask/src/stack.rs`, `crates/xtask/src/services.rs`, `crates/xtask/src/inputs.rs`, `crates/xtask/src/tasks.rs`, `crates/xtask/src/env_drift.rs` | 1 | 3 | `stopped: no progress` |
 | B24-xtask-docs-checks | every file of `crates/xtask/` that no other area holds | 1 | 0 | `clean` |

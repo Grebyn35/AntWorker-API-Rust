@@ -12,7 +12,7 @@
 
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex, PoisonError},
+    sync::{Arc, Mutex},
 };
 
 use axum::{
@@ -22,6 +22,7 @@ use axum::{
     http::{HeaderMap, Method, StatusCode, Uri, header},
     response::{IntoResponse, Response},
 };
+use platform::errors::Held;
 use serde_json::Value;
 
 use super::api::Options;
@@ -160,7 +161,7 @@ impl Upstream {
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Answers> {
-        self.answers.lock().unwrap_or_else(PoisonError::into_inner)
+        self.answers.lock().held()
     }
 }
 
@@ -172,7 +173,7 @@ async fn answer(
     body: Bytes,
 ) -> Response {
     let answer = {
-        let mut answers = answers.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut answers = answers.lock().held();
         record(&mut answers, &method, &uri, &headers, &body)
     };
     match answer {

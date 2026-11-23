@@ -27,12 +27,12 @@
 use std::{
     collections::HashMap,
     sync::{
-        Mutex, PoisonError,
+        Mutex,
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
 };
 
-use platform::db::DatabaseUrl;
+use platform::{db::DatabaseUrl, errors::Held};
 use sqlx::PgConnection;
 use tokio::sync::{Notify, OnceCell, mpsc, oneshot};
 
@@ -192,7 +192,7 @@ pub(super) fn leave(leftover: Leftover) {
 /// Fails the test that calls it once the thread that drops the leftovers has stopped, so a
 /// cleanup that fails shows in the tests that follow it.
 pub(super) fn check() {
-    let failed = FAILED.lock().unwrap_or_else(PoisonError::into_inner);
+    let failed = FAILED.lock().held();
     assert!(
         failed.is_none(),
         "the cleanup of the tests' databases stopped: {}",
@@ -205,7 +205,7 @@ struct Stopped;
 
 impl Drop for Stopped {
     fn drop(&mut self) {
-        *FAILED.lock().unwrap_or_else(PoisonError::into_inner) =
+        *FAILED.lock().held() =
             Some("its thread panicked, as the test output above shows".to_owned());
         BACKLOG.stop();
     }

@@ -4,13 +4,16 @@
 
 use std::{
     io,
-    sync::{Arc, Mutex, PoisonError},
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
-use platform::telemetry::{
-    Service,
-    testing::{self, Watch},
+use platform::{
+    errors::Held,
+    telemetry::{
+        Service,
+        testing::{self, Watch},
+    },
 };
 
 use crate::support::{self, TestDatabase};
@@ -87,16 +90,13 @@ struct Printed(Arc<Mutex<Vec<u8>>>);
 
 impl Printed {
     fn text(&self) -> String {
-        String::from_utf8_lossy(&self.0.lock().unwrap_or_else(PoisonError::into_inner)).into_owned()
+        String::from_utf8_lossy(&self.0.lock().held()).into_owned()
     }
 }
 
 impl io::Write for Printed {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        self.0
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .extend_from_slice(bytes);
+        self.0.lock().held().extend_from_slice(bytes);
         Ok(bytes.len())
     }
 

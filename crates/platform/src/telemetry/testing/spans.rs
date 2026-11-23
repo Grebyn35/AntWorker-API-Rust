@@ -4,7 +4,7 @@
 //! ended under it, as the API exports them, for the tests of what a span ends with, such as its
 //! status (PLATFORM-020).
 
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use opentelemetry::trace::Status;
 use opentelemetry_sdk::trace::{InMemorySpanExporter, SdkTracerProvider, SpanData};
@@ -17,6 +17,8 @@ use tracing_subscriber::{
     layer::{Context, SubscriberExt},
     registry::LookupSpan,
 };
+
+use crate::errors::Held;
 
 /// The spans that opened under [`OpenSpans::dispatch`] and haven't closed, by their names. A
 /// lock that a panic poisoned still holds whole spans, since each change of them is one call, so
@@ -33,11 +35,7 @@ impl OpenSpans {
 
     /// Whether a span named `name` is open.
     pub fn is_open(&self, name: &str) -> bool {
-        self.0
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .iter()
-            .any(|(_, open)| *open == name)
+        self.0.lock().held().iter().any(|(_, open)| *open == name)
     }
 }
 
@@ -48,15 +46,12 @@ where
     fn on_new_span(&self, span: &Attributes<'_>, id: &Id, _: Context<'_, S>) {
         self.0
             .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+            .held()
             .push((id.clone(), span.metadata().name()));
     }
 
     fn on_close(&self, id: Id, _: Context<'_, S>) {
-        self.0
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .retain(|(open, _)| *open != id);
+        self.0.lock().held().retain(|(open, _)| *open != id);
     }
 }
 

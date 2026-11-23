@@ -12,7 +12,7 @@ use std::{
 
 use crate::{
     db::Database,
-    errors::{Category, ErrorCode, Internal, RequestError},
+    errors::{Category, ErrorCode, Held, Internal, RequestError},
     hashing::HmacKey,
     telemetry::{metrics::Counter, names},
 };
@@ -134,9 +134,7 @@ impl Counted {
     /// The counts. A lock that a panic poisoned still holds whole counts, since a push only
     /// appends, so its data is taken as it is.
     fn counts(&self) -> std::sync::MutexGuard<'_, Vec<Count>> {
-        self.0
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+        self.0.lock().held()
     }
 }
 

@@ -199,6 +199,6 @@ A few checks hold facts about the product in lists of their own, which a module 
 | A scheduled job that selects rows across workspaces, such as an expiry sweep | `CROSS_TENANT` in `crates/xtask/src/tenancy/mod.rs`, with the file and the name of each function that holds such a query | DATA-16 |
 | A table of the module's bookkeeping of what it keeps outside the database, which holds no tenant's data | `BOOKKEEPING` in `crates/xtask/src/tenancy/mod.rs` | DATA-16 |
 | A read of workspace data by a row's ID alone, of rows that whoever holds the ID may read, which DATA-16 then lists among its exemptions | `PUBLIC_READS` in `crates/xtask/src/tenancy/mod.rs`, with the file and the name of each function that holds such a query | DATA-16 |
-| A library that reaches another system | `INFRASTRUCTURE` in `crates/xtask/src/layers.rs`, and `HTTP_CLIENTS` if it makes HTTP requests | ERR-04, SEC-10 |
+| A library that reaches another system | `INFRASTRUCTURE` in `crates/xtask/src/layers/mod.rs`, and `HTTP_CLIENTS` if it makes HTTP requests | ERR-04, SEC-10 |
 | A file outside the set of names a module's files take | a change to ARCH-03, through [Changing a rule](../standards/README.md#changing-a-rule), then `MODULE_FILES`, or `MODULE_EXTRAS` for one module's own entry, in `crates/xtask/src/layout.rs` | ARCH-03 |
 | A dependency on another module | the module's edge in the graph in [architecture §5](../architecture.md#dependencies) | ARCH-05 |

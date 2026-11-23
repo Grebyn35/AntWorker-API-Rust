@@ -18,7 +18,7 @@ use std::{
     collections::HashSet,
     fs::File,
     io::Write,
-    sync::{Mutex, OnceLock, PoisonError},
+    sync::{Mutex, OnceLock},
 };
 
 use axum::{
@@ -26,6 +26,7 @@ use axum::{
     extract::{MatchedPath, Request},
     middleware::{self, Next},
 };
+use platform::errors::Held;
 
 /// The environment variable that names the file of the record.
 const FILE: &str = "SENT_ROUTES";
@@ -111,7 +112,7 @@ fn record(line: String) {
     let Some(record) = record else {
         return;
     };
-    let mut record = record.lock().unwrap_or_else(PoisonError::into_inner);
+    let mut record = record.lock().held();
     if !record.lines.contains(&line) {
         writeln!(record.file, "{line}").expect("a line of SENT_ROUTES");
         record.lines.insert(line);

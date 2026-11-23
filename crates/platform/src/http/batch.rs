@@ -6,7 +6,7 @@ use std::{
     collections::HashMap,
     fmt,
     io::Read,
-    sync::{Arc, Mutex, PoisonError},
+    sync::{Arc, Mutex},
 };
 
 use axum::{
@@ -28,7 +28,7 @@ use super::{
 };
 use crate::{
     blocking::Workers,
-    errors::{BodyFault, ErrorCode, Internal, PlatformError, Problem, RequestError},
+    errors::{BodyFault, ErrorCode, Held, Internal, PlatformError, Problem, RequestError},
     types::UserId,
 };
 
@@ -87,7 +87,7 @@ impl BatchTurns {
         let own = {
             // A lock that a panic poisoned still holds a whole map, since each change of it is
             // one call, so it is taken as it is.
-            let mut users = self.users.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut users = self.users.lock().held();
             // A user's turn that no batch holds or waits for is only the map's, and goes here.
             users.retain(|_, own| Arc::strong_count(own) > 1);
             Arc::clone(

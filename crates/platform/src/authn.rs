@@ -13,7 +13,7 @@ use std::{
     collections::HashSet,
     future::Future,
     pin::Pin,
-    sync::{Arc, Mutex, PoisonError},
+    sync::{Arc, Mutex},
 };
 
 use axum::{
@@ -24,7 +24,7 @@ use axum::{
 
 use crate::{
     db::UnitOfWork,
-    errors::{Internal, PlatformError, Problem, RequestError},
+    errors::{Held, Internal, PlatformError, Problem, RequestError},
     http::Cookies,
     jobs::JobScope,
     rate_limit::{Bucket, LimitError, RateLimits},
@@ -217,15 +217,12 @@ pub(crate) struct Proved(Arc<Mutex<Option<Principal>>>);
 impl Proved {
     /// Keeps `principal` as the request's caller.
     fn keep(&self, principal: &Principal) {
-        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = Some(principal.clone());
+        *self.0.lock().held() = Some(principal.clone());
     }
 
     /// The request's caller, if a session proved one.
     pub(crate) fn caller(&self) -> Option<Principal> {
-        self.0
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
+        self.0.lock().held().clone()
     }
 }
 

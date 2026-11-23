@@ -38,6 +38,8 @@ parts:
       - removes the part
       - fork that removes
       - fork removes
+      - leaves one part out
+      - leaves one of the parts out
   # part: invitations
   - name: invitations
     module: invitations

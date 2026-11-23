@@ -6,12 +6,13 @@
 
 use std::{
     net::SocketAddr,
-    sync::{Arc, Mutex, PoisonError},
+    sync::{Arc, Mutex},
 };
 
 use futures_util::TryStreamExt;
 use platform::{
     clock::TestClock,
+    errors::Held,
     storage::{Storage, StorageConfig},
     types::Secret,
 };
@@ -278,10 +279,7 @@ impl Keeping {
     /// Each object that the bucket was asked to write, in their order, those it refused among
     /// them.
     pub fn written(&self) -> Vec<Written> {
-        self.written
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
+        self.written.lock().held().clone()
     }
 }
 
@@ -430,7 +428,7 @@ fn kept_answer(
             }
         }
         "PUT" => {
-            let mut written = written.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut written = written.lock().held();
             let status = if refused.is_some_and(|first| written.len() >= first) {
                 500
             } else {
@@ -460,13 +458,13 @@ pub struct Scripted {
 impl Scripted {
     /// The path of each request that the bucket has read, in their order.
     pub fn paths(&self) -> Vec<String> {
-        let requests = self.requests.lock().unwrap_or_else(PoisonError::into_inner);
+        let requests = self.requests.lock().held();
         requests.iter().map(|(_, path)| path.clone()).collect()
     }
 
     /// The method of each request that the bucket has read, in their order.
     pub fn methods(&self) -> Vec<String> {
-        let requests = self.requests.lock().unwrap_or_else(PoisonError::into_inner);
+        let requests = self.requests.lock().held();
         requests.iter().map(|(method, _)| method.clone()).collect()
     }
 }
@@ -602,10 +600,7 @@ async fn answering(
                 let target = parts.next().unwrap_or_default();
                 let path = target.split('?').next().unwrap_or_default().to_owned();
                 head = method == "HEAD";
-                requests
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .push((method, path));
+                requests.lock().held().push((method, path));
             }
             let line = line.trim_end().to_ascii_lowercase();
             if line.is_empty() {

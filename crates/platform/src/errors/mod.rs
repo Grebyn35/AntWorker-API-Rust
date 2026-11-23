@@ -1,6 +1,10 @@
 //! Errors shared by every module, and the one conversion of an error into a response (ERR-07).
 
-use std::{error::Error, fmt};
+use std::{
+    error::Error,
+    fmt,
+    sync::{LockResult, PoisonError},
+};
 
 use axum::{
     Json,
@@ -322,6 +326,24 @@ pub fn ignore(error: &(dyn Error + 'static), reason: &'static str) {
     ERRORS_IGNORED.add(1, [reason.into()]);
 }
 
+/// The value of a lock that a panic may have poisoned (ERR-11).
+pub trait Held<G> {
+    /// What the lock holds, also when a panic poisoned it: then what the thread that panicked
+    /// left there, taken as it is. Each lock taken this way has a doc that says why that is a
+    /// whole value, such as that each change of it is one push.
+    fn held(self) -> G;
+}
+
+impl<G> Held<G> for LockResult<G> {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the one place that takes the value of a lock that a panic poisoned (ERR-11)"
+    )]
+    fn held(self) -> G {
+        self.unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
 /// `error` and each of its causes, outermost first, joined with `: `.
 pub fn chain(error: &(dyn Error + 'static)) -> String {
     let mut text = error.to_string();
@@ -341,6 +363,22 @@ mod tests {
     #[derive(Debug, thiserror::Error)]
     #[error("outer")]
     struct Outer(#[source] std::io::Error);
+
+    #[test]
+    fn err_11_a_lock_that_a_panic_poisoned_holds_what_the_panic_left() {
+        let lock = std::sync::Mutex::new(vec![1]);
+        let joined = std::thread::scope(|scope| {
+            scope
+                .spawn(|| {
+                    let mut pushed = lock.lock().unwrap();
+                    pushed.push(2);
+                    assert!(pushed.is_empty(), "a panic while the thread holds the lock");
+                })
+                .join()
+        });
+        assert!(joined.is_err() && lock.is_poisoned());
+        assert_eq!(*lock.lock().held(), [1, 2]);
+    }
 
     #[test]
     fn err_10_a_chain_lists_every_cause_outermost_first() {

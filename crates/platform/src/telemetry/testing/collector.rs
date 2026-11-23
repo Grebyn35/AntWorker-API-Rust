@@ -5,7 +5,7 @@
 use std::{
     io,
     net::SocketAddr,
-    sync::{Arc, Mutex, PoisonError},
+    sync::{Arc, Mutex},
 };
 
 use axum::{
@@ -29,6 +29,8 @@ use opentelemetry_proto::tonic::{
 };
 use prost::Message;
 use tokio::{net::TcpListener, sync::Notify};
+
+use crate::errors::Held;
 
 /// Everything the collector received, in order.
 #[derive(Clone, Debug, Default)]
@@ -225,11 +227,7 @@ impl Collector {
 
     /// Everything received so far.
     pub fn received(&self) -> Received {
-        self.state
-            .received
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
+        self.state.received.lock().held().clone()
     }
 
     /// Waits until what was received satisfies `done`, and returns it.
@@ -297,7 +295,7 @@ async fn metrics(State(state): State<Arc<Shared>>, body: Bytes) -> Response {
 impl Shared {
     /// Keeps an export, wakes whoever waits for one, and answers that it was taken whole.
     fn keep(&self, store: impl FnOnce(&mut Received)) -> Response {
-        store(&mut self.received.lock().unwrap_or_else(PoisonError::into_inner));
+        store(&mut self.received.lock().held());
         self.changed.notify_waiters();
         accepted()
     }

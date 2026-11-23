@@ -14,9 +14,10 @@
 
 use std::{
     io::Write,
-    sync::{Condvar, Mutex, OnceLock, PoisonError},
+    sync::{Condvar, Mutex, OnceLock},
 };
 
+use platform::errors::Held;
 use tokio::sync::Semaphore;
 
 use crate::{
@@ -159,14 +160,11 @@ impl Turns {
             "a test takes {count} turns of {}, which it would wait for for ever",
             self.count
         );
-        let mut queue = self.queue.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut queue = self.queue.lock().held();
         let ticket = queue.next;
         queue.next += 1;
         while queue.serving != ticket || queue.free < count {
-            queue = self
-                .changed
-                .wait(queue)
-                .unwrap_or_else(PoisonError::into_inner);
+            queue = self.changed.wait(queue).held();
         }
         queue.free -= count;
         queue.serving += 1;
@@ -196,11 +194,7 @@ impl Turn {
 
 impl Drop for Turn {
     fn drop(&mut self) {
-        let mut queue = self
-            .turns
-            .queue
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
+        let mut queue = self.turns.queue.lock().held();
         queue.free += self.count;
         self.turns.changed.notify_all();
     }

@@ -1,6 +1,7 @@
 //! `check-docs`: links to the repository's files, IDs and the CI checks the rules name all
-//! resolve (DOC-12); prose and comments hold no history markers (DOC-01) and no unfinished-work
-//! markers (DOC-04); every document belongs to the documentation set (DOC-05); documents spell
+//! resolve, and the row of such a check lists each rule that names it (DOC-12, in `enforced`);
+//! prose and comments hold no history markers (DOC-01) and no unfinished-work markers (DOC-04);
+//! every document belongs to the documentation set (DOC-05); documents spell
 //! out acronyms where they first use them (DOC-06, in `acronyms`), and hold no sentence,
 //! paragraph or cell of more words than its bound (DOC-15, in `words`); specs, rules, tables and
 //! the tracker keep their formats (DOC-08 and DOC-14, in `formats`); each spec's Routes table
@@ -10,6 +11,7 @@
 //! into the inventory are named only where they resolve or DOC-13 allows (`references`); and two
 //! lists that documents keep of the code hold what the code holds (ARCH-01, DOC-01, in `listings`).
 
+mod enforced;
 mod listings;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -56,6 +58,7 @@ pub fn check(repo: &Repo, catalog: &Catalog) -> Outcome {
     findings.extend(headings(&documents));
     findings.extend(ids(repo, catalog));
     findings.extend(named_checks(repo, catalog));
+    findings.extend(enforced::unlisted(repo));
     findings.extend(subcommands(repo));
     findings.extend(composition(repo));
     findings.extend(prose_markers(&documents));

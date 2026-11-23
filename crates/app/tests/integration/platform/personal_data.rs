@@ -3,7 +3,7 @@
 
 use std::{
     io::Read,
-    sync::{Arc, Mutex, PoisonError},
+    sync::{Arc, Mutex},
 };
 
 use flate2::read::DeflateDecoder;
@@ -12,7 +12,7 @@ use platform::{
     authn::BoxFuture,
     blocking::Workers,
     db::UnitOfWork,
-    errors::Internal,
+    errors::{Held, Internal},
     jobs::JobContext,
     personal_data::{CHUNK, ExportArchive, ExportStore, PAGE},
     random,
@@ -126,18 +126,12 @@ struct Handed(Mutex<Vec<String>>);
 impl Handed {
     /// What the archive has handed so far.
     fn so_far(&self) -> Vec<String> {
-        self.0
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
+        self.0.lock().held().clone()
     }
 
     /// Keeps `item`, as a store's write that succeeds.
     fn keep(&self, item: String) -> BoxFuture<'_, Result<(), Internal>> {
-        self.0
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(item);
+        self.0.lock().held().push(item);
         Box::pin(async { Ok(()) })
     }
 }

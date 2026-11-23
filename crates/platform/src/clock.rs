@@ -57,13 +57,14 @@ pub use testing::TestClock;
 #[cfg(feature = "test-support")]
 mod testing {
     use std::{
-        sync::{Arc, Mutex, PoisonError, Weak},
+        sync::{Arc, Mutex, Weak},
         time::{Duration, Instant},
     };
 
     use tokio::sync::Notify;
 
     use super::{Clock, Sleep};
+    use crate::errors::Held;
 
     /// A clock that moves only when a test advances it. A sleep on it completes once the test
     /// advances the clock to the sleep's deadline.
@@ -110,7 +111,7 @@ mod testing {
         /// Moves the clock forward by `duration`, and completes every sleep whose deadline it
         /// reaches.
         pub fn advance(&self, duration: Duration) {
-            let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut state = self.state.lock().held();
             state.elapsed += duration;
             let now = state.elapsed;
             let (due, waiting): (Vec<_>, Vec<_>) = std::mem::take(&mut state.sleepers)
@@ -144,7 +145,7 @@ mod testing {
         }
 
         fn waiting(&self, duration: Duration) -> bool {
-            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            let state = self.state.lock().held();
             state
                 .sleepers
                 .iter()
@@ -154,14 +155,14 @@ mod testing {
 
     impl Clock for TestClock {
         fn now(&self) -> Instant {
-            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            let state = self.state.lock().held();
             self.start + state.elapsed
         }
 
         fn sleep(&self, duration: Duration) -> Sleep {
             let wake = Arc::new(Notify::new());
             {
-                let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+                let mut state = self.state.lock().held();
                 let deadline = state.elapsed + duration;
                 if deadline <= state.elapsed {
                     return Box::pin(async {});

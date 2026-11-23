@@ -5,7 +5,7 @@
 use std::{
     collections::HashMap,
     fmt,
-    sync::{Arc, Mutex, PoisonError},
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
@@ -24,7 +24,7 @@ use super::{
 };
 use crate::{
     blocking::Workers,
-    errors::{BodyFault, Internal, PlatformError, Problem, RequestError},
+    errors::{BodyFault, Held, Internal, PlatformError, Problem, RequestError},
     idempotency::IdempotencyKey,
     rate_limit::{Bucket, Counted, LimitError, RateLimiter, RateLimits},
     types::UserId,
@@ -83,7 +83,7 @@ impl UploadTurns {
         let own = {
             // A lock that a panic poisoned still holds a whole map, since each change of it is
             // one call, so it is taken as it is.
-            let mut users = self.users.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut users = self.users.lock().held();
             // A user's turn that no upload holds or waits for is only the map's, and goes here.
             users.retain(|_, own| Arc::strong_count(own) > 1);
             Arc::clone(

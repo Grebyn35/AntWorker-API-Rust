@@ -62,7 +62,7 @@ use std::{
     path::Path,
     process::{Child, Command, Output, Stdio},
     sync::{
-        Mutex, PoisonError,
+        Mutex,
         atomic::{AtomicU32, Ordering},
     },
     time::Duration,
@@ -72,6 +72,7 @@ use platform::{
     blocking::Workers,
     config::BootstrapConfig,
     db::{Admin, Database, DatabaseUrl, migrate, testing},
+    errors::Held,
     telemetry::testing::collector::Collector,
 };
 use serde_json::Value;
@@ -480,10 +481,7 @@ impl TestDatabase {
     /// returns its name and a URL that connects to this database as it.
     pub async fn role(&self, attributes: &str) -> (String, DatabaseUrl) {
         let name = unique(&self.settings, "role");
-        self.roles
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(name.clone());
+        self.roles.lock().held().push(name.clone());
         self.admin_executes(&format!(
             "CREATE ROLE {} LOGIN PASSWORD '{name}' {attributes}",
             identifier(&name)
@@ -507,7 +505,7 @@ impl Drop for TestDatabase {
     fn drop(&mut self) {
         cleanup::leave(cleanup::Leftover {
             database: self.name.clone(),
-            roles: std::mem::take(self.roles.get_mut().unwrap_or_else(PoisonError::into_inner)),
+            roles: std::mem::take(self.roles.get_mut().held()),
             // part: files
             bucket: self.bucket.take(),
             // end part: files
