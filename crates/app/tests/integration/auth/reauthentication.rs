@@ -4,7 +4,9 @@
 use serde_json::json;
 
 use crate::support::{
-    Api, execute_on, queries_wait_on_locks,
+    Api,
+    api::Response,
+    execute_on, queries_wait_on_locks, query_waits_on_a_lock,
     users::{self, PASSWORD, SignedIn},
 };
 
@@ -351,5 +353,117 @@ async fn auth_024_the_deletions_of_an_email_s_accounts_count_in_one_bucket_of_th
             ))
             .await,
         ["1"]
+    );
+}
+
+/// What `user`'s deletion answers when another connection holds their row, as a change of their
+/// address holds it, and makes their address `address`, and commits, while the deletion waits for
+/// the row. The deletion's read of the address before its unit of work locks nothing, so it reads
+/// the address before the change, and counts in that address's bucket.
+async fn deletion_meeting_a_change_of_address(
+    api: &Api,
+    user: &SignedIn,
+    address: &str,
+) -> Response {
+    let db = api.database();
+    let mut change = db
+        .holding(&format!(
+            "SELECT 1 FROM users WHERE id = '{}' FOR NO KEY UPDATE",
+            user.user_id
+        ))
+        .await;
+
+    let deletion = tokio::spawn({
+        let api = api.clone();
+        let access = user.access.clone();
+        async move {
+            api.request(http::Method::DELETE, "/v1/users/me")
+                .bearer(&access)
+                .send()
+                .await
+        }
+    });
+    // The statement that waits is the deletion's lock of the user's row, in its unit of work.
+    query_waits_on_a_lock(db, "FROM users WHERE id = $1 FOR NO KEY UPDATE").await;
+    execute_on(
+        &mut change,
+        &format!(
+            "UPDATE users SET email = '{address}' WHERE id = '{}'",
+            user.user_id
+        ),
+    )
+    .await;
+    execute_on(&mut change, "COMMIT").await;
+    deletion.await.unwrap()
+}
+
+#[tokio::test]
+async fn auth_024_a_deletion_whose_account_s_address_changed_as_it_waited_answers_429_beyond_the_new_address_s_limit()
+ {
+    // With email off, so the address's registrations count in no bucket of theirs (AUTH-029),
+    // and its accounts delete themselves without proving it (AUTH-025).
+    let api = Api::without_email().await;
+    for _ in 0..5 {
+        let grace = users::register(&api, "grace@example.com").await;
+        assert_eq!(users::delete(&api, &grace).await.status, 204);
+    }
+    let ada = users::register(&api, "ada@example.com").await;
+
+    let limited = deletion_meeting_a_change_of_address(&api, &ada, "grace@example.com").await;
+
+    assert_eq!(limited.status, 429);
+    assert_eq!(limited.json()["code"], "request.rate_limited");
+    assert!(
+        limited
+            .header("ratelimit-policy")
+            .starts_with("\"deletion_email\";q=5;w=86400"),
+        "{}",
+        limited.header("ratelimit-policy")
+    );
+    assert_eq!(
+        api.database()
+            .owner_reads(&format!(
+                "SELECT count(*)::text FROM users WHERE id = '{}'",
+                ada.user_id
+            ))
+            .await,
+        ["1"]
+    );
+    let still = api.get("/v1/users/me").bearer(&ada.access).send().await;
+    assert_eq!(still.status, 200);
+}
+
+#[tokio::test]
+async fn auth_024_a_deletion_whose_account_s_address_changed_as_it_waited_counts_in_the_new_address_s_bucket()
+ {
+    // With email off, as above.
+    let api = Api::without_email().await;
+    for _ in 0..4 {
+        let grace = users::register(&api, "grace@example.com").await;
+        assert_eq!(users::delete(&api, &grace).await.status, 204);
+    }
+    let ada = users::register(&api, "ada@example.com").await;
+
+    let deleted = deletion_meeting_a_change_of_address(&api, &ada, "grace@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let sixth = users::delete(&api, &grace).await;
+
+    assert_eq!(deleted.status, 204);
+    assert_eq!(
+        api.database()
+            .owner_reads(&format!(
+                "SELECT count(*)::text FROM users WHERE id = '{}'",
+                ada.user_id
+            ))
+            .await,
+        ["0"]
+    );
+    assert_eq!(sixth.status, 429);
+    assert!(
+        sixth
+            .header("ratelimit-policy")
+            .starts_with("\"deletion_email\";q=5;w=86400"),
+        "{}",
+        sixth.header("ratelimit-policy")
     );
 }
