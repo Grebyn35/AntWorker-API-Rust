@@ -29,7 +29,7 @@ async fn files_025_every_upload_records_the_crc_32_of_its_bytes() {
     let own = upload_own(&api, &ada, "notes.txt", b"hello there", "", None).await;
     let shared = upload(&api, &ada, &acme, "plan.txt", b"the plan", None).await;
     let avatar = avatars::set(&api, &ada, files::PNG).await;
-    let gif = b"GIF89a\x01\0\x01\0\0\0\0;";
+    let gif = files::GIF;
     let picture = workspace_pictures::set(&api, &ada, &acme, gif).await;
 
     assert_eq!(own.status, 201);
@@ -73,7 +73,7 @@ async fn files_026_an_export_holds_the_user_s_files_their_avatar_and_their_own_w
     // A file Ada uploaded to a workspace that has another member is the workspace's, and so is
     // that workspace's picture.
     files::arrange_uploaded(db, &shared, "shared.txt", &ada.user_id).await;
-    let gif = b"GIF89a\x01\0\x01\0\0\0\0;";
+    let gif = files::GIF;
     let picture = workspace_pictures::set(&api, &ada, &own_workspace, gif).await;
     assert_eq!(picture.status, 200);
     let theirs = workspace_pictures::set(&api, &grace, &shared, files::PNG).await;

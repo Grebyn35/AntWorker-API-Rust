@@ -1,6 +1,8 @@
-//! A workspace's files (the files spec), and in its modules a user's own, the links to files'
-//! bytes, public files, ranges of a download's bytes, users' avatars, workspaces' pictures, and
-//! the operator's writing back of what the bucket kept, with the reads of it that it stands on.
+//! A workspace's files (the files spec), and in its modules a user's own, the allowance of a
+//! day's uploads, the links to files' bytes, public files, ranges of a download's bytes, users'
+//! avatars, the picture that a provider gives for a new account, workspaces' pictures, what an
+//! export holds of files, and the operator's writing back of what the bucket kept, with the reads
+//! of it that it stands on.
 
 mod allowance;
 mod avatars;
@@ -185,6 +187,19 @@ async fn object_key(api: &Api, file: &str) -> String {
         .remove(0)
 }
 
+/// Writes under `key`, in the test's bucket, the bytes of a file that a builder arranges, cut
+/// short by one, so the bucket holds the object at another size than its row records.
+async fn cut_short(api: &Api, key: &str) {
+    bucket::storage(&api.database().bucket().await)
+        .put(
+            &ObjectKey::from_stored(key),
+            Bytes::from(vec![0; files::BYTES.len() - 1]),
+            "application/octet-stream",
+        )
+        .await
+        .unwrap();
+}
+
 /// `file` without its links, which are signed for each caller's session (FILES-021).
 pub(crate) fn without_links(file: &Value) -> Value {
     let mut file = file.clone();
@@ -224,22 +239,6 @@ fn archive(names: &[&str]) -> Vec<u8> {
     archive_of(&entries)
 }
 
-/// The CRC-32 of `bytes`, as ZIP's headers hold it.
-fn crc32(bytes: &[u8]) -> u32 {
-    let mut crc = u32::MAX;
-    for byte in bytes {
-        crc ^= u32::from(*byte);
-        for _ in 0..8 {
-            crc = if crc & 1 == 1 {
-                (crc >> 1) ^ 0xEDB8_8320
-            } else {
-                crc >> 1
-            };
-        }
-    }
-    !crc
-}
-
 /// A ZIP archive of `entries`, each a name and the bytes it stores, uncompressed.
 fn archive_of(entries: &[(&str, &[u8])]) -> Vec<u8> {
     let mut bytes = Vec::new();
@@ -249,7 +248,7 @@ fn archive_of(entries: &[(&str, &[u8])]) -> Vec<u8> {
         let length = u16::try_from(name.len()).unwrap();
         let size = u32::try_from(stored.len()).unwrap();
         // The CRC-32 and the sizes, compressed and not, which are equal for a stored entry.
-        let mut sums = crc32(stored).to_le_bytes().to_vec();
+        let mut sums = platform::archive::crc32(stored).to_le_bytes().to_vec();
         sums.extend_from_slice(&size.to_le_bytes());
         sums.extend_from_slice(&size.to_le_bytes());
         bytes.extend_from_slice(b"PK\x03\x04");
@@ -727,9 +726,15 @@ async fn platform_074_an_upload_past_its_timeout_answers_503() {
     let request = upload_streamed(&api, path, &ada.access, fed(b"hel", reading.clone(), None));
     reading.notified().await;
 
-    // Paused once the handler reads the body, after its check in the database, so tokio's time
-    // runs straight to the route's timeout, the only timer left, as platform_042's test does.
+    // Paused once the handler reads the body, after its check in the database, then moved on by
+    // the route's 60 seconds, past its timeout, which started before the pause. The test yields,
+    // rather than waiting, so the runtime moves the clock no further: under a longer timeout, the
+    // request would wait for the rest of its body, which the test holds back.
     tokio::time::pause();
+    tokio::time::advance(Duration::from_secs(60)).await;
+    while !request.is_finished() {
+        tokio::task::yield_now().await;
+    }
     let response = request.await.unwrap();
 
     assert_eq!(response.status, 503);
@@ -1077,17 +1082,7 @@ async fn files_009_a_file_whose_object_has_another_size_answers_500_and_its_caus
     let api = Api::new().await;
     let (workspace, ada, _) = acme(&api, "member").await;
     let id = files::arrange_row(api.database(), &workspace, "Blue").await;
-    let key = object_key(&api, &id).await;
-    // The file's bytes, cut short by one.
-    let short = files::BYTES.len() - 1;
-    bucket::storage(&api.database().bucket().await)
-        .put(
-            &ObjectKey::from_stored(&key),
-            Bytes::from(vec![0; short]),
-            "application/octet-stream",
-        )
-        .await
-        .unwrap();
+    cut_short(&api, &object_key(&api, &id).await).await;
 
     let response = download(&api, &ada, &workspace, &id).await;
 
@@ -1108,16 +1103,9 @@ async fn files_009_a_range_past_a_cut_short_object_s_end_answers_500_and_its_cau
     let (workspace, ada, _) = acme(&api, "member").await;
     let id = files::arrange_row(api.database(), &workspace, "Blue").await;
     let key = object_key(&api, &id).await;
-    // The file's bytes, cut short by one, and a resume from the byte that was cut.
+    cut_short(&api, &key).await;
+    // A resume from the byte that was cut.
     let short = files::BYTES.len() - 1;
-    bucket::storage(&api.database().bucket().await)
-        .put(
-            &ObjectKey::from_stored(&key),
-            Bytes::from(vec![0; short]),
-            "application/octet-stream",
-        )
-        .await
-        .unwrap();
 
     let response = api
         .get(&format!("/v1/workspaces/{workspace}/files/{id}/content"))
@@ -1217,9 +1205,9 @@ async fn files_011_the_comparison_records_no_object_that_an_export_holds() {
 
 #[tokio::test]
 async fn files_011_the_comparison_records_each_object_no_row_names_written_an_hour_ago() {
-    // The bucket lists five objects: four written long ago, of each prefix, one of which a
-    // workspace's row names and one a user's, and one written later than the database's clock
-    // reads now, as one whose upload may still commit.
+    // The bucket lists five objects: four written long ago, two under `workspaces/` and two
+    // under `users/`, of which a workspace's row names one and a user's row one, and one written
+    // later than the database's clock reads now, as one whose upload may still commit.
     let bucket = bucket::listing(&[
         ("workspaces/settled", "2020-01-01T00:00:00.000Z"),
         ("workspaces/named", "2020-01-01T00:00:00.000Z"),

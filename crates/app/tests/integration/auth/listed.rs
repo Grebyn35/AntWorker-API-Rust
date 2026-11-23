@@ -627,12 +627,7 @@ async fn data_20_a_change_of_the_password_and_a_sign_in_on_its_device_never_dead
     let db = api.database();
     // A sign-in on the phone's device: it locks the password identity, then deletes the session
     // that its device holds.
-    let mut sign_in = db
-        .holding(&format!(
-            "SELECT 1 FROM identities WHERE user_id = '{}' FOR UPDATE",
-            ada.user_id
-        ))
-        .await;
+    let mut sign_in = users::holding_identities(db, &ada).await;
     let change = json!({ "current_password": PASSWORD, "password": "lantern-orchard-58-brisk" });
 
     let changed = spawn_request(

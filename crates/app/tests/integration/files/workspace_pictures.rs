@@ -160,7 +160,7 @@ async fn workspaces_019_a_new_picture_replaces_the_one_before_whose_bytes_stay()
     let api = Api::new().await;
     let (ada, workspace) = owned(&api).await;
     let first = link(&api, &ada, &workspace).await;
-    let gif = b"GIF89a\x01\0\x01\0\0\0\0;";
+    let gif = files::GIF;
 
     let second = set(&api, &ada, &workspace, gif).await;
 
@@ -288,14 +288,8 @@ async fn data_20_a_change_of_a_picture_waits_for_another_and_replaces_what_it_se
 async fn workspaces_020_a_picture_is_a_png_jpeg_gif_or_webp_image_its_kind_from_its_bytes() {
     let api = Api::new().await;
     let (ada, workspace) = owned(&api).await;
-    let images: [(&[u8], &str); 4] = [
-        (files::PNG, "image/png"),
-        (b"\xff\xd8\xff\xe0\0\x10JFIF", "image/jpeg"),
-        (b"GIF87a\x01\0\x01\0\0\0\0;", "image/gif"),
-        (b"RIFF\x1a\0\0\0WEBPVP8 ", "image/webp"),
-    ];
 
-    for (bytes, media_type) in images {
+    for (bytes, media_type) in files::IMAGES {
         let response = set(&api, &ada, &workspace, bytes).await;
 
         assert_eq!(response.status, 200, "{media_type}");

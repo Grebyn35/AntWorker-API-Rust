@@ -104,6 +104,12 @@ impl Upstream {
     pub fn collector_options(&self) -> Options {
         Options::default().set("CLIENT_TELEMETRY_ENDPOINT", &self.origin)
     }
+
+    /// The endpoint of a relay that forwards here, as the API reads it from the setting of
+    /// [`Self::collector_options`].
+    pub fn collector_endpoint(&self) -> platform::telemetry::OtlpEndpoint {
+        self.origin.parse().unwrap()
+    }
     // end part: client_telemetry
 
     /// Makes `method` of `path` answer `status`, with `body` as JSON.

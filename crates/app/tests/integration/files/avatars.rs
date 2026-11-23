@@ -123,7 +123,7 @@ async fn accounts_008_a_new_avatar_replaces_the_one_before_whose_bytes_stay() {
         .as_str()
         .unwrap()
         .to_owned();
-    let gif = b"GIF89a\x01\0\x01\0\0\0\0;";
+    let gif = files::GIF;
 
     let second = set(&api, &ada, gif).await;
 
@@ -159,14 +159,8 @@ async fn accounts_008_setting_an_avatar_without_a_credential_answers_401_with_it
 #[tokio::test]
 async fn accounts_009_an_avatar_is_a_png_jpeg_gif_or_webp_image_its_kind_from_its_bytes() {
     let api = Api::new().await;
-    let images: [(&[u8], &str); 4] = [
-        (files::PNG, "image/png"),
-        (b"\xff\xd8\xff\xe0\0\x10JFIF", "image/jpeg"),
-        (b"GIF87a\x01\0\x01\0\0\0\0;", "image/gif"),
-        (b"RIFF\x1a\0\0\0WEBPVP8 ", "image/webp"),
-    ];
 
-    for (index, (bytes, media_type)) in images.into_iter().enumerate() {
+    for (index, (bytes, media_type)) in files::IMAGES.into_iter().enumerate() {
         let user = users::register(&api, &format!("user{index}@example.com")).await;
         let response = set(&api, &user, bytes).await;
 

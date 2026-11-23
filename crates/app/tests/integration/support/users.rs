@@ -1,6 +1,7 @@
 //! Builders of users and sessions, through the API's own routes (TEST-09).
 
 use serde_json::{Value, json};
+use sqlx::PgConnection;
 
 use super::{Api, Options, TestDatabase, api::Response, execute_on, queries_wait_on_locks};
 
@@ -315,6 +316,17 @@ pub async fn stopped_lasting(api: &Api, user: &SignedIn) {
             user.session_id
         ))
         .await;
+}
+
+/// A connection as `owner` that holds the rows of `user`'s identities locked, as a sign-in of
+/// theirs locks their password identity, in a transaction that the test ends with
+/// [`execute_on`], so that what locks one of the rows meanwhile waits for it.
+pub async fn holding_identities(db: &TestDatabase, user: &SignedIn) -> PgConnection {
+    db.holding(&format!(
+        "SELECT 1 FROM identities WHERE user_id = '{}' FOR UPDATE",
+        user.user_id
+    ))
+    .await
 }
 
 /// What `user`'s request answers, a `request.0` of `request.1` with `body` when it has one, when

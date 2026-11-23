@@ -60,15 +60,6 @@ async fn wait_for_turns(api: &Api, count: usize) {
     }
 }
 
-/// The statement that holds the row of `user`'s password identity, at which their sign-in waits
-/// once it has its turn at hashing, and so keeps that turn.
-fn identity_row(user: &users::SignedIn) -> String {
-    format!(
-        "SELECT 1 FROM identities WHERE user_id = '{}' FOR UPDATE",
-        user.user_id
-    )
-}
-
 #[tokio::test]
 async fn auth_093_sign_ins_that_wait_for_their_turn_at_hashing_hold_no_connection_of_the_pool() {
     let api = Api::new().await;
@@ -139,7 +130,9 @@ async fn auth_093_a_sign_in_s_rehash_is_made_in_the_turn_it_took_first() {
         ada.user_id
     ))
     .await;
-    let mut held = db.holding(&identity_row(&bob)).await;
+    // Bob's identity, at whose row his sign-in waits once it has its turn at hashing, and so
+    // keeps that turn.
+    let mut held = users::holding_identities(db, &bob).await;
     let mut turns = api.every_turn().await;
     // Ada's sign-in waits for a turn, and Bob's behind it.
     let ada_signing_in = signing_in(&api, "ada@example.com");
@@ -170,7 +163,8 @@ async fn auth_093_a_change_s_new_password_is_hashed_in_the_turn_its_check_took()
     let ada = users::register(&api, "ada@example.com").await;
     let bob = users::register(&api, "bob@example.com").await;
     let db = api.database();
-    let mut held = db.holding(&identity_row(&bob)).await;
+    // Bob's identity, at whose row his sign-in waits once it has its turn at hashing.
+    let mut held = users::holding_identities(db, &bob).await;
     let mut turns = api.every_turn().await;
     // Ada's change waits for a turn, and Bob's sign-in behind it.
     let body = json!({ "current_password": PASSWORD, "password": NEW_PASSWORD });

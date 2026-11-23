@@ -64,6 +64,15 @@ pub fn document(archive: &[u8], path: &str) -> Vec<Value> {
     serde_json::from_slice(&found.unwrap().1).unwrap()
 }
 
+/// The moment that `value`, a field of a response, gives (API-11).
+fn moment(value: &Value) -> time::OffsetDateTime {
+    time::OffsetDateTime::parse(
+        value.as_str().unwrap(),
+        &time::format_description::well_known::Rfc3339,
+    )
+    .unwrap()
+}
+
 /// The log, actor, resource and resource ID of each entry of `action`, as
 /// `user <user> <actor> <resource> <id>`, the actor `-` when there is none.
 async fn entries_of(api: &Api, action: &str) -> Vec<String> {
@@ -268,6 +277,61 @@ async fn accounts_022_the_caller_lists_and_reads_their_own_exports_and_no_other_
         .send()
         .await;
     assert_eq!(listed.json()["items"].as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn accounts_022_an_export_expires_7_days_after_it_became_ready_or_after_its_request() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let ready_id = built(&api, &ada).await;
+    // A second export, requested a day later, as the bucket allows, which stays pending.
+    api.database()
+        .owner_executes("UPDATE exports SET created_at = created_at - interval '1 day'")
+        .await;
+    api.database()
+        .owner_executes("DELETE FROM rate_limit_buckets")
+        .await;
+    let pending_id = request(&api, &ada).await.json()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let path = |id: &str| format!("/v1/users/me/exports/{id}");
+
+    let ready = api
+        .get(&path(&ready_id))
+        .bearer(&ada.access)
+        .send()
+        .await
+        .json();
+    let pending = api
+        .get(&path(&pending_id))
+        .bearer(&ada.access)
+        .send()
+        .await
+        .json();
+
+    assert_eq!(ready["state"], "ready");
+    assert_eq!(
+        moment(&ready["expires_at"]) - moment(&ready["ready_at"]),
+        time::Duration::days(7)
+    );
+    // Its request's time, which the test moved a day back.
+    let requested = one(
+        &api,
+        &format!(
+            "SELECT to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') \
+             FROM exports WHERE id = '{ready_id}'"
+        ),
+    )
+    .await;
+    assert_eq!(ready["created_at"], requested.as_str());
+    assert_eq!(pending["state"], "pending");
+    assert_eq!(pending["ready_at"], json!(null));
+    assert_eq!(pending["size_bytes"], json!(null));
+    assert_eq!(
+        moment(&pending["expires_at"]) - moment(&pending["created_at"]),
+        time::Duration::days(7)
+    );
 }
 
 #[tokio::test]

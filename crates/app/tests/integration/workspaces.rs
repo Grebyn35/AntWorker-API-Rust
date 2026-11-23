@@ -69,16 +69,9 @@ async fn platform_046_paging_returns_each_row_once_across_a_shared_joining_time(
     db.owner_executes("UPDATE workspace_memberships SET created_at = '2026-11-01T10:00:00Z'")
         .await;
 
-    let mut seen = Vec::new();
-    let mut path = "/v1/workspaces?limit=2".to_owned();
-    loop {
-        let body = api.get(&path).bearer(&ada.access).send().await.json();
-        seen.extend(field(&body, "id"));
-        match body["next_cursor"].as_str() {
-            Some(cursor) => path = format!("/v1/workspaces?limit=2&cursor={cursor}"),
-            None => break,
-        }
-    }
+    let seen = pages(&api, &ada, "/v1/workspaces?limit=2", "id")
+        .await
+        .concat();
 
     // Among memberships that share a joining time, the higher membership ID comes first.
     let by_membership = db
@@ -639,26 +632,6 @@ async fn workspaces_004_a_search_pages_through_its_matches() {
     );
 }
 
-/// Renames `workspace` to `name` as `user`, with `if_match` as its `If-Match` if given.
-async fn rename(
-    api: &Api,
-    user: &SignedIn,
-    workspace: &str,
-    name: &str,
-    if_match: Option<&str>,
-) -> crate::support::api::Response {
-    let mut call = api
-        .patch(
-            &format!("/v1/workspaces/{workspace}"),
-            &json!({ "name": name }),
-        )
-        .bearer(&user.access);
-    if let Some(etag) = if_match {
-        call = call.header("if-match", etag);
-    }
-    call.send().await
-}
-
 /// The name `workspace` holds.
 async fn stored_name(api: &Api, workspace: &str) -> String {
     api.database()
@@ -747,7 +720,7 @@ async fn workspaces_008_renaming_stores_the_name_records_it_and_publishes_it() {
     // The registrations' sessions published their starts (AUTH-046).
     db.owner_executes("DELETE FROM events").await;
 
-    let response = rename(&api, &grace, &workspace, "  Acme \t Labs ", None).await;
+    let response = workspaces::rename(&api, &grace, &workspace, "  Acme \t Labs ", &[]).await;
 
     assert_eq!(response.status, 200);
     let body = response.json();
@@ -801,9 +774,9 @@ async fn workspaces_008_a_member_may_not_rename_and_the_owner_may() {
     let workspace = workspaces::arrange(db, "Acme", &[(&ada.user_id, "owner")]).await;
     workspaces::join(db, &workspace, &grace.user_id, "member").await;
 
-    let refused = rename(&api, &grace, &workspace, "Grace's", None).await;
+    let refused = workspaces::rename(&api, &grace, &workspace, "Grace's", &[]).await;
     let unchanged = stored_name(&api, &workspace).await;
-    let renamed = rename(&api, &ada, &workspace, "Ada's", None).await;
+    let renamed = workspaces::rename(&api, &ada, &workspace, "Ada's", &[]).await;
 
     assert_eq!(refused.status, 403);
     assert_eq!(refused.json()["code"], "request.permission_denied");
@@ -818,9 +791,9 @@ async fn workspaces_002_a_new_name_that_the_rule_refuses_answers_400_and_changes
     let ada = users::register(&api, "ada@example.com").await;
     let workspace = workspaces::arrange(api.database(), "Acme", &[(&ada.user_id, "owner")]).await;
 
-    let blank = rename(&api, &ada, &workspace, " \t ", None).await;
+    let blank = workspaces::rename(&api, &ada, &workspace, " \t ", &[]).await;
     // Postgres stores no U+0000 in a text, so the name must be refused before it reaches it.
-    let control = rename(&api, &ada, &workspace, "Ac\u{0}me", None).await;
+    let control = workspaces::rename(&api, &ada, &workspace, "Ac\u{0}me", &[]).await;
     // A name longer than the document allows is malformed input, sent raw.
     let long = api
         .request(http::Method::PATCH, &format!("/v1/workspaces/{workspace}"))
@@ -970,9 +943,10 @@ async fn platform_071_a_rename_with_a_stale_etag_answers_412_and_changes_nothing
         .await;
     let etag = read.header("etag").to_owned();
     assert_eq!(etag, "\"1\"");
+    let if_match = [("if-match", etag.as_str())];
 
-    let first = rename(&api, &grace, &workspace, "Grace's", Some(&etag)).await;
-    let stale = rename(&api, &ada, &workspace, "Ada's", Some(&etag)).await;
+    let first = workspaces::rename(&api, &grace, &workspace, "Grace's", &if_match).await;
+    let stale = workspaces::rename(&api, &ada, &workspace, "Ada's", &if_match).await;
 
     assert_eq!(first.status, 200);
     assert_eq!(first.header("etag"), "\"2\"");
@@ -994,10 +968,17 @@ async fn platform_071_a_current_etag_a_star_or_none_lets_the_rename_apply() {
     let ada = users::register(&api, "ada@example.com").await;
     let workspace = workspaces::arrange(api.database(), "Acme", &[(&ada.user_id, "owner")]).await;
 
-    let current = rename(&api, &ada, &workspace, "One", Some("\"7\", \"1\"")).await;
-    let star = rename(&api, &ada, &workspace, "Two", Some("*")).await;
-    let none = rename(&api, &ada, &workspace, "Three", None).await;
-    let weak = rename(&api, &ada, &workspace, "Four", Some("W/\"4\"")).await;
+    let current = workspaces::rename(
+        &api,
+        &ada,
+        &workspace,
+        "One",
+        &[("if-match", "\"7\", \"1\"")],
+    )
+    .await;
+    let star = workspaces::rename(&api, &ada, &workspace, "Two", &[("if-match", "*")]).await;
+    let none = workspaces::rename(&api, &ada, &workspace, "Three", &[]).await;
+    let weak = workspaces::rename(&api, &ada, &workspace, "Four", &[("if-match", "W/\"4\"")]).await;
 
     assert_eq!(current.status, 200);
     assert_eq!(star.status, 200);
@@ -1035,11 +1016,11 @@ async fn sec_19_workspace_updated_reaches_every_member_s_every_device_and_no_rep
     let mut laptop = streams::opened(&api, &ada_laptop).await;
     let mut member = streams::opened(&api, &grace).await;
 
-    let renamed = rename(&api, &ada, &workspace, "Acme Labs", None).await;
+    let renamed = workspaces::rename(&api, &ada, &workspace, "Acme Labs", &[]).await;
     workspaces::join(db, &workspace, &alan.user_id, "member").await;
     let mut joined = streams::connect(&api, &alan.access, before.as_deref()).await;
     joined.opened().await;
-    let again = rename(&api, &ada, &workspace, "Acme Works", None).await;
+    let again = workspaces::rename(&api, &ada, &workspace, "Acme Works", &[]).await;
     let after_joining = joined.event().await;
 
     assert_eq!(renamed.status, 200);

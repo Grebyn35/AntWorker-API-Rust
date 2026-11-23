@@ -38,6 +38,19 @@ pub const BYTES: &[u8] = b"hello";
 pub const PNG: &[u8] =
     b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0\x01\0\0\0\x01\x08\x06\0\0\0\x1f\x15\xc4\x89";
 
+/// The bytes of an image of another kind than [`PNG`], for a test that sets a second image: a
+/// GIF of one pixel, its signature `GIF89a` first.
+pub const GIF: &[u8] = b"GIF89a\x01\0\x01\0\0\0\0;";
+
+/// An image of each kind that an avatar and a workspace's picture take, with its media type. Its
+/// GIF starts with `GIF87a`, the signature of the kind that [`GIF`] doesn't start with.
+pub const IMAGES: [(&[u8], &str); 4] = [
+    (PNG, "image/png"),
+    (b"\xff\xd8\xff\xe0\0\x10JFIF", "image/jpeg"),
+    (b"GIF87a\x01\0\x01\0\0\0\0;", "image/gif"),
+    (b"RIFF\x1a\0\0\0WEBPVP8 ", "image/webp"),
+];
+
 /// The CRC-32 of [`BYTES`], which the row of every file a builder arranges records (FILES-025).
 pub const CRC32: u32 = 907_060_870;
 

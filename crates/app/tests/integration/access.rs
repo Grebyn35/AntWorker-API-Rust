@@ -964,16 +964,6 @@ async fn access_006_the_operator_s_setup_of_a_workspace_closes_its_owner_s_strea
 }
 // end part: workspace_setup
 
-/// The statement that locks the identity of `user`, as a sign-in does, so a deletion of their
-/// account that starts meanwhile waits at it, once it has locked their memberships (ACCESS-008,
-/// the accounts spec's "Deleting an account").
-fn identity_of(user: &SignedIn) -> String {
-    format!(
-        "SELECT 1 FROM identities WHERE user_id = '{}' FOR UPDATE",
-        user.user_id
-    )
-}
-
 /// Ada, a member of Bob's workspace, reads it while the deletion of her account holds her
 /// memberships; returns the API, Ada, the deletion's response and the read's.
 async fn reading_while_deleted() -> (Api, SignedIn, Response, Response) {
@@ -987,7 +977,10 @@ async fn reading_while_deleted() -> (Api, SignedIn, Response, Response) {
         &[(&bob.user_id, "owner"), (&ada.user_id, "member")],
     )
     .await;
-    let mut held = db.holding(&identity_of(&ada)).await;
+    // Ada's identity, locked as a sign-in of hers locks it: the deletion of her account waits at
+    // it, once it has locked her memberships (ACCESS-008, the accounts spec's "Deleting an
+    // account").
+    let mut held = users::holding_identities(db, &ada).await;
 
     let delete = call(&api, Method::DELETE, "/v1/users/me", &ada);
     let path = format!("/v1/workspaces/{workspace}");
@@ -1514,7 +1507,8 @@ async fn answering_while_the_owner_is_deleted(
         crate::support::invitations::invite(&api, &ada, &workspace, "bob@example.com", "member")
             .await;
     let id = invited.json()["id"].as_str().unwrap().to_owned();
-    let mut held = db.holding(&identity_of(&ada)).await;
+    // The deletion of Ada's account waits at her identity, once it has locked her membership.
+    let mut held = users::holding_identities(db, &ada).await;
 
     let delete = call(&api, Method::DELETE, "/v1/users/me", &ada);
     let path = format!("/v1/users/me/invitations/{id}/{answer}");

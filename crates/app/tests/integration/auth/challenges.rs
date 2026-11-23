@@ -1208,12 +1208,7 @@ async fn auth_060_a_challenge_that_expired_while_its_completion_waited_answers_4
     let db = api.database();
     let sessions = reads(&api, "SELECT count(*)::text FROM sessions").await;
     // A sign-in of Ada's holds her password identity, which the completion waits for.
-    let mut sign_in = db
-        .holding(&format!(
-            "SELECT 1 FROM identities WHERE user_id = '{}' FOR UPDATE",
-            ada.user_id
-        ))
-        .await;
+    let mut sign_in = users::holding_identities(db, &ada).await;
 
     let completion = {
         let api = api.clone();

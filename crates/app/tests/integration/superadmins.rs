@@ -1117,12 +1117,7 @@ async fn access_011_a_deletion_that_waited_for_the_deletion_of_the_owner_s_accou
     let workspace = workspaces::arrange(db, "Acme", &[(&ada.user_id, "owner")]).await;
     // The lock of Ada's identity, as a sign-in of hers holds it: the deletion of her account
     // waits at it, once it has locked her memberships and ended them.
-    let mut held = db
-        .holding(&format!(
-            "SELECT 1 FROM identities WHERE user_id = '{}' FOR UPDATE",
-            ada.user_id
-        ))
-        .await;
+    let mut held = users::holding_identities(db, &ada).await;
 
     let account = api.spawn(Method::DELETE, "/v1/users/me", &ada.access, None);
     queries_wait_on_locks(db, 1).await;

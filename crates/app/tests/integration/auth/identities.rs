@@ -1021,12 +1021,7 @@ async fn data_20_a_removal_of_the_password_and_a_sign_in_with_it_never_deadlock(
     let password = password_id(&api, &ada).await;
     let db = api.database();
     // A sign-in with the password: it locks the password identity, then starts its session.
-    let mut signing_in = db
-        .holding(&format!(
-            "SELECT 1 FROM identities WHERE user_id = '{}' FOR UPDATE",
-            ada.user_id
-        ))
-        .await;
+    let mut signing_in = users::holding_identities(db, &ada).await;
 
     let removal = api.spawn(
         http::Method::DELETE,

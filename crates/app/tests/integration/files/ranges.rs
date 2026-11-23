@@ -1,11 +1,10 @@
 //! What a download serves of a file's bytes: a range of them, every byte, or nothing, as RFC 9110
 //! defines it (PLATFORM-081), so that a download cut short resumes (OPS-06).
 
-use bytes::Bytes;
-use platform::{storage::ObjectKey, telemetry::testing};
+use platform::telemetry::testing;
 use serde_json::Value;
 
-use super::{acme, download, upload_queried};
+use super::{acme, cut_short, download, object_key, upload_queried};
 use crate::support::{
     Api,
     api::{Options, Response},
@@ -231,21 +230,7 @@ async fn files_009_head_of_a_file_whose_object_is_missing_or_of_another_size_ans
     let (workspace, ada, _) = acme(&api, "member").await;
     let missing = files::arrange_row(api.database(), &workspace, "Blue").await;
     let short = files::arrange_row(api.database(), &workspace, "Green").await;
-    let key = api
-        .database()
-        .owner_reads(&format!(
-            "SELECT object_key FROM workspace_files WHERE id = '{short}'"
-        ))
-        .await
-        .remove(0);
-    bucket::storage(&api.database().bucket().await)
-        .put(
-            &ObjectKey::from_stored(&key),
-            Bytes::from(vec![0; files::BYTES.len() - 1]),
-            "application/octet-stream",
-        )
-        .await
-        .unwrap();
+    cut_short(&api, &object_key(&api, &short).await).await;
 
     for id in [missing, short] {
         let head = api

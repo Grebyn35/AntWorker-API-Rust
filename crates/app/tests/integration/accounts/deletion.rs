@@ -642,12 +642,7 @@ async fn accounts_019_a_deletion_that_waited_for_another_of_the_account_answers_
     let other_device = users::new_session(&api, "ada@example.com").await;
     let db = api.database();
     // The first deletion holds Ada's row, and waits at her identity, which a sign-in holds.
-    let mut held = db
-        .holding(&format!(
-            "SELECT 1 FROM identities WHERE user_id = '{}' FOR UPDATE",
-            ada.user_id
-        ))
-        .await;
+    let mut held = users::holding_identities(db, &ada).await;
 
     let first = users::delete(&api, &ada);
     let second = async {

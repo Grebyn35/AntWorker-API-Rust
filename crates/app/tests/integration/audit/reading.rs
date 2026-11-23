@@ -50,20 +50,6 @@ async fn own_log(db: &TestDatabase, user: &str) -> Vec<String> {
     .await
 }
 
-/// Renames `workspace` as `member`, which records `workspace.renamed`, with `headers`.
-async fn rename(api: &Api, member: &SignedIn, workspace: &str, headers: &[(&str, &str)]) {
-    let mut call = api
-        .patch(
-            &format!("/v1/workspaces/{workspace}"),
-            &json!({ "name": "Renamed" }),
-        )
-        .bearer(&member.access);
-    for (name, value) in headers {
-        call = call.header(name, value);
-    }
-    assert_eq!(call.send().await.status, 200);
-}
-
 /// Sends `method` to `path` as `caller`, with `headers`, which answers `status`.
 async fn act(
     api: &Api,
@@ -97,8 +83,10 @@ async fn audit_007_the_owner_and_an_admin_read_the_workspace_s_log_the_latest_fi
     )
     .await;
     let globex = workspaces::arrange(db, "Globex", &[(&ada.user_id, "owner")]).await;
-    rename(&api, &grace, &acme, &[]).await;
-    rename(&api, &ada, &globex, &[]).await;
+    for (member, workspace) in [(&grace, &acme), (&ada, &globex)] {
+        let renamed = workspaces::rename(&api, member, workspace, "Renamed", &[]).await;
+        assert_eq!(renamed.status, 200);
+    }
     // A member's refusal is recorded in the workspace's log (AUDIT-004).
     act(&api, &carol, (Method::GET, &log_of(&acme)), &[], 403).await;
     let removal = format!("/v1/workspaces/{acme}/members/{}", carol.user_id);
@@ -156,24 +144,28 @@ async fn audit_007_the_owner_and_an_admin_read_the_workspace_s_log_the_latest_fi
     );
 }
 
+// The outcome for each role that reads the log comes from the matrix (TEST-08). With the
+// template's roles, `workspace.delete` is the owner's alone, and `members.read` every role's (the
+// access spec), so the admin's page leaves out the entry that the owner's holds.
 #[tokio::test]
 async fn audit_007_an_entry_whose_permission_the_reader_s_role_lacks_is_left_out() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     let grace = users::register(&api, "grace@example.com").await;
+    let carol = users::register(&api, "carol@example.com").await;
     let db = api.database();
-    let acme = workspaces::arrange(
-        db,
-        "Acme",
-        &[(&ada.user_id, "owner"), (&grace.user_id, "admin")],
-    )
-    .await;
-    // `workspace.delete` is the owner's alone, and `members.read` every role's (the access spec).
-    for (action, permission) in [
+    let members = [
+        (ada.user_id.as_str(), "owner"),
+        (grace.user_id.as_str(), "admin"),
+        (carol.user_id.as_str(), "member"),
+    ];
+    let acme = workspaces::arrange(db, "Acme", &members).await;
+    let recorded = [
         ("thing.listed", Some("members.read")),
         ("thing.deleted", Some("workspace.delete")),
         ("thing.refused", None),
-    ] {
+    ];
+    for (action, permission) in recorded {
         Logged {
             permission,
             ..Logged::new(&acme, &ada.user_id, action)
@@ -181,15 +173,27 @@ async fn audit_007_an_entry_whose_permission_the_reader_s_role_lacks_is_left_out
         .record(db)
         .await;
     }
+    let readers = holders("audit.read");
+    let mut read = 0;
 
-    assert_eq!(
-        actions(&api, &grace, &log_of(&acme)).await,
-        ["thing.refused", "thing.listed"]
-    );
-    assert_eq!(
-        actions(&api, &ada, &log_of(&acme)).await,
-        ["thing.refused", "thing.deleted", "thing.listed"]
-    );
+    for (reader, role) in [(&ada, "owner"), (&grace, "admin"), (&carol, "member")] {
+        if !readers.contains(&role) {
+            continue;
+        }
+        let page = actions(&api, reader, &log_of(&acme)).await;
+
+        // The latest first: every entry that records no permission, and each whose permission
+        // the role holds.
+        let shown: Vec<&str> = recorded
+            .iter()
+            .rev()
+            .filter(|(_, permission)| permission.is_none_or(|held| holders(held).contains(&role)))
+            .map(|(action, _)| *action)
+            .collect();
+        assert_eq!(page, shown, "{role}");
+        read += 1;
+    }
+    assert!(read >= 1, "no role reads the log");
 }
 
 #[tokio::test]
@@ -237,7 +241,8 @@ async fn audit_008_a_user_reads_their_own_log_and_what_was_done_to_them() {
     )
     .await;
     // Grace acts in the workspace, and the owner acts on another member: neither is done to her.
-    rename(&api, &grace, &acme, &[]).await;
+    let renamed = workspaces::rename(&api, &grace, &acme, "Renamed", &[]).await;
+    assert_eq!(renamed.status, 200);
     let carol_removed = format!("/v1/workspaces/{acme}/members/{}", carol.user_id);
     act(&api, &ada, (Method::DELETE, &carol_removed), &[], 204).await;
     let grace_removed = format!("/v1/workspaces/{acme}/members/{}", grace.user_id);
@@ -580,7 +585,8 @@ async fn audit_010_a_role_that_reads_the_log_sees_its_clients_only_with_the_perm
         ("user-agent", "Desktop/1.2"),
         ("x-forwarded-for", "203.0.113.9"),
     ];
-    rename(&api, &grace, &acme, &client).await;
+    let renamed = workspaces::rename(&api, &grace, &acme, "Renamed", &client).await;
+    assert_eq!(renamed.status, 200);
     // An entry that no request recorded has no client.
     Logged::new(&acme, &grace.user_id, "thing.done")
         .record(db)

@@ -1364,12 +1364,7 @@ async fn auth_098_a_code_that_the_job_deleted_as_it_expired_while_the_factor_was
     let db = api.database();
     // The confirmation waits at the password identity, once its reset code has matched, while the
     // code's row goes, as the job of another request's code deletes a code that expired.
-    let mut held = db
-        .holding(&format!(
-            "SELECT 1 FROM identities WHERE user_id = '{}' FOR UPDATE",
-            ada.user_id
-        ))
-        .await;
+    let mut held = users::holding_identities(db, &ada).await;
     let sent = api.spawn(
         http::Method::POST,
         "/v1/password-resets/confirm",

@@ -469,16 +469,26 @@ async fn accounts_029_a_storage_that_doesn_t_answer_is_tried_again_until_the_fif
     assert_eq!(avatar_url(&api, &ada).await, Value::Null);
 }
 
+// On each side of the limit: an address of 2,049 characters enqueues nothing, and one of 2,048 the
+// copy of its picture.
 #[tokio::test]
 async fn accounts_028_an_address_of_more_than_2048_characters_enqueues_nothing() {
-    let (upstream, api) = standing(Options::default()).await;
-    let long = format!("{}/{}", upstream.url("/pictures"), "a".repeat(2_048));
-    pictured(&upstream, &long);
+    for (length, enqueued) in [(2_049, false), (2_048, true)] {
+        let (upstream, api) = standing(Options::default()).await;
+        let folder = upstream.url("/pictures/");
+        let address = format!("{folder}{}", "a".repeat(length - folder.chars().count()));
+        pictured(&upstream, &address);
 
-    let response = sign_in(&api, &grant()).await;
+        let response = sign_in(&api, &grant()).await;
 
-    assert_eq!(response.status, 201, "{}", response.json());
-    assert!(copies(&api).await.is_empty());
+        assert_eq!(response.status, 201, "{}", response.json());
+        let copied = if enqueued {
+            vec![format!("waiting 0 {address}")]
+        } else {
+            Vec::new()
+        };
+        assert_eq!(copies(&api).await, copied, "{length} characters");
+    }
 }
 
 #[tokio::test]

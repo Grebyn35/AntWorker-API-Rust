@@ -1,16 +1,21 @@
 //! The telemetry proxy: the batches of a consenting user's clients, which the API forwards to the
 //! collector, here a stand-in (the client_telemetry spec, CLIENT_TELEMETRY-004 to
-//! CLIENT_TELEMETRY-010 and CLIENT_TELEMETRY-013, and PLATFORM-091).
+//! CLIENT_TELEMETRY-010 and CLIENT_TELEMETRY-013), the routes that take them and the relay that
+//! forwards them (PLATFORM-090, PLATFORM-091), and the relay's span (OBS-08).
 
-use std::{io::Write, time::Duration};
+use std::{io::Write, sync::Arc, time::Duration};
 
+use bytes::Bytes;
 use flate2::{Compression, write::GzEncoder};
 use http::Method;
 use opentelemetry_proto::tonic::{
     common::v1::any_value,
     trace::v1::{Span, span::SpanKind},
 };
-use platform::telemetry::testing::collector::Collector;
+use platform::{
+    clock::TestClock,
+    telemetry::{OtlpEndpoint, Relay, RelayError, Signal, testing::collector::Collector},
+};
 use serde_json::json;
 
 use super::{CONSENT, choose, read};
@@ -663,7 +668,7 @@ async fn forwarding_serve(api: &Api, collector: &Upstream, exported: &Collector)
     api.database().serve(&env).await
 }
 
-/// Sends `body` to `path` of `server` as `user`, as `media_type`, with `headers` beside, and
+/// Sends `body` to `path` of `server` as `user`, with `headers`, such as its `Content-Type`, and
 /// gives the answer's status.
 async fn send_to(
     server: &Server,
@@ -782,8 +787,15 @@ async fn platform_090_a_batch_s_route_has_the_route_groups_timeout() {
         tokio::task::yield_now().await;
     }
     // Paused once the request waits for the collector, whose deadline is on the API's clock,
-    // which the test doesn't move, so tokio's time runs straight to the route's timeout.
+    // which the test doesn't move, then moved on by a route group's 10 seconds, past the route's
+    // timeout, which started before the pause. The test yields, rather than waiting, so the
+    // runtime moves the clock no further: under a longer timeout, the request would wait for the
+    // collector, which never answers.
     tokio::time::pause();
+    tokio::time::advance(Duration::from_secs(10)).await;
+    while !request.is_finished() {
+        tokio::task::yield_now().await;
+    }
 
     let response = request.await.unwrap();
 
@@ -818,6 +830,150 @@ async fn platform_091_the_relay_s_request_holds_the_batch_and_its_media_type_alo
         .collect();
     names.sort_unstable();
     assert_eq!(names, ["accept", "content-length", "content-type", "host"]);
+}
+
+/// The relay that the API builds for `endpoint`, whose waits `clock` measures.
+fn relay(endpoint: &OtlpEndpoint, clock: &Arc<TestClock>) -> Relay {
+    Relay::new(endpoint, clock.clone()).unwrap()
+}
+
+/// The batch that the tests of the relay forward.
+const BATCH: &[u8] = b"a batch";
+
+/// Each signal, the collector's path of its batches, and a media type of the protocol's.
+const SIGNALS: [(Signal, &str, &str); 3] = [
+    (Signal::Traces, "/v1/traces", PROTOBUF),
+    (Signal::Logs, "/v1/logs", JSON),
+    (Signal::Metrics, "/v1/metrics", PROTOBUF),
+];
+
+/// What `relay` gives for a batch of spans once the collector answers it `status`.
+async fn forwarded_at(collector: &Upstream, relay: &Relay, status: u16) -> Result<(), RelayError> {
+    collector.set("POST", "/v1/traces", status, json!({}));
+    relay
+        .forward(Signal::Traces, PROTOBUF, Bytes::from_static(BATCH))
+        .await
+}
+
+#[tokio::test]
+async fn platform_091_forward_posts_the_batch_to_its_signal_s_path_and_a_2xx_takes_it() {
+    let collector = Upstream::start().await;
+    for ((_, path, _), status) in SIGNALS.iter().zip([200, 202, 299]) {
+        collector.set("POST", path, status, json!({}));
+    }
+    let relay = relay(&collector.collector_endpoint(), &Arc::default());
+
+    for (signal, path, media_type) in SIGNALS {
+        let forwarded = relay
+            .forward(signal, media_type, Bytes::from_static(BATCH))
+            .await;
+
+        assert!(forwarded.is_ok(), "{path}: {forwarded:?}");
+    }
+    let received: Vec<_> = collector
+        .received()
+        .into_iter()
+        .map(|request| {
+            let media_type = request
+                .headers
+                .iter()
+                .find(|(name, _)| name == "content-type")
+                .map(|(_, value)| value.clone());
+            (request.method, request.path, media_type, request.bytes)
+        })
+        .collect();
+    let sent: Vec<_> = SIGNALS
+        .iter()
+        .map(|(_, path, media_type)| {
+            let media_type = Some((*media_type).to_owned());
+            (
+                "POST".to_owned(),
+                (*path).to_owned(),
+                media_type,
+                BATCH.to_vec(),
+            )
+        })
+        .collect();
+    assert_eq!(received, sent);
+}
+
+#[tokio::test]
+async fn platform_091_forward_fails_as_refused_when_the_collector_answers_a_4xx_but_404_405_and_429()
+ {
+    let collector = Upstream::start().await;
+    let relay = relay(&collector.collector_endpoint(), &Arc::default());
+
+    for status in [400, 401, 403, 406, 413, 415, 428, 430, 499] {
+        let forwarded = forwarded_at(&collector, &relay, status).await;
+
+        assert!(
+            matches!(forwarded, Err(RelayError::Refused)),
+            "{status}: {forwarded:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn platform_091_forward_fails_as_unavailable_when_the_collector_answers_anything_else() {
+    let collector = Upstream::start().await;
+    let relay = relay(&collector.collector_endpoint(), &Arc::default());
+
+    for status in [300, 302, 404, 405, 429, 500, 503, 599] {
+        let forwarded = forwarded_at(&collector, &relay, status).await;
+
+        assert!(
+            matches!(forwarded, Err(RelayError::Unavailable(_))),
+            "{status}: {forwarded:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn platform_091_forward_fails_as_unavailable_when_no_connection_opens() {
+    // A port that nothing listens on, once its listener is dropped.
+    let closed = {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        listener.local_addr().unwrap()
+    };
+    let endpoint = format!("http://{closed}").parse().unwrap();
+
+    let forwarded = relay(&endpoint, &Arc::default())
+        .forward(Signal::Traces, PROTOBUF, Bytes::from_static(BATCH))
+        .await;
+
+    assert!(
+        matches!(forwarded, Err(RelayError::Unavailable(_))),
+        "{forwarded:?}"
+    );
+}
+
+#[tokio::test]
+async fn platform_091_forward_fails_as_unavailable_when_no_answer_comes_within_5_seconds() {
+    let collector = Upstream::start().await;
+    collector.hang("POST", "/v1/traces");
+    let clock = Arc::new(TestClock::default());
+    let forwarding = {
+        let relay = relay(&collector.collector_endpoint(), &clock);
+        tokio::spawn(async move {
+            relay
+                .forward(Signal::Traces, PROTOBUF, Bytes::from_static(BATCH))
+                .await
+        })
+    };
+
+    // The relay's deadline waits once its request is sent, so the clock moves only then, once,
+    // by the 5 seconds, for which `sleeping` waits: a deadline of another length never comes.
+    while collector.received().is_empty() {
+        tokio::task::yield_now().await;
+    }
+    clock.sleeping(Duration::from_secs(5)).await;
+    clock.advance(Duration::from_secs(5));
+
+    let forwarded = forwarding.await.unwrap();
+    assert!(
+        matches!(forwarded, Err(RelayError::Unavailable(_))),
+        "{forwarded:?}"
+    );
 }
 
 /// Whether `span` is the client span of the relay's `POST` of a batch.

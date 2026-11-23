@@ -3,13 +3,38 @@
 // part: removal
 //! So the other tests pass in a fork that leaves such a part out.
 // end part: removal
+//!
+//! It also sends a workspace's rename, a request that more than one test file sends (TEST-09).
 
 use serde_json::{Value, json};
 
 use super::{
-    TestDatabase, audit,
+    Api, TestDatabase,
+    api::Response,
+    audit,
     events::{self, Event},
+    users::SignedIn,
 };
+
+/// Renames `workspace` to `name` as `user`, with `headers`, such as an `If-Match`.
+pub async fn rename(
+    api: &Api,
+    user: &SignedIn,
+    workspace: &str,
+    name: &str,
+    headers: &[(&str, &str)],
+) -> Response {
+    let mut call = api
+        .patch(
+            &format!("/v1/workspaces/{workspace}"),
+            &json!({ "name": name }),
+        )
+        .bearer(&user.access);
+    for (header, value) in headers {
+        call = call.header(header, value);
+    }
+    call.send().await
+}
 
 /// Creates a workspace named `name`, with `members` given as user IDs and roles, and returns its
 /// ID.
