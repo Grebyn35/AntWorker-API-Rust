@@ -1,17 +1,21 @@
 //! `check-openapi`: the committed `openapi.json` follows the rules for the HTTP contract. Each
 //! operation's scope, method and statuses are in `operations`, the shape of lists and their
-//! `search` in `lists`, the fields that a response always holds in `presence`, the formats and
-//! request strings' lengths in `schemas`, the event catalog in `events`, the action catalog in
-//! `actions`, the codes that no route lists in `codes`, and the names the document keys its
-//! operations and schemas by in `names`, each with the rules it reads, the schema names it reads
-//! in the code in `schema_names`, and what the document breaks of the last final release's in
-//! `breaking`. This file reads the paths' shape, each operation's access level and responses'
+//! `search` in `lists`, the fields that a response always holds in `presence`, the formats in
+//! `schemas`, request strings' lengths in `lengths`, headers' schemas in `headers`, the forms of
+//! the document that the check doesn't read in `forms`, the event catalog in `events`, the action
+//! catalog in `actions`, the codes that no route lists in `codes`, and the names the document keys
+//! its operations and schemas by in `names`, each with the rules it reads, the schema names it
+//! reads in the code in `schema_names`, and what the document breaks of the last final release's
+//! in `breaking`. This file reads the paths' shape, each operation's access level and responses'
 //! descriptions, the codes of the error responses, the properties' names, and the references.
 
 pub mod actions;
 mod breaking;
 mod codes;
 pub mod events;
+mod forms;
+mod headers;
+mod lengths;
 mod lists;
 pub mod names;
 mod operations;
@@ -68,6 +72,19 @@ pub fn check(repo: &Repo) -> Outcome {
             };
         }
     };
+    let located = |problems: Vec<Problem>| -> Vec<Finding> {
+        problems
+            .into_iter()
+            .map(|(needle, message)| Finding::new(DOCUMENT, line_of(&file.text, &needle), message))
+            .collect()
+    };
+    let unread = forms::check(&document);
+    if !unread.is_empty() {
+        return Outcome {
+            report: Vec::new(),
+            findings: located(unread),
+        };
+    }
     let mut problems = Vec::new();
     let empty = Map::new();
     let paths = document["paths"].as_object().unwrap_or(&empty);
@@ -87,6 +104,22 @@ pub fn check(repo: &Repo) -> Outcome {
     problems.extend(names::operation_ids(&document));
     let code = names::code(repo);
     problems.extend(names::unread(&code.schemas, &document));
+    components(&document, &mut problems);
+    let mut findings = located(problems);
+    findings.extend(events::check(repo, &document));
+    findings.extend(actions::check(repo, &document));
+    findings.extend(codes::check(repo, &document));
+    findings.extend(names::findings(code, &document));
+    Outcome {
+        report: Vec::new(),
+        findings,
+    }
+}
+
+/// API-17, ERR-13 and API-05: of `document`'s components, each response has a description and
+/// lists its codes, and each schema's properties are `snake_case`.
+fn components(document: &Value, problems: &mut Vec<Problem>) {
+    let empty = Map::new();
     let responses = document["components"]["responses"]
         .as_object()
         .unwrap_or(&empty);
@@ -111,19 +144,7 @@ pub fn check(repo: &Repo) -> Outcome {
         .as_object()
         .unwrap_or(&empty);
     for (name, schema) in schemas {
-        properties(&format!("schema {name}"), schema, &mut problems);
-    }
-    let mut findings: Vec<Finding> = problems
-        .into_iter()
-        .map(|(needle, message)| Finding::new(DOCUMENT, line_of(&file.text, &needle), message))
-        .collect();
-    findings.extend(events::check(repo, &document));
-    findings.extend(actions::check(repo, &document));
-    findings.extend(codes::check(repo, &document));
-    findings.extend(names::findings(code, &document));
-    Outcome {
-        report: Vec::new(),
-        findings,
+        properties(&format!("schema {name}"), schema, problems);
     }
 }
 
@@ -282,7 +303,8 @@ fn error_codes(
     problems
 }
 
-/// API-05: every property of `schema`, and of the schemas inside it, is `snake_case`.
+/// API-05: every property of `schema`, and of the schemas inside it, those of its properties and
+/// those that [`schemas::inside`] gives, is `snake_case`.
 fn properties(owner: &str, schema: &Value, problems: &mut Vec<Problem>) {
     if let Some(members) = schema["properties"].as_object() {
         for (name, property) in members {
@@ -295,15 +317,8 @@ fn properties(owner: &str, schema: &Value, problems: &mut Vec<Problem>) {
             properties(&format!("{owner}.{name}"), property, problems);
         }
     }
-    for key in ["items", "additionalProperties", "contentSchema"] {
-        if schema[key].is_object() {
-            properties(owner, &schema[key], problems);
-        }
-    }
-    for key in ["allOf", "anyOf", "oneOf"] {
-        for part in schema[key].as_array().into_iter().flatten() {
-            properties(owner, part, problems);
-        }
+    for (_, part) in schemas::inside(schema) {
+        properties(owner, part, problems);
     }
 }
 
@@ -484,6 +499,60 @@ mod tests {
             messages,
             ["GET /v1/things 200: the property nextCursor isn't snake_case (API-05)"]
         );
+    }
+
+    #[test]
+    fn api_05_the_properties_of_each_schema_inside_a_schema_are_snake_case() {
+        let ones = [
+            "items",
+            "additionalProperties",
+            "contentSchema",
+            "not",
+            "if",
+            "then",
+            "else",
+            "contains",
+            "propertyNames",
+            "unevaluatedItems",
+            "unevaluatedProperties",
+        ];
+        let named = ["$defs", "patternProperties", "dependentSchemas"];
+        let listed = ["allOf", "anyOf", "oneOf", "prefixItems"];
+        // Under each keyword, a schema whose property is named after the keyword, in camelCase.
+        let name = |key: &str| {
+            let key = key.trim_start_matches('$');
+            format!("in{}{}", key[..1].to_ascii_uppercase(), &key[1..])
+        };
+        let camel = |key: &str| json!({ "properties": { name(key): {} } });
+        let mut thing = json!({});
+        for key in ones {
+            thing[key] = camel(key);
+        }
+        for key in named {
+            thing[key] = json!({ "a": camel(key) });
+        }
+        for key in listed {
+            thing[key] = json!([camel(key)]);
+        }
+
+        let mut found = findings(&document(
+            "/v1/things",
+            operation(),
+            json!({ "Thing": thing }),
+        ));
+        found.sort();
+
+        let mut expected: Vec<String> = ones
+            .iter()
+            .chain(&named)
+            .chain(&listed)
+            .map(|key| {
+                let name = name(key);
+                format!("schema Thing: the property {name} isn't snake_case (API-05)")
+            })
+            .collect();
+        expected.sort();
+        assert_eq!(found, expected);
     }
 
     #[test]

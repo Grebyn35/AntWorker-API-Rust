@@ -1,6 +1,7 @@
 //! `check-openapi`, for the schemas: IDs are `format: uuid`, timestamps `format: date-time`, and
-//! closed sets `snake_case` strings (API-11); and every string of a request body has a
-//! `maxLength` (API-17).
+//! closed sets `snake_case` strings (API-11). Of the places that it reads, it gives the schema of
+//! each request body of JSON, `application/json` or a type that ends in `+json`, to
+//! [`lengths`](super::lengths), and each header to [`headers`](super::headers) (API-17).
 //!
 //! An ID is a property or a parameter named `id` or `<name>_id`, but `trace_id`, `device_id`
 //! and `client_id`, the IDs that API-11 excepts, and a timestamp a property named `<event>_at`,
@@ -17,11 +18,12 @@
 //! of those places isn't followed: it names a component of the place's kind,
 //! `#/components/<kind>/<name>`, which the check reads where it stands, or the check refuses it.
 //! It reads the IDs among the parameters of each operation there, with the names in the template
-//! of an operation's path of `paths`, and, inside a schema, the schemas that [`formats`] names.
+//! of an operation's path of `paths`, and, inside a schema, the schemas that [`formats`] names. Of
+//! a document that [`forms`](super::forms) refuses, the check reads none of these.
 
 use serde_json::Value;
 
-use super::{METHODS, Problem, is_snake_case, operations::parameters, quoted};
+use super::{METHODS, Problem, headers, is_snake_case, lengths, operations::parameters, quoted};
 
 /// The IDs that API-11 excepts from being UUIDs: a trace ID, the 32 lowercase hexadecimal digits
 /// of W3C Trace Context, a device ID, which its client chooses, and an OAuth provider's client
@@ -29,10 +31,9 @@ use super::{METHODS, Problem, is_snake_case, operations::parameters, quoted};
 const NOT_UUIDS: [&str; 3] = ["trace_id", "device_id", "client_id"];
 
 /// The most references a schema follows before the check gives up on a cycle.
-const DEPTH: usize = 16;
+pub const DEPTH: usize = 16;
 
-/// The keywords of JSON Schema whose value is a schema, but `properties`, which names each of
-/// its own, and the keywords whose value is an array or an object of schemas.
+/// The keywords of JSON Schema whose value is one schema.
 const INSIDE: [&str; 11] = [
     "items",
     "additionalProperties",
@@ -46,6 +47,29 @@ const INSIDE: [&str; 11] = [
     "unevaluatedItems",
     "unevaluatedProperties",
 ];
+
+/// The keywords of JSON Schema whose value is an object of schemas, but `properties`.
+const NAMED: [&str; 3] = ["$defs", "patternProperties", "dependentSchemas"];
+
+/// The keywords of JSON Schema whose value is an array of schemas.
+const LISTED: [&str; 4] = ["allOf", "anyOf", "oneOf", "prefixItems"];
+
+/// Each schema inside `schema` but those of its `properties`, with the keyword that holds it: the
+/// value of each keyword of [`INSIDE`] that is an object, each member of the value of each of
+/// [`NAMED`], and each item of the value of each of [`LISTED`].
+pub fn inside(schema: &Value) -> impl Iterator<Item = (&'static str, &Value)> {
+    let one = INSIDE
+        .into_iter()
+        .filter_map(move |key| Some((key, schema.get(key).filter(|part| part.is_object())?)));
+    let named = NAMED
+        .into_iter()
+        .flat_map(move |key| members(&schema[key]).map(move |(_, part)| (key, part)));
+    let listed = LISTED.into_iter().flat_map(move |key| {
+        let parts = schema[key].as_array().into_iter().flatten();
+        parts.map(move |part| (key, part))
+    });
+    one.chain(named).chain(listed)
+}
 
 /// `value`, or what its `$ref` points at, inside `document`.
 pub fn resolve<'a>(document: &'a Value, value: &'a Value) -> &'a Value {
@@ -127,6 +151,10 @@ impl Places<'_> {
         match kind {
             "schemas" => self.schema(value, at, needle),
             "parameters" | "headers" => {
+                if kind == "headers" || value["in"] == "header" {
+                    let refused = headers::problems(self.document, value, at, needle);
+                    self.problems.extend(refused);
+                }
                 self.schema(&value["schema"], at, needle);
                 self.content(&value["content"], at, needle, false);
             }
@@ -216,15 +244,8 @@ impl Places<'_> {
                 }
             }
             if request && (media == "application/json" || media.ends_with("+json")) {
-                let mut lengths = Lengths {
-                    document: self.document,
-                    owner: &owner,
-                    needle,
-                    seen: Vec::new(),
-                    problems: Vec::new(),
-                };
-                lengths.walk(&of_media["schema"], "");
-                self.problems.extend(lengths.problems);
+                let found = lengths::problems(self.document, &of_media["schema"], &owner, needle);
+                self.problems.extend(found);
             }
             for (property, encoding) in members(&of_media["encoding"]) {
                 for (name, header) in members(&encoding["headers"]) {
@@ -308,10 +329,9 @@ fn identifiers(
 }
 
 /// API-11: the IDs and timestamps among `schema`'s properties, and those of the schemas inside
-/// it, under `properties`, a keyword of [`INSIDE`], `$defs`, `patternProperties`,
-/// `dependentSchemas`, `allOf`, `anyOf`, `oneOf` and `prefixItems`, have their formats, and its
-/// closed sets are `snake_case`. A reference isn't followed: it names a component of `schemas`,
-/// which is checked where it stands, or is refused.
+/// it, under `properties` and those that [`inside`] gives, have their formats, and its closed sets
+/// are `snake_case`. A reference isn't followed: it names a component of `schemas`, which is
+/// checked where it stands, or is refused.
 fn formats(
     document: &Value,
     schema: &Value,
@@ -363,29 +383,17 @@ fn formats(
             );
         }
     }
-    for key in INSIDE {
-        if schema[key].is_object() {
-            formats(document, &schema[key], owner, needle, problems);
-        }
-    }
-    for key in ["$defs", "patternProperties", "dependentSchemas"] {
-        for (_, part) in members(&schema[key]) {
-            formats(document, part, owner, needle, problems);
-        }
-    }
-    for key in ["allOf", "anyOf", "oneOf", "prefixItems"] {
-        for part in schema[key].as_array().into_iter().flatten() {
-            // An entry's action is an action's name, which the audit spec shapes, not a closed set
-            // of API-11; `actions` checks it.
-            if schema["x-audit-action"].is_null() {
-                formats(document, part, owner, needle, problems);
-            } else {
-                let mut part = part.clone();
-                if let Some(properties) = part["properties"].as_object_mut() {
-                    properties.remove("action");
-                }
-                formats(document, &part, owner, needle, problems);
+    for (key, part) in inside(schema) {
+        // An entry's action is an action's name, which the audit spec shapes, not a closed set of
+        // API-11; `actions` checks it.
+        if LISTED.contains(&key) && !schema["x-audit-action"].is_null() {
+            let mut part = part.clone();
+            if let Some(properties) = part["properties"].as_object_mut() {
+                properties.remove("action");
             }
+            formats(document, &part, owner, needle, problems);
+        } else {
+            formats(document, part, owner, needle, problems);
         }
     }
 }
@@ -403,67 +411,6 @@ fn formats_of<'a>(document: &'a Value, schema: &'a Value, depth: usize) -> Vec<&
         }
     }
     found
-}
-
-/// API-17: every string of a request body has a `maxLength`, unless it is a closed set, whose
-/// values bound it.
-struct Lengths<'a> {
-    document: &'a Value,
-    /// The request, as findings name it.
-    owner: &'a str,
-    /// The text to find a finding's line by.
-    needle: &'a str,
-    /// The references followed to reach the schema at hand, which a cycle would repeat.
-    seen: Vec<String>,
-    problems: Vec<Problem>,
-}
-
-impl Lengths<'_> {
-    /// Checks `schema`, which describes the value at the JSON Pointer `at`.
-    fn walk(&mut self, schema: &Value, at: &str) {
-        if let Some(target) = schema["$ref"].as_str() {
-            if self.seen.iter().any(|seen| seen == target) || self.seen.len() >= DEPTH {
-                return;
-            }
-            self.seen.push(target.to_owned());
-            self.walk(resolve(self.document, schema), at);
-            self.seen.pop();
-            return;
-        }
-        let is_string = match &schema["type"] {
-            Value::String(kind) => kind == "string",
-            Value::Array(kinds) => kinds.iter().any(|kind| kind == "string"),
-            _ => false,
-        };
-        let bounded = ["maxLength", "enum"]
-            .iter()
-            .any(|key| schema.get(*key).is_some());
-        if is_string && !bounded {
-            let field = if at.is_empty() { "the body" } else { at };
-            self.problems.push((
-                self.needle.to_owned(),
-                format!(
-                    "{}: the string at {field} has no maxLength (API-17)",
-                    self.owner
-                ),
-            ));
-        }
-        if let Some(properties) = schema["properties"].as_object() {
-            for (name, property) in properties {
-                self.walk(property, &format!("{at}/{name}"));
-            }
-        }
-        for key in ["items", "additionalProperties"] {
-            if schema[key].is_object() {
-                self.walk(&schema[key], &format!("{at}/*"));
-            }
-        }
-        for key in ["allOf", "anyOf", "oneOf"] {
-            for part in schema[key].as_array().into_iter().flatten() {
-                self.walk(part, at);
-            }
-        }
-    }
 }
 
 /// Whether `name` names an ID: `id`, or `<name>_id`.
@@ -630,35 +577,6 @@ mod tests {
             [
                 "schema Other.action: the value thing.made of a closed set isn't snake_case (API-11)",
                 "schema ThingMadeEntry.resource_type: the value bigThing of a closed set isn't snake_case (API-11)",
-            ]
-        );
-    }
-
-    #[test]
-    fn api_17_every_string_of_a_request_body_has_a_max_length() {
-        let schemas = json!({
-            "Name": { "type": "string", "maxLength": 100 },
-            "Note": { "type": "string" },
-            "Delivery": { "type": "string", "enum": ["body", "cookie"] },
-            "Request": { "type": "object", "properties": {
-                "kind": { "type": "string", "const": "thing" },
-                "name": { "$ref": "#/components/schemas/Name" },
-                "note": { "oneOf": [{ "$ref": "#/components/schemas/Note" }, { "type": "null" }] },
-                "delivery": { "$ref": "#/components/schemas/Delivery" },
-                "tags": { "type": "array", "items": { "type": ["string", "null"] } },
-                "token": { "type": ["string", "null"], "maxLength": 64 },
-            } },
-        });
-        let operation = json!({
-            "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Request" } } } },
-            "responses": {},
-        });
-        assert_eq!(
-            messages(&document(operation, schemas)),
-            [
-                "POST /v1/things application/json request: the string at /kind has no maxLength (API-17)",
-                "POST /v1/things application/json request: the string at /note has no maxLength (API-17)",
-                "POST /v1/things application/json request: the string at /tags/* has no maxLength (API-17)",
             ]
         );
     }

@@ -20,6 +20,7 @@ mod download;
 // part: files
 mod files;
 // end part: files
+mod headers;
 mod presence;
 
 pub(super) use download::download;
@@ -177,9 +178,10 @@ fn answers(error: &RequestError, method: &Method, access: Access, operation: &Op
 /// Documents each operation's access level as the extension `x-access`, a workspace route's
 /// permission as `x-permission`, which TEST-08's generated test reads, the problems the
 /// pipeline can answer on it, and the rate-limit headers of every response the limiter passes
-/// back through (PLATFORM-056). A route that documents its own response for one of those
-/// statuses keeps it, and lists the pipeline's codes in it itself (ERR-13). Returns the query
-/// parameters that each method accepts, `HEAD` taking those of the `GET` that serves it.
+/// back through (PLATFORM-056), and takes `null` out of each header parameter's schema (API-17).
+/// A route that documents its own response for one of those statuses keeps it, and lists the
+/// pipeline's codes in it itself (ERR-13). Returns the query parameters that each method
+/// accepts, `HEAD` taking those of the `GET` that serves it.
 pub(super) fn document(paths: &mut Paths, access: Access, errors: &[&dyn ErrorCode]) -> QueryNames {
     let mut queries = QueryNames::new();
     for item in paths.paths.values_mut() {
@@ -197,6 +199,7 @@ pub(super) fn document(paths: &mut Paths, access: Access, errors: &[&dyn ErrorCo
                     .or_insert(RefOr::T(response));
             }
             rate_limit_headers(operation);
+            headers::without_null(operation);
             let names = query_names(operation);
             if method == Method::GET {
                 queries.insert(Method::HEAD, names.clone());

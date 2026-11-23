@@ -11576,15 +11576,8 @@
             "name": "Idempotency-Key",
             "required": false,
             "schema": {
-              "oneOf": [
-                {
-                  "pattern": "^ *\"(?:[ !#-\\[\\]-~]|\\\\[\"\\\\]){1,255}\" *$",
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
+              "pattern": "^ *\"(?:[ !#-\\[\\]-~]|\\\\[\"\\\\]){1,255}\" *$",
+              "type": "string"
             }
           }
         ],
@@ -13294,10 +13287,7 @@
             "name": "If-Match",
             "required": false,
             "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             }
           }
         ],
@@ -14099,10 +14089,7 @@
             "name": "If-Match",
             "required": false,
             "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             }
           }
         ],
@@ -14443,10 +14430,7 @@
             "name": "If-Match",
             "required": false,
             "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             }
           }
         ],
@@ -16331,10 +16315,7 @@
             "name": "Last-Event-ID",
             "required": false,
             "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             }
           }
         ],
@@ -18541,15 +18522,8 @@
             "name": "Idempotency-Key",
             "required": false,
             "schema": {
-              "oneOf": [
-                {
-                  "pattern": "^ *\"(?:[ !#-\\[\\]-~]|\\\\[\"\\\\]){1,255}\" *$",
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
+              "pattern": "^ *\"(?:[ !#-\\[\\]-~]|\\\\[\"\\\\]){1,255}\" *$",
+              "type": "string"
             }
           }
         ],
@@ -27579,10 +27553,7 @@
             "name": "If-Match",
             "required": false,
             "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             }
           }
         ],
@@ -29265,15 +29236,8 @@
             "name": "Idempotency-Key",
             "required": false,
             "schema": {
-              "oneOf": [
-                {
-                  "pattern": "^ *\"(?:[ !#-\\[\\]-~]|\\\\[\"\\\\]){1,255}\" *$",
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
+              "pattern": "^ *\"(?:[ !#-\\[\\]-~]|\\\\[\"\\\\]){1,255}\" *$",
+              "type": "string"
             }
           }
         ],
@@ -30395,10 +30359,7 @@
             "name": "If-Match",
             "required": false,
             "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             }
           }
         ],
@@ -31707,15 +31668,8 @@
             "name": "Idempotency-Key",
             "required": false,
             "schema": {
-              "oneOf": [
-                {
-                  "pattern": "^ *\"(?:[ !#-\\[\\]-~]|\\\\[\"\\\\]){1,255}\" *$",
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
+              "pattern": "^ *\"(?:[ !#-\\[\\]-~]|\\\\[\"\\\\]){1,255}\" *$",
+              "type": "string"
             }
           }
         ],
@@ -33946,15 +33900,8 @@
             "name": "Idempotency-Key",
             "required": false,
             "schema": {
-              "oneOf": [
-                {
-                  "pattern": "^ *\"(?:[ !#-\\[\\]-~]|\\\\[\"\\\\]){1,255}\" *$",
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
+              "pattern": "^ *\"(?:[ !#-\\[\\]-~]|\\\\[\"\\\\]){1,255}\" *$",
+              "type": "string"
             }
           }
         ],
@@ -35179,10 +35126,7 @@
             "name": "If-Match",
             "required": false,
             "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             }
           }
         ],
@@ -37476,10 +37420,7 @@
             "name": "If-Match",
             "required": false,
             "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             }
           }
         ],
@@ -37898,10 +37839,7 @@
             "name": "If-Match",
             "required": false,
             "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             }
           }
         ],
@@ -38292,10 +38230,7 @@
             "name": "If-Match",
             "required": false,
             "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             }
           }
         ],
