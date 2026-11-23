@@ -78,7 +78,9 @@ serde-saphyr = { version = "2.0.0", default-features = false, features = ["deser
 serde_json = "1.0.154"
 serde_path_to_error = "0.1.20"
 sha2 = { version = "0.11.1", default-features = false }
-sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "postgres", "macros", "migrate", "tls-rustls-ring-native-roots", "uuid", "time", "json", "ipnet"] }
+# 0.9.1 at least: from it on, an opening of a transaction that is dropped before Postgres answers
+# its `BEGIN` rolls back (PLATFORM-107).
+sqlx = { version = "0.9.1", default-features = false, features = ["runtime-tokio", "postgres", "macros", "migrate", "tls-rustls-ring-native-roots", "uuid", "time", "json", "ipnet"] }
 syn = { version = "3.0.9", default-features = false, features = ["full", "parsing", "visit"] }
 thiserror = "2.0.21"
 time = { version = "0.3.55", default-features = false, features = ["std"] }
