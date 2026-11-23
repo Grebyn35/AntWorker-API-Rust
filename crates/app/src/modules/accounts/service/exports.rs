@@ -378,7 +378,7 @@ struct Sources {
     client: Client,
     user: UserId,
     export: uuid::Uuid,
-    /// The position of each of the archive's documents, which come first, in their order.
+    /// The position of each of the archive's documents, in their order.
     positions: Arc<[u32]>,
     // part: files
     files: Files,

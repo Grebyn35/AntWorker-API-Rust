@@ -16,14 +16,17 @@ use crate::{
     types::Client,
 };
 
-/// The IP limit's limiter and its buckets.
+/// The IP limit's limiter and its bucket.
+// part: files
+/// A public download counts in a bucket of its own.
+// end part: files
 pub(super) struct IpLimit {
     pub(super) limiter: RateLimiter,
-    /// The bucket of every request that no other bucket of the IP limit counts.
+    /// The bucket of every request that the IP limit counts.
     pub(super) bucket: Bucket,
     // part: files
     /// The bucket of the requests under [`super::PUBLIC_PREFIX`], public downloads of files,
-    /// avatars and workspaces' pictures (PLATFORM-082).
+    /// avatars and workspaces' pictures, which count there instead (PLATFORM-082).
     pub(super) public_bucket: Bucket,
     // end part: files
 }

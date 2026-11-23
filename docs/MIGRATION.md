@@ -120,7 +120,7 @@ Proposals that wait, each with the step that decides it ([Changing a rule](stand
 
 | From | Proposal | Decided in |
 |---|---|---|
-| Conformance review of 13b5891..e6d2a02 | ARCH-07: whether the tracker's rows of D1 to D36 that decide one part alone carry its marker, as a later decision's row does, such as D34's, of `invitations` | 6, with the ADRs <!-- part: removal --> |
+| Conformance review of 13b5891..e6d2a02, and the second pass of the review of the whole codebase | ARCH-07: whether the tracker's rows of D1 to D36, D62, D66, D73 and D117 that decide one part alone carry its marker, as a later decision's row does, such as D34's, of `invitations`: `check-parts` then fails on each kept line that cites one | 6, with the ADRs <!-- part: removal --> |
 
 ## Conformance reviews
 

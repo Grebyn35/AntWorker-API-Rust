@@ -78,10 +78,10 @@ groups:
           / sum by (job) (rate(http_server_request_duration_seconds_count[3d]))
 
   # A series of a metric that the API declares appears with its first recording in a process,
-  # whose metrics carry an instance of their own, such as with a replica's first call that the
-  # bucket doesn't answer, and increase() counts nothing of a series' first value. So an alert that
-  # counts such a metric's events within a window with increase() counts a series that existed at
-  # the window's start by its increase, and a newer one by its value:
+  # whose metrics carry an instance of their own, such as with a replica's first send that the
+  # mail server doesn't answer, and increase() counts nothing of a series' first value. So an
+  # alert that counts such a metric's events within a window with increase() counts a series that
+  # existed at the window's start by its increase, and a newer one by its value:
   # (increase(x[w]) and x offset w) or (x unless x offset w).
   - name: alerts
     rules:

@@ -38,7 +38,8 @@ Every area maps to a decision (`D`), a rule in [docs/standards/](standards/READM
 | Architecture and threat model | D22, D26 |
 | Authentication | D18, D26, D61, D63, D67, D139, D140, the `auth` spec |
 | Session management | D5, D18, D61 |
-| Access control | D2, D3, D4, D62 |
+| Access control | D2, D3, D4 |
+| A superadmin's access to every workspace | D62 <!-- part: superadmins --> |
 | Validation, sanitization and encoding | D25, D8 |
 | Cryptography and stored data protection | D14, D26 |
 | Error handling and logging | D17, D7 |
@@ -82,7 +83,10 @@ Every area maps to a decision (`D`), a rule in [docs/standards/](standards/READM
 | Area | Covered by |
 |---|---|
 | Local development experience | D28, D69, D71, D72 |
-| Fork, rename, add and remove modules, workspace shapes, upstream updates | D29, D39, D62, D66, D73, D91, D92, D117 |
+| Fork, rename, add and remove modules, workspace shapes, upstream updates | D29, D39, D91, D92 |
+| Removing the parts that a fork doesn't keep | D73 <!-- part: removal --> |
+| Whether a fork keeps uploads, with avatars and workspace pictures | D117 <!-- part: files --> |
+| The workspaces that superadmins create, and own | D62, D66 <!-- part: superadmins --> |
 | The setup of a workspace by an operator | D65, D150 <!-- part: workspace_setup --> |
 | Documentation set and Claude Code guidance | D27 |
 | Template versioning and changelog | D15, D29 |
