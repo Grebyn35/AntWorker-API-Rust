@@ -77,6 +77,12 @@ groups:
           1 - sum by (job) (rate(http_server_request_duration_seconds_bucket{le="0.5"}[3d]))
           / sum by (job) (rate(http_server_request_duration_seconds_count[3d]))
 
+  # A series of a metric that the API declares appears with its first recording in a process,
+  # whose metrics carry an instance of their own, such as with a replica's first call that the
+  # bucket doesn't answer, and increase() counts nothing of a series' first value. So an alert that
+  # counts such a metric's events within a window with increase() counts a series that existed at
+  # the window's start by its increase, and a newer one by its value:
+  # (increase(x[w]) and x offset w) or (x unless x offset w).
   - name: alerts
     rules:
       - alert: AvailabilityBudgetBurningFast
@@ -135,8 +141,18 @@ groups:
       # part: files
       - alert: StorageUnreachable
         expr: |
-          sum(increase(platform_storage_requests_total{storage_outcome="unavailable"}[5m])) > 0
-            unless sum(increase(platform_storage_requests_total{storage_outcome=~"ok|not_found|failed"}[5m])) > 0
+          sum(
+            (increase(platform_storage_requests_total{storage_outcome="unavailable"}[5m])
+              and platform_storage_requests_total{storage_outcome="unavailable"} offset 5m)
+            or (platform_storage_requests_total{storage_outcome="unavailable"}
+              unless platform_storage_requests_total{storage_outcome="unavailable"} offset 5m)
+          ) > 0
+            unless sum(
+              (increase(platform_storage_requests_total{storage_outcome=~"ok|not_found|failed"}[5m])
+                and platform_storage_requests_total{storage_outcome=~"ok|not_found|failed"} offset 5m)
+              or (platform_storage_requests_total{storage_outcome=~"ok|not_found|failed"}
+                unless platform_storage_requests_total{storage_outcome=~"ok|not_found|failed"} offset 5m)
+            ) > 0
         for: 2m
         labels:
           severity: page
@@ -146,8 +162,18 @@ groups:
 
       - alert: ScannerUnreachable
         expr: |
-          sum(increase(platform_scans_total{scanner_outcome="unavailable"}[5m])) > 0
-            unless sum(increase(platform_scans_total{scanner_outcome=~"clean|found|failed"}[5m])) > 0
+          sum(
+            (increase(platform_scans_total{scanner_outcome="unavailable"}[5m])
+              and platform_scans_total{scanner_outcome="unavailable"} offset 5m)
+            or (platform_scans_total{scanner_outcome="unavailable"}
+              unless platform_scans_total{scanner_outcome="unavailable"} offset 5m)
+          ) > 0
+            unless sum(
+              (increase(platform_scans_total{scanner_outcome=~"clean|found|failed"}[5m])
+                and platform_scans_total{scanner_outcome=~"clean|found|failed"} offset 5m)
+              or (platform_scans_total{scanner_outcome=~"clean|found|failed"}
+                unless platform_scans_total{scanner_outcome=~"clean|found|failed"} offset 5m)
+            ) > 0
         for: 2m
         labels:
           severity: page
@@ -158,8 +184,18 @@ groups:
 
       - alert: SignInProviderUnavailable
         expr: |
-          sum by (auth_provider) (increase(auth_provider_exchanges_total{auth_outcome="unavailable"}[15m])) > 0
-            unless sum by (auth_provider) (increase(auth_provider_exchanges_total{auth_outcome=~"succeeded|rejected"}[15m])) > 0
+          sum by (auth_provider) (
+            (increase(auth_provider_exchanges_total{auth_outcome="unavailable"}[15m])
+              and auth_provider_exchanges_total{auth_outcome="unavailable"} offset 15m)
+            or (auth_provider_exchanges_total{auth_outcome="unavailable"}
+              unless auth_provider_exchanges_total{auth_outcome="unavailable"} offset 15m)
+          ) > 0
+            unless sum by (auth_provider) (
+              (increase(auth_provider_exchanges_total{auth_outcome=~"succeeded|rejected"}[15m])
+                and auth_provider_exchanges_total{auth_outcome=~"succeeded|rejected"} offset 15m)
+              or (auth_provider_exchanges_total{auth_outcome=~"succeeded|rejected"}
+                unless auth_provider_exchanges_total{auth_outcome=~"succeeded|rejected"} offset 15m)
+            ) > 0
         for: 5m
         labels:
           severity: page
@@ -167,13 +203,15 @@ groups:
           summary: An OAuth provider gave no identity for 20 minutes, while some sign-ins through it went unanswered.
           runbook: docs/operations/runbooks.md#signinproviderunavailable
 
-      # Sends to the mail server (OBS-14, PLATFORM-105). A series of platform_mail_sends_total
-      # appears with its first send, so the window counts the answered sends of a series that
-      # existed at its start by their increase, and those of a newer one by its value, which
-      # increase() would miss the first of.
+      # Sends to the mail server (OBS-14, PLATFORM-105).
       - alert: MailServerUnreachable
         expr: |
-          sum(increase(platform_mail_sends_total{mail_outcome="unavailable"}[15m])) > 0
+          sum(
+            (increase(platform_mail_sends_total{mail_outcome="unavailable"}[15m])
+              and platform_mail_sends_total{mail_outcome="unavailable"} offset 15m)
+            or (platform_mail_sends_total{mail_outcome="unavailable"}
+              unless platform_mail_sends_total{mail_outcome="unavailable"} offset 15m)
+          ) > 0
             unless sum(
               (increase(platform_mail_sends_total{mail_outcome=~"sent|refused"}[15m])
                 and platform_mail_sends_total{mail_outcome=~"sent|refused"} offset 15m)
@@ -198,9 +236,24 @@ groups:
 
       - alert: TelemetryExportFailing
         expr: |
-          sum by (job, instance) (increase(otel_sdk_exporter_span_exported_total{error_type!=""}[10m])) > 0
-          or sum by (job, instance) (increase(otel_sdk_exporter_log_exported_total{error_type!=""}[10m])) > 0
-          or sum by (job, instance) (increase(otel_sdk_exporter_metric_data_point_exported_total{error_type!=""}[10m])) > 0
+          sum by (job, instance) (
+            (increase(otel_sdk_exporter_span_exported_total{error_type!=""}[10m])
+              and otel_sdk_exporter_span_exported_total{error_type!=""} offset 10m)
+            or (otel_sdk_exporter_span_exported_total{error_type!=""}
+              unless otel_sdk_exporter_span_exported_total{error_type!=""} offset 10m)
+          ) > 0
+          or sum by (job, instance) (
+            (increase(otel_sdk_exporter_log_exported_total{error_type!=""}[10m])
+              and otel_sdk_exporter_log_exported_total{error_type!=""} offset 10m)
+            or (otel_sdk_exporter_log_exported_total{error_type!=""}
+              unless otel_sdk_exporter_log_exported_total{error_type!=""} offset 10m)
+          ) > 0
+          or sum by (job, instance) (
+            (increase(otel_sdk_exporter_metric_data_point_exported_total{error_type!=""}[10m])
+              and otel_sdk_exporter_metric_data_point_exported_total{error_type!=""} offset 10m)
+            or (otel_sdk_exporter_metric_data_point_exported_total{error_type!=""}
+              unless otel_sdk_exporter_metric_data_point_exported_total{error_type!=""} offset 10m)
+          ) > 0
         labels:
           severity: ticket
         annotations:
@@ -208,9 +261,8 @@ groups:
           runbook: docs/operations/runbooks.md#telemetryexportfailing
 
       # What an instance's queues of spans and of log records drop while they are full
-      # (PLATFORM-106). A series appears with the instance's first export of metrics, so the window
-      # counts a series that existed at its start by its increase, and a newer one by its value,
-      # which increase() would miss.
+      # (PLATFORM-106). A series appears with the instance's first export of metrics, and the
+      # window counts it as the comment above the alerts says.
       - alert: ApiDroppingTelemetry
         expr: |
           sum by (job, instance) (
@@ -255,17 +307,33 @@ groups:
       # the collector refuses, which the proxy answers with 400, counts for nothing here.
       - alert: ClientTelemetryNotForwarded
         expr: |
-          sum(increase(http_server_request_duration_seconds_count{error_type="client_telemetry.collector_unavailable"}[10m])) > 0
-            unless sum(increase(client_telemetry_forwarded_bytes_total[10m])) > 0
+          sum(
+            (increase(http_server_request_duration_seconds_count{error_type="client_telemetry.collector_unavailable"}[10m])
+              and http_server_request_duration_seconds_count{error_type="client_telemetry.collector_unavailable"} offset 10m)
+            or (http_server_request_duration_seconds_count{error_type="client_telemetry.collector_unavailable"}
+              unless http_server_request_duration_seconds_count{error_type="client_telemetry.collector_unavailable"} offset 10m)
+          ) > 0
+            unless sum(
+              (increase(client_telemetry_forwarded_bytes_total[10m])
+                and client_telemetry_forwarded_bytes_total offset 10m)
+              or (client_telemetry_forwarded_bytes_total
+                unless client_telemetry_forwarded_bytes_total offset 10m)
+            ) > 0
         for: 5m
         labels:
           severity: ticket
         annotations:
-          summary: For 15 minutes, or since the API's replicas started, the collector took none of the batches of telemetry that the API sent it for users' clients, and neither took nor refused some.
+          summary: For 15 minutes, the collector took none of the batches of telemetry that the API sent it for users' clients, and neither took nor refused some.
           runbook: docs/operations/runbooks.md#clienttelemetrynotforwarded
 
       - alert: ClientTelemetryBudgetSpent
-        expr: sum(increase(platform_rate_limit_refusals_total{rate_limit_bucket="telemetry_replica"}[10m])) > 0
+        expr: |
+          sum(
+            (increase(platform_rate_limit_refusals_total{rate_limit_bucket="telemetry_replica"}[10m])
+              and platform_rate_limit_refusals_total{rate_limit_bucket="telemetry_replica"} offset 10m)
+            or (platform_rate_limit_refusals_total{rate_limit_bucket="telemetry_replica"}
+              unless platform_rate_limit_refusals_total{rate_limit_bucket="telemetry_replica"} offset 10m)
+          ) > 0
         labels:
           severity: ticket
         annotations:
@@ -295,9 +363,7 @@ groups:
           summary: A replica's hub has owed its streams events it couldn't load for 5 minutes.
           runbook: docs/operations/runbooks.md#eventsstalled
 
-      # Background jobs (OBS-14, the platform spec's Jobs). A series of platform_job_runs_total
-      # appears with its first run, so a window counts a series that existed at its start by its
-      # increase, and a newer one by its value, which increase() would miss the first of.
+      # Background jobs (OBS-14, the platform spec's Jobs).
       - alert: JobsDelayed
         expr: max(platform_job_delay_seconds) > 600
         for: 5m

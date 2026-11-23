@@ -45,6 +45,27 @@ export const options = {
 
 const lag = new Trend("hub_lag_p99_ms");
 
+// How long the teardown waits for Prometheus to hold a sample of the measured hub's lag that the
+// replica took after the step's requests ended: the replicas export their metrics every 15
+// seconds (the platform spec's Telemetry export, under Batching), so this is four of their
+// exports. A step whose sample doesn't come by then reports no lag, and fails.
+const SAMPLED_MS = 60000;
+
+// What keeps the series of the measured hub, the replica whose hub holds streams.
+const MEASURED = "and on (instance) (platform_streams > 0)";
+
+// The series that Prometheus answers to the query `text`, or none.
+function query(text) {
+  const response = http.get(`${prometheus}/api/v1/query?query=${encodeURIComponent(text)}`, {
+    tags: { name: "prometheus" },
+  });
+  return response.json("data.result") || [];
+}
+
+export function setup() {
+  return { started: Date.now() };
+}
+
 export default function () {
   const iteration = exec.scenario.iterationInTest;
   const workspace = data.workspaces[iteration % data.workspaces.length];
@@ -60,19 +81,31 @@ export default function () {
   );
 }
 
-export function teardown() {
-  // The replicas export their metrics every few seconds, and Prometheus takes them as they come.
-  sleep(15);
-  const window = `${Math.ceil(parseFloat(duration)) + 15}s`;
-  const query =
+// Waits until Prometheus's newest sample of the measured hub's lag, by its timestamp, is one
+// that the replica took after the step's last request ended, which holds the lag of each event
+// that the hub loaded before the replica took it, or until SAMPLED_MS has passed. Then it reads
+// the 99th percentile of the lags that the samples since the step began hold.
+export function teardown(step) {
+  const ended = Date.now();
+  // timestamp() gives a sample's own time only of a series that it reads directly.
+  const newest = () => {
+    const result = query(
+      `max(timestamp(platform_event_delivery_lag_seconds_count) ${MEASURED})`,
+    );
+    return result.length > 0 ? 1000 * Number(result[0].value[1]) : 0;
+  };
+  while (newest() <= ended) {
+    if (Date.now() - ended > SAMPLED_MS) {
+      return;
+    }
+    sleep(1);
+  }
+  const window = `${Math.ceil((Date.now() - step.started) / 1000)}s`;
+  const result = query(
     "1000 * histogram_quantile(0.99, sum by (le) (" +
-    `increase(platform_event_delivery_lag_seconds_bucket[${window}]) ` +
-    "and on (instance) (platform_streams > 0)))";
-  const response = http.get(`${prometheus}/api/v1/query?query=${encodeURIComponent(query)}`, {
-    tags: { name: "prometheus" },
-  });
-  const result = response.json("data.result");
-  if (result && result.length > 0) {
+      `increase(platform_event_delivery_lag_seconds_bucket[${window}]) ${MEASURED}))`,
+  );
+  if (result.length > 0) {
     lag.add(Number(result[0].value[1]));
   }
 }

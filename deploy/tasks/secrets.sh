@@ -1,7 +1,7 @@
 # The deployment's secrets (OPS-14, OPS-19): those that a deploy generates, the check of those
-# that the operator holds, and the replacement of a key that a deploy generated.
+# that a deploy requires of the operator, and the replacement of a key that a deploy generated.
 
-# Writes the secrets the deployment generates, once those the operator holds are there: the
+# Writes the secrets the deployment generates, once check_secrets passes: the
 # passwords of the bundled Postgres's other roles and the URLs made from them, the API's HMAC
 # key, and Grafana's secret key. The files may be read by every
 # user of a container, as Compose mounts them, so the directory admits only the deployment's
@@ -114,7 +114,8 @@ query_values() {
 
 # Fails unless secrets/ holds each secret that `just server-setup` asks the operator for with
 # these settings, but the mail server's password and the providers' client secrets, which a deploy
-# writes empty when they are missing, for the API to read as unset. It also refuses a managed
+# writes empty when they are missing, for the API to read as unset, and the alert integrations'
+# credentials, in secrets/alertmanager/. It also refuses a managed
 # database's URL that names the bundled database or doesn't set sslmode=verify-full once, and a
 # password of Grafana's administrator of fewer than 15 characters.
 check_secrets() {

@@ -493,4 +493,105 @@ mod tests {
         assert_eq!(quoted("2026-10-25 10:41:31+00"), "'2026-10-25 10:41:31+00'");
         assert_eq!(quoted("it's"), r"'it'\''s'");
     }
+
+    /// What `read_settings`, in deploy/tasks/common.sh, refuses of the settings, which a deploy
+    /// reads before it starts a service. The tests run the script in a POSIX shell, as the server
+    /// does, which Windows doesn't provide, so they compile only on Unix.
+    #[cfg(unix)]
+    mod settings {
+        use super::*;
+
+        /// The settings that `read_settings` requires, with a bundled database and no telemetry.
+        const REQUIRED: &[&str] = &[
+            "API_ADDRESS=api.example.com",
+            // part: files
+            "FILES_S3_ENDPOINT=files.example.com",
+            "FILES_S3_REGION=region",
+            "FILES_S3_BUCKET=files",
+            // end part: files
+            "BACKUP_S3_ENDPOINT=backups.example.com",
+            "BACKUP_S3_REGION=region",
+            "BACKUP_S3_BUCKET=backups",
+            "TELEMETRY=off",
+        ];
+
+        /// What `read_settings` writes to stderr as it refuses settings.env holding the required
+        /// settings, then `settings`, whose values replace theirs, or `None` when it takes them.
+        fn refusal(settings: &[&str]) -> Option<String> {
+            let lines: Vec<&str> = REQUIRED.iter().chain(settings).copied().collect();
+            let output = Command::new("sh")
+                .args([
+                    "-c",
+                    "deployment=$(mktemp -d) && printf '%s\\n' \"$1\" > \"$deployment/settings.env\" \
+                     && . \"$2\" && (read_settings); refused=$?; rm -rf \"$deployment\"; \
+                     exit $refused",
+                    "sh",
+                ])
+                .arg(lines.join("\n"))
+                .arg(root().join("deploy/tasks/common.sh"))
+                .output()
+                .unwrap();
+            (!output.status.success()).then(|| String::from_utf8_lossy(&output.stderr).into_owned())
+        }
+
+        /// Asserts that `read_settings` refuses the setting `name` set to each of `refused`,
+        /// with a message that names it, and takes it set to each of `taken`.
+        fn refuses(name: &str, refused: &[&str], taken: &[&str]) {
+            for value in refused {
+                let setting = format!("{name}={value}");
+                let message = refusal(&[setting.as_str()]);
+                assert!(
+                    message
+                        .as_deref()
+                        .is_some_and(|message| message.contains(&format!("deploy: {name} is "))),
+                    "{setting}: {message:?}"
+                );
+            }
+            for value in taken {
+                let setting = format!("{name}={value}");
+                assert_eq!(refusal(&[setting.as_str()]), None, "{setting}");
+            }
+        }
+
+        #[test]
+        fn ops_14_a_deploy_refuses_a_port_and_a_uri_style_of_the_backups_bucket_that_its_type_line_excludes()
+         {
+            refuses(
+                "BACKUP_S3_PORT",
+                &["0", "65536", "443x", "-1"],
+                &["", "1", "443", "65535"],
+            );
+            refuses(
+                "BACKUP_S3_URI_STYLE",
+                &["virtual", "Host", "host path"],
+                &["", "host", "path"],
+            );
+            // The Type line applies them with DATABASE=bundled alone.
+            assert_eq!(
+                refusal(&[
+                    "DATABASE=managed",
+                    "BACKUP_S3_PORT=443x",
+                    "BACKUP_S3_URI_STYLE=virtual"
+                ]),
+                None
+            );
+        }
+
+        // part: files
+        #[test]
+        fn ops_14_a_deploy_refuses_a_port_and_a_uri_style_of_the_files_bucket_that_its_type_line_excludes()
+         {
+            refuses(
+                "FILES_S3_PORT",
+                &["0", "65536", "443x", "-1"],
+                &["", "1", "443", "65535"],
+            );
+            refuses(
+                "FILES_S3_URI_STYLE",
+                &["virtual", "Host", "host path"],
+                &["", "host", "path"],
+            );
+        }
+        // end part: files
+    }
 }

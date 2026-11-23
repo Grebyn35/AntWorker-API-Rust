@@ -44,7 +44,7 @@ check() {
     if [ "$settled" = yes ]; then
         if problem=$( (check_secrets) 2>&1 > /dev/null); then
             secured=yes
-            passed "the secrets that the operator holds, in $deployment/secrets"
+            passed "the secrets that a deploy requires, in $deployment/secrets"
         else
             failed "${problem#deploy: }"
         fi

@@ -12,7 +12,7 @@ Logs are JSON in production and human-readable in development. They go to stdout
 ### OBS-02 Every log line can be correlated
 Every JSON log line carries its time, `timestamp`, in UTC, and `service.name`, `service.version` and `deployment.environment.name`, the last once the configuration has named the environment. A line written inside a span also carries `trace_id` and `span_id`. The readable text of development carries the fields its events write.
 - Why: a log line leads to its trace, and a trace leads to its logs (D10). The lines that reach a log store are JSON (OBS-01).
-- Check: `test` (the binary's JSON lines, and the logging setup in the end-to-end suite).
+- Check: `test` (the binary's JSON lines), plus `ci: e2e` (each span and log line of the proxy that reaches a backend names its service's version).
 
 ### OBS-03 Levels have fixed meanings
 | Level | Meaning |
@@ -31,7 +31,7 @@ Logs, spans and metric labels never contain personal data or secrets. `EmailAddr
 A file's name is personal data: `FileName` redacts it in its `Debug`, and the records of an export's files, whose paths hold names, have no `Debug`. <!-- part: files -->
 Of the telemetry that a user's client sends through the telemetry proxy, the collector keeps of the resource of a span or of a log record only what names the client, its version and, on spans, its installation (CLIENT_TELEMETRY-011), and of its metrics only the client's name and the attributes and values that its configuration lists (CLIENT_TELEMETRY-015); what its spans and its log records hold besides is the client's to keep free of personal data, and its user's to consent to (D7). <!-- part: client_telemetry -->
 - Why: telemetry is copied widely and kept for a long time (D7).
-- Check: `compiler` (the redacting types), `ci: check-instrument` (every `#[instrument]` has `skip_all`), plus `ci: e2e` (the proxy's span and log line hold no client address or user agent, and the bundled Postgres's log holds no value that a unique constraint refused), plus `review`.
+- Check: `compiler` (the redacting types), `ci: check-instrument` (every `#[instrument]` has `skip_all`), plus `ci: e2e` (the proxy's span, its log line and its own log hold no client address or user agent, under any name, and the bundled Postgres's log holds no value that a unique constraint refused), plus `review`.
 
 ### OBS-05 Telemetry names come from one list
 Every field name in logs and spans, and every metric label name, comes from the list in `platform::telemetry`, and code uses no other name. The list declares no field for personal data or secrets (OBS-04).

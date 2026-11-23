@@ -11,7 +11,8 @@
 // API's CPU-heavy work, and the step shows what the others wait for it. Before and after the
 // step, the script reads how many spans the collector has accepted, so the task can report them
 // beside the requests served, each of which writes two spans when it asks for the capabilities:
-// a span the API's queue dropped would never reach the collector.
+// a span the API's queue dropped would never reach the collector. DURATION is in seconds, such as
+// 30s.
 
 import http from "k6/http";
 import { fail, sleep } from "k6";
@@ -67,6 +68,13 @@ export const options = {
 };
 
 const accepted = new Counter("collector_accepted_spans");
+
+// How long after the step's last request the API's spans take at most to leave it: the SDK's
+// export under way holds up to 512 of them, and its queue up to 2,048 more, so they go in 5
+// batches of 512, each export starting within a second of the last and ending within 10 seconds
+// (the platform spec's Telemetry export, under Batching). A span of the step that the collector
+// hasn't accepted by then never reaches it.
+const DRAINED_MS = 5 * (1000 + 10000);
 
 // The spans the collector has accepted from the API so far.
 function acceptedSpans() {
@@ -128,11 +136,20 @@ export function other() {
   http.get(`${target}/v1/capabilities`);
 }
 
+// Reads the spans that the collector accepted during the step once they reach those that the
+// step's requests write while the API drops none, two for each of a step of the capabilities
+// (PLATFORM-104), or once DRAINED_MS has passed: a step of `me` or `sign-ins`, whose requests
+// write a number of spans that the script doesn't know, always waits that long, and a step
+// whose spans fall short ends with those that arrived.
 export function teardown(data) {
-  // The API exports its spans at least once a second, and the collector counts them when it
-  // receives them.
-  sleep(5);
-  accepted.add(acceptedSpans() - data.before);
+  const expected = route === "capabilities" ? 2 * rate * parseFloat(duration) : Infinity;
+  const drained = Date.now() + DRAINED_MS;
+  let spans = acceptedSpans() - data.before;
+  while (spans < expected && Date.now() < drained) {
+    sleep(1);
+    spans = acceptedSpans() - data.before;
+  }
+  accepted.add(spans);
 }
 
 export function handleSummary(data) {

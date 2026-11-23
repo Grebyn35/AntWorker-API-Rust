@@ -505,11 +505,24 @@ pub fn get_within(
     url: String,
     timeout: Duration,
 ) -> (u16, reqwest::header::HeaderMap, String) {
+    get_within_as(root, url, timeout, None)
+}
+
+/// Sends `GET` to `url`, with `agent` as its `User-Agent` if there is one, through a client that
+/// trusts `root` and waits at most `timeout` for the answer, and returns the response's status,
+/// headers and body.
+pub fn get_within_as(
+    root: String,
+    url: String,
+    timeout: Duration,
+    agent: Option<&'static str>,
+) -> (u16, reqwest::header::HeaderMap, String) {
     thread::spawn(move || {
-        let response = client_within(&root, timeout)
-            .get(&url)
-            .send()
-            .expect("an answer in time");
+        let mut request = client_within(&root, timeout).get(&url);
+        if let Some(agent) = agent {
+            request = request.header("user-agent", agent);
+        }
+        let response = request.send().expect("an answer in time");
         let status = response.status().as_u16();
         let headers = response.headers().clone();
         (status, headers, response.text().expect("the body"))
