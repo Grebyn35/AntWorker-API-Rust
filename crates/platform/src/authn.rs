@@ -303,7 +303,9 @@ impl<S: Send + Sync> FromRequestParts<S> for Principal {
 
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         let Some(authenticator) = parts.extensions.get::<Authenticator>().cloned() else {
-            return Err(internal("the request carries no authenticator"));
+            return Err(
+                Problem(Internal::new("the request carries no authenticator")).into_response(),
+            );
         };
         let client = Client::from_request_parts(parts, state).await?;
         let verified = authenticator
@@ -416,8 +418,4 @@ fn refusal(unverified: Unverified, expired: RequestError) -> PlatformError {
         Unverified::Expired => expired.into(),
         Unverified::Failed(error) => error.into(),
     }
-}
-
-fn internal(reason: &'static str) -> Response {
-    Problem(Internal::new(reason)).into_response()
 }

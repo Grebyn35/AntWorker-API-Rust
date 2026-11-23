@@ -116,13 +116,7 @@ fn code(plan: &mut Plan<'_>, module: &str, inserts: &Inserts) {
     plan.place(
         ACCESS_ROOT,
         "the re-export of the permission types",
-        &|text| {
-            after_statement(
-                text,
-                "pub(crate) use permissions::",
-                &inserts.access_exports,
-            )
-        },
+        &|text| after_the_permissions_export(text, &inserts.access_exports),
     );
     let test_lines = ["#[cfg(test)]".to_owned(), format!("mod {module};")];
     plan.place(
@@ -370,10 +364,13 @@ fn permissions(text: &str, types: &str, rows: &str) -> Option<String> {
     ))
 }
 
-/// `text` with `insert` after the last statement that starts with `start`, which may span lines.
-fn after_statement(text: &str, start: &str, insert: &str) -> Option<String> {
+/// `text` with `insert` after the last statement that starts with `pub(crate) use permissions::`,
+/// which may span lines.
+fn after_the_permissions_export(text: &str, insert: &str) -> Option<String> {
     let lines: Vec<&str> = text.lines().collect();
-    let last = lines.iter().rposition(|line| line.starts_with(start))?;
+    let last = lines
+        .iter()
+        .rposition(|line| line.starts_with("pub(crate) use permissions::"))?;
     let end = find(&lines, last, |line| line.trim_end().ends_with(';'))?;
     Some(before(text, end + 1, insert))
 }
