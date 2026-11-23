@@ -99,7 +99,7 @@ pub fn paths(model: &Model) -> BTreeMap<Def, Vec<String>> {
     let mut queue = VecDeque::from([(root, vec![name])]);
     let mut visited = BTreeSet::from([root]);
     while let Some((module, prefix)) = queue.pop_front() {
-        for (name, ns) in model.names(module, true) {
+        for (name, ns) in model.names(module) {
             for def in model.lookup(module, &name, ns, true) {
                 if def == Def::Outside {
                     continue;

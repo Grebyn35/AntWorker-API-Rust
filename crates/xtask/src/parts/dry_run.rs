@@ -91,7 +91,7 @@ pub fn check(repo: &Repo) -> Outcome {
             }
         }
     }
-    // A marker that `validate` refused leaves no removal to run.
+    // A finding above leaves no removal to run.
     let report = if findings.is_empty() {
         let (report, found) = removals(repo, &parts, &runs);
         findings.extend(found);
@@ -260,9 +260,10 @@ impl Removal<'_> {
 /// [`imports`] reads them, for each kept path or line, other than those of
 /// the files the removal writes again, that holds a word of a part it removes, for each kept
 /// line that cites a decision, a behavior or a rule, or links to a file or a heading, that it
-/// deletes, for each kept line that names a module's export that only lines it deletes give, and,
-/// where it keeps `removal`, for each run that the lines it kept of the list and of CI's
-/// `removable` job don't both hold.
+/// deletes, for each kept line that names a Rust file of which it deletes every one, for each kept
+/// line that names a module's export that only lines it deletes give, and, where it keeps
+/// `removal`, for each run that the lines it kept of the list and of CI's `removable` job don't
+/// both hold.
 fn remove(repo: &Repo, parts: &[Part], run: &Run, read: &Read<'_>) -> (String, Vec<Finding>) {
     let removed: Vec<&Part> = parts
         .iter()

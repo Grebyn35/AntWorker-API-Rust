@@ -240,8 +240,8 @@ fn inserts(repo: &Repo, names: &Names) -> Result<Inserts, String> {
     Ok(inserts)
 }
 
-/// Fails on a form of the template's names left in what the module's files hold, unless the
-/// module is the template's: a form that `names` doesn't replace.
+/// Fails on a form of the template's names left in what the module's files hold, a form that
+/// `names` doesn't replace, unless the module's name holds `sample`, as the template's does.
 fn leftovers<'a>(
     names: &Names,
     texts: impl IntoIterator<Item = (&'a str, &'a str)>,

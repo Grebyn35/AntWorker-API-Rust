@@ -6,10 +6,10 @@
 //! `parameters`, or under its path's `parameters`, names, and the ones that a `$ref` inside such
 //! a component names. A component that a request gives and that a `$ref` under an operation's
 //! `responses` names too, or a `$ref` inside a component so named, fails if it has a property
-//! that may be `null`, since a request may leave such a field out and a response holds it. A
-//! property may be `null` when its `type` is `null` or holds it, or when one of its `oneOf` is of
-//! the type `null`. The check reads the properties of an object, of an array's `items`, and of
-//! each member of an `allOf`, a `oneOf` or an `anyOf`, at any depth.
+//! that may be `null` and isn't `required`, since a request may leave such a field out and a
+//! response holds it. A property may be `null` when its `type` is `null` or holds it, or when one
+//! of its `oneOf` is of the type `null`. The check reads the properties of an object, of an
+//! array's `items`, and of each member of an `allOf`, a `oneOf` or an `anyOf`, at any depth.
 
 use std::collections::BTreeSet;
 
@@ -58,9 +58,9 @@ pub fn check(document: &Value) -> Vec<Problem> {
             problems.push((
                 quoted(name),
                 format!(
-                    "{owner} has a property that may be null, and both a request and a response \
-                     refer to it: a request may leave the field out, and a response holds it, so \
-                     each takes a type of its own (API-05)"
+                    "{owner} has a property that may be null and isn't required, and both a \
+                     request and a response refer to it: a request may leave the field out, and a \
+                     response holds it, so each takes a type of its own (API-05)"
                 ),
             ));
         }
@@ -250,10 +250,23 @@ mod tests {
         assert_eq!(
             messages(&reference("NewThing"), &schemas),
             [
-                "schema NewThing has a property that may be null, and both a request and a \
-                 response refer to it: a request may leave the field out, and a response holds \
-                 it, so each takes a type of its own (API-05)"
+                "schema NewThing has a property that may be null and isn't required, and both a \
+                 request and a response refer to it: a request may leave the field out, and a \
+                 response holds it, so each takes a type of its own (API-05)"
             ]
+        );
+    }
+
+    #[test]
+    fn api_05_a_component_of_a_request_and_a_response_passes_when_its_nullable_ones_are_required() {
+        let schemas = json!({ "NewThing": {
+            "required": ["note"],
+            "properties": { "note": { "type": ["string", "null"] } },
+        } });
+
+        assert_eq!(
+            messages(&reference("NewThing"), &schemas),
+            Vec::<String>::new()
         );
     }
 
@@ -273,9 +286,9 @@ mod tests {
         assert_eq!(
             messages(&reference("Thing"), &schemas),
             [
-                "schema Shared has a property that may be null, and both a request and a response \
-                 refer to it: a request may leave the field out, and a response holds it, so each \
-                 takes a type of its own (API-05)"
+                "schema Shared has a property that may be null and isn't required, and both a \
+                 request and a response refer to it: a request may leave the field out, and a \
+                 response holds it, so each takes a type of its own (API-05)"
             ]
         );
     }

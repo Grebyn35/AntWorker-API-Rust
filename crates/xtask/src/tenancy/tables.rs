@@ -42,7 +42,7 @@ pub fn tables(repo: &Repo) -> BTreeMap<String, Table> {
                     line,
                 }
             } else {
-                let body = body_after(&file.text, line, Some(&name)).unwrap_or_default();
+                let body = body_after(&file.text, line, &name).unwrap_or_default();
                 Table {
                     columns: columns(&body),
                     view: None,
@@ -262,8 +262,7 @@ pub(super) fn unread(text: &str) -> Vec<(usize, String)> {
 }
 
 /// The text inside the parentheses that follow `name` on or after `line` of `text`.
-pub(super) fn body_after(text: &str, line: usize, name: Option<&str>) -> Option<String> {
-    let name = name?;
+pub(super) fn body_after(text: &str, line: usize, name: &str) -> Option<String> {
     let start: usize = text
         .split_inclusive('\n')
         .take(line.saturating_sub(1))

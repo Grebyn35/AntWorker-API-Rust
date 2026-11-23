@@ -64,6 +64,17 @@ pub fn problems(document: &Value) -> Vec<Problem> {
                 &item["parameters"],
                 &here,
             ));
+            for parameter in parameters(document, operation, &item["parameters"]) {
+                let name = parameter["name"].as_str().unwrap_or_default();
+                let owner = format!("{here} parameter {name}");
+                formats(
+                    document,
+                    &parameter["schema"],
+                    &owner,
+                    &needle,
+                    &mut problems,
+                );
+            }
             for (media, content) in operation["requestBody"]["content"]
                 .as_object()
                 .unwrap_or(&empty)
@@ -96,8 +107,9 @@ pub fn problems(document: &Value) -> Vec<Problem> {
     problems
 }
 
-/// API-11: the IDs among an operation's path and query parameters, but those of [`NOT_UUIDS`],
-/// are UUIDs, each of them, of a filter that takes several, an array's item (PLATFORM-088).
+/// API-11: the IDs among the names in an operation's path and its parameters, but those of
+/// [`NOT_UUIDS`], are UUIDs, each of them, of a filter that takes several, an array's item
+/// (PLATFORM-088).
 fn identifiers(
     document: &Value,
     path: &str,
@@ -113,7 +125,7 @@ fn identifiers(
         .collect();
     for parameter in &parameters {
         let name = parameter["name"].as_str().unwrap_or_default();
-        if parameter["in"] == "query" && !names.iter().any(|n| n == name) {
+        if !names.iter().any(|n| n == name) {
             names.push(name.to_owned());
         }
     }
@@ -353,6 +365,51 @@ mod tests {
             [
                 "GET /v1/things/{thing_id}: the parameter thing_id isn't documented as format: uuid (API-11)",
                 "GET /v1/things/{thing_id}: the parameter seller_id isn't documented as format: uuid (API-11)",
+            ]
+        );
+    }
+
+    #[test]
+    fn api_11_an_id_parameter_in_a_header_or_a_cookie_is_a_uuid() {
+        let document = json!({ "paths": { "/v1/things": { "get": {
+            "parameters": [
+                { "name": "thing_id", "in": "header", "schema": { "type": "string" } },
+                { "name": "owner_id", "in": "cookie", "schema": { "type": "string" } },
+                { "name": "maker_id", "in": "header", "schema": { "type": "string", "format": "uuid" } },
+            ],
+            "responses": {},
+        } } } });
+        assert_eq!(
+            messages(&document),
+            [
+                "GET /v1/things: the parameter thing_id isn't documented as format: uuid (API-11)",
+                "GET /v1/things: the parameter owner_id isn't documented as format: uuid (API-11)",
+            ]
+        );
+    }
+
+    #[test]
+    fn api_11_a_parameter_s_closed_set_is_snake_case() {
+        let document = json!({ "paths": { "/v1/things": {
+            "parameters": [
+                { "name": "view", "in": "query", "schema": { "type": "string", "enum": ["full", "Brief"] } },
+            ],
+            "get": {
+                "parameters": [
+                    { "name": "kind", "in": "query", "schema": {
+                        "type": "string", "enum": ["plain_thing", "BigThing"] } },
+                    { "name": "X-Mode", "in": "header", "schema": {
+                        "type": "string", "enum": ["fast", "Slow"] } },
+                ],
+                "responses": {},
+            },
+        } } });
+        assert_eq!(
+            messages(&document),
+            [
+                "GET /v1/things parameter view: the value Brief of a closed set isn't snake_case (API-11)",
+                "GET /v1/things parameter kind: the value BigThing of a closed set isn't snake_case (API-11)",
+                "GET /v1/things parameter X-Mode: the value Slow of a closed set isn't snake_case (API-11)",
             ]
         );
     }

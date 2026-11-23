@@ -113,12 +113,12 @@ fn implementation(
     reading: &mut Reading,
 ) {
     let line = line_of(&tokens[at]);
-    let (type_name, fragment) = match (tokens.get(at + 2), tokens.get(at + 3)) {
-        (Some(TokenTree::Ident(name)), _) => (name.to_string(), None),
+    let (type_name, fragment, after) = match (tokens.get(at + 2), tokens.get(at + 3)) {
+        (Some(TokenTree::Ident(name)), _) => (name.to_string(), None, at + 3),
         (Some(TokenTree::Punct(dollar)), Some(TokenTree::Ident(name)))
             if dollar.as_char() == '$' =>
         {
-            (format!("${name}"), Some(name.to_string()))
+            (format!("${name}"), Some(name.to_string()), at + 4)
         }
         _ => {
             reading
@@ -127,6 +127,16 @@ fn implementation(
             return;
         }
     };
+    // A path's first segment isn't the name that utoipa gives, its last.
+    if matches!(tokens.get(after), Some(TokenTree::Punct(colon)) if colon.as_char() == ':') {
+        reading.refused.push(refusal(
+            source.path,
+            line,
+            &type_name,
+            "its type is a path, not a name",
+        ));
+        return;
+    }
     let start = tokens[..at]
         .iter()
         .rposition(|token| is_ident(Some(token), "impl"))

@@ -270,8 +270,8 @@ fn leftovers<'a>(
     findings
 }
 
-/// What starts a comment that runs to its line's end, in the files that hold one, the longer
-/// first.
+/// What starts a comment that runs to its line's end, in the files that hold one, `///` and `//!`
+/// before `//`, which starts them both.
 const COMMENTS: [&str; 6] = ["///", "//!", "//", "#", "--", "%%"];
 
 /// `line` without the white space and the start of a comment that it begins with.

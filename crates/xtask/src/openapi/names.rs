@@ -36,9 +36,9 @@
 //! name, in the file of the `macro_rules!`, and for a constant's, in the file of the impl of
 //! `ToSchema`. The check refuses, naming it, a file that doesn't parse, a derive of `ToSchema`
 //! for a type that a fragment names, and an impl of `ToSchema` whose name it can't read: its type
-//! is no identifier or fragment, its `fn name` holds no `Borrowed(…)` of those forms, no
-//! `macro_rules!` around it takes `$name` so, an invocation's arguments start with no
-//! identifier, `P` has no trait's bound there, or an impl of the trait doesn't give `NAME` as a
+//! starts with no identifier or fragment, or is a path, its `fn name` holds no `Borrowed(…)` of
+//! those forms, no `macro_rules!` around it takes `$name` so, an invocation's arguments start with
+//! no identifier, `P` has no trait's bound there, or an impl of the trait doesn't give `NAME` as a
 //! string literal.
 
 use std::collections::BTreeMap;

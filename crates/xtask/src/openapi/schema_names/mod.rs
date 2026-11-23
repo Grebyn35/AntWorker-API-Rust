@@ -291,4 +291,30 @@ mod tests {
             ]
         );
     }
+
+    #[test]
+    fn api_17_an_impl_of_to_schema_for_a_path_is_refused() {
+        let model = "impl ToSchema for crate::things::Thing {}\n\
+                     impl ToSchema for super::Other {\n    fn name() -> Cow<'static, str> {\n        \
+                     Cow::Borrowed(\"Other\")\n    }\n}\n\
+                     macro_rules! pathed {\n    ($name:ident) => {\n        \
+                     impl ToSchema for $name::Inner {}\n    };\n}\n";
+        let reading = read_all(&[("crates/app/src/modules/things/model.rs", model)]);
+
+        let refused: Vec<String> = reading
+            .refused
+            .iter()
+            .map(|finding| format!("{}:{}", finding.path, finding.line))
+            .collect();
+
+        assert!(reading.schemas.is_empty(), "{:#?}", reading.schemas);
+        assert_eq!(
+            refused,
+            [
+                "crates/app/src/modules/things/model.rs:1",
+                "crates/app/src/modules/things/model.rs:2",
+                "crates/app/src/modules/things/model.rs:9",
+            ]
+        );
+    }
 }

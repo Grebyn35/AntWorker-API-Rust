@@ -23,10 +23,9 @@ impl Model {
         self.resolve_in(scope, path, rooted, ns, &mut Guard::new())
     }
 
-    /// Every name `module` holds, with its namespace: with `public`, only those code outside its
-    /// crate sees.
-    pub fn names(&self, module: ModuleId, public: bool) -> BTreeSet<(String, Ns)> {
-        self.names_in(module, public, &mut BTreeSet::new())
+    /// Every name `module` holds that code outside its crate sees, with its namespace.
+    pub fn names(&self, module: ModuleId) -> BTreeSet<(String, Ns)> {
+        self.names_in(module, &mut BTreeSet::new())
     }
 
     fn lookup_in(
@@ -231,21 +230,20 @@ impl Model {
     fn names_in(
         &self,
         module: ModuleId,
-        public: bool,
-        visiting: &mut BTreeSet<(ModuleId, bool)>,
+        visiting: &mut BTreeSet<ModuleId>,
     ) -> BTreeSet<(String, Ns)> {
         let mut names = BTreeSet::new();
         let (Some(krate), Some(holder)) = (self.krate(module.krate), self.module(module)) else {
             return names;
         };
-        if !visiting.insert((module, public)) {
+        if !visiting.insert(module) {
             return names;
         }
         if module.index == 0 {
             names.extend(krate.macros.keys().map(|name| (name.clone(), Ns::Macro)));
         }
         for item in &holder.items {
-            if public && !is_public(item) {
+            if !is_public(item) {
                 continue;
             }
             let Item::Use(import) = item else {
@@ -263,15 +261,14 @@ impl Model {
                         let targets = self.resolve(module, &one.path, rooted, Ns::Type);
                         for target in targets {
                             if let Def::Module(target) = target {
-                                let public = public || target.krate != module.krate;
-                                names.extend(self.names_in(target, public, visiting));
+                                names.extend(self.names_in(target, visiting));
                             }
                         }
                     }
                 }
             }
         }
-        visiting.remove(&(module, public));
+        visiting.remove(&module);
         names
     }
 }

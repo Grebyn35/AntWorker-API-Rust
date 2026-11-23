@@ -543,7 +543,7 @@ CREATE TABLE notes (id uuid PRIMARY KEY, body text);
 
     #[test]
     fn data_16_a_create_table_s_columns_are_read_past_comments_and_constraints() {
-        let body = body_after(MIGRATION, 2, Some("things")).unwrap();
+        let body = body_after(MIGRATION, 2, "things").unwrap();
         assert_eq!(columns(&body), ["id", "workspace_id", "user_id", "name"]);
     }
 
