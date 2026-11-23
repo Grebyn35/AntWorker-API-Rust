@@ -203,7 +203,7 @@ services:
   registry:
     logging: *logging
     profiles: [tools]
-    image: registry:3.1.2@sha256:d4032d4cc323c1731c707931ecada07a53076eac38e3b61ae57533f170f2c6c3
+    image: registry:3.1.2@sha256:82f6ff4a7f982960c8aa51617fea3aabc485df6e55cce80d22deb1de36f1bc3c
     ports:
       - "127.0.0.1:5001:5000"
     healthcheck: &registry-health
@@ -222,7 +222,7 @@ services:
   mirror:
     logging: *logging
     profiles: [tools]
-    image: registry:3.1.2@sha256:d4032d4cc323c1731c707931ecada07a53076eac38e3b61ae57533f170f2c6c3
+    image: registry:3.1.2@sha256:82f6ff4a7f982960c8aa51617fea3aabc485df6e55cce80d22deb1de36f1bc3c
     volumes:
       - ${MIRROR_STORE:-mirror}:/var/lib/registry
     healthcheck: *registry-health
@@ -233,7 +233,7 @@ services:
   # fetched it ends, and goes on answering the other's requests for it with a 200 and no bytes.
   mirror-fill:
     profiles: [tools]
-    image: registry:3.1.2@sha256:d4032d4cc323c1731c707931ecada07a53076eac38e3b61ae57533f170f2c6c3
+    image: registry:3.1.2@sha256:82f6ff4a7f982960c8aa51617fea3aabc485df6e55cce80d22deb1de36f1bc3c
     environment:
       REGISTRY_PROXY_REMOTEURL: https://registry-1.docker.io
       REGISTRY_PROXY_TTL: 0
