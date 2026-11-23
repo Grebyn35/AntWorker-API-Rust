@@ -68,10 +68,10 @@ A review runs in passes over its whole scope, or, where it reads the scope in ar
 
 The review stops at the first of these:
 1. **A pass reports no `must-fix` findings.** That pass's `should-fix` findings are applied and checked one by one, without another full pass. The review is complete.
-2. **A pass makes no progress.** It reports at least as many `must-fix` findings as the pass before, or a `must-fix` finding tagged `regression`.
+2. **A pass makes no progress.** It reports at least as many `must-fix` findings as the pass before, those tagged `regression` among them.
 3. **Six passes have run.**
 
-The second condition alone ends every review, because the number of `must-fix` findings has to fall with each pass. The cap bounds what a slowly falling count can cost: a scope that still yields new `must-fix` findings after five rounds of fixes points at loose rules more than at its code, and the resolutions below settle what remains.
+The second condition alone ends every review, because the number of `must-fix` findings has to fall with each pass. A finding tagged `regression` counts as any other, and ends no review by itself (D225): fixes that bring in as many defects as they resolve end the review, and one whose count falls goes on, so that it ends, where it can, on a pass that read its last fixes. The cap bounds what a slowly falling count can cost: a scope that still yields new `must-fix` findings after five rounds of fixes points at loose rules more than at its code, and the resolutions below settle what remains.
 
 A review that reads its scope in areas, as the review of the whole codebase does, whose scope no one reviewer's agent holds, applies the three conditions to each area by itself (D223). The areas are groups of the scope's files, set before the first pass, each file in one area. A finding counts in the area that holds the file its defect is in: the code that breaks a statement, or the document whose statement says other than code that is right. After each pass, an area whose findings hold no `must-fix` one is complete, an area that made no progress stops, with the resolutions below for its remaining `must-fix` findings, and the next pass reads the areas that are left, each to its sixth pass at most. A fix that changes a file of an area that has ended is checked as a changed item, as the last step below checks one. The review is complete once every area has ended.
 
