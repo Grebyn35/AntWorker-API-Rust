@@ -55,10 +55,11 @@ async fn sign_in(api: &Api) -> Response {
     .await
 }
 
-fn primary(email: &str) -> Value {
+/// GitHub's list of an account's addresses, whose primary one is `ada@example.com`.
+fn primary() -> Value {
     json!([
         { "email": "old@example.com", "primary": false, "verified": true, "visibility": null },
-        { "email": email, "primary": true, "verified": true, "visibility": "private" },
+        { "email": "ada@example.com", "primary": true, "verified": true, "visibility": "private" },
     ])
 }
 
@@ -68,7 +69,7 @@ async fn auth_083_github_signs_in_with_its_numeric_id_and_primary_address_and_de
     gives(
         &upstream,
         json!({ "id": 583231, "login": "octo-ada", "name": null }),
-        primary("ada@example.com"),
+        primary(),
     );
 
     let response = sign_in(&api).await;
@@ -119,7 +120,7 @@ async fn auth_083_github_s_name_names_the_account_before_its_login() {
     gives(
         &upstream,
         json!({ "id": 583231, "login": "octo-ada", "name": "Ada Lovelace" }),
-        primary("ada@example.com"),
+        primary(),
     );
 
     let response = sign_in(&api).await;
@@ -137,7 +138,7 @@ async fn auth_083_a_deletion_that_fails_refuses_nothing() {
     gives(
         &upstream,
         json!({ "id": 1, "login": "ada", "name": "Ada" }),
-        primary("ada@example.com"),
+        primary(),
     );
     upstream.set(
         "DELETE",
@@ -163,7 +164,7 @@ async fn auth_092_github_gives_its_user_s_picture_for_the_new_account() {
     gives(
         &upstream,
         json!({ "id": 583231, "login": "octo-ada", "name": null, "avatar_url": picture }),
-        primary("ada@example.com"),
+        primary(),
     );
 
     let response = sign_in(&api).await;
@@ -242,7 +243,7 @@ async fn auth_083_a_deletion_that_doesn_t_end_in_time_refuses_nothing() {
     gives(
         &upstream,
         json!({ "id": 7, "login": "ada", "name": "Ada" }),
-        primary("ada@example.com"),
+        primary(),
     );
     upstream.hang("DELETE", "/applications/github-client/token");
     let clock = api.clock();

@@ -1,7 +1,7 @@
 //! `check-openapi`, for the schemas: IDs are `format: uuid`, timestamps `format: date-time`, and
 //! closed sets `snake_case` strings (API-11). Of the places that it reads, it gives the schema of
 //! each request body of JSON, `application/json` or a type that ends in `+json`, to
-//! [`lengths`](super::lengths), and each header to [`headers`](super::headers) (API-17).
+//! [`lengths`], and each header to [`headers`] (API-17).
 //!
 //! An ID is a property or a parameter named `id` or `<name>_id`, but `trace_id`, `device_id`
 //! and `client_id`, the IDs that API-11 excepts, and a timestamp a property named `<event>_at`,

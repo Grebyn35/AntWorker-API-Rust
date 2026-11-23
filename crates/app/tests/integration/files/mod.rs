@@ -417,11 +417,11 @@ async fn files_004_by_default_a_body_holds_at_most_10_485_760_bytes() {
     assert_eq!(over.json()["code"], "request.payload_too_large");
 }
 
-/// How many uploads ended as `outcome`, in every test that runs alongside.
-fn uploads(outcome: &str) -> f64 {
+/// How many uploads ended as `failed`, in every test that runs alongside.
+fn failed_uploads() -> f64 {
     testing::recorded("files.uploads")
         .into_iter()
-        .filter(|point| point.labels.get("files.outcome").map(String::as_str) == Some(outcome))
+        .filter(|point| point.labels.get("files.outcome").map(String::as_str) == Some("failed"))
         .map(|point| point.value)
         .sum()
 }
@@ -1679,7 +1679,7 @@ async fn files_013_an_upload_that_its_route_s_timeout_ends_counts_as_failed() {
     let stand_in = scanner::scripted(Script::Never).await;
     let api = Api::with(Options::default().set("CLAMD_ADDRESS", &stand_in.address)).await;
     let (workspace, ada, _) = acme(&api, "member").await;
-    let before = uploads("failed");
+    let before = failed_uploads();
 
     let (response, ()) = tokio::join!(
         upload(&api, &ada, &workspace, "a.txt", b"hello", None),
@@ -1696,7 +1696,7 @@ async fn files_013_an_upload_that_its_route_s_timeout_ends_counts_as_failed() {
     // The route's timeout runs on tokio's time, which a test pauses only for an API in its own
     // process (TEST-06), where tests running alongside upload too, so the count grows by at least
     // this one (TEST-07).
-    assert!(uploads("failed") >= before + 1.0);
+    assert!(failed_uploads() >= before + 1.0);
 }
 
 #[tokio::test]

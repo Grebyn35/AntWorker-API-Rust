@@ -445,11 +445,11 @@ async fn platform_025_each_email_that_send_now_sends_carries_a_message_id_of_its
     }
 }
 
-/// How many sends to the mail server ended as `outcome`, in every test that runs alongside.
-fn sends(outcome: &str) -> f64 {
+/// How many sends to the mail server ended as `unavailable`, in every test that runs alongside.
+fn unavailable_sends() -> f64 {
     testing::recorded("platform.mail_sends")
         .into_iter()
-        .filter(|point| point.labels.get("mail.outcome").map(String::as_str) == Some(outcome))
+        .filter(|point| point.labels.get("mail.outcome").map(String::as_str) == Some("unavailable"))
         .map(|point| point.value)
         .sum()
 }
@@ -604,7 +604,7 @@ async fn platform_105_a_send_that_takes_longer_than_its_30_seconds_counts_as_una
     let silent = Options::default().set("SMTP_PORT", silent_server().await.port());
     let clock = Arc::new(TestClock::default());
     let mail = mail_on(&silent, clock.clone());
-    let unavailable = sends("unavailable");
+    let unavailable = unavailable_sends();
 
     let (sent, ()) = tokio::join!(
         mail.send_now(secret_email(&mailbox::address("unanswered"))),
@@ -622,7 +622,7 @@ async fn platform_105_a_send_that_takes_longer_than_its_30_seconds_counts_as_una
     // The send's 30 seconds pass on the clock that its `Mail` is given, which a test moves only
     // for a `Mail` of its own process: a `serve` waits on the system's clock, which no test moves
     // (TEST-06). Other tests send too, so the count grows by at least this one (TEST-07).
-    let after = sends("unavailable");
+    let after = unavailable_sends();
     assert!(after >= unavailable + 1.0, "{after} after {unavailable}");
 }
 

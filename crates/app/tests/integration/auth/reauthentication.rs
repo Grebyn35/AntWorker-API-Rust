@@ -315,14 +315,10 @@ async fn auth_024_the_deletions_of_an_email_s_accounts_count_in_one_bucket_of_th
 }
 
 /// What `user`'s deletion answers when another connection holds their row, as a change of their
-/// address holds it, and makes their address `address`, and commits, while the deletion waits for
-/// the row. The deletion's read of the address before its unit of work locks nothing, so it reads
-/// the address before the change, and counts in that address's bucket.
-async fn deletion_meeting_a_change_of_address(
-    api: &Api,
-    user: &SignedIn,
-    address: &str,
-) -> Response {
+/// address holds it, and makes their address `grace@example.com`, and commits, while the deletion
+/// waits for the row. The deletion's read of the address before its unit of work locks nothing,
+/// so it reads the address before the change, and counts in that address's bucket.
+async fn deletion_meeting_a_change_of_address(api: &Api, user: &SignedIn) -> Response {
     let db = api.database();
     let mut change = db
         .holding(&format!(
@@ -346,7 +342,7 @@ async fn deletion_meeting_a_change_of_address(
     execute_on(
         &mut change,
         &format!(
-            "UPDATE users SET email = '{address}' WHERE id = '{}'",
+            "UPDATE users SET email = 'grace@example.com' WHERE id = '{}'",
             user.user_id
         ),
     )
@@ -367,7 +363,7 @@ async fn auth_024_a_deletion_whose_account_s_address_changed_as_it_waited_answer
     }
     let ada = users::register(&api, "ada@example.com").await;
 
-    let limited = deletion_meeting_a_change_of_address(&api, &ada, "grace@example.com").await;
+    let limited = deletion_meeting_a_change_of_address(&api, &ada).await;
 
     assert_eq!(limited.status, 429);
     assert_eq!(limited.json()["code"], "request.rate_limited");
@@ -402,7 +398,7 @@ async fn auth_024_a_deletion_whose_account_s_address_changed_as_it_waited_counts
     }
     let ada = users::register(&api, "ada@example.com").await;
 
-    let deleted = deletion_meeting_a_change_of_address(&api, &ada, "grace@example.com").await;
+    let deleted = deletion_meeting_a_change_of_address(&api, &ada).await;
     let grace = users::register(&api, "grace@example.com").await;
     let sixth = users::delete(&api, &grace).await;
 
