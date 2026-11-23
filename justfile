@@ -81,11 +81,12 @@ import 'just/server.just'
 default:
     @just --list
 
-# Runs every check CI runs: the checks of the code, on the repository, on a copy with two modules
-# that `just new-module` wrote, and on a copy that `just rename` renamed, then the build of the
-# image and its checks, on this machine's platform.
+# Runs the checks that CI runs before it publishes the image, but `setup-smoke`, for the reason
+# that docs/operations/ci.md gives: the checks of the code, on the repository, on a copy with two
+# modules that `just new-module` wrote, and on a copy that `just rename` renamed, then the build
+# of the image and its checks, on this machine's platform.
 # Then it runs `check-removable`, on a copy for each of its runs. # part: removal
-[doc("Runs every check CI runs, the image's included")]
+[doc("Runs the checks CI runs before it publishes, but setup-smoke, the image's on this platform")]
 [group('check')]
 ci: checks check-new-module check-rename image image-scan e2e
     # part: removal

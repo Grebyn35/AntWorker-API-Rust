@@ -137,7 +137,7 @@ A budget, which counts bytes, says so with the draft's quota unit, as `RateLimit
 
 ### API-16 Every response carries its trace ID
 Every response except the health probes (OBS-15) and the HTTP server's own refusal of a request that never reaches the router (PLATFORM-099), including streams, carries its trace context in `server-timing: trace;desc=<traceparent value>`, the form the W3C Trace Context editors' draft defines. Error bodies also carry `trace_id` (API-07).
-- Why: any response leads back to its trace and logs (D10).
+- Why: any response leads back to its logs, and to its trace where the collector kept it (D10, OBS-08).
 - Check: `test` (PLATFORM-041).
 
 ### API-17 The OpenAPI document is generated and committed

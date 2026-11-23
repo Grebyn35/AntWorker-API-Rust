@@ -1,6 +1,6 @@
 # Observability rules (`OBS`)
 
-Logs, traces, metrics, dashboards and alerts. The design is built from the operator questions in D19. The guarantee everything serves is D10: any trace ID the API returns leads to that request's logs, and to its trace whenever the request ended in an error.
+Logs, traces, metrics, dashboards and alerts. The design is built from the operator questions in D19. The guarantee everything serves is D10's: any trace ID the API returns leads to that request's logs, and to its trace whenever the request ended in an error within the collector's wait (OBS-08).
 
 ## Logs
 
@@ -11,7 +11,7 @@ Logs are JSON in production and human-readable in development. They go to stdout
 
 ### OBS-02 Every log line can be correlated
 Every JSON log line carries its time, `timestamp`, in UTC, and `service.name`, `service.version` and `deployment.environment.name`, the last once the configuration has named the environment. A line written inside a span also carries `trace_id` and `span_id`. The readable text of development carries the fields its events write.
-- Why: a log line leads to its trace, and a trace leads to its logs (D10). The lines that reach a log store are JSON (OBS-01).
+- Why: a log line leads to its trace, where the collector kept it (OBS-08), and a trace leads to its logs (D10). The lines that reach a log store are JSON (OBS-01).
 - Check: `test` (the binary's JSON lines), plus `ci: e2e` (each span and log line of the proxy that reaches a backend names its service's version).
 
 ### OBS-03 Levels have fixed meanings
@@ -54,7 +54,7 @@ Inbound W3C `traceparent` from clients is accepted. Every job and event row stor
 - Why: background work leads back to the request that caused it (D10).
 - Check: `test` (the inbound `traceparent` by PLATFORM-041's tests, the link of a job's run by PLATFORM-020's, and the rest by the rule's own).
 
-### OBS-08 Errors and slow requests are always kept
+### OBS-08 Tail sampling keeps errors and slow requests
 The SDK samples every trace except the health probes (OBS-15). The collector's tail sampling keeps every trace with `http.response.status_code >= 400` or an error status, every trace slower than the latency objective, and a configured share of the rest. It decides a trace once its wait, 15 seconds in the reference deployment, has passed since the trace's first span arrived, on the spans that have arrived, and a span that arrives later takes that decision: a request or a job's run whose failure comes after the wait leaves a trace only when the decision kept it, and its log lines and its counts stay (D222). Logs are never sampled. The dashboard of request latency lists kept traces slower than the objective in the time range it shows, as many as its limit holds, each leading to its trace.
 The spans that users' clients send through the telemetry proxy pass no tail sampling: the collector keeps each one that it admits (CLIENT_TELEMETRY-011). <!-- part: client_telemetry -->
 - Why: every trace ID a user can report as a problem resolves to a trace, or, for a failure that came after the collector's wait, to its log lines; a latency spike leads to the requests behind it, and every request's logs are kept (D10).

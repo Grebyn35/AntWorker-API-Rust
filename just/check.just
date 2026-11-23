@@ -194,10 +194,10 @@ alert-rules:
 check-docs:
     {{ xtask }} check-docs
 
-# Fails on an action, runner, image, download, crate install or tool version that isn't pinned, a
-# toolchain other than the one rust-toolchain.toml pins, or a crate whose edition isn't the
-# workspace's 2024.
-[doc("Fails on a tool, image, action or download that isn't pinned")]
+# Fails on an action, runner, image, download, crate install or tool version that isn't pinned,
+# where docs/operations/ci.md's row of the check says that it reads one, a toolchain other than the
+# one rust-toolchain.toml pins, or a crate whose edition isn't the workspace's 2024.
+[doc("Fails on a tool, image, action or download that isn't pinned, as docs/operations/ci.md says")]
 [group('check')]
 check-pins:
     {{ xtask }} check-pins

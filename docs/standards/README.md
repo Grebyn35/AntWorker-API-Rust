@@ -87,7 +87,7 @@ The changed items are then checked one by one. The documents never state somethi
 
 1. Write a proposal: the rule, the reason, and the modules it affects.
 2. Decide it:
-   - The owner decides a change to what the API guarantees: a capability, a guarantee that a rule or a behavior states, the security bar, the handling of personal data, or the licenses dependencies may use.
+   - The repository's owner decides a change to what the API guarantees: a capability, a guarantee that a rule or a behavior states, the security bar, the handling of personal data, or the licenses dependencies may use.
    - The developer making the change decides any other change, such as how code is written, tested, checked or documented, or new wording that keeps a rule's meaning. The commit message gives the reason.
 3. Apply an accepted change in the commit that accepts it: rewrite the rule, and every spec and document it affects (DOC-07). Built code that doesn't follow the new rule yet is recorded as a known gap, with the step that brings it in line (DOC-04). No document goes on stating a rule that has been replaced.
 4. A change that reverses a decision gets a new ADR that supersedes the old one.

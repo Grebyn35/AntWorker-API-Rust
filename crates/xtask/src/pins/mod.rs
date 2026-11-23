@@ -1,5 +1,6 @@
-//! `check-pins`: everything a build or a check uses is pinned (OPS-11), and the toolchain and the
-//! edition are the ones `rust-toolchain.toml` and the workspace name (CODE-01).
+//! `check-pins`: what a build or a check uses is pinned as docs/operations/ci.md's row of the check
+//! says (OPS-11), and the toolchain and the edition are the ones `rust-toolchain.toml` and the
+//! workspace name (CODE-01).
 
 mod forms;
 

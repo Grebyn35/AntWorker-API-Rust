@@ -82,7 +82,7 @@ The API has two crates. Cargo forbids `platform` from depending on `app`, so the
 | Area | What it provides | Decisions |
 |---|---|---|
 | `config` | Typed configuration loaded once at startup. Values are trimmed, empty means unset, `*_FILE` secret files are supported, and every failure is reported in one format. | D9, D26 |
-| `db` | One connection pool, the listener beside it, the unit of work, and the `bootstrap` and `migrate` tasks. A unit of work is one transaction, opened by the service, or with the proof that authorizes its route, as `Authorized<P>` on a workspace route, with a writer for jobs and events, and the claim of an idempotency key, whose record commits with it. Every query in it filters by tenant itself (DATA-16). A transaction that runs inside a span, as a request's, has a span of its own there (OBS-06). | D1, D4, D12, D20, D24 |
+| `db` | One connection pool, the listener beside it, the unit of work, and the `bootstrap` and `migrate` tasks. A unit of work is one transaction, opened by the service, or with the proof that authorizes its route, as `Authorized<P>` on a workspace route, with a writer for jobs and events, and the claim of an idempotency key, whose record commits with it. Every query in it on tenant data filters by tenant itself, but for the reads that DATA-16 exempts. A transaction that runs inside a span, as a request's, has a span of its own there (OBS-06). | D1, D4, D12, D20, D24 |
 | `jobs` | A durable job queue with retry, backoff and dead letters, which every instance's dispatcher polls, plus a scheduler that runs each periodic job once per interval across the fleet. A job records the user or workspace it was enqueued for, and its handler filters by them. | D1, D13 |
 | `events` | The event log and the real-time hub. A unit of work publishes events, which take their positions in the log in the order their units of work commit. The hub listens on the listener, and loads each new event once and delivers it to the streams allowed to receive it (SEC-19). It also replays what a reconnecting stream missed, closes streams when an access-change signal arrives, and re-checks every open stream at a configured interval (SEC-06). The event catalog of the OpenAPI document is built here, from the events that each module registers with its routes. | D1, D5, D20 |
 | `rate_limit` | The buckets that count requests in windows, in the database every replica shares: the IP and user limits that the request pipeline applies, and the per-action limits a module checks, such as sign-in's. A budget is a bucket that counts a request's bytes in place of the request. | D11 |
@@ -284,12 +284,15 @@ sequenceDiagram
   P->>P: security headers, trace context, request log,<br/>panics, client, CORS, load shedding, IP rate limit, cross-site check,<br/>the check of a caller who is gone
   P->>H: routed request
   H->>H: timeout, body limit, query check, Principal (authn),<br/>user rate limit, idempotency key, parse to domain types
-  H->>DB: on a workspace route, BEGIN and authorize (authz)
+  H->>DB: on a workspace route without a per-action limit, BEGIN and authorize (authz)
   %% part: superadmins
   H->>DB: on a superadmin's route, BEGIN and authorize (authz)
   %% end part: superadmins
   H->>S: call with domain types, and the unit of work where the handler began it
-  S->>DB: on every other route, BEGIN
+  %% part: files
+  S->>DB: on a workspace's upload route, whose handler authorized in a transaction<br/>that wrote nothing, BEGIN and authorize again once the bytes are stored
+  %% end part: files
+  S->>DB: on every other route, once any per-action limit has counted, BEGIN,<br/>and on a workspace route authorize (authz)
   S->>DB: domain writes + audit entries + events + jobs
   S->>DB: COMMIT
   DB-->>P: NOTIFY (events)
@@ -316,11 +319,11 @@ sequenceDiagram
      On a download route, the signed URL its query holds authenticates it in place of either (D113). <!-- part: files -->
    - The per-user rate limit, in a statement that commits by itself, outside any transaction, then, while email is on, the refusal of a caller whose account hasn't proved its email address, but on a route that proving it needs (D67), then, while the deployment requires a second factor, the refusal of a caller whose account has none, but on a route that proving the address or setting the factor up needs (D133). Then the `Idempotency-Key` of a keyed `POST`, which the unit of work claims as its first statement, after the authorization that opens a workspace route's, so the key's record commits or rolls back with the operation (D12).
    - The body is parsed into request types, then domain types (D25).
-   - On an upload route, whose group has a timeout and no body limit of its own, the order differs: the handler refuses a declared length over its module's limit, then, on a workspace's, checks that the caller may upload, through `Authorize::check`, in a short transaction that writes nothing, and only then reads the body, through `Upload`, in one of the replica's turns, before the unit of work opens and authorizes the caller again (PLATFORM-073, PLATFORM-074). <!-- part: files -->
+   - On an upload route, whose group has a timeout and no body limit of its own, the order differs: the handler refuses a declared length over its module's limit, then, on a workspace's, checks that the caller may upload, through `Authorize::check`, in a short transaction that writes nothing, and only then reads the body, through `Upload`, in one of the replica's turns, before its service opens the unit of work, which on a workspace's authorizes the caller again (PLATFORM-073, PLATFORM-074). <!-- part: files -->
    - On a route that takes a batch of telemetry, whose group has a timeout and no body limit of its own, the handler reads the body through `Batch`, in one of the replica's turns, up to its module's limit, and parses none of it into request types: the service takes its bytes (PLATFORM-090). <!-- part: client_telemetry -->
    - The unit of work opens last, so no transaction waits on a slow client, and no request holds a pooled connection while it waits for a second one. On workspace routes, opening it produces `Authorized<P>`: inside the unit of work, the caller's membership in the workspace from the path is loaded and permission `P` checked (D2, D3). A missing membership is a 404, so the response never reveals whether the workspace exists.
      On a superadmin's route, opening it produces `Superadmin`: inside the unit of work, the caller is read to be a superadmin, with a second factor (D62, D63), and a keyed route claims its key as its first statement after that. <!-- part: superadmins -->
-     On other routes, the service opens it, once any per-action limit it checks has counted, such as the sign-in's (AUTH-006), after a read, in a transaction of its own that writes nothing, of what decides which limit counts, such as the sign-in's device token (ARCH-11).
+     On other routes, and on a workspace route with a per-action limit, whose handler hands the service its `Authorize<P>`, the service opens it, once any per-action limit it checks has counted, such as the sign-in's (AUTH-006), after a read, in a transaction of its own that writes nothing, of what decides which limit counts, such as the sign-in's device token (ARCH-11).
 4. **The handler** calls the service with domain types only.
 5. **The service** performs its writes in its unit of work, and in the same transaction records audit entries, publishes events and enqueues jobs (D1, D6). For a request with an `Idempotency-Key`, the same transaction stores the operation's result under the key (API-12). Then it commits.
 6. **The response.** The handler maps the result to the response. A module error goes through the single conversion to an RFC 9457 problem that carries the trace ID (D17).
@@ -354,7 +357,7 @@ Nothing runs after the response except background work driven by committed rows.
 - **Side-effect tables.** A unit of work writes to the module's own tables, `audit_entries` and `audit_entry_clients` (owned by `audit`), and `events`, `jobs` and, for a keyed request, `idempotency_records` (owned by `platform`). After the commit:
   - Events reach every authorized stream, in the order their units of work committed, and a stream that reconnects replays what it missed.
   - Jobs run at least once, with retry and backoff, and land in a dead-letter state after the last attempt. Every job handler is idempotent, but for an effect outside the API that a run can't take back, such as an email, whose spec states what a repeat causes (OPS-09).
-- **Migrations** are forward-only and follow expand and contract, so the previous release keeps working during a rolling deploy (D15). They live in one ordered directory, and each file's description names its owning module.
+- **Migrations** are forward-only and follow expand and contract, so the previous release keeps working during a rolling deploy (D15). They live in one ordered directory, and each file's name names its owning module (DATA-09).
 
 ## 8. Cross-cutting mechanisms
 
@@ -369,7 +372,7 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
   Revoking a session closes its streams.
 - **Authorization (D2).** One permission matrix, in `access/permissions.rs`, maps roles to permissions. Every workspace route declares its permission in its type. Role rank limits who may change whom. A workspace tells its caller the permissions that their role holds in it, and `openapi.json` names each workspace route's, so no client holds the matrix (D171).
   A superadmin's route is authorized by the caller being a superadmin instead, and reads no workspace's content (D62). <!-- part: superadmins -->
-- **Observability (D10, D19).** Every response that the router answers, except the health probes, carries a trace ID that leads to its logs, and to its trace whenever the request ended in an error. Metrics are declared in code. The metric catalog is generated from the declarations, and CI checks the dashboards and alerts against it.
+- **Observability (D10, D19).** Every response that the router answers, except the health probes, carries a trace ID that leads to its logs, and to its trace whenever the request ended in an error within the collector's wait (OBS-08). Metrics are declared in code. The metric catalog is generated from the declarations, and CI checks the dashboards and alerts against it.
 - **Configuration (D9).** Strict and typed, with no defaults that are unsafe in production. A disabled feature answers 503 and is advertised by the capabilities endpoint.
 - **Background jobs (D13).** Declared in one registry. A queued job runs at least once, on whichever instance claims it, with retries and a dead-letter state; a periodic job runs once per interval across the fleet. Each run holds a lease that a heartbeat renews, and shutdown is bounded.
 - **Personal data (D31).** Every module that stores personal data implements export and erasure. CI fails if any column referencing a user isn't covered by a contract.
@@ -473,9 +476,9 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 | Part | A piece of the template that a product can do without, such as a module, a sign-in provider or a way of creating workspaces, with everything that exists only for it. A fork keeps it or leaves it out when it starts (§5). |
 | Workspace shape | How a product uses workspaces: who creates them and who joins them, which the parts of the template that a fork keeps decide (§5). |
 | Membership | A user's place in a workspace, with exactly one role. Owned by `access`. |
-| Owner | The one role per workspace that can transfer or delete it. |
+| Owner | The one role per workspace that can transfer or delete it. Other owners take the word, with the words that tell which is meant. An account's or an address's owner is the person who holds it. The repository's owner decides what the API guarantees ([Changing a rule](standards/README.md#changing-a-rule)), and `CLAUDE.md`, the skills in `.claude/skills/` and the tracker call them the owner. The database role `owner` runs migrations and owns the tables (DATA-12). The owner of a database or a schema in Postgres is the role that owns it, as the database's owner owns the schema `public`, and the owner of a file on a server is the user that owns it, as the deployment's owner owns its directory. |
 | Superadmin | A user whom the deployment's operator made one through `just`, who sees every workspace without being a member, but not its content, deletes any workspace, and creates workspaces, which they then own (§5, D62). Not a role: roles belong to memberships. <!-- part: superadmins --> |
-| Role | A named set of permissions, defined in code in `access` (D2). |
+| Role | A named set of permissions, defined in code in `access` (D2). A database role is instead one of Postgres's, such as `owner` and `app`, which `bootstrap` creates (DATA-12). |
 | Permission | One thing a role allows on a workspace resource, such as `members.update`. |
 | Invitation | An offer to join a workspace with a role, sent to an email address. <!-- part: invitations --> |
 | Unit of work | One database transaction, opened by the service, or with the proof that authorizes its route, as `Authorized<P>` on a workspace route, with its side effects: audit entries, events and jobs (D1). |
@@ -491,6 +494,7 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 | Listener | The instance's own connection to the database, outside its pool, on which the hub listens for what commits and readiness checks the database (OPS-05, OPS-18). |
 | Turn | A caller's place among those that take one thing one after another, named with what they take turns at: a user's turn is the lock on the user's row, which the changes of their account take (DATA-20); a turn at hashing is one of the Workers'; a turn at reading a body that no route group's limit bounds is one of its replica's, which reads only so many at once; and the heavy turn of the end-to-end tests is one that a single deployment holds at a time (TEST-06). |
 | Workers | The turns of an instance's CPU-heavy work, such as a password's hash: one per processor it may use, each held by one caller at once, whose works run in it one after another, which `platform::blocking::Workers` hands out (PLATFORM-060). |
+| Bucket | What a rate limit counts requests in, for a window, in the database that every replica shares: the IP limit's, the user limit's, or a per-action limit's, such as the sign-in's (D11, PLATFORM-011). A budget is a bucket that counts bytes (PLATFORM-089). In object storage, a bucket is instead a container of objects in a service that speaks S3's API, such as the backups' bucket (OPS-15). |
 | Audit entry | A record of who did what, in the user's log or the workspace's log. It is never edited, except that erasing an account anonymizes its personal data (D6, D31). |
 | File | Stored bytes plus metadata. A user file or a workspace file, each private or public. <!-- part: files --> |
 | Avatar | The image that shows a user to others, at most one for each user, which `accounts` sets and `files` keeps. Not a file: it has no name, and is always public (D120). <!-- part: files --> |
@@ -501,7 +505,7 @@ Each concept has one name, used the same way in code, SQL, the API and the docs 
 | Digest | The hash of an image's content, which names exactly that image. A tag can move to another image; a digest can't. |
 | Image index | The list in a registry that names one image's version for each platform, with each one's SBOM and provenance. A multi-platform image's digest is its index's. |
 | Capability | A feature that a deployment can turn off, or a part of the template that changes what a client offers, which the fork keeps: the capabilities endpoint lists each, a feature with whether it is on (D9, D118). |
-| Trace ID | The identifier, returned with every response that the router answers, except the health probes, that leads to a request's logs, and to its trace whenever the request ended in an error (D10). |
+| Trace ID | The identifier, returned with every response that the router answers, except the health probes, that leads to a request's logs, and to its trace whenever the request ended in an error within the collector's wait (D10, OBS-08). |
 | Personal data | In these documents: information that identifies a person directly, such as email addresses, names, IP addresses, user agents and text a user writes. User and workspace IDs are pseudonymous. The General Data Protection Regulation (GDPR) still counts them as personal data, so export and erasure cover them (D31), but they may appear in telemetry and audit entries. |
 | Point-in-time recovery | A restore of a database as it stood at any moment its backups reach, from a base backup and the write-ahead log archived after it: what the reference deployment's bundled Postgres provides, and what it requires of a managed one (OPS-15). |
 

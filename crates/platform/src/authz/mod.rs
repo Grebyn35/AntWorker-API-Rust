@@ -185,7 +185,12 @@ static REFUSALS: Counter<1> = Counter::new(
 
 /// The extractor of a workspace route: the caller and the workspace in the path, which proves
 /// nothing until [`Authorize::open`]. The handler calls it once the body is parsed, so the unit
-/// of work opens last (architecture §6).
+/// of work opens last (architecture §6), or hands it to the service, which calls it once a
+/// per-action limit has counted,
+// part: files
+/// or, on a workspace's upload route, once the bytes are stored,
+// end part: files
+/// as on a user route.
 pub struct Authorize<P> {
     principal: Principal,
     workspace_id: Option<WorkspaceId>,

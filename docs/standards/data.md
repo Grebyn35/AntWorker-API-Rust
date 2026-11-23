@@ -37,7 +37,7 @@ The schema declares keys, uniqueness, foreign keys and `NOT NULL`. Closed sets a
 - Check: `ci: check-schema` (no check constraint reads a single column), plus `review`.
 
 ### DATA-05 Foreign keys are declared and indexed
-Every reference is a declared foreign key with an explicit `ON DELETE`: `CASCADE` for children the parent owns, `SET NULL` for a reference to a user from a row that outlives them, which deleting their account anonymizes (DATA-23), and `RESTRICT` otherwise. Two kinds of reference are exceptions, and outlive the rows they name: an audit entry's `resource_id`, which may name a row of any table (DATA-22), and a job's `user_id` and `workspace_id`, which record whom it runs for (DATA-23). Every foreign-key column has an index.
+Every reference is a declared foreign key with an explicit `ON DELETE`: `CASCADE` for children the parent owns, `SET NULL` for a reference to a user from a row that outlives them, which deleting their account anonymizes (DATA-23), and `RESTRICT` otherwise. Three kinds of reference are exceptions, and outlive the rows they name: an audit entry's `resource_id`, which may name a row of any table (DATA-22), a job's `user_id` and `workspace_id`, which record whom it runs for (DATA-23), and a sign-in challenge's `device_token_hash`, the hash of the device token that its sign-in brought, which its completion deletes if it is still stored (AUTH-019). Every foreign-key column has an index.
 - Why: deletes behave as the schema says, and cascades stay fast.
 - Check: `ci: check-schema`.
 

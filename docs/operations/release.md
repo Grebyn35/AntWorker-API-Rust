@@ -77,7 +77,7 @@ Each failure of the `release` job shows its next step on the run's page:
 
 | Failure | What to do |
 |---|---|
-| The version is released already, or comes before the latest release | Run `just release` with one of the versions the error suggests |
+| The version comes before the latest release | Run `just release` with one of the versions the error suggests |
 | The version is a final release, and `CHANGELOG.md` lacks its section, the section's upgrade notes, or a line of its capacity, as when the request reached `main` through a pull request that changed it | Write what the error names ([Before you release](#before-you-release)), and push it: its run releases the version |
 | This run's `publish` job pushed no image of the commit | Re-run the run's failed jobs |
 | The registry refused the version's tag, the signing failed, or the release doesn't verify | Re-run the job. If the signing fails again, Sigstore may be down: its status page is [status.sigstore.dev](https://status.sigstore.dev) |

@@ -1,7 +1,7 @@
 //! The trace-ID guarantee (D10, OBS-08), through the image and the observability stack that
 //! Compose runs: a trace ID that a response returns leads to the request's logs, and, for a
-//! request that ended in an error, to its trace. And the image's `serve`, which records its own
-//! memory, as it exports it to the stack (PLATFORM-070).
+//! request that ended in an error within the collector's wait, to its trace. And the image's
+//! `serve`, which records its own memory, as it exports it to the stack (PLATFORM-070).
 
 use std::{process::Output, sync::OnceLock};
 
