@@ -4,7 +4,7 @@
 # keeping each stream it scans in memory, and answering on port 3310.
 services:
   scanner:
-    image: clamav/clamav-debian:1.5.4_base@sha256:1474f1d18827ec86ec2142a6e3d590008e755b415ad765db32bf829063653a95
+    image: clamav/clamav-debian:1.5.4_base@sha256:ef703dff572941648578d6e112d9b1f2b02d2480085d1fb9c8ca5628750071a1
     user: clamav
     read_only: true
     tmpfs: [/tmp]
