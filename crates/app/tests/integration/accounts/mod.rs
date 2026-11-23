@@ -190,13 +190,7 @@ async fn accounts_007_renaming_oneself_stores_the_name_records_it_and_publishes_
 async fn accounts_007_a_rename_with_a_stale_etag_answers_412_and_changes_nothing() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
-    let etag = api
-        .get("/v1/users/me")
-        .bearer(&ada.access)
-        .send()
-        .await
-        .header("etag")
-        .to_owned();
+    let etag = users::etag(&api, &ada).await;
 
     let first = rename(&api, &ada, "Ada King", Some(&etag)).await;
     let stale = rename(&api, &ada, "Ada Byron", Some(&etag)).await;

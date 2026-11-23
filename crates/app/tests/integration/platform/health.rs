@@ -9,7 +9,7 @@ use std::{
 use http::StatusCode;
 use serde_json::{Value, json};
 
-use crate::support::{Api, CHECK_INTERVAL, TestDatabase, http_request, run_binary};
+use crate::support::{Api, CHECK_INTERVAL, TestDatabase, closed_port, http_request, run_binary};
 
 #[tokio::test]
 async fn platform_038_the_live_probe_answers_alive() {
@@ -148,9 +148,7 @@ async fn platform_063_health_exits_1_and_names_the_answer_while_the_instance_isn
 
 #[tokio::test]
 async fn platform_063_health_exits_1_when_no_instance_listens() {
-    let free = TcpListener::bind("127.0.0.1:0").unwrap();
-    let address = free.local_addr().unwrap();
-    drop(free);
+    let address = closed_port().await;
 
     let output = health(address).await;
 

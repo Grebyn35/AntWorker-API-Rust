@@ -1004,11 +1004,7 @@ async fn platform_095_deleting_a_publisher_s_account_leaves_their_events_to_othe
     let before = publishers().await;
 
     // The deletion's own event, that she left the workspace, loses its publisher with her row.
-    let deleted = api
-        .request(http::Method::DELETE, "/v1/users/me")
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let deleted = users::delete(&api, &ada).await;
 
     assert_eq!(deleted.status, StatusCode::NO_CONTENT, "{}", deleted.json());
     assert_eq!(before, [format!("announcement.posted {}", ada.user_id)]);

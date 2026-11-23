@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 use crate::support::{
     Api, Options, api,
     api::Response,
-    providers::{VERIFIER, kept_token_logged},
+    providers::{self, VERIFIER, kept_token_logged},
     upstream::Upstream,
 };
 
@@ -43,8 +43,8 @@ fn gives(upstream: &Upstream, user: Value, emails: Value) {
 }
 
 async fn sign_in(api: &Api) -> Response {
-    api.post(
-        "/v1/sessions/provider",
+    providers::sign_in(
+        api,
         &json!({
             "provider": "github",
             "code": "a-code",
@@ -52,7 +52,6 @@ async fn sign_in(api: &Api) -> Response {
             "redirect_uri": "https://app.example.com/callback/github",
         }),
     )
-    .send()
     .await
 }
 

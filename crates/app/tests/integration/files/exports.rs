@@ -5,17 +5,17 @@ use serde_json::json;
 
 use super::{avatars, own::upload_own, upload, workspace_pictures};
 use crate::{
-    accounts::exports::{built, document, entries},
-    support::{Api, bucket, files, users, workspaces},
+    accounts::exports::{built, document, download, entries},
+    support::{
+        Api, bucket, files,
+        users::{self, SignedIn},
+        workspaces,
+    },
 };
 
-/// Downloads the archive of the export `id` with `access`.
-async fn archive(api: &Api, access: &str, id: &str) -> Vec<u8> {
-    let response = api
-        .get(&format!("/v1/users/me/exports/{id}/content"))
-        .bearer(access)
-        .send()
-        .await;
+/// Downloads the archive of `user`'s export `id`.
+async fn archive(api: &Api, user: &SignedIn, id: &str) -> Vec<u8> {
+    let response = download(api, user, id, &[]).await;
     assert_eq!(response.status, 200);
     response.body
 }
@@ -80,7 +80,7 @@ async fn files_026_an_export_holds_the_user_s_files_their_avatar_and_their_own_w
     assert_eq!(theirs.status, 200);
 
     let id = built(&api, &ada).await;
-    let archive = archive(&api, &ada.access, &id).await;
+    let archive = archive(&api, &ada, &id).await;
 
     let own_id = own["id"].as_str().unwrap();
     let records = document(&archive, "files/files.json");
@@ -163,7 +163,7 @@ async fn files_026_a_held_file_s_bytes_stay_while_its_export_lasts_though_the_fi
 
     let kept = storage.get(&object, None).await;
     assert!(kept.is_ok(), "the held object was deleted");
-    let archive = archive(&api, &ada.access, &id).await;
+    let archive = archive(&api, &ada, &id).await;
     let (_, bytes) = entries(&archive)
         .into_iter()
         .find(|(path, _)| path.starts_with("files/own/"))

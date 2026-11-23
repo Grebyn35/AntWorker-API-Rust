@@ -124,14 +124,7 @@ async fn audit_011_the_hourly_job_deletes_each_log_s_entries_older_than_the_rete
     let db = api.database();
     let workspace = workspaces::arrange(db, "Acme", &[(&ada.user_id, "owner")]).await;
     for name in ["Acme Inc", "Acme Ltd"] {
-        let renamed = api
-            .patch(
-                &format!("/v1/workspaces/{workspace}"),
-                &serde_json::json!({ "name": name }),
-            )
-            .bearer(&ada.access)
-            .send()
-            .await;
+        let renamed = workspaces::rename(&api, &ada, &workspace, name, &[]).await;
         assert_eq!(renamed.status, 200);
     }
     // Ada's own log, and the workspace's first rename, are older than the retention; the

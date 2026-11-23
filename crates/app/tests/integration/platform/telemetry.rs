@@ -27,8 +27,8 @@ use platform::telemetry::testing::{
 use serde_json::json;
 
 use crate::support::{
-    Api, CHECK_INTERVAL, Options, Server, TestDatabase, counts, fixtures, hex, jobs, mailbox,
-    service_name, users,
+    Api, CHECK_INTERVAL, Options, Server, TestDatabase, counts, fixtures, hex, is_the_request_s,
+    jobs, mailbox, service_name, users,
 };
 
 /// The requests whose durations `collector` received, from a `serve` that has stopped, each as
@@ -75,12 +75,6 @@ fn assert_names_the_process(resource: &Resource, environment: &str) -> String {
     assert_eq!(&instance[14..15], "4", "{instance}");
     assert_eq!(attributes.len(), 4, "{attributes:?}");
     instance
-}
-
-/// Whether `span` is the server span of the request in the trace `trace`, which also holds a
-/// span for each of the request's database transactions (PLATFORM-104).
-fn is_the_request_s(span: &Span, trace: &str) -> bool {
-    hex(&span.trace_id) == trace && span.kind == i32::from(SpanKind::Server)
 }
 
 /// The value of `span`'s attribute `key`, of the type the collector received it as.

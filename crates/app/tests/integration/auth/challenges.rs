@@ -2,15 +2,17 @@
 //! code gives; their limits; the jobs of second factors; and the encryption of apps' secrets (the
 //! auth spec's "Second factors").
 
-use opentelemetry_proto::tonic::trace::v1::{Span, span::SpanKind};
+use opentelemetry_proto::tonic::trace::v1::Span;
 use platform::telemetry::testing::collector::Collector;
 use serde_json::{Value, json};
 
 use crate::support::{
     Api, Options, Server, TestDatabase, answer_before_a_lock_wait,
     api::reads,
-    execute_on, hex, mailbox,
-    second_factors::{add_app, challenge, code, code_at, complete, forget_steps, other_code},
+    children, execute_on, is_the_request_s, mailbox,
+    operator::printed,
+    password_reset,
+    second_factors::{self, add_app, challenge, code, code_at, complete, forget_steps, other_code},
     users::{self, PASSWORD, WEB},
 };
 
@@ -513,19 +515,17 @@ async fn auth_061_a_signed_in_user_s_checks_of_codes_count_in_one_bucket_of_thei
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     let bob = users::register(&api, "bob@example.com").await;
-    let secret = crate::support::second_factors::start_setup(&api, &ada)
-        .await
-        .json()["secret"]
+    let secret = second_factors::start_setup(&api, &ada).await.json()["secret"]
         .as_str()
         .unwrap()
         .to_owned();
     let right = code(&api, &secret).await;
     for _ in 0..10 {
-        let wrong = crate::support::second_factors::confirm(&api, &ada, &other_code(&right)).await;
+        let wrong = second_factors::confirm(&api, &ada, &other_code(&right)).await;
         assert_eq!(wrong.status, 422);
     }
 
-    let limited = crate::support::second_factors::confirm(&api, &ada, &right).await;
+    let limited = second_factors::confirm(&api, &ada, &right).await;
     assert_eq!(limited.status, 429);
     assert!(
         limited
@@ -578,15 +578,13 @@ async fn auth_061_a_check_of_a_code_beyond_its_limit_answers_429_before_its_unit
  {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
-    let secret = crate::support::second_factors::start_setup(&api, &ada)
-        .await
-        .json()["secret"]
+    let secret = second_factors::start_setup(&api, &ada).await.json()["secret"]
         .as_str()
         .unwrap()
         .to_owned();
     let right = code(&api, &secret).await;
     for _ in 0..10 {
-        let wrong = crate::support::second_factors::confirm(&api, &ada, &other_code(&right)).await;
+        let wrong = second_factors::confirm(&api, &ada, &other_code(&right)).await;
         assert_eq!(wrong.status, 422);
     }
     let db = api.database();
@@ -598,11 +596,7 @@ async fn auth_061_a_check_of_a_code_beyond_its_limit_answers_429_before_its_unit
         ))
         .await;
 
-    let refused = answer_before_a_lock_wait(
-        db,
-        crate::support::second_factors::confirm(&api, &ada, &right),
-    )
-    .await;
+    let refused = answer_before_a_lock_wait(db, second_factors::confirm(&api, &ada, &right)).await;
 
     execute_on(&mut held, "COMMIT").await;
     assert!(
@@ -786,11 +780,10 @@ async fn auth_066_serve_refuses_a_ring_without_a_version_that_a_stored_secret_ne
         .await;
 
     assert!(!output.status.success());
-    let printed = String::from_utf8_lossy(&output.stdout).to_string()
-        + &String::from_utf8_lossy(&output.stderr);
+    let written = printed(&output);
     assert!(
-        printed.contains("ENCRYPTION_KEYS lacks version 9"),
-        "{printed}"
+        written.contains("ENCRYPTION_KEYS lacks version 9"),
+        "{written}"
     );
 }
 
@@ -811,9 +804,9 @@ async fn auth_067_the_hourly_job_deletes_the_setups_and_challenges_that_expired(
     add_app(&api, &ada).await;
     let lasting = challenge(&api, "ada@example.com").await;
     challenge(&api, "ada@example.com").await;
-    let setup = crate::support::second_factors::start_setup(&api, &ada).await;
+    let setup = second_factors::start_setup(&api, &ada).await;
     assert_eq!(setup.status, 200);
-    let kept = crate::support::second_factors::start_setup(&api, &bob).await;
+    let kept = second_factors::start_setup(&api, &bob).await;
     assert_eq!(kept.status, 200);
     api.database()
         .owner_executes(&format!(
@@ -911,11 +904,7 @@ async fn auth_069_a_removal_of_the_app_deletes_the_challenges_issued_before_it()
     let before = challenge(&api, "ada@example.com").await;
     let code_before = code(&api, &app.secret).await;
 
-    let removed = api
-        .request(http::Method::DELETE, "/v1/users/me/second-factors/totp")
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let removed = second_factors::remove(&api, &ada).await;
 
     assert_eq!(removed.status, 204, "{}", removed.json());
     assert!(
@@ -936,18 +925,9 @@ async fn auth_069_a_reset_deletes_the_challenges_and_leaves_the_app_that_the_nex
     let ada = users::register(&api, &address).await;
     let app = add_app(&api, &ada).await;
     challenge(&api, &address).await;
-    let asked = api
-        .post("/v1/password-resets", &json!({ "email": address }))
-        .send()
-        .await;
+    let asked = password_reset::ask(&api, &address).await;
     assert_eq!(asked.status, 202);
-    api.run_jobs().await;
-    let emails = mailbox::to(&address).await;
-    let email = emails
-        .iter()
-        .find(|email| email.subject.contains("password reset code"))
-        .expect("an email with a reset code");
-    let reset_code = mailbox::grouped_code_in(&email.text).expect("a reset code");
+    let reset_code = password_reset::code_sent(&api, &address).await;
 
     let reset = api
         .post(
@@ -980,14 +960,10 @@ async fn auth_069_a_deletion_of_the_account_deletes_every_row_of_its_second_fact
     add_app(&api, &ada).await;
     challenge(&api, "ada@example.com").await;
     users::authenticated_ago(&api, &ada, 0).await;
-    let setup = crate::support::second_factors::start_setup(&api, &ada).await;
+    let setup = second_factors::start_setup(&api, &ada).await;
     assert_eq!(setup.status, 200);
 
-    let deleted = api
-        .request(http::Method::DELETE, "/v1/users/me")
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let deleted = users::delete(&api, &ada).await;
 
     assert_eq!(deleted.status, 204);
     for table in [
@@ -1042,9 +1018,7 @@ async fn auth_066_a_confirmation_stores_the_setup_s_secret_under_the_current_ver
     )
     .await;
     let ada = users::register(&api, "ada@example.com").await;
-    let setup = crate::support::second_factors::start_setup(&api, &ada)
-        .await
-        .json();
+    let setup = second_factors::start_setup(&api, &ada).await.json();
     assert_eq!(
         reads(&api, "SELECT key_version::text FROM totp_setups").await,
         ["1"]
@@ -1053,7 +1027,7 @@ async fn auth_066_a_confirmation_stores_the_setup_s_secret_under_the_current_ver
         .instance(Options::default().set("ENCRYPTION_KEYS", &both))
         .await;
 
-    let confirmed = crate::support::second_factors::confirm(
+    let confirmed = second_factors::confirm(
         &next,
         &ada,
         &code(&next, setup["secret"].as_str().unwrap()).await,
@@ -1100,11 +1074,10 @@ async fn auth_066_serve_refuses_a_ring_without_a_lasting_setup_s_version_and_not
         .await;
 
     assert!(!lasting.status.success());
-    let printed = String::from_utf8_lossy(&lasting.stdout).to_string()
-        + &String::from_utf8_lossy(&lasting.stderr);
+    let written = printed(&lasting);
     assert!(
-        printed.contains("ENCRYPTION_KEYS lacks version 9"),
-        "{printed}"
+        written.contains("ENCRYPTION_KEYS lacks version 9"),
+        "{written}"
     );
     drop(started);
 }
@@ -1162,15 +1135,13 @@ async fn auth_061_a_confirmation_counts_its_code_before_its_unit_of_work_opens()
         &json!({ "code": code }).to_string(),
     )
     .await;
-    let is_the_request_s =
-        |span: &Span| hex(&span.trace_id) == trace && span.kind == i32::from(SpanKind::Server);
     // The request's span ends after the spans inside it, so its export follows theirs.
     let received = collector
         .wait_for(|received| {
             received
                 .spans()
                 .iter()
-                .any(|(_, span)| is_the_request_s(span))
+                .any(|(_, span)| is_the_request_s(span, trace))
         })
         .await;
 
@@ -1178,14 +1149,9 @@ async fn auth_061_a_confirmation_counts_its_code_before_its_unit_of_work_opens()
     let (_, request) = received
         .spans()
         .into_iter()
-        .find(|(_, span)| is_the_request_s(span))
+        .find(|(_, span)| is_the_request_s(span, trace))
         .unwrap();
-    let within: Vec<&Span> = received
-        .spans()
-        .into_iter()
-        .map(|(_, span)| span)
-        .filter(|span| span.parent_span_id == request.span_id)
-        .collect();
+    let within = children(&received, request);
     let named = |name: &str| -> Vec<&Span> {
         within
             .iter()

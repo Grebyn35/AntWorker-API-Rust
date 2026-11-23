@@ -227,31 +227,18 @@ async fn platform_045_an_unlisted_name_is_refused_before_any_value_is_read() {
     let beside_an_unlisted_name = listed("limit=0&nope=1").await;
     let alone = listed("limit=0").await;
 
-    let unknown = problem(
+    problem(
         &beside_an_unlisted_name,
         StatusCode::BAD_REQUEST,
         "request.invalid_query",
     );
-    let fields = |problem: &Value| -> Vec<(String, String)> {
-        problem["errors"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|error| {
-                (
-                    error["field"].as_str().unwrap().to_owned(),
-                    error["code"].as_str().unwrap().to_owned(),
-                )
-            })
-            .collect()
-    };
     assert_eq!(
-        fields(&unknown),
+        beside_an_unlisted_name.refused_parameters(),
         [("/nope".to_owned(), "unknown".to_owned())]
     );
-    let refused = problem(&alone, StatusCode::BAD_REQUEST, "request.invalid_query");
+    problem(&alone, StatusCode::BAD_REQUEST, "request.invalid_query");
     assert_eq!(
-        fields(&refused),
+        alone.refused_parameters(),
         [("/limit".to_owned(), "out_of_range".to_owned())]
     );
 }

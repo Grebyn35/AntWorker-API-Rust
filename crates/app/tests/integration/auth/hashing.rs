@@ -10,11 +10,9 @@ use platform::blocking::Turn;
 use serde_json::json;
 
 use crate::support::{
-    Api, TestDatabase,
-    api::Response,
-    execute_on, queries_wait_on_locks,
+    Api, TestDatabase, execute_on, queries_wait_on_locks,
     second_factors::{add_app, code},
-    users::{self, PASSWORD},
+    users::{self, PASSWORD, changing_password, signing_in},
 };
 
 const NEW_PASSWORD: &str = "walnut-ferry-88-bright";
@@ -24,26 +22,6 @@ async fn every_turn_but_one(api: &Api) -> Vec<Turn> {
     let mut turns = api.every_turn().await;
     turns.pop();
     turns
-}
-
-/// A sign-in in a task of its own, which a test holds at a lock or at its turn.
-fn signing_in(api: &Api, email: &'static str) -> tokio::task::JoinHandle<Response> {
-    let api = api.clone();
-    tokio::spawn(async move { users::sign_in(&api, email, PASSWORD).await })
-}
-
-/// A change of `user`'s password in a task of its own, with `body`.
-fn changing(
-    api: &Api,
-    user: &users::SignedIn,
-    body: serde_json::Value,
-) -> tokio::task::JoinHandle<(http::StatusCode, serde_json::Value)> {
-    api.spawn(
-        http::Method::POST,
-        "/v1/users/me/password/change",
-        &user.access,
-        Some(body),
-    )
 }
 
 /// A sign-in that no account answers to, which hashes all the same (AUTH-005): its answer
@@ -168,7 +146,7 @@ async fn auth_093_a_change_s_new_password_is_hashed_in_the_turn_its_check_took()
     let mut turns = api.every_turn().await;
     // Ada's change waits for a turn, and Bob's sign-in behind it.
     let body = json!({ "current_password": PASSWORD, "password": NEW_PASSWORD });
-    let ada_changing = changing(&api, &ada, body);
+    let ada_changing = changing_password(&api, &ada, body);
     wait_for_turns(&api, 1).await;
     let bob_signing_in = signing_in(&api, "bob@example.com");
     wait_for_turns(&api, 2).await;
@@ -221,7 +199,7 @@ async fn auth_093_a_change_of_the_password_gives_its_turn_up_before_its_writes()
         .await;
 
     let body = json!({ "current_password": PASSWORD, "password": NEW_PASSWORD });
-    let ada_changing = changing(&api, &ada, body);
+    let ada_changing = changing_password(&api, &ada, body);
     queries_wait_on_locks(db, 1).await;
 
     // The change has verified the current password and hashed the new one, and waits to write.
@@ -243,7 +221,7 @@ async fn auth_093_a_change_with_a_wrong_current_password_gives_its_turn_up_befor
         .await;
 
     let body = json!({ "current_password": "not-her-password-12", "password": NEW_PASSWORD });
-    let ada_changing = changing(&api, &ada, body);
+    let ada_changing = changing_password(&api, &ada, body);
     queries_wait_on_locks(db, 1).await;
 
     // The change has verified the password, and waits to record that it was wrong.
@@ -270,7 +248,7 @@ async fn auth_093_a_change_by_an_account_with_an_app_gives_its_turn_up_before_th
         .await;
 
     let body = json!({ "current_password": PASSWORD, "password": NEW_PASSWORD, "code": code });
-    let ada_changing = changing(&api, &ada, body);
+    let ada_changing = changing_password(&api, &ada, body);
     queries_wait_on_locks(db, 1).await;
 
     // The change has verified the current password and hashed the new one, and waits to record

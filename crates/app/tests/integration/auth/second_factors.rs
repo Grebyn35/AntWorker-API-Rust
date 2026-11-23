@@ -8,11 +8,15 @@ use crate::support::{
     Api,
     api::Response,
     api::reads,
-    mailbox,
+    mailbox, password_reset,
     providers::{self, gives, identity},
-    second_factors::{self, App, add_app, code, confirm, forget_steps, other_code, start_setup},
+    second_factors::{
+        self, App, add_app, code, confirm, forget_steps, new_codes, other_code, read, remove,
+        start_setup,
+    },
     upstream::Upstream,
     users::{self, PASSWORD, SignedIn},
+    with_fields,
 };
 
 /// Each entry of `action`, as its log's user, its actor and its resource's type and ID.
@@ -23,33 +27,6 @@ async fn entries(api: &Api, action: &str) -> Vec<String> {
              || ' ' || coalesce(resource_id::text, '-') FROM audit_entries \
              WHERE action = '{action}' ORDER BY created_at"
         ))
-        .await
-}
-
-/// Reads `user`'s second factors.
-async fn read(api: &Api, user: &SignedIn) -> Response {
-    api.get("/v1/users/me/second-factors")
-        .bearer(&user.access)
-        .send()
-        .await
-}
-
-/// Asks for new recovery codes for `user`.
-async fn new_codes(api: &Api, user: &SignedIn) -> Response {
-    api.request(
-        http::Method::POST,
-        "/v1/users/me/second-factors/recovery-codes",
-    )
-    .bearer(&user.access)
-    .send()
-    .await
-}
-
-/// Removes `user`'s app.
-async fn remove(api: &Api, user: &SignedIn) -> Response {
-    api.request(http::Method::DELETE, "/v1/users/me/second-factors/totp")
-        .bearer(&user.access)
-        .send()
         .await
 }
 
@@ -925,27 +902,18 @@ impl Prover {
                 second_factors::complete(api, &challenge, factor).await
             }
             Proof::Reset => {
-                let asked = api
-                    .post("/v1/password-resets", &json!({ "email": self.address }))
-                    .send()
-                    .await;
+                let asked = password_reset::ask(api, &self.address).await;
                 assert_eq!(asked.status, 202, "{}", asked.json());
-                api.run_jobs().await;
-                let emails = mailbox::to(&self.address).await;
-                let email = emails
-                    .iter()
-                    .find(|email| email.subject.contains("password reset code"))
-                    .expect("an email with a reset code");
-                let code = mailbox::grouped_code_in(&email.text).expect("a reset code");
+                let code = password_reset::code_sent(api, &self.address).await;
                 let body = json!({ "email": self.address, "code": code, "password": PASSWORD });
-                api.post("/v1/password-resets/confirm", &with(body, factor))
+                api.post("/v1/password-resets/confirm", &with_fields(body, factor))
                     .send()
                     .await
             }
             Proof::Provider => {
                 api.post(
                     "/v1/users/me/sessions/current/reauthenticate/provider",
-                    &with(providers::grant(), factor),
+                    &with_fields(providers::grant(), factor),
                 )
                 .bearer(&self.user.access)
                 .send()
@@ -953,7 +921,7 @@ impl Prover {
             }
             Proof::Change => {
                 let body = json!({ "current_password": PASSWORD, "password": PASSWORD });
-                api.post("/v1/users/me/password/change", &with(body, factor))
+                api.post("/v1/users/me/password/change", &with_fields(body, factor))
                     .bearer(&self.user.access)
                     .send()
                     .await
@@ -970,14 +938,6 @@ impl Prover {
         let code = code(&self.api, &self.app.secret).await;
         json!({ self.proof.code_field(): code })
     }
-}
-
-/// `body` with the fields of `extra` added.
-fn with(mut body: Value, extra: Value) -> Value {
-    body.as_object_mut()
-        .unwrap()
-        .extend(extra.as_object().unwrap().clone());
-    body
 }
 
 #[tokio::test]

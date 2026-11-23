@@ -172,7 +172,8 @@ pub async fn api() -> Api {
 }
 
 /// Publishes `count` events to `user`, in one unit of work, through the announcing route.
-pub async fn announce(api: &Api, user: &SignedIn, count: u32) {
+/// Returns the trace ID of the request.
+pub async fn announce(api: &Api, user: &SignedIn, count: u32) -> String {
     let response = api
         .post("/v1/announcements", &serde_json::json!({ "count": count }))
         .bearer(&user.access)
@@ -184,6 +185,7 @@ pub async fn announce(api: &Api, user: &SignedIn, count: u32) {
         "{}",
         response.json()
     );
+    response.trace_id().to_owned()
 }
 
 /// Publishes `count` events to the members of `workspace` as `user`, in one unit of work,

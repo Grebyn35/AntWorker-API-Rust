@@ -1,7 +1,7 @@
 //! Public files: an upload's visibility, and the downloads that anyone may make (FILES-020,
 //! FILES-023), counted in a bucket of their own (PLATFORM-082).
 
-use super::{acme, own::upload_own, stored_names, upload_queried};
+use super::{acme, download, own::upload_own, stored_names, upload_queried};
 use crate::support::{
     Api,
     api::{Options, Response},
@@ -193,13 +193,7 @@ async fn sec_12_a_member_s_download_of_a_public_file_is_no_one_else_s_to_keep() 
     files::publish(db, "workspace_files", &public).await;
 
     // A member's download carries the name, so no shared cache keeps it (SEC-12).
-    let response = api
-        .get(&format!(
-            "/v1/workspaces/{workspace}/files/{public}/content"
-        ))
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let response = download(&api, &ada, &workspace, &public).await;
 
     assert_eq!(response.status, 200);
     assert_eq!(response.header("cache-control"), "no-store");

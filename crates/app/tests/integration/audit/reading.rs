@@ -531,19 +531,10 @@ async fn audit_009_the_values_a_list_refuses_are_named_together() {
                 .await;
 
             assert_eq!(response.status, 400, "{path}?{query}");
-            let body = response.json();
-            assert_eq!(body["code"], "request.invalid_query");
-            let refused: Vec<String> = body["errors"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|error| {
-                    format!(
-                        "{} {}",
-                        error["field"].as_str().unwrap(),
-                        error["code"].as_str().unwrap()
-                    )
-                })
+            let refused: Vec<String> = response
+                .refused_parameters()
+                .into_iter()
+                .map(|(field, code)| format!("{field} {code}"))
                 .collect();
             assert_eq!(refused, expected, "{path}?{query}");
         }

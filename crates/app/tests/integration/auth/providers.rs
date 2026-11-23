@@ -7,11 +7,12 @@ use serde_json::{Value, json};
 use crate::support::{
     Api, TestDatabase,
     api::{self, Options, Response},
-    counts, execute_on,
+    counts,
     providers::{self, VERIFIER, gives, grant, identity, kept_token_logged, sign_in, signed_in},
-    queries_wait_on_locks, second_factors,
+    second_factors,
     upstream::Upstream,
     users::{self, SignedIn},
+    with_fields,
 };
 
 /// The redirect URI of the stand-in's second client, whose tokens don't lapse.
@@ -538,7 +539,7 @@ async fn auth_100_an_unknown_provider_answers_404_and_an_unconfigured_one_503() 
 
     let mut nobody = grant();
     nobody["provider"] = json!("nobody");
-    let unknown = api.post("/v1/sessions/provider", &nobody).send().await;
+    let unknown = sign_in(&api, &nobody).await;
     assert_eq!(unknown.status, 404);
     assert_eq!(unknown.json()["code"], "auth.provider_not_found");
 
@@ -560,14 +561,14 @@ async fn auth_100_a_malformed_code_verifier_or_redirect_uri_answers_400_before_t
         .post_raw("/v1/sessions/provider", &malformed)
         .send()
         .await;
-    assert_eq!(response.status, 400);
     assert_eq!(
-        refused_fields(&response),
+        response.refused_fields(),
         [
-            "/code invalid_code",
-            "/code_verifier invalid_code_verifier",
-            "/redirect_uri invalid_redirect_uri"
-        ],
+            ("/code", "invalid_code"),
+            ("/code_verifier", "invalid_code_verifier"),
+            ("/redirect_uri", "invalid_redirect_uri")
+        ]
+        .map(|(field, code)| (field.to_owned(), code.to_owned())),
         "API-10"
     );
 
@@ -575,8 +576,10 @@ async fn auth_100_a_malformed_code_verifier_or_redirect_uri_answers_400_before_t
         let mut body = grant();
         body["code"] = json!(code);
         let response = api.post_raw("/v1/sessions/provider", &body).send().await;
-        assert_eq!(response.status, 400);
-        assert_eq!(refused_fields(&response), ["/code invalid_code"]);
+        assert_eq!(
+            response.refused_fields(),
+            [("/code".to_owned(), "invalid_code".to_owned())]
+        );
     }
     // 42 characters, 129, and 43 with one that RFC 7636 doesn't allow.
     let short = "v".repeat(42);
@@ -584,10 +587,12 @@ async fn auth_100_a_malformed_code_verifier_or_redirect_uri_answers_400_before_t
         let mut body = grant();
         body["code_verifier"] = json!(verifier);
         let response = api.post_raw("/v1/sessions/provider", &body).send().await;
-        assert_eq!(response.status, 400, "{verifier}");
         assert_eq!(
-            refused_fields(&response),
-            ["/code_verifier invalid_code_verifier"],
+            response.refused_fields(),
+            [(
+                "/code_verifier".to_owned(),
+                "invalid_code_verifier".to_owned()
+            )],
             "{verifier}"
         );
     }
@@ -622,16 +627,6 @@ async fn auth_100_a_code_of_2048_characters_and_verifiers_of_43_and_128_reach_th
     }
 
     assert_eq!(exchanges(&upstream).len(), 2);
-}
-
-/// Each field that `response`, a 400, names, with its code.
-fn refused_fields(response: &Response) -> Vec<String> {
-    response.json()["errors"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|error| format!("{} {}", error["field"], error["code"]).replace('"', ""))
-        .collect()
 }
 
 #[tokio::test]
@@ -688,13 +683,9 @@ async fn auth_079_the_provider_s_token_reaches_no_row_and_no_answer() {
 
 /// Re-authenticates `user` through the stand-in, with `extra` in the body.
 async fn reauthenticate(api: &Api, user: &SignedIn, extra: Value) -> Response {
-    let mut body = grant();
-    body.as_object_mut()
-        .unwrap()
-        .extend(extra.as_object().unwrap().clone());
     api.post(
         "/v1/users/me/sessions/current/reauthenticate/provider",
-        &body,
+        &with_fields(grant(), extra),
     )
     .bearer(&user.access)
     .send()
@@ -712,11 +703,7 @@ async fn auth_080_the_caller_s_subject_reauthenticates_the_session() {
 
     assert_eq!(response.status, 200, "{}", response.json());
     // With the tokens that the proof gave the session (AUTH-095).
-    let deleted = api
-        .request(http::Method::DELETE, "/v1/users/me/sessions/others")
-        .bearer(&SignedIn::from(&response).access)
-        .send()
-        .await;
+    let deleted = users::end_others(&api, &SignedIn::from(&response)).await;
     assert_eq!(deleted.status, 204, "the proof holds (AUTH-045)");
     assert!(
         provider_entries(&api)
@@ -744,11 +731,7 @@ async fn auth_101_another_subject_answers_403_records_it_and_changes_nothing() {
             "user {id} {id} user {id} {{\"provider\": \"stand_in\"}}"
         )]
     );
-    let deleted = api
-        .request(http::Method::DELETE, "/v1/users/me/sessions/others")
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let deleted = users::end_others(&api, &ada).await;
     assert_eq!(deleted.status, 403, "no proof");
 }
 
@@ -991,39 +974,23 @@ async fn auth_101_a_session_that_another_request_ended_meanwhile_answers_401() {
     let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     let ada = signed_in(&api).await;
-    let db = api.database();
     api.get("/v1/users/me").bearer(&ada.access).send().await;
     let (checks, first) = users::added_bucket_of(&api, reauthenticate(&api, &ada, json!({}))).await;
     // The proof gave the session new tokens (AUTH-095).
     let ada = SignedIn::from(&first);
-    // The re-authentication waits at its bucket while another request ends its session.
-    let mut ender = db
-        .holding(&format!(
-            "SELECT 1 FROM rate_limit_buckets WHERE id = '{checks}' FOR UPDATE"
-        ))
-        .await;
 
-    let again = tokio::spawn({
-        let api = api.clone();
-        let ada = SignedIn {
-            user_id: ada.user_id.clone(),
-            session_id: ada.session_id.clone(),
-            access: ada.access.clone(),
-            refresh: ada.refresh.clone(),
-        };
-        async move {
-            let response = reauthenticate(&api, &ada, json!({})).await;
-            (response.status, response.json())
-        }
-    });
-    queries_wait_on_locks(db, 1).await;
-    execute_on(
-        &mut ender,
-        &format!("DELETE FROM sessions WHERE id = '{}'", ada.session_id),
+    // The re-authentication waits at its bucket while another request ends its session.
+    let (status, body) = users::after_its_session_ended(
+        &api,
+        &ada,
+        &checks,
+        (
+            http::Method::POST,
+            "/v1/users/me/sessions/current/reauthenticate/provider",
+        ),
+        Some(grant()),
     )
     .await;
-    execute_on(&mut ender, "COMMIT").await;
-    let (status, body) = again.await.unwrap();
 
     assert_eq!(status, 401);
     assert_eq!(body["code"], "request.unauthenticated");
@@ -1035,11 +1002,7 @@ async fn accounts_013_a_deletion_erases_the_user_s_provider_identities() {
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     let ada = signed_in(&api).await;
 
-    let deleted = api
-        .request(http::Method::DELETE, "/v1/users/me")
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let deleted = users::delete(&api, &ada).await;
 
     assert_eq!(deleted.status, 204, "{}", deleted.json());
     assert_eq!(
@@ -1266,14 +1229,10 @@ async fn auth_080_a_malformed_second_factor_answers_400_at_its_field() {
         ),
         (json!({ "recovery_code": "AAAA" }), "/recovery_code"),
     ] {
-        let mut body = grant();
-        body.as_object_mut()
-            .unwrap()
-            .extend(factor.as_object().unwrap().clone());
         let refused = api
             .post_raw(
                 "/v1/users/me/sessions/current/reauthenticate/provider",
-                &body,
+                &with_fields(grant(), factor),
             )
             .bearer(&ada.access)
             .send()
@@ -1444,11 +1403,7 @@ async fn auth_042_a_sign_in_through_a_provider_keeps_its_device_s_name_normalize
     body["device_id"] = json!("phone_1");
     body["device_name"] = json!("Ada's phone");
     let phone = sign_in(&api, &body).await;
-    let phone_session = api
-        .get("/v1/users/me/sessions/current")
-        .bearer(&SignedIn::from(&phone).access)
-        .send()
-        .await;
+    let phone_session = users::current(&api, &SignedIn::from(&phone).access).await;
     // A sign-in that replaces its device's session gives the new one its own name, or none.
     body.as_object_mut().unwrap().remove("device_name");
     let replaced = sign_in(&api, &body).await;
@@ -1796,14 +1751,14 @@ async fn auth_100_a_re_authentication_refuses_a_malformed_body_before_the_exchan
         .bearer(&bob.access)
         .send()
         .await;
-    assert_eq!(malformed.status, 400);
     assert_eq!(
-        refused_fields(&malformed),
+        malformed.refused_fields(),
         [
-            "/code invalid_code",
-            "/code_verifier invalid_code_verifier",
-            "/redirect_uri invalid_redirect_uri"
+            ("/code", "invalid_code"),
+            ("/code_verifier", "invalid_code_verifier"),
+            ("/redirect_uri", "invalid_redirect_uri")
         ]
+        .map(|(field, code)| (field.to_owned(), code.to_owned()))
     );
     assert!(upstream.received().is_empty(), "before the exchange");
 

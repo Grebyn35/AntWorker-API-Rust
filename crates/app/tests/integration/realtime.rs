@@ -155,14 +155,9 @@ async fn realtime_002_an_event_s_frame_carries_its_id_its_name_and_the_trace_of_
     let mut stream = streams::connect(&api, &ada.access, None).await;
     let opened = stream.opened().await;
 
-    let published = api
-        .post("/v1/announcements", &json!({ "count": 1 }))
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let trace_id = announcements::announce(&api, &ada, 1).await;
     let frame = stream.event().await;
 
-    let trace_id = published.trace_id();
     let id = api
         .database()
         .owner_reads("SELECT id::text FROM events WHERE name = 'announcement.made'")

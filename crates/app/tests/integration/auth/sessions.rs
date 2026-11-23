@@ -94,17 +94,12 @@ async fn auth_009_a_request_whose_session_ended_while_it_waited_for_a_lock_compl
         ))
         .await;
 
-    let rename = tokio::spawn({
-        let api = api.clone();
-        let access = ada.access.clone();
-        let path = format!("/v1/workspaces/{workspace}");
-        async move {
-            api.patch(&path, &json!({ "name": "Engines" }))
-                .bearer(&access)
-                .send()
-                .await
-        }
-    });
+    let rename = api.spawn(
+        http::Method::PATCH,
+        &format!("/v1/workspaces/{workspace}"),
+        &ada.access,
+        Some(json!({ "name": "Engines" })),
+    );
     queries_wait_on_locks(db, 1).await;
     let ended = api
         .request(
@@ -115,11 +110,11 @@ async fn auth_009_a_request_whose_session_ended_while_it_waited_for_a_lock_compl
         .send()
         .await;
     execute_on(&mut held, "ROLLBACK").await;
-    let renamed = rename.await.unwrap();
+    let (renamed, body) = rename.await.unwrap();
     let next = api.get("/v1/users/me").bearer(&ada.access).send().await;
 
     assert_eq!(ended.status, 204);
-    assert_eq!(renamed.status, 200, "{}", renamed.json());
+    assert_eq!(renamed, 200, "{body}");
     assert_eq!(
         db.owner_reads(&format!(
             "SELECT name FROM workspaces WHERE id = '{workspace}'"
@@ -746,11 +741,7 @@ async fn auth_016_a_session_that_the_job_deleted_meanwhile_answers_401() {
         let api = api.clone();
         let access = ada.access.clone();
         async move {
-            let response = api
-                .get("/v1/users/me/sessions/current")
-                .bearer(&access)
-                .send()
-                .await;
+            let response = users::current(&api, &access).await;
             (response.status, response.json())
         }
     });
@@ -783,11 +774,7 @@ async fn auth_016_the_current_session_is_readable_without_its_tokens() {
     let signed_in = api.post("/v1/sessions", &body).send().await.json();
     let access = signed_in["access_token"].as_str().unwrap();
 
-    let response = api
-        .get("/v1/users/me/sessions/current")
-        .bearer(access)
-        .send()
-        .await;
+    let response = users::current(&api, access).await;
 
     assert_eq!(response.status, 200);
     let session = response.json();

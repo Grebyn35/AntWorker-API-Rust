@@ -13,7 +13,7 @@ use crate::support::{
     api::{Options, Response},
     bucket, files,
     scanner::{self, Script},
-    users::{self, SignedIn},
+    users::{self, SignedIn, etag},
     workspaces,
 };
 
@@ -33,16 +33,6 @@ async fn remove(api: &Api, user: &SignedIn) -> Response {
         .bearer(&user.access)
         .send()
         .await
-}
-
-/// The record's `ETag` that `user` reads.
-async fn etag(api: &Api, user: &SignedIn) -> String {
-    api.get("/v1/users/me")
-        .bearer(&user.access)
-        .send()
-        .await
-        .header("etag")
-        .to_owned()
 }
 
 /// The avatars' rows, each as its user, media type and size.
@@ -310,11 +300,7 @@ async fn accounts_010_removing_no_avatar_answers_204_and_changes_nothing() {
 #[tokio::test]
 async fn accounts_011_the_record_and_each_profile_carry_the_avatar_s_link() {
     let api = Api::new().await;
-    let ada = users::register(&api, "ada@example.com").await;
-    let grace = users::register(&api, "grace@example.com").await;
-    let db = api.database();
-    let acme = workspaces::arrange(db, "Acme", &[(&ada.user_id, "owner")]).await;
-    workspaces::join(db, &acme, &grace.user_id, "member").await;
+    let (acme, ada, grace) = workspaces::acme(&api, "member").await;
     let before = api.get("/v1/users/me").bearer(&ada.access).send().await;
 
     let url = set(&api, &ada, files::PNG).await.json()["avatar_url"]
@@ -348,11 +334,7 @@ async fn accounts_011_the_record_and_each_profile_carry_the_avatar_s_link() {
 #[tokio::test]
 async fn workspaces_010_each_member_carries_the_link_of_their_avatar() {
     let api = Api::new().await;
-    let ada = users::register(&api, "ada@example.com").await;
-    let grace = users::register(&api, "grace@example.com").await;
-    let db = api.database();
-    let acme = workspaces::arrange(db, "Acme", &[(&ada.user_id, "owner")]).await;
-    workspaces::join(db, &acme, &grace.user_id, "member").await;
+    let (acme, ada, grace) = workspaces::acme(&api, "member").await;
     let url = set(&api, &grace, files::PNG).await.json()["avatar_url"].clone();
 
     let members = api

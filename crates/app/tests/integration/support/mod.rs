@@ -39,6 +39,7 @@ pub mod jobs;
 pub mod lists;
 pub mod mailbox;
 pub mod operator;
+pub mod password_reset;
 pub mod providers;
 pub mod proxy;
 // part: files
@@ -52,6 +53,7 @@ pub mod superadmins;
 // end part: superadmins
 pub mod upstream;
 pub mod users;
+pub mod verification;
 pub mod workspaces;
 
 use std::{
@@ -68,12 +70,13 @@ use std::{
     time::Duration,
 };
 
+use opentelemetry_proto::tonic::trace::v1::{Span, span::SpanKind};
 use platform::{
     blocking::Workers,
     config::BootstrapConfig,
     db::{Admin, Database, DatabaseUrl, migrate, testing},
     errors::Held,
-    telemetry::testing::collector::Collector,
+    telemetry::testing::collector::{Collector, Received},
 };
 use serde_json::Value;
 use sqlx::{AssertSqlSafe, Connection, PgConnection, migrate::Migrator};
@@ -109,6 +112,40 @@ pub fn client() -> platform::types::Client {
 /// `decode(..., 'hex')` reads them.
 pub fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// A port of the loopback address that nothing listens on: the closed listener's.
+pub async fn closed_port() -> SocketAddr {
+    tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .unwrap()
+        .local_addr()
+        .unwrap()
+}
+
+/// Whether `span` is the server span of the request in the trace `trace`, which also holds a
+/// span for each of the request's database transactions (PLATFORM-104).
+pub fn is_the_request_s(span: &Span, trace: &str) -> bool {
+    hex(&span.trace_id) == trace && span.kind == i32::from(SpanKind::Server)
+}
+
+/// The spans among `received` whose parent is `parent`.
+pub fn children<'a>(received: &'a Received, parent: &Span) -> Vec<&'a Span> {
+    received
+        .spans()
+        .into_iter()
+        .map(|(_, span)| span)
+        .filter(|span| span.parent_span_id == parent.span_id)
+        .collect()
+}
+
+/// `body`, a JSON object, with the fields of `extra`, another, added, in place of its own of the
+/// same names.
+pub fn with_fields(mut body: Value, extra: Value) -> Value {
+    body.as_object_mut()
+        .unwrap()
+        .extend(extra.as_object().unwrap().clone());
+    body
 }
 
 /// How often the hub checks its listener, for readiness (PLATFORM-061), and tries again what it

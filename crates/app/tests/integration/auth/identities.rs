@@ -437,13 +437,10 @@ async fn auth_087_a_malformed_link_answers_400_naming_every_field_before_the_exc
         .send()
         .await;
 
-    assert_eq!(response.status, 400);
-    let body = response.json();
-    let fields: Vec<&str> = body["errors"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|error| error["field"].as_str().unwrap())
+    let fields: Vec<String> = response
+        .refused_fields()
+        .into_iter()
+        .map(|(field, _)| field)
         .collect();
     assert_eq!(
         fields,

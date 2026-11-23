@@ -7,7 +7,6 @@ use serde_json::json;
 
 use crate::support::{
     Api, Options, api,
-    api::Response,
     api::reads,
     audit, email_change, execute_on, mailbox,
     operator::{self, EMAIL_OFF, SENDS_EMAIL, printed},
@@ -16,21 +15,8 @@ use crate::support::{
     second_factors::{self, add_app, code, confirm, start_setup},
     upstream::Upstream,
     users::{self, PASSWORD, SignedIn},
-    workspaces,
+    verification, with_fields, workspaces,
 };
-
-/// The API of a deployment that requires a second factor of every account (D133).
-async fn requiring() -> Api {
-    Api::with(Options::default().set("SECOND_FACTOR_REQUIRED", true)).await
-}
-
-/// `user`'s current session, as AUTH-016 reads it.
-async fn current(api: &Api, user: &SignedIn) -> Response {
-    api.get("/v1/users/me/sessions/current")
-        .bearer(&user.access)
-        .send()
-        .await
-}
 
 /// Runs the binary's `remove-second-factor` for `email` on `api`'s database, with email on, sent
 /// through the tests' Mailpit, as `api`'s own settings send it.
@@ -49,7 +35,7 @@ fn refused(output: &Output, message: &str, address: &str) {
 
 #[tokio::test]
 async fn auth_070_an_account_without_an_app_is_refused_but_where_setting_one_up_needs() {
-    let api = requiring().await;
+    let api = second_factors::requiring().await;
     let ada = users::register(&api, "ada@example.com").await;
     let acme = workspaces::arrange(api.database(), "Acme", &[(&ada.user_id, "owner")]).await;
 
@@ -66,14 +52,7 @@ async fn auth_070_an_account_without_an_app_is_refused_but_where_setting_one_up_
             "{path}"
         );
     }
-    let renamed = api
-        .patch(
-            &format!("/v1/workspaces/{acme}"),
-            &json!({ "name": "Side" }),
-        )
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let renamed = workspaces::rename(&api, &ada, &acme, "Side", &[]).await;
     assert_eq!(renamed.status, 403);
     assert_eq!(
         renamed.json()["code"],
@@ -82,25 +61,14 @@ async fn auth_070_an_account_without_an_app_is_refused_but_where_setting_one_up_
 
     // Two of the routes that verifying an address needs pass, reading the session and
     // re-authenticating, and so do those that setting an app up needs.
-    let session = current(&api, &ada).await;
+    let session = users::current(&api, &ada.access).await;
     assert_eq!(session.status, 200);
     assert_eq!(session.json()["second_factor_setup_required"], true);
-    let reauthenticated = api
-        .post(
-            "/v1/users/me/sessions/current/reauthenticate",
-            &json!({ "password": PASSWORD }),
-        )
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let reauthenticated = users::reauthenticate(&api, &ada, PASSWORD).await;
     assert_eq!(reauthenticated.status, 200);
     // With the tokens that the proof gave the session (AUTH-095).
     let ada = SignedIn::from(&reauthenticated);
-    let factors = api
-        .get("/v1/users/me/second-factors")
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let factors = second_factors::read(&api, &ada).await;
     assert_eq!(factors.status, 200);
     let setup = start_setup(&api, &ada).await;
     assert_eq!(setup.status, 200);
@@ -113,14 +81,10 @@ async fn auth_070_an_account_without_an_app_is_refused_but_where_setting_one_up_
     // The app counts from the next request on.
     let me = api.get("/v1/users/me").bearer(&ada.access).send().await;
     assert_eq!(me.status, 200);
-    let workspace = api
-        .get(&format!("/v1/workspaces/{acme}"))
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let workspace = workspaces::read(&api, &ada, &acme).await;
     assert_eq!(workspace.status, 200);
     assert_eq!(
-        current(&api, &ada).await.json()["second_factor_setup_required"],
+        users::current(&api, &ada.access).await.json()["second_factor_setup_required"],
         false
     );
     let signed_out = api
@@ -133,7 +97,7 @@ async fn auth_070_an_account_without_an_app_is_refused_but_where_setting_one_up_
 
 #[tokio::test]
 async fn auth_070_an_account_without_an_app_signs_out() {
-    let api = requiring().await;
+    let api = second_factors::requiring().await;
     let ada = users::register(&api, "ada@example.com").await;
 
     let signed_out = api
@@ -152,16 +116,12 @@ async fn auth_070_an_account_without_an_app_signs_out() {
 
 #[tokio::test]
 async fn auth_070_an_account_that_must_prove_its_address_is_refused_for_that_first() {
-    let api = requiring().await;
+    let api = second_factors::requiring().await;
     let ada = users::register_unverified(&api, &mailbox::address("ada")).await;
 
-    let factors = api
-        .get("/v1/users/me/second-factors")
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let factors = second_factors::read(&api, &ada).await;
     let me = api.get("/v1/users/me").bearer(&ada.access).send().await;
-    let session = current(&api, &ada).await;
+    let session = users::current(&api, &ada.access).await;
 
     assert_eq!(factors.status, 403);
     assert_eq!(factors.json()["code"], "request.email_unverified");
@@ -174,7 +134,7 @@ async fn auth_070_an_account_that_must_prove_its_address_is_refused_for_that_fir
 
 #[tokio::test]
 async fn auth_070_every_answer_that_holds_a_session_says_whether_its_account_must_set_up_an_app() {
-    let api = requiring().await;
+    let api = second_factors::requiring().await;
     let registered = api
         .post("/v1/users", &users::registration("ada@example.com"))
         .send()
@@ -237,30 +197,14 @@ async fn auth_070_every_answer_that_holds_a_session_says_whether_its_account_mus
 
 #[tokio::test]
 async fn auth_070_the_confirmations_of_a_code_and_of_a_change_of_the_address_say_it_too() {
-    let api = requiring().await;
+    let api = second_factors::requiring().await;
     let address = mailbox::address("ada");
     let ada = users::register_unverified(&api, &address).await;
-    let asked = api
-        .request(http::Method::POST, "/v1/users/me/email/verification")
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let asked = verification::ask(&api, &ada).await;
     assert_eq!(asked.status, 202);
-    api.run_jobs().await;
-    let code = mailbox::to(&address)
-        .await
-        .first()
-        .and_then(|email| mailbox::digits_code_in(&email.text))
-        .expect("a verification code");
+    let code = verification::code_sent(&api, &address).await;
 
-    let verified = api
-        .post(
-            "/v1/users/me/email/verification/confirm",
-            &json!({ "code": code }),
-        )
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let verified = verification::confirm(&api, &ada, &code).await;
 
     assert_eq!(verified.status, 200, "{}", verified.json());
     assert_eq!(verified.json()["email_verification_required"], false);
@@ -287,13 +231,9 @@ async fn auth_070_a_sign_in_and_a_re_authentication_through_a_provider_say_wheth
     let signed_in = providers::sign_in(&api, &grant()).await;
     let ada = SignedIn::from(&signed_in);
     let reauthenticate = |ada: &SignedIn, extra: serde_json::Value| {
-        let mut body = grant();
-        body.as_object_mut()
-            .unwrap()
-            .extend(extra.as_object().unwrap().clone());
         api.post(
             "/v1/users/me/sessions/current/reauthenticate/provider",
-            &body,
+            &with_fields(grant(), extra),
         )
         .bearer(&ada.access)
         .send()
@@ -327,15 +267,11 @@ async fn auth_070_a_sign_in_and_a_re_authentication_through_a_provider_say_wheth
 #[tokio::test]
 async fn auth_070_a_change_of_the_password_is_refused_without_an_app_and_says_none_is_needed_with_one()
  {
-    let api = requiring().await;
+    let api = second_factors::requiring().await;
     let ada = users::register(&api, "ada@example.com").await;
     let change = |ada: &SignedIn, extra: serde_json::Value| {
-        let mut body =
-            json!({ "current_password": PASSWORD, "password": "walnut-harbor-77-brisk" });
-        body.as_object_mut()
-            .unwrap()
-            .extend(extra.as_object().unwrap().clone());
-        api.post("/v1/users/me/password/change", &body)
+        let body = json!({ "current_password": PASSWORD, "password": "walnut-harbor-77-brisk" });
+        api.post("/v1/users/me/password/change", &with_fields(body, extra))
             .bearer(&ada.access)
             .send()
     };
@@ -362,16 +298,11 @@ async fn auth_070_the_setting_is_true_or_false() {
 
 #[tokio::test]
 async fn auth_071_with_the_setting_on_removing_the_app_answers_422_and_changes_nothing() {
-    let api = requiring().await;
+    let api = second_factors::requiring().await;
     let ada = users::register(&api, "ada@example.com").await;
     add_app(&api, &ada).await;
     let before = reads(&api, "SELECT id::text FROM totp_factors").await;
-    let remove_app = || async {
-        api.request(http::Method::DELETE, "/v1/users/me/second-factors/totp")
-            .bearer(&ada.access)
-            .send()
-            .await
-    };
+    let remove_app = || async { second_factors::remove(&api, &ada).await };
 
     let before_buckets = users::buckets(&api).await;
     let refused = remove_app().await;
@@ -379,14 +310,7 @@ async fn auth_071_with_the_setting_on_removing_the_app_answers_422_and_changes_n
     // request then adds nothing to.
     let counted = users::buckets(&api).await;
     assert_eq!(counted.len(), before_buckets.len() + 1, "{counted:?}");
-    let codes = api
-        .request(
-            http::Method::POST,
-            "/v1/users/me/second-factors/recovery-codes",
-        )
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let codes = second_factors::new_codes(&api, &ada).await;
     assert_eq!(codes.status, 200, "{}", codes.json());
     assert_eq!(users::buckets(&api).await, counted);
     // Before the proof is read, so a session that proved nothing lately is told the same.

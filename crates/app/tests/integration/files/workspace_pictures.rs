@@ -14,7 +14,7 @@ use crate::support::{
     bucket, execute_on, files, queries_wait_on_locks,
     scanner::{self, Script},
     users::{self, SignedIn},
-    workspaces,
+    workspaces::{self, read},
 };
 
 /// Ada, and a workspace that she owns.
@@ -53,14 +53,6 @@ async fn remove(api: &Api, user: &SignedIn, workspace: &str) -> Response {
     .bearer(&user.access)
     .send()
     .await
-}
-
-/// Reads `workspace` as `user`.
-async fn read(api: &Api, user: &SignedIn, workspace: &str) -> Response {
-    api.get(&format!("/v1/workspaces/{workspace}"))
-        .bearer(&user.access)
-        .send()
-        .await
 }
 
 /// The pictures' rows, each as its workspace, media type and size.
@@ -593,14 +585,7 @@ async fn workspaces_022_a_rename_answers_the_workspace_with_the_link_of_its_pict
     let (ada, workspace) = owned(&api).await;
     let url = link(&api, &ada, &workspace).await;
 
-    let renamed = api
-        .patch(
-            &format!("/v1/workspaces/{workspace}"),
-            &json!({ "name": "Acme Labs" }),
-        )
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let renamed = workspaces::rename(&api, &ada, &workspace, "Acme Labs", &[]).await;
 
     assert_eq!(renamed.status, 200);
     assert_eq!(renamed.json()["picture_url"], url);

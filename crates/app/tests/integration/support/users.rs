@@ -131,6 +131,32 @@ pub async fn delete(api: &Api, user: &SignedIn) -> Response {
         .await
 }
 
+/// Reads the current session with the access token `access`, as AUTH-016 reads it.
+pub async fn current(api: &Api, access: &str) -> Response {
+    api.get("/v1/users/me/sessions/current")
+        .bearer(access)
+        .send()
+        .await
+}
+
+/// The record's `ETag` that `user` reads.
+pub async fn etag(api: &Api, user: &SignedIn) -> String {
+    api.get("/v1/users/me")
+        .bearer(&user.access)
+        .send()
+        .await
+        .header("etag")
+        .to_owned()
+}
+
+/// Ends every session of `user`'s but their own.
+pub async fn end_others(api: &Api, user: &SignedIn) -> Response {
+    api.request(http::Method::DELETE, "/v1/users/me/sessions/others")
+        .bearer(&user.access)
+        .send()
+        .await
+}
+
 /// Re-authenticates `user`'s session with `password`.
 pub async fn reauthenticate(api: &Api, user: &SignedIn, password: &str) -> Response {
     api.post(
@@ -150,6 +176,28 @@ pub async fn sign_in(api: &Api, email: &str, password: &str) -> Response {
     )
     .send()
     .await
+}
+
+/// A sign-in of `email` with [`PASSWORD`] in a task of its own, which a test holds at a lock or
+/// at its turn at hashing.
+pub fn signing_in(api: &Api, email: &'static str) -> tokio::task::JoinHandle<Response> {
+    let api = api.clone();
+    tokio::spawn(async move { sign_in(&api, email, PASSWORD).await })
+}
+
+/// A change of `user`'s password with `body`, in a task of its own, which a test holds at a lock
+/// or at its turn at hashing: its status and its body's JSON.
+pub fn changing_password(
+    api: &Api,
+    user: &SignedIn,
+    body: Value,
+) -> tokio::task::JoinHandle<(http::StatusCode, Value)> {
+    api.spawn(
+        http::Method::POST,
+        "/v1/users/me/password/change",
+        &user.access,
+        Some(body),
+    )
 }
 
 /// Signs `email` in with [`PASSWORD`], and returns the new session.

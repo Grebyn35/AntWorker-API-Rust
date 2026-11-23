@@ -6,10 +6,8 @@ use platform::telemetry::testing::collector::Collector;
 use serde_json::json;
 
 use crate::support::{
-    Api, Options, TestDatabase, answer_before_a_lock_wait,
-    api::Response,
-    execute_on, query_waits_on_a_lock,
-    users::{self, PASSWORD},
+    Api, Options, TestDatabase, answer_before_a_lock_wait, execute_on, query_waits_on_a_lock,
+    users::{self, PASSWORD, signing_in},
 };
 
 #[tokio::test]
@@ -257,12 +255,6 @@ fn identity_row(user: &users::SignedIn) -> String {
         "SELECT 1 FROM identities WHERE user_id = '{}' FOR UPDATE",
         user.user_id
     )
-}
-
-/// A sign-in of `email` with [`PASSWORD`] in a task of its own, which a test holds at a lock.
-fn signing_in(api: &Api, email: &'static str) -> tokio::task::JoinHandle<Response> {
-    let api = api.clone();
-    tokio::spawn(async move { users::sign_in(&api, email, PASSWORD).await })
 }
 
 /// The `sign_in.failed` entries of `user`'s log.
@@ -624,13 +616,7 @@ async fn auth_007_no_token_outlives_its_session_s_absolute_lifetime() {
                      || ' ' || round(extract(epoch FROM expires_at - created_at))::text FROM sessions";
     let started = api.database().owner_reads(lifetimes).await;
 
-    let refreshed = api
-        .post(
-            "/v1/sessions/refresh",
-            &json!({ "refresh_token": ada.refresh }),
-        )
-        .send()
-        .await;
+    let refreshed = users::refresh(&api, &ada.refresh).await;
 
     assert_eq!(started, ["3600 3600 3600"]);
     assert_eq!(refreshed.status, 200);

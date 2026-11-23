@@ -152,21 +152,9 @@ async fn accounts_013_a_deletion_erases_the_user_s_codes_as_a_step_of_its_own() 
 /// own, an idempotency record and an event, which the tests' keyed route leaves.
 async fn owned_alone(api: &Api, user: &SignedIn) -> String {
     let mine = workspaces::arrange(api.database(), "Mine", &[(&user.user_id, "owner")]).await;
-    let renamed = api
-        .patch(
-            &format!("/v1/workspaces/{mine}"),
-            &json!({ "name": "Mine alone" }),
-        )
-        .bearer(&user.access)
-        .send()
-        .await;
+    let renamed = workspaces::rename(api, user, &mine, "Mine alone", &[]).await;
     assert_eq!(renamed.status, 200);
-    let keyed = api
-        .post("/v1/keyed", &json!({ "value": "a" }))
-        .bearer(&user.access)
-        .header("idempotency-key", "\"k-1\"")
-        .send()
-        .await;
+    let keyed = fixtures::send_keyed(api, user, &json!({ "value": "a" }), Some("\"k-1\"")).await;
     assert_eq!(keyed.status, 200);
     mine
 }
@@ -277,14 +265,7 @@ async fn shared() -> Shared {
         ],
     )
     .await;
-    let renamed = api
-        .patch(
-            &format!("/v1/workspaces/{workspace}"),
-            &json!({ "name": "Acme Inc" }),
-        )
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let renamed = workspaces::rename(&api, &ada, &workspace, "Acme Inc", &[]).await;
     assert_eq!(renamed.status, 200);
     let removed = api
         .request(

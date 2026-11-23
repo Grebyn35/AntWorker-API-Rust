@@ -15,11 +15,7 @@ use crate::support::{
 
 /// Runs the binary's `end-sessions` with `arguments` on `api`'s database.
 async fn end(api: &Api, arguments: &[&str]) -> Output {
-    let arguments: Vec<&str> = ["end-sessions"]
-        .into_iter()
-        .chain(arguments.iter().copied())
-        .collect();
-    api.database().run_api(&arguments, &SENDS_EMAIL).await
+    operator::run(api, "end-sessions", &SENDS_EMAIL, arguments).await
 }
 
 /// Asserts that `output` exited 1 with the one failure that OPS-03 gives the subcommand, whose
@@ -152,11 +148,7 @@ async fn auth_094_with_all_the_subcommand_ends_every_session_of_every_account() 
     ended_ids.sort();
     assert_eq!(closed, ended_ids);
     // A token of an ended session authenticates nothing.
-    let current = api
-        .get("/v1/users/me/sessions/current")
-        .bearer(&bob.access)
-        .send()
-        .await;
+    let current = users::current(&api, &bob.access).await;
     assert_eq!(current.status, 401, "{}", current.json());
 }
 

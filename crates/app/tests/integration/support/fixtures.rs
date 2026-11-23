@@ -37,7 +37,7 @@ use tokio::sync::Notify;
 use utoipa::ToSchema;
 use utoipa_axum::routes;
 
-use super::{Api, Options};
+use super::{Api, Options, users::SignedIn};
 
 /// Holds `GET /v1/gate` until the test releases it.
 #[derive(Default)]
@@ -338,6 +338,20 @@ pub fn mailing(mail: Mail) -> Routes {
         .user(routes!(send), &[])
         .merge(Routes::new().workspace::<Reading>(routes!(send_in_workspace), &[]))
         .with_state(mail)
+}
+
+/// Sends `body` to the keyed route as `user`, with `key` as its idempotency key if given.
+pub async fn send_keyed(
+    api: &Api,
+    user: &SignedIn,
+    body: &serde_json::Value,
+    key: Option<&str>,
+) -> super::api::Response {
+    let mut call = api.post("/v1/keyed", body).bearer(&user.access);
+    if let Some(key) = key {
+        call = call.header("idempotency-key", key);
+    }
+    call.send().await
 }
 
 /// The API, with the fixtures' routes added, whose gate no test holds.

@@ -71,14 +71,7 @@ async fn access_001_no_change_of_a_membership_leaves_a_workspace_without_its_own
         .await;
     let deleted = call(&api, Method::DELETE, "/v1/users/me", &ada).await;
     let kept = db.owner_reads(&owners).await;
-    let transferred = api
-        .post(
-            &format!("{path}/transfer"),
-            &json!({ "user_id": grace.user_id }),
-        )
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let transferred = workspaces::transfer(&api, &ada, &workspace, &grace.user_id).await;
 
     let refusals = [
         &left,
@@ -351,14 +344,7 @@ async fn access_004_a_transfer_leaving_and_a_deletion_are_the_three_exceptions_t
     // A transfer gives an admin the owner's role, which ranks no lower than the caller's own,
     // and changes the caller's own role; leaving ends the caller's own membership; and a
     // deletion ends every membership, the owner's own among them.
-    let transferred = api
-        .post(
-            &format!("/v1/workspaces/{acme}/transfer"),
-            &serde_json::json!({ "user_id": admin.user_id }),
-        )
-        .bearer(&owner.access)
-        .send()
-        .await;
+    let transferred = workspaces::transfer(&api, &owner, &acme, &admin.user_id).await;
     let path = format!("/v1/workspaces/{acme}/leave");
     let left = call(&api, Method::POST, &path, &member).await;
     let path = format!("/v1/workspaces/{other}");

@@ -4,7 +4,8 @@
 //! So the other tests pass in a fork that leaves such a part out.
 // end part: removal
 //!
-//! It also sends a workspace's rename, a request that more than one test file sends (TEST-09).
+//! It also sends a workspace's rename, its read and its transfer, requests that more than one test
+//! file sends (TEST-09).
 
 use serde_json::{Value, json};
 
@@ -13,7 +14,7 @@ use super::{
     api::Response,
     audit,
     events::{self, Event},
-    users::SignedIn,
+    users::{self, SignedIn},
 };
 
 /// Renames `workspace` to `name` as `user`, with `headers`, such as an `If-Match`.
@@ -34,6 +35,36 @@ pub async fn rename(
         call = call.header(header, value);
     }
     call.send().await
+}
+
+/// Reads `workspace` as `user`.
+pub async fn read(api: &Api, user: &SignedIn, workspace: &str) -> Response {
+    api.get(&format!("/v1/workspaces/{workspace}"))
+        .bearer(&user.access)
+        .send()
+        .await
+}
+
+/// Transfers `workspace` to `user`, as `caller`.
+pub async fn transfer(api: &Api, caller: &SignedIn, workspace: &str, user: &str) -> Response {
+    api.post(
+        &format!("/v1/workspaces/{workspace}/transfer"),
+        &json!({ "user_id": user }),
+    )
+    .bearer(&caller.access)
+    .send()
+    .await
+}
+
+/// A workspace named Acme that ada@example.com owns and grace@example.com belongs to at `role`,
+/// both registered and signed in: the workspace's ID, Ada and Grace.
+pub async fn acme(api: &Api, role: &str) -> (String, SignedIn, SignedIn) {
+    let ada = users::register(api, "ada@example.com").await;
+    let grace = users::register(api, "grace@example.com").await;
+    let db = api.database();
+    let workspace = arrange(db, "Acme", &[(&ada.user_id, "owner")]).await;
+    join(db, &workspace, &grace.user_id, role).await;
+    (workspace, ada, grace)
 }
 
 /// Creates a workspace named `name`, with `members` given as user IDs and roles, and returns its

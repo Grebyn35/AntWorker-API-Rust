@@ -141,11 +141,7 @@ impl Deployment {
         let bucket = server.start_bucket();
         let mut kind = vec![("DATABASE".to_owned(), "bundled".to_owned())];
         kind.extend(bucket);
-        let kind: Vec<(&str, &str)> = kind
-            .iter()
-            .map(|(name, value)| (name.as_str(), value.as_str()))
-            .collect();
-        Self::on(server, &kind, changes)
+        Self::on(server, &pairs(&kind), changes)
     }
 
     /// A deployment of this one's kind on `server`, a new one, set up as backups.md says after
@@ -850,6 +846,14 @@ impl Traffic {
         self.running.store(false, Ordering::Relaxed);
         self.thread.join().expect("the requests")
     }
+}
+
+/// `settings` as `Deployment::set` and `Deployment::on` take them.
+pub fn pairs(settings: &[(String, String)]) -> Vec<(&str, &str)> {
+    settings
+        .iter()
+        .map(|(name, value)| (name.as_str(), value.as_str()))
+        .collect()
 }
 
 /// Asserts that every request answered 200, and that there were enough of them to cover the

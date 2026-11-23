@@ -1,19 +1,18 @@
 //! The operator's setup of a workspace, which the binary's subcommand `setup-workspace` runs
 //! (the workspaces spec's "The setup subcommand", WORKSPACES-023 to WORKSPACES-028).
 
-use std::process::Output;
-
 use serde_json::json;
 
 use crate::{
-    accounts::exports::{built, document},
+    accounts::exports::{built, document, download},
     support::{
         Api,
         api::reads,
         audit, execute_on, mailbox,
-        operator::{EMAIL_OFF, SENDS_EMAIL, finished, refused},
-        query_waits_on_a_lock, streams,
+        operator::{self, EMAIL_OFF, SENDS_EMAIL, finished, refused},
+        password_reset, query_waits_on_a_lock, streams,
         users::{self, PASSWORD},
+        workspaces,
     },
 };
 
@@ -22,16 +21,6 @@ const AREA: &str = "setup-workspace";
 
 /// The subject of the email that tells an address the workspace Acme was set up for it.
 const TOLD: &str = "The workspace Acme was set up for you on AntWorker";
-
-/// Runs the binary's `setup-workspace` with `arguments` on `api`'s database, in a deployment
-/// with the settings `env`.
-async fn set_up(api: &Api, env: &[(&str, &str)], arguments: &[&str]) -> Output {
-    let arguments: Vec<&str> = [AREA]
-        .into_iter()
-        .chain(arguments.iter().copied())
-        .collect();
-    api.database().run_api(&arguments, env).await
-}
 
 /// Each workspace's ID and name, the oldest first.
 async fn workspaces(api: &Api) -> Vec<(String, String)> {
@@ -112,8 +101,9 @@ async fn workspaces_023_a_run_creates_the_workspace_for_the_account_that_holds_t
     api.database().owner_executes("DELETE FROM events").await;
     let mut signals = api.database().signals().await;
 
-    let run = set_up(
+    let run = operator::run(
         &api,
+        AREA,
         &SENDS_EMAIL,
         &["  Acme \t Labs ", &address.to_uppercase()],
     )
@@ -170,7 +160,7 @@ async fn workspaces_023_the_owner_s_open_stream_closes_so_its_client_reads_the_w
     let mut stream = streams::connect(&api, &ada.access, None).await;
     stream.opened().await;
 
-    let run = set_up(&api, &SENDS_EMAIL, &["Acme", &address]).await;
+    let run = operator::run(&api, AREA, &SENDS_EMAIL, &["Acme", &address]).await;
     let (before, reason) = stream.closed().await;
 
     assert_eq!(run.status.code(), Some(0));
@@ -184,7 +174,7 @@ async fn workspaces_024_with_email_on_an_account_that_proved_its_address_becomes
     let address = mailbox::address("ada");
     let ada = users::register(&api, &address).await;
 
-    let run = set_up(&api, &SENDS_EMAIL, &["Acme", &address]).await;
+    let run = operator::run(&api, AREA, &SENDS_EMAIL, &["Acme", &address]).await;
 
     assert_eq!(run.status.code(), Some(0));
     let id = workspaces(&api).await.remove(0).0;
@@ -201,8 +191,9 @@ async fn workspaces_024_with_email_on_a_run_creates_the_account_when_none_holds_
     let api = Api::new().await;
     let address = mailbox::address("ada");
 
-    let run = set_up(
+    let run = operator::run(
         &api,
+        AREA,
         &SENDS_EMAIL,
         &["Acme", &address, "  Ada \t Lovelace "],
     )
@@ -238,20 +229,18 @@ async fn workspaces_024_with_email_on_a_run_creates_the_account_when_none_holds_
 async fn workspaces_024_the_new_account_s_owner_sets_a_password_through_a_reset_and_signs_in() {
     let api = Api::new().await;
     let address = mailbox::address("ada");
-    let run = set_up(&api, &SENDS_EMAIL, &["Acme", &address, "Ada Lovelace"]).await;
+    let run = operator::run(
+        &api,
+        AREA,
+        &SENDS_EMAIL,
+        &["Acme", &address, "Ada Lovelace"],
+    )
+    .await;
     assert_eq!(run.status.code(), Some(0));
     let id = workspaces(&api).await.remove(0).0;
 
-    let asked = api
-        .post("/v1/password-resets", &json!({ "email": address }))
-        .send()
-        .await;
-    api.run_jobs().await;
-    let emails = mailbox::to(&address).await;
-    let code = emails
-        .iter()
-        .find_map(|email| mailbox::grouped_code_in(&email.text))
-        .expect("a reset code in an email");
+    let asked = password_reset::ask(&api, &address).await;
+    let code = password_reset::code_sent(&api, &address).await;
     let confirmed = api
         .post(
             "/v1/password-resets/confirm",
@@ -284,9 +273,15 @@ async fn workspaces_024_an_account_without_an_identity_owns_another_before_its_o
     let api = Api::new().await;
     let address = mailbox::address("ada");
 
-    let first = set_up(&api, &SENDS_EMAIL, &["Acme", &address, "Ada Lovelace"]).await;
+    let first = operator::run(
+        &api,
+        AREA,
+        &SENDS_EMAIL,
+        &["Acme", &address, "Ada Lovelace"],
+    )
+    .await;
     // The account exists, so the second run needs no name for it.
-    let second = set_up(&api, &SENDS_EMAIL, &["Globex", &address]).await;
+    let second = operator::run(&api, AREA, &SENDS_EMAIL, &["Globex", &address]).await;
 
     assert_eq!(first.status.code(), Some(0));
     let created = workspaces(&api).await;
@@ -327,7 +322,15 @@ async fn workspaces_024_an_account_that_a_deletion_takes_while_the_run_waits_lea
     let run = tokio::spawn({
         let api = api.clone();
         let address = address.clone();
-        async move { set_up(&api, &SENDS_EMAIL, &["Acme", &address, "Ada Lovelace"]).await }
+        async move {
+            operator::run(
+                &api,
+                AREA,
+                &SENDS_EMAIL,
+                &["Acme", &address, "Ada Lovelace"],
+            )
+            .await
+        }
     });
     query_waits_on_a_lock(api.database(), "FOR NO KEY UPDATE").await;
     execute_on(&mut deletion, "COMMIT").await;
@@ -362,7 +365,15 @@ async fn workspaces_024_an_account_that_changes_its_address_while_the_run_waits_
     let run = tokio::spawn({
         let api = api.clone();
         let address = address.clone();
-        async move { set_up(&api, &SENDS_EMAIL, &["Acme", &address, "Ada Lovelace"]).await }
+        async move {
+            operator::run(
+                &api,
+                AREA,
+                &SENDS_EMAIL,
+                &["Acme", &address, "Ada Lovelace"],
+            )
+            .await
+        }
     });
     query_waits_on_a_lock(api.database(), "FOR NO KEY UPDATE").await;
     execute_on(&mut change, "COMMIT").await;
@@ -397,8 +408,8 @@ async fn workspaces_024_an_account_that_signs_in_through_a_provider_alone_has_an
     let unproved = mailbox::address("grace");
     users::with_provider_alone(api.database(), &unproved, false).await;
 
-    let owns = set_up(&api, &SENDS_EMAIL, &["Acme", &proved]).await;
-    let refused_run = set_up(&api, &SENDS_EMAIL, &["Globex", &unproved]).await;
+    let owns = operator::run(&api, AREA, &SENDS_EMAIL, &["Acme", &proved]).await;
+    let refused_run = operator::run(&api, AREA, &SENDS_EMAIL, &["Globex", &unproved]).await;
 
     // It signs in, so its email tells it no way to set a password, and an address that it
     // hasn't proved keeps it from owning a workspace, as any account with an identity.
@@ -427,7 +438,7 @@ async fn workspaces_025_with_email_on_a_run_tells_the_address_which_workspace_an
     let address = mailbox::address("ada");
     let ada = users::register(&api, &address).await;
 
-    let run = set_up(&api, &SENDS_EMAIL, &["Acme", &address]).await;
+    let run = operator::run(&api, AREA, &SENDS_EMAIL, &["Acme", &address]).await;
 
     assert_eq!(run.status.code(), Some(0));
     // The job runs for the account that owns the workspace (PLATFORM-013).
@@ -447,7 +458,13 @@ async fn workspaces_025_the_email_tells_an_account_without_an_identity_how_to_se
     let api = Api::new().await;
     let address = mailbox::address("ada");
 
-    let run = set_up(&api, &SENDS_EMAIL, &["Acme", &address, "Ada Lovelace"]).await;
+    let run = operator::run(
+        &api,
+        AREA,
+        &SENDS_EMAIL,
+        &["Acme", &address, "Ada Lovelace"],
+    )
+    .await;
 
     assert_eq!(run.status.code(), Some(0));
     let user = reads(&api, "SELECT id::text FROM users").await;
@@ -468,7 +485,7 @@ async fn workspaces_025_with_email_off_a_run_enqueues_no_email() {
     let api = Api::without_email().await;
     users::register_unverified(&api, "ada@example.com").await;
 
-    let run = set_up(&api, &EMAIL_OFF, &["Acme", "ada@example.com"]).await;
+    let run = operator::run(&api, AREA, &EMAIL_OFF, &["Acme", "ada@example.com"]).await;
 
     assert_eq!(run.status.code(), Some(0));
     assert_eq!(
@@ -487,7 +504,7 @@ async fn workspaces_026_with_email_off_the_account_that_holds_the_address_owns_t
     // With email off, nothing proves an address.
     let ada = users::register_unverified(&api, "ada@example.com").await;
 
-    let run = set_up(&api, &EMAIL_OFF, &["Acme", "ada@example.com"]).await;
+    let run = operator::run(&api, AREA, &EMAIL_OFF, &["Acme", "ada@example.com"]).await;
 
     let id = workspaces(&api).await.remove(0).0;
     finished(
@@ -515,8 +532,8 @@ async fn workspaces_026_with_email_off_an_account_owns_the_workspace_once_it_pro
     let ada = users::register(&api, "ada@example.com").await;
     let grace = users::with_provider_alone(api.database(), "grace@example.com", true).await;
 
-    let password = set_up(&api, &EMAIL_OFF, &["Acme", "ada@example.com"]).await;
-    let provider = set_up(&api, &EMAIL_OFF, &["Globex", "grace@example.com"]).await;
+    let password = operator::run(&api, AREA, &EMAIL_OFF, &["Acme", "ada@example.com"]).await;
+    let provider = operator::run(&api, AREA, &EMAIL_OFF, &["Globex", "grace@example.com"]).await;
 
     assert_eq!(password.status.code(), Some(0));
     assert_eq!(provider.status.code(), Some(0));
@@ -535,13 +552,14 @@ async fn workspaces_026_with_email_off_a_run_creates_no_account_and_takes_none_w
     let api = Api::without_email().await;
     users::without_password(api.database(), "grace@example.com").await;
 
-    let nobody = set_up(
+    let nobody = operator::run(
         &api,
+        AREA,
         &EMAIL_OFF,
         &["Acme", "ada@example.com", "Ada Lovelace"],
     )
     .await;
-    let unsigned = set_up(&api, &EMAIL_OFF, &["Globex", "grace@example.com"]).await;
+    let unsigned = operator::run(&api, AREA, &EMAIL_OFF, &["Globex", "grace@example.com"]).await;
 
     refused(
         &nobody,
@@ -567,12 +585,24 @@ async fn workspaces_027_a_name_that_an_earlier_run_was_given_sets_nothing_up() {
     let api = Api::new().await;
     let ada = mailbox::address("ada");
     let grace = mailbox::address("grace");
-    let first = set_up(&api, &SENDS_EMAIL, &["Acme  Labs", &ada, "Ada Lovelace"]).await;
+    let first = operator::run(
+        &api,
+        AREA,
+        &SENDS_EMAIL,
+        &["Acme  Labs", &ada, "Ada Lovelace"],
+    )
+    .await;
     assert_eq!(first.status.code(), Some(0));
     let audited = count(&api, "audit_entries").await;
 
     // The same name once it is normalized, for another owner, whose account it would create.
-    let again = set_up(&api, &SENDS_EMAIL, &[" Acme Labs ", &grace, "Grace Hopper"]).await;
+    let again = operator::run(
+        &api,
+        AREA,
+        &SENDS_EMAIL,
+        &[" Acme Labs ", &grace, "Grace Hopper"],
+    )
+    .await;
 
     refused(
         &again,
@@ -607,7 +637,15 @@ async fn workspaces_027_of_two_runs_at_once_with_one_name_one_sets_its_workspace
     let run = tokio::spawn({
         let api = api.clone();
         let address = address.clone();
-        async move { set_up(&api, &SENDS_EMAIL, &["Acme", &address, "Ada Lovelace"]).await }
+        async move {
+            operator::run(
+                &api,
+                AREA,
+                &SENDS_EMAIL,
+                &["Acme", &address, "Ada Lovelace"],
+            )
+            .await
+        }
     });
     query_waits_on_a_lock(api.database(), "INSERT INTO workspace_setups").await;
     execute_on(&mut other, "COMMIT").await;
@@ -629,25 +667,18 @@ async fn workspaces_027_a_rename_keeps_the_name_used_and_a_deletion_frees_it() {
     let api = Api::new().await;
     let address = mailbox::address("ada");
     let ada = users::register(&api, &address).await;
-    let first = set_up(&api, &SENDS_EMAIL, &["Acme", &address]).await;
+    let first = operator::run(&api, AREA, &SENDS_EMAIL, &["Acme", &address]).await;
     assert_eq!(first.status.code(), Some(0));
     let id = workspaces(&api).await.remove(0).0;
 
-    let renamed = api
-        .patch(
-            &format!("/v1/workspaces/{id}"),
-            &json!({ "name": "Globex" }),
-        )
-        .bearer(&ada.access)
-        .send()
-        .await;
-    let while_renamed = set_up(&api, &SENDS_EMAIL, &["Acme", &address]).await;
+    let renamed = workspaces::rename(&api, &ada, &id, "Globex", &[]).await;
+    let while_renamed = operator::run(&api, AREA, &SENDS_EMAIL, &["Acme", &address]).await;
     let deleted = api
         .request(http::Method::DELETE, &format!("/v1/workspaces/{id}"))
         .bearer(&ada.access)
         .send()
         .await;
-    let once_deleted = set_up(&api, &SENDS_EMAIL, &["Acme", &address]).await;
+    let once_deleted = operator::run(&api, AREA, &SENDS_EMAIL, &["Acme", &address]).await;
 
     assert_eq!(renamed.status, 200, "{}", renamed.json());
     refused(
@@ -670,21 +701,17 @@ async fn workspaces_027_an_export_of_its_only_member_holds_the_name_the_run_was_
     let address = mailbox::address("ada");
     let ada = users::register(&api, &address).await;
     let grace = users::register(&api, &mailbox::address("grace")).await;
-    let run = set_up(&api, &SENDS_EMAIL, &["Acme", &address]).await;
+    let run = operator::run(&api, AREA, &SENDS_EMAIL, &["Acme", &address]).await;
     assert_eq!(run.status.code(), Some(0));
     let id = workspaces(&api).await.remove(0).0;
     // A workspace that Ada shares, whose setup her export leaves out.
-    let shared = set_up(&api, &SENDS_EMAIL, &["Globex", &address]).await;
+    let shared = operator::run(&api, AREA, &SENDS_EMAIL, &["Globex", &address]).await;
     assert_eq!(shared.status.code(), Some(0));
     let globex = workspaces(&api).await.remove(1).0;
     crate::support::workspaces::join(api.database(), &globex, &grace.user_id, "member").await;
 
     let export = built(&api, &ada).await;
-    let archive = api
-        .get(&format!("/v1/users/me/exports/{export}/content"))
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let archive = download(&api, &ada, &export, &[]).await;
 
     assert_eq!(archive.status, 200);
     let setups = document(&archive.body, "workspaces/workspace_setups.json");
@@ -704,11 +731,19 @@ async fn workspaces_028_what_the_operator_gives_must_name_a_workspace_and_its_ow
     let address = mailbox::address("ada");
     let long = "a".repeat(256);
 
-    let no_name = set_up(&api, &SENDS_EMAIL, &[" \t ", &address, "Ada Lovelace"]).await;
-    let long_name = set_up(&api, &SENDS_EMAIL, &[&long, &address, "Ada Lovelace"]).await;
-    let no_address = set_up(&api, &SENDS_EMAIL, &["Acme", "not an address", "Ada"]).await;
-    let no_owner_name = set_up(&api, &SENDS_EMAIL, &["Acme", &address, "  "]).await;
-    let missing = set_up(&api, &SENDS_EMAIL, &["Acme", &address]).await;
+    let no_name = operator::run(
+        &api,
+        AREA,
+        &SENDS_EMAIL,
+        &[" \t ", &address, "Ada Lovelace"],
+    )
+    .await;
+    let long_name =
+        operator::run(&api, AREA, &SENDS_EMAIL, &[&long, &address, "Ada Lovelace"]).await;
+    let no_address =
+        operator::run(&api, AREA, &SENDS_EMAIL, &["Acme", "not an address", "Ada"]).await;
+    let no_owner_name = operator::run(&api, AREA, &SENDS_EMAIL, &["Acme", &address, "  "]).await;
+    let missing = operator::run(&api, AREA, &SENDS_EMAIL, &["Acme", &address]).await;
 
     for run in [&no_name, &long_name] {
         refused(
@@ -749,7 +784,13 @@ async fn workspaces_028_with_email_on_an_account_that_has_not_proved_its_address
     users::register_unverified(&api, &address).await;
     let audited = count(&api, "audit_entries").await;
 
-    let run = set_up(&api, &SENDS_EMAIL, &["Acme", &address, "Ada Lovelace"]).await;
+    let run = operator::run(
+        &api,
+        AREA,
+        &SENDS_EMAIL,
+        &["Acme", &address, "Ada Lovelace"],
+    )
+    .await;
 
     refused(
         &run,
@@ -779,7 +820,15 @@ async fn workspaces_028_an_account_that_takes_the_address_while_the_run_creates_
     let run = tokio::spawn({
         let api = api.clone();
         let address = address.clone();
-        async move { set_up(&api, &SENDS_EMAIL, &["Acme", &address, "Ada Lovelace"]).await }
+        async move {
+            operator::run(
+                &api,
+                AREA,
+                &SENDS_EMAIL,
+                &["Acme", &address, "Ada Lovelace"],
+            )
+            .await
+        }
     });
     query_waits_on_a_lock(api.database(), "INSERT INTO users").await;
     execute_on(&mut registration, "COMMIT").await;

@@ -11,7 +11,8 @@ use std::{
 use crate::{
     deployment::{
         Deployment, GRAFANA_ADDRESS, GRAFANA_ADMIN_PASSWORD, GRAFANA_ADMIN_USER, get, get_traced,
-        get_with_cookie, get_within, get_within_as, post, post_for_cookies, send, unanswered_as,
+        get_with_cookie, get_within, get_within_as, pairs, post, post_for_cookies, send,
+        unanswered_as,
     },
     docker::{compose, lossy},
     server::DEPLOYMENT,
@@ -985,14 +986,6 @@ async fn obs_14_a_deploy_imports_the_rules_into_the_managed_grafana_and_warns_un
         lossy(&second)
     );
     assert_eq!(reloaded, kept);
-}
-
-/// `settings` as `Deployment::set` takes them.
-fn pairs(settings: &[(String, String)]) -> Vec<(&str, &str)> {
-    settings
-        .iter()
-        .map(|(name, value)| (name.as_str(), value.as_str()))
-        .collect()
 }
 
 /// The stand-in managed Grafana's answer to `GET` for `path`, as JSON.

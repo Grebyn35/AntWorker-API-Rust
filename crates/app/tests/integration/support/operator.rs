@@ -3,6 +3,8 @@
 
 use std::process::Output;
 
+use super::Api;
+
 /// The settings of a deployment that sends email through the tests' Mailpit, as the in-process
 /// API's own settings send it.
 pub const SENDS_EMAIL: [(&str, &str); 6] = [
@@ -16,6 +18,16 @@ pub const SENDS_EMAIL: [(&str, &str); 6] = [
 
 /// The settings of a deployment with email off (PLATFORM-024).
 pub const EMAIL_OFF: [(&str, &str); 2] = [("ENVIRONMENT", "test"), ("EMAIL", "off")];
+
+/// Runs the binary's `subcommand` with `arguments` on `api`'s database, in a deployment with the
+/// settings `env`.
+pub async fn run(api: &Api, subcommand: &str, env: &[(&str, &str)], arguments: &[&str]) -> Output {
+    let arguments: Vec<&str> = [subcommand]
+        .into_iter()
+        .chain(arguments.iter().copied())
+        .collect();
+    api.database().run_api(&arguments, env).await
+}
 
 /// What `output` wrote, its logs among it, to stdout and stderr together.
 pub fn printed(output: &Output) -> String {

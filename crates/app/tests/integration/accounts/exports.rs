@@ -34,7 +34,7 @@ pub async fn built(api: &Api, user: &SignedIn) -> String {
 }
 
 /// Downloads the export `id` of `user`'s, with the headers `headers`.
-async fn download(api: &Api, user: &SignedIn, id: &str, headers: &[(&str, &str)]) -> Response {
+pub async fn download(api: &Api, user: &SignedIn, id: &str, headers: &[(&str, &str)]) -> Response {
     let mut call = api
         .get(&format!("/v1/users/me/exports/{id}/content"))
         .bearer(&user.access);
@@ -162,14 +162,7 @@ async fn accounts_020_a_session_that_proved_its_user_more_than_5_minutes_ago_is_
     );
     // The refusal took nothing of the day's one export: once the session proves its user again,
     // the request is let through (ACCOUNTS-021).
-    let reauthenticated = api
-        .post(
-            "/v1/users/me/sessions/current/reauthenticate",
-            &json!({ "password": users::PASSWORD }),
-        )
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let reauthenticated = users::reauthenticate(&api, &ada, users::PASSWORD).await;
     assert_eq!(reauthenticated.status, 200);
     // With the tokens that the proof gave the session (AUTH-095).
     let ada = users::SignedIn::from(&reauthenticated);

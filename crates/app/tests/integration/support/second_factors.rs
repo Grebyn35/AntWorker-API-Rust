@@ -6,10 +6,15 @@ use platform::encryption::{Binding, Keyring};
 use serde_json::{Value, json};
 
 use super::{
-    Api, TestDatabase,
+    Api, Options, TestDatabase,
     api::Response,
     users::{PASSWORD, SignedIn},
 };
+
+/// The API of a deployment that requires a second factor of every account (D133).
+pub async fn requiring() -> Api {
+    Api::with(Options::default().set("SECOND_FACTOR_REQUIRED", true)).await
+}
 
 /// An authenticator app that a test set up for a user: its secret in base32, and the recovery
 /// codes that its confirmation returned, in groups.
@@ -74,6 +79,33 @@ pub async fn confirm(api: &Api, user: &SignedIn, code: &str) -> Response {
     .bearer(&user.access)
     .send()
     .await
+}
+
+/// Reads `user`'s second factors.
+pub async fn read(api: &Api, user: &SignedIn) -> Response {
+    api.get("/v1/users/me/second-factors")
+        .bearer(&user.access)
+        .send()
+        .await
+}
+
+/// Asks for new recovery codes for `user`.
+pub async fn new_codes(api: &Api, user: &SignedIn) -> Response {
+    api.request(
+        http::Method::POST,
+        "/v1/users/me/second-factors/recovery-codes",
+    )
+    .bearer(&user.access)
+    .send()
+    .await
+}
+
+/// Removes `user`'s app.
+pub async fn remove(api: &Api, user: &SignedIn) -> Response {
+    api.request(http::Method::DELETE, "/v1/users/me/second-factors/totp")
+        .bearer(&user.access)
+        .send()
+        .await
 }
 
 /// Sets up and confirms an app for `user`, whose session proved their password within the last

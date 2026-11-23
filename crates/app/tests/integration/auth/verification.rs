@@ -4,39 +4,11 @@
 use serde_json::json;
 
 use crate::support::{
-    Api, Options,
-    api::Response,
-    execute_on, mailbox, queries_wait_on_locks, second_factors,
+    Api, Options, closed_port, execute_on, mailbox, queries_wait_on_locks, second_factors,
     users::{self, SignedIn},
+    verification::{ask, code_sent, confirm},
     workspaces,
 };
-
-/// Asks for a code for `user`'s account.
-async fn ask(api: &Api, user: &SignedIn) -> Response {
-    api.request(http::Method::POST, "/v1/users/me/email/verification")
-        .bearer(&user.access)
-        .send()
-        .await
-}
-
-/// Confirms `code` for `user`'s account.
-async fn confirm(api: &Api, user: &SignedIn, code: &str) -> Response {
-    api.post(
-        "/v1/users/me/email/verification/confirm",
-        &json!({ "code": code }),
-    )
-    .bearer(&user.access)
-    .send()
-    .await
-}
-
-/// The code in the newest email that `address` received, once the API's jobs have run.
-async fn code_sent(api: &Api, address: &str) -> String {
-    api.run_jobs().await;
-    let emails = mailbox::to(address).await;
-    let email = emails.first().expect("an email with a code");
-    mailbox::digits_code_in(&email.text).expect("a code in the email")
-}
 
 /// A code of 6 digits that isn't `code`.
 fn other_than(code: &str) -> String {
@@ -68,21 +40,10 @@ async fn auth_025_an_account_that_must_verify_is_refused_but_where_verifying_nee
     assert_eq!(renamed.status, 403);
     assert_eq!(renamed.json()["code"], "request.email_unverified");
 
-    let session = api
-        .get("/v1/users/me/sessions/current")
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let session = users::current(&api, &ada.access).await;
     assert_eq!(session.status, 200);
     // Re-authenticating serves a change of the address, which corrects a mistyped one (AUTH-048).
-    let reauthenticated = api
-        .post(
-            "/v1/users/me/sessions/current/reauthenticate",
-            &json!({ "password": users::PASSWORD }),
-        )
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let reauthenticated = users::reauthenticate(&api, &ada, users::PASSWORD).await;
     assert_eq!(reauthenticated.status, 200);
     // With the tokens that the proof gave the session (AUTH-095).
     let ada = users::SignedIn::from(&reauthenticated);
@@ -159,20 +120,12 @@ async fn auth_025_a_member_whose_account_must_verify_is_refused_on_a_workspace_r
     let ada = users::register_unverified(&api, &mailbox::address("ada")).await;
     let acme = workspaces::arrange(api.database(), "Acme", &[(&ada.user_id, "owner")]).await;
 
-    let refused = api
-        .get(&format!("/v1/workspaces/{acme}"))
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let refused = workspaces::read(&api, &ada, &acme).await;
 
     assert_eq!(refused.status, 403);
     assert_eq!(refused.json()["code"], "request.email_unverified");
     users::verified(&api, &ada.user_id).await;
-    let read = api
-        .get(&format!("/v1/workspaces/{acme}"))
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let read = workspaces::read(&api, &ada, &acme).await;
     assert_eq!(read.status, 200);
 }
 
@@ -245,22 +198,14 @@ async fn auth_026_the_session_says_whether_its_account_must_still_verify() {
     let refreshed = users::refresh(&api, &ada.refresh).await;
     assert_eq!(refreshed.json()["email_verification_required"], true);
     let ada = SignedIn::from(&refreshed);
-    let current = api
-        .get("/v1/users/me/sessions/current")
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let current = users::current(&api, &ada.access).await;
     assert_eq!(current.json()["email_verification_required"], true);
 
     let code = code_sent(&api, &address).await;
     let confirmed = confirm(&api, &ada, &code).await;
 
     assert_eq!(confirmed.json()["email_verification_required"], false);
-    let current = api
-        .get("/v1/users/me/sessions/current")
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let current = users::current(&api, &ada.access).await;
     assert_eq!(current.json()["email_verification_required"], false);
     let signed_in = users::sign_in(&api, &address, users::PASSWORD).await;
     assert_eq!(signed_in.json()["email_verification_required"], false);
@@ -766,11 +711,7 @@ async fn auth_030_a_run_on_a_replica_with_email_off_issues_nothing() {
 #[tokio::test]
 async fn auth_030_an_attempt_after_a_failed_send_issues_a_new_code_in_place_of_its_own() {
     let address = mailbox::address("ada");
-    let unreachable = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .unwrap()
-        .local_addr()
-        .unwrap();
+    let unreachable = closed_port().await;
     let failing = Api::with(Options::default().set("SMTP_PORT", unreachable.port())).await;
     users::register_unverified(&failing, &address).await;
     assert_eq!(failing.run_jobs().await, 1);

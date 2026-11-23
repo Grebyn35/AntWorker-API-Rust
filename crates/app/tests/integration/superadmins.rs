@@ -4,20 +4,18 @@
 //! superadmin's routes", WORKSPACES-029 to WORKSPACES-031, and ACCESS-011), with what a
 //! subcommand shows its operator (OPS-03).
 
-use std::process::Output;
-
 use http::Method;
 use serde_json::{Value, json};
 
 use crate::{
-    accounts::exports::{built, document},
+    accounts::exports::{built, document, download},
     support::{
-        Api, Options,
+        Api,
         api::reads,
         audit, execute_on,
         lists::pages,
         mailbox,
-        operator::{EMAIL_OFF, SENDS_EMAIL, finished, printed, refused},
+        operator::{self, EMAIL_OFF, SENDS_EMAIL, finished, printed, refused},
         queries_wait_on_locks, second_factors, streams, superadmins,
         users::{self, SignedIn},
         workspaces,
@@ -57,16 +55,6 @@ async fn acme_and_a_superadmin() -> (Api, [SignedIn; 4], String) {
     )
     .await;
     (api, [ada, grace, bob, sam], workspace)
-}
-
-/// Runs the binary's `superadmin` with `arguments` on `api`'s database, in a deployment with the
-/// settings `env`.
-async fn run(api: &Api, env: &[(&str, &str)], arguments: &[&str]) -> Output {
-    let arguments: Vec<&str> = [AREA]
-        .into_iter()
-        .chain(arguments.iter().copied())
-        .collect();
-    api.database().run_api(&arguments, env).await
 }
 
 /// The user of each superadmin, the oldest first.
@@ -148,7 +136,7 @@ async fn superadmins_001_add_makes_the_account_that_holds_the_address_a_superadm
     let ada = users::register(&api, &address).await;
     let grace = users::register(&api, &mailbox::address("grace")).await;
 
-    let added = run(&api, &SENDS_EMAIL, &["add", &address.to_uppercase()]).await;
+    let added = operator::run(&api, AREA, &SENDS_EMAIL, &["add", &address.to_uppercase()]).await;
 
     finished(
         &added,
@@ -172,8 +160,8 @@ async fn superadmins_002_add_changes_nothing_for_what_names_no_account() {
     users::register(&api, &mailbox::address("ada")).await;
     let nobody = mailbox::address("nobody");
 
-    let not_an_address = run(&api, &SENDS_EMAIL, &["add", "ada"]).await;
-    let no_account = run(&api, &SENDS_EMAIL, &["add", &nobody]).await;
+    let not_an_address = operator::run(&api, AREA, &SENDS_EMAIL, &["add", "ada"]).await;
+    let no_account = operator::run(&api, AREA, &SENDS_EMAIL, &["add", &nobody]).await;
 
     refused(
         &not_an_address,
@@ -197,7 +185,7 @@ async fn superadmins_002_with_email_on_an_account_that_has_not_proved_its_addres
     let address = mailbox::address("ada");
     users::register_unverified(&api, &address).await;
 
-    let unproved = run(&api, &SENDS_EMAIL, &["add", &address]).await;
+    let unproved = operator::run(&api, AREA, &SENDS_EMAIL, &["add", &address]).await;
 
     refused(
         &unproved,
@@ -217,7 +205,7 @@ async fn superadmins_002_with_email_off_an_account_that_never_proved_its_address
     // Nothing proves an address with email off, so the account never proved its own.
     let ada = users::register_unverified(&api, &address).await;
 
-    let added = run(&api, &EMAIL_OFF, &["add", &address]).await;
+    let added = operator::run(&api, AREA, &EMAIL_OFF, &["add", &address]).await;
 
     assert_eq!(added.status.code(), Some(0));
     assert_eq!(superadmins_of(&api).await, [ada.user_id]);
@@ -230,7 +218,7 @@ async fn superadmins_002_with_email_off_an_account_that_proved_its_address_becom
     // The account proved its address while the deployment sent email.
     let ada = users::register(&api, &address).await;
 
-    let added = run(&api, &EMAIL_OFF, &["add", &address]).await;
+    let added = operator::run(&api, AREA, &EMAIL_OFF, &["add", &address]).await;
 
     assert_eq!(added.status.code(), Some(0));
     assert_eq!(superadmins_of(&api).await, [ada.user_id]);
@@ -241,10 +229,10 @@ async fn superadmins_002_an_account_that_is_a_superadmin_already_stays_one() {
     let api = Api::new().await;
     let address = mailbox::address("ada");
     let ada = users::register(&api, &address).await;
-    let first = run(&api, &SENDS_EMAIL, &["add", &address]).await;
+    let first = operator::run(&api, AREA, &SENDS_EMAIL, &["add", &address]).await;
     assert_eq!(first.status.code(), Some(0));
 
-    let again = run(&api, &SENDS_EMAIL, &["add", &address]).await;
+    let again = operator::run(&api, AREA, &SENDS_EMAIL, &["add", &address]).await;
 
     refused(
         &again,
@@ -262,12 +250,18 @@ async fn superadmins_003_remove_ends_the_account_s_being_a_superadmin() {
     let address = mailbox::address("ada");
     let ada = users::register(&api, &address).await;
     second_factors::add_app(&api, &ada).await;
-    let added = run(&api, &SENDS_EMAIL, &["add", &address]).await;
+    let added = operator::run(&api, AREA, &SENDS_EMAIL, &["add", &address]).await;
     assert_eq!(added.status.code(), Some(0));
     let served = api.get(EVERY).bearer(&ada.access).send().await;
     assert_eq!(served.status, 200, "{}", served.json());
 
-    let removed = run(&api, &SENDS_EMAIL, &["remove", &address.to_uppercase()]).await;
+    let removed = operator::run(
+        &api,
+        AREA,
+        &SENDS_EMAIL,
+        &["remove", &address.to_uppercase()],
+    )
+    .await;
     let refused_now = api.get(EVERY).bearer(&ada.access).send().await;
 
     finished(
@@ -295,9 +289,9 @@ async fn superadmins_003_remove_changes_nothing_for_an_account_that_is_no_supera
     superadmins::make(&api, &grace).await;
     let nobody = mailbox::address("nobody");
 
-    let not_an_address = run(&api, &SENDS_EMAIL, &["remove", "ada"]).await;
-    let no_account = run(&api, &SENDS_EMAIL, &["remove", &nobody]).await;
-    let no_superadmin = run(&api, &SENDS_EMAIL, &["remove", &address]).await;
+    let not_an_address = operator::run(&api, AREA, &SENDS_EMAIL, &["remove", "ada"]).await;
+    let no_account = operator::run(&api, AREA, &SENDS_EMAIL, &["remove", &nobody]).await;
+    let no_superadmin = operator::run(&api, AREA, &SENDS_EMAIL, &["remove", &address]).await;
 
     refused(
         &not_an_address,
@@ -475,7 +469,7 @@ async fn superadmins_005_every_route_of_a_superadmin_s_asks_a_superadmin_for_an_
 
 #[tokio::test]
 async fn superadmins_005_a_deployment_that_requires_an_app_of_every_user_answers_the_same() {
-    let api = Api::with(Options::default().set("SECOND_FACTOR_REQUIRED", true)).await;
+    let api = second_factors::requiring().await;
     let ada = users::register(&api, "ada@example.com").await;
     superadmins::make(&api, &ada).await;
 
@@ -490,7 +484,7 @@ async fn superadmins_005_a_deployment_that_requires_an_app_of_every_user_answers
 
 #[tokio::test]
 async fn superadmins_005_such_a_deployment_serves_a_superadmin_who_has_an_app() {
-    let api = Api::with(Options::default().set("SECOND_FACTOR_REQUIRED", true)).await;
+    let api = second_factors::requiring().await;
     let ada = users::register(&api, "ada@example.com").await;
     superadmins::make_with_app(&api, &ada).await;
 
@@ -522,7 +516,7 @@ async fn superadmins_006_a_caller_reads_whether_they_are_a_superadmin() {
 
 #[tokio::test]
 async fn superadmins_006_a_deployment_that_requires_an_app_refuses_an_account_without_one() {
-    let api = Api::with(Options::default().set("SECOND_FACTOR_REQUIRED", true)).await;
+    let api = second_factors::requiring().await;
     let ada = users::register(&api, "ada@example.com").await;
     superadmins::make(&api, &ada).await;
 
@@ -548,11 +542,7 @@ async fn superadmins_007_deleting_a_superadmin_s_account_ends_their_being_one() 
     superadmins::make(&api, &ada).await;
     superadmins::make(&api, &grace).await;
 
-    let deleted = api
-        .request(Method::DELETE, "/v1/users/me")
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let deleted = users::delete(&api, &ada).await;
 
     assert_eq!(deleted.status, 204);
     assert_eq!(superadmins_of(&api).await, [grace.user_id]);
@@ -575,11 +565,7 @@ async fn superadmins_007_an_export_holds_when_its_user_became_a_superadmin() {
     let mut archives = Vec::new();
     for user in [&ada, &grace] {
         let export = built(&api, user).await;
-        let archive = api
-            .get(&format!("/v1/users/me/exports/{export}/content"))
-            .bearer(&user.access)
-            .send()
-            .await;
+        let archive = download(&api, user, &export, &[]).await;
         assert_eq!(archive.status, 200);
         archives.push(document(&archive.body, "superadmins/superadmins.json"));
     }
@@ -699,14 +685,10 @@ async fn workspaces_029_a_limit_a_cursor_and_a_search_that_are_none_are_refused_
         .send()
         .await;
 
-    assert_eq!(response.status, 400);
-    let body = response.json();
-    assert_eq!(body["code"], "request.invalid_query");
-    let refused: Vec<&str> = body["errors"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|error| error["field"].as_str().unwrap())
+    let refused: Vec<String> = response
+        .refused_parameters()
+        .into_iter()
+        .map(|(field, _)| field)
         .collect();
     assert_eq!(refused, ["/limit", "/cursor", "/search"]);
 }
@@ -730,7 +712,7 @@ async fn superadmins_008_list_shows_each_superadmin_s_address_and_logs_none() {
         .await;
     let before = reads(&api, "SELECT count(*)::text FROM audit_entries").await;
 
-    let listed = run(&api, &SENDS_EMAIL, &["list"]).await;
+    let listed = operator::run(&api, AREA, &SENDS_EMAIL, &["list"]).await;
 
     assert_eq!(listed.status.code(), Some(0), "{}", printed(&listed));
     // The standard output holds the list, the one made first first.
@@ -780,7 +762,7 @@ async fn superadmins_008_list_says_that_a_deployment_has_no_superadmin() {
     let api = Api::new().await;
     users::register(&api, "ada@example.com").await;
 
-    let listed = run(&api, &EMAIL_OFF, &["list"]).await;
+    let listed = operator::run(&api, AREA, &EMAIL_OFF, &["list"]).await;
 
     finished(
         &listed,
@@ -1148,7 +1130,7 @@ async fn ops_03_what_a_subcommand_shows_its_operator_is_printed_outside_the_logs
         .chain([("ENVIRONMENT", "production")])
         .collect();
 
-    let listed = run(&api, &settings, &["list"]).await;
+    let listed = operator::run(&api, AREA, &settings, &["list"]).await;
 
     assert_eq!(listed.status.code(), Some(0), "{}", printed(&listed));
     // Production logs JSON lines (OBS-01): what the subcommand shows is no line of them,

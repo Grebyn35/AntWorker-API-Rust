@@ -270,13 +270,15 @@ async fn api_10_every_parameter_of_a_list_refuses_a_value_that_is_none_by_its_na
                 StatusCode::BAD_REQUEST,
                 "{template} {name}"
             );
-            let problem = response.json();
-            assert_eq!(problem["code"], "request.invalid_query", "{template}");
-            let fields: Vec<&str> = problem["errors"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .filter_map(|error| error["field"].as_str())
+            assert_eq!(
+                response.json()["code"],
+                "request.invalid_query",
+                "{template}"
+            );
+            let fields: Vec<String> = response
+                .refused_parameters()
+                .into_iter()
+                .map(|(field, _)| field)
                 .collect();
             assert_eq!(fields, [format!("/{name}")], "{template}");
             sent += 1;

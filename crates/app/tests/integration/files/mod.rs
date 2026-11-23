@@ -39,7 +39,7 @@ use crate::support::{
     scanner::{self, Script},
     streams,
     users::{self, SignedIn},
-    workspaces,
+    workspaces::{self, acme},
 };
 
 /// A body that fails once it is read, so an answer to a request that sends it shows that nothing
@@ -144,16 +144,6 @@ async fn delete(api: &Api, user: &SignedIn, workspace: &str, file: &str) -> Resp
         .bearer(&user.access)
         .send()
         .await
-}
-
-/// A workspace that `ada` owns and `grace` belongs to at `role`, with both signed in.
-async fn acme(api: &Api, role: &str) -> (String, SignedIn, SignedIn) {
-    let ada = users::register(api, "ada@example.com").await;
-    let grace = users::register(api, "grace@example.com").await;
-    let db = api.database();
-    let workspace = workspaces::arrange(db, "Acme", &[(&ada.user_id, "owner")]).await;
-    workspaces::join(db, &workspace, &grace.user_id, role).await;
-    (workspace, ada, grace)
 }
 
 /// The names the files of `workspace` hold, in the order of their IDs.
@@ -1082,11 +1072,7 @@ async fn files_009_a_file_whose_bytes_the_bucket_lacks_answers_500_and_its_cause
 
     assert_eq!(response.status, 500);
     assert_eq!(response.json()["code"], "request.internal_error");
-    let trace_id = response.json()["trace_id"].as_str().unwrap().to_owned();
-    let errors: Vec<Value> = testing::logged(&trace_id)
-        .into_iter()
-        .filter(|line| line["level"] == "ERROR")
-        .collect();
+    let errors = errors_of(&response);
     assert_eq!(errors.len(), 1, "{errors:#?}");
     assert!(errors[0].to_string().contains(&id), "{errors:#?}");
 }
@@ -1102,11 +1088,7 @@ async fn files_009_a_file_whose_object_has_another_size_answers_500_and_its_caus
 
     assert_eq!(response.status, 500);
     assert_eq!(response.json()["code"], "request.internal_error");
-    let trace_id = response.json()["trace_id"].as_str().unwrap().to_owned();
-    let errors: Vec<Value> = testing::logged(&trace_id)
-        .into_iter()
-        .filter(|line| line["level"] == "ERROR")
-        .collect();
+    let errors = errors_of(&response);
     assert_eq!(errors.len(), 1, "{errors:#?}");
     assert!(errors[0].to_string().contains(&id), "{errors:#?}");
 }
@@ -1130,11 +1112,7 @@ async fn files_009_a_range_past_a_cut_short_object_s_end_answers_500_and_its_cau
 
     assert_eq!(response.status, 500);
     assert_eq!(response.json()["code"], "request.internal_error");
-    let trace_id = response.json()["trace_id"].as_str().unwrap().to_owned();
-    let errors: Vec<Value> = testing::logged(&trace_id)
-        .into_iter()
-        .filter(|line| line["level"] == "ERROR")
-        .collect();
+    let errors = errors_of(&response);
     assert_eq!(errors.len(), 1, "{errors:#?}");
     assert!(errors[0].to_string().contains(&id), "{errors:#?}");
     assert!(!errors[0].to_string().contains(&key), "{errors:#?}");

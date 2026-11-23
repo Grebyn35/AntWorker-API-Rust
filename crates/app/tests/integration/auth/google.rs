@@ -2,7 +2,12 @@
 
 use serde_json::{Value, json};
 
-use crate::support::{Api, api::Response, providers::VERIFIER, upstream::Upstream};
+use crate::support::{
+    Api,
+    api::Response,
+    providers::{self, VERIFIER},
+    upstream::Upstream,
+};
 
 /// A stand-in of Google's endpoints, and an API with both of Google's clients.
 async fn google() -> (Upstream, Api) {
@@ -37,8 +42,8 @@ fn gives(upstream: &Upstream, info: Value) {
 }
 
 async fn sign_in(api: &Api, redirect_uri: &str) -> Response {
-    api.post(
-        "/v1/sessions/provider",
+    providers::sign_in(
+        api,
         &json!({
             "provider": "google",
             "code": "a-code",
@@ -46,7 +51,6 @@ async fn sign_in(api: &Api, redirect_uri: &str) -> Response {
             "redirect_uri": redirect_uri,
         }),
     )
-    .send()
     .await
 }
 

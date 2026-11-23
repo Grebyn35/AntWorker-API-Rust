@@ -263,11 +263,7 @@ async fn auth_023_a_session_that_changed_its_password_within_5_minutes_may_delet
     assert_eq!(changed.status, 200);
 
     // With the tokens that the change gave the session (AUTH-095).
-    let deleted = api
-        .request(http::Method::DELETE, "/v1/users/me")
-        .bearer(&SignedIn::from(&changed).access)
-        .send()
-        .await;
+    let deleted = users::delete(&api, &SignedIn::from(&changed)).await;
 
     assert_eq!(deleted.status, 204);
 }
@@ -277,11 +273,7 @@ async fn auth_023_a_session_that_has_just_started_may_delete_its_account() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
 
-    let deleted = api
-        .request(http::Method::DELETE, "/v1/users/me")
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let deleted = users::delete(&api, &ada).await;
 
     assert_eq!(deleted.status, 204);
 }

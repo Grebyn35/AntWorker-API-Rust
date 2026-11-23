@@ -53,15 +53,6 @@ async fn jobs(db: &TestDatabase, column: &str) -> Vec<String> {
     .await
 }
 
-/// A port that nothing listens on: the closed listener's.
-async fn closed() -> SocketAddr {
-    TcpListener::bind("127.0.0.1:0")
-        .await
-        .unwrap()
-        .local_addr()
-        .unwrap()
-}
-
 /// A mail server on a port of its own that refuses every recipient with a permanent reply,
 /// which quotes the recipient's address, as many servers' replies do.
 async fn refusing_server() -> SocketAddr {
@@ -134,7 +125,7 @@ async fn platform_021_a_request_only_enqueues_its_email_and_a_job_sends_it() {
 
 #[tokio::test]
 async fn platform_021_a_failed_send_is_retried_with_backoff_then_dead_lettered() {
-    let options = Options::default().set("SMTP_PORT", closed().await.port());
+    let options = Options::default().set("SMTP_PORT", support::closed_port().await.port());
     let (api, ada) = api(options).await;
     send(&api, &ada, "bob@example.com").await;
 
@@ -281,7 +272,7 @@ async fn platform_023_in_development_every_email_reaches_the_mail_catcher_on_the
 
 #[tokio::test]
 async fn platform_025_every_email_comes_from_email_from_with_the_message_id_fixed_when_enqueued() {
-    let closed = closed().await;
+    let closed = support::closed_port().await;
     let (api, ada) = api(Options::default()).await;
     let to = mailbox::address("identified");
     send(&api, &ada, &to).await;
@@ -377,7 +368,7 @@ async fn platform_021_send_now_sends_at_once_and_tells_its_job_whether_to_retry(
         .send_now(secret_email(&to))
         .await
         .unwrap();
-    let unreachable = Options::default().set("SMTP_PORT", closed().await.port());
+    let unreachable = Options::default().set("SMTP_PORT", support::closed_port().await.port());
     let failed = mail(&unreachable).send_now(secret_email(&to)).await;
     let refusing = Options::default().set("SMTP_PORT", refusing_server().await.port());
     let refused = mail(&refusing).send_now(secret_email(&to)).await;
@@ -564,7 +555,7 @@ async fn platform_105_a_reply_from_400_to_599_but_421_counts_as_refused() {
 
 #[tokio::test]
 async fn platform_105_a_send_that_no_server_serves_counts_as_unavailable() {
-    let closed = closed().await.port().to_string();
+    let closed = support::closed_port().await.port().to_string();
     let down = scripted_server("421 4.3.2 the service isn't available", |_| "550 5.1.1")
         .await
         .port()

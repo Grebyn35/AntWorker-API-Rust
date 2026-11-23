@@ -110,23 +110,10 @@ async fn platform_046_a_limit_out_of_range_and_a_cursor_of_another_route_are_ref
         .send()
         .await;
 
-    assert_eq!(response.status, 400);
-    let body = response.json();
-    assert_eq!(body["code"], "request.invalid_query");
-    let refused: Vec<(&str, &str)> = body["errors"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|error| {
-            (
-                error["field"].as_str().unwrap(),
-                error["code"].as_str().unwrap(),
-            )
-        })
-        .collect();
     assert_eq!(
-        refused,
+        response.refused_parameters(),
         [("/limit", "out_of_range"), ("/cursor", "invalid")]
+            .map(|(field, code)| (field.to_owned(), code.to_owned()))
     );
 }
 
@@ -230,11 +217,8 @@ async fn access_005_a_rename_publishes_in_each_workspace_the_caller_belongs_to_a
 #[tokio::test]
 async fn workspaces_004_lists_the_members_with_their_profiles_the_latest_joined_first() {
     let api = Api::new().await;
-    let ada = users::register(&api, "ada@example.com").await;
-    let grace = users::register(&api, "grace@example.com").await;
+    let (workspace, ada, grace) = workspaces::acme(&api, "admin").await;
     let db = api.database();
-    let workspace = workspaces::arrange(db, "Acme", &[(&ada.user_id, "owner")]).await;
-    workspaces::join(db, &workspace, &grace.user_id, "admin").await;
     db.owner_executes(&format!(
         "UPDATE workspace_memberships SET created_at = CASE user_id \
          WHEN '{}' THEN timestamptz '2026-11-01T10:00:00Z' \
@@ -391,11 +375,8 @@ async fn accounts_006_a_member_search_finds_a_member_by_their_name_alone() {
 #[tokio::test]
 async fn workspaces_005_removing_a_member_deletes_their_membership_and_signals_it() {
     let api = Api::new().await;
-    let ada = users::register(&api, "ada@example.com").await;
-    let grace = users::register(&api, "grace@example.com").await;
+    let (workspace, ada, grace) = workspaces::acme(&api, "member").await;
     let db = api.database();
-    let workspace = workspaces::arrange(db, "Acme", &[(&ada.user_id, "owner")]).await;
-    workspaces::join(db, &workspace, &grace.user_id, "member").await;
     // The registrations' sessions published their starts (AUTH-046).
     db.owner_executes("DELETE FROM events").await;
     let mut signals = db.signals().await;
@@ -443,12 +424,7 @@ async fn workspaces_005_removing_a_member_deletes_their_membership_and_signals_i
         .unwrap();
     assert_eq!(
         signals.received().await,
-        [json!({
-            "kind": "membership_changed",
-            "user_id": grace.user_id,
-            "workspace_id": workspace,
-            "transaction": transaction
-        })]
+        [workspaces::signal(&grace.user_id, &workspace, transaction)]
     );
 }
 
@@ -645,11 +621,7 @@ async fn stored_name(api: &Api, workspace: &str) -> String {
 #[tokio::test]
 async fn workspaces_007_reading_a_workspace_gives_it_with_the_caller_s_role_and_its_etag() {
     let api = Api::new().await;
-    let ada = users::register(&api, "ada@example.com").await;
-    let grace = users::register(&api, "grace@example.com").await;
-    let db = api.database();
-    let workspace = workspaces::arrange(db, "Acme", &[(&ada.user_id, "owner")]).await;
-    workspaces::join(db, &workspace, &grace.user_id, "member").await;
+    let (workspace, ada, grace) = workspaces::acme(&api, "member").await;
     let path = format!("/v1/workspaces/{workspace}");
 
     let owner = api.get(&path).bearer(&ada.access).send().await;
@@ -712,11 +684,8 @@ async fn workspaces_007_a_workspace_shows_its_caller_the_permissions_their_role_
 #[tokio::test]
 async fn workspaces_008_renaming_stores_the_name_records_it_and_publishes_it() {
     let api = Api::new().await;
-    let ada = users::register(&api, "ada@example.com").await;
-    let grace = users::register(&api, "grace@example.com").await;
+    let (workspace, _, grace) = workspaces::acme(&api, "admin").await;
     let db = api.database();
-    let workspace = workspaces::arrange(db, "Acme", &[(&ada.user_id, "owner")]).await;
-    workspaces::join(db, &workspace, &grace.user_id, "admin").await;
     // The registrations' sessions published their starts (AUTH-046).
     db.owner_executes("DELETE FROM events").await;
 
@@ -729,11 +698,7 @@ async fn workspaces_008_renaming_stores_the_name_records_it_and_publishes_it() {
     assert_eq!(body["role"], "admin");
     assert_eq!(response.header("etag"), "\"2\"");
     // The workspace as a read gives it to the same caller (WORKSPACES-007).
-    let read = api
-        .get(&format!("/v1/workspaces/{workspace}"))
-        .bearer(&grace.access)
-        .send()
-        .await;
+    let read = workspaces::read(&api, &grace, &workspace).await;
     assert_eq!(body, read.json());
     assert_eq!(stored_name(&api, &workspace).await, "Acme Labs");
     let entries = db
@@ -768,11 +733,7 @@ async fn workspaces_008_renaming_stores_the_name_records_it_and_publishes_it() {
 #[tokio::test]
 async fn workspaces_008_a_member_may_not_rename_and_the_owner_may() {
     let api = Api::new().await;
-    let ada = users::register(&api, "ada@example.com").await;
-    let grace = users::register(&api, "grace@example.com").await;
-    let db = api.database();
-    let workspace = workspaces::arrange(db, "Acme", &[(&ada.user_id, "owner")]).await;
-    workspaces::join(db, &workspace, &grace.user_id, "member").await;
+    let (workspace, ada, grace) = workspaces::acme(&api, "member").await;
 
     let refused = workspaces::rename(&api, &grace, &workspace, "Grace's", &[]).await;
     let unchanged = stored_name(&api, &workspace).await;
@@ -931,16 +892,9 @@ async fn platform_049_a_rename_sent_as_plain_json_is_refused() {
 #[tokio::test]
 async fn platform_071_a_rename_with_a_stale_etag_answers_412_and_changes_nothing() {
     let api = Api::new().await;
-    let ada = users::register(&api, "ada@example.com").await;
-    let grace = users::register(&api, "grace@example.com").await;
+    let (workspace, ada, grace) = workspaces::acme(&api, "admin").await;
     let db = api.database();
-    let workspace = workspaces::arrange(db, "Acme", &[(&ada.user_id, "owner")]).await;
-    workspaces::join(db, &workspace, &grace.user_id, "admin").await;
-    let read = api
-        .get(&format!("/v1/workspaces/{workspace}"))
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let read = workspaces::read(&api, &ada, &workspace).await;
     let etag = read.header("etag").to_owned();
     assert_eq!(etag, "\"1\"");
     let if_match = [("if-match", etag.as_str())];
@@ -1059,22 +1013,6 @@ async fn change_role(
         call = call.header("if-match", tag);
     }
     call.send().await
-}
-
-/// Transfers `workspace` to `user`, as `caller`.
-async fn transfer(
-    api: &Api,
-    caller: &SignedIn,
-    workspace: &str,
-    user: &str,
-) -> crate::support::api::Response {
-    api.post(
-        &format!("/v1/workspaces/{workspace}/transfer"),
-        &json!({ "user_id": user }),
-    )
-    .bearer(&caller.access)
-    .send()
-    .await
 }
 
 /// The members of `workspace`, each as their user ID and their role, in the order they joined.
@@ -1620,7 +1558,7 @@ async fn workspaces_015_transferring_swaps_the_roles_records_it_publishes_it_and
     db.owner_executes("DELETE FROM events").await;
     let mut signals = db.signals().await;
 
-    let transferred = transfer(&api, &ada, &workspace, &grace.user_id).await;
+    let transferred = workspaces::transfer(&api, &ada, &workspace, &grace.user_id).await;
 
     assert_eq!(transferred.status, 204);
     assert_eq!(
@@ -1683,7 +1621,7 @@ async fn workspaces_015_a_transfer_closes_the_streams_of_the_two_whose_roles_it_
     let mut before = streams::opened(&api, &ada).await;
     let mut after = streams::opened(&api, &grace).await;
 
-    let transferred = transfer(&api, &ada, &workspace, &grace.user_id).await;
+    let transferred = workspaces::transfer(&api, &ada, &workspace, &grace.user_id).await;
     let (_, former_owner) = before.closed().await;
     let (_, new_owner) = after.closed().await;
 
@@ -1712,8 +1650,8 @@ async fn workspaces_015_an_admin_or_a_member_may_not_transfer() {
     .await;
     let before = roles(&api, &workspace).await;
 
-    let by_admin = transfer(&api, &admin, &workspace, &peer.user_id).await;
-    let by_member = transfer(&api, &member, &workspace, &peer.user_id).await;
+    let by_admin = workspaces::transfer(&api, &admin, &workspace, &peer.user_id).await;
+    let by_member = workspaces::transfer(&api, &member, &workspace, &peer.user_id).await;
 
     for refused in [&by_admin, &by_member] {
         assert_eq!(refused.status, 403);
@@ -1744,9 +1682,9 @@ async fn workspaces_016_a_transfer_goes_only_to_a_member_who_is_an_admin() {
     workspaces::arrange(db, "Other", &[(&stranger.user_id, "owner")]).await;
     let before = roles(&api, &workspace).await;
 
-    let to_member = transfer(&api, &owner, &workspace, &member.user_id).await;
-    let to_myself = transfer(&api, &owner, &workspace, &owner.user_id).await;
-    let to_stranger = transfer(&api, &owner, &workspace, &stranger.user_id).await;
+    let to_member = workspaces::transfer(&api, &owner, &workspace, &member.user_id).await;
+    let to_myself = workspaces::transfer(&api, &owner, &workspace, &owner.user_id).await;
+    let to_stranger = workspaces::transfer(&api, &owner, &workspace, &stranger.user_id).await;
     let not_an_id = api
         .post_raw(
             &format!("/v1/workspaces/{workspace}/transfer"),
@@ -1797,11 +1735,11 @@ async fn sec_19_workspace_transferred_reaches_the_members_and_no_replay_from_bef
     // Every role holds members.read, which workspace.transferred requires: no member lacks it.
     let mut member = streams::opened(&api, &bob).await;
 
-    let first = transfer(&api, &ada, &workspace, &grace.user_id).await;
+    let first = workspaces::transfer(&api, &ada, &workspace, &grace.user_id).await;
     workspaces::join(db, &workspace, &alan.user_id, "member").await;
     let mut joined = streams::connect(&api, &alan.access, before.as_deref()).await;
     joined.opened().await;
-    let second = transfer(&api, &grace, &workspace, &ada.user_id).await;
+    let second = workspaces::transfer(&api, &grace, &workspace, &ada.user_id).await;
     let after_joining = joined.event().await;
 
     assert_eq!(first.status, 204);
@@ -1964,7 +1902,7 @@ async fn workspaces_018_a_transfer_and_a_deletion_need_a_proof_from_the_last_5_m
     users::authenticated_ago(&api, &owner, 6).await;
     users::authenticated_ago(&api, &admin, 6).await;
 
-    let transfer_refused = transfer(&api, &owner, &workspace, &admin.user_id).await;
+    let transfer_refused = workspaces::transfer(&api, &owner, &workspace, &admin.user_id).await;
     let deletion_refused = call(&api, http::Method::DELETE, &path, &owner).await;
     // A caller who may not delete learns that, whatever their session proved.
     let not_allowed = call(&api, http::Method::DELETE, &path, &admin).await;
@@ -1993,7 +1931,7 @@ async fn workspaces_018_a_proof_from_within_the_5_minutes_lets_each_through() {
     users::authenticated_ago(&api, &owner, 4).await;
     users::authenticated_ago(&api, &admin, 4).await;
 
-    let transferred = transfer(&api, &owner, &workspace, &admin.user_id).await;
+    let transferred = workspaces::transfer(&api, &owner, &workspace, &admin.user_id).await;
     // The admin owns the workspace, and deletes it.
     let path = format!("/v1/workspaces/{workspace}");
     let deleted = call(&api, http::Method::DELETE, &path, &admin).await;

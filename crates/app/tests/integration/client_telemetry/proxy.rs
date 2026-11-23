@@ -22,7 +22,7 @@ use super::{CONSENT, choose, read};
 use crate::support::{
     Api, Options, Server, TestDatabase,
     api::{Response, refusal},
-    budgets, counts,
+    budgets, closed_port, counts,
     upstream::Upstream,
     users::{self, SignedIn},
 };
@@ -568,11 +568,7 @@ async fn client_telemetry_009_a_collector_that_doesn_t_answer_within_5_seconds_a
 
 #[tokio::test]
 async fn client_telemetry_009_a_collector_that_no_connection_reaches_answers_503() {
-    // A port that nothing listens on, once its listener is dropped.
-    let closed = {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        listener.local_addr().unwrap()
-    };
+    let closed = closed_port().await;
     let api =
         Api::with(Options::default().set("CLIENT_TELEMETRY_ENDPOINT", format!("http://{closed}")))
             .await;
@@ -930,11 +926,7 @@ async fn platform_091_forward_fails_as_unavailable_when_the_collector_answers_an
 
 #[tokio::test]
 async fn platform_091_forward_fails_as_unavailable_when_no_connection_opens() {
-    // A port that nothing listens on, once its listener is dropped.
-    let closed = {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        listener.local_addr().unwrap()
-    };
+    let closed = closed_port().await;
     let endpoint = format!("http://{closed}").parse().unwrap();
 
     let forwarded = relay(&endpoint, &Arc::default())

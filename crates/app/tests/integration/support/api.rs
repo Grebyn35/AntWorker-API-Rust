@@ -835,9 +835,21 @@ impl Response {
     /// The field and the code of each error of the response, which must be a 400
     /// `request.invalid_fields` (PLATFORM-051), in their order.
     pub fn refused_fields(&self) -> Vec<(String, String)> {
+        self.refused("request.invalid_fields")
+    }
+
+    /// The parameter and the code of each error of the response, which must be a 400
+    /// `request.invalid_query` (PLATFORM-045), in their order.
+    pub fn refused_parameters(&self) -> Vec<(String, String)> {
+        self.refused("request.invalid_query")
+    }
+
+    /// The field and the code of each error of the response, which must be a 400 whose problem's
+    /// code is `code`, in their order.
+    fn refused(&self, code: &str) -> Vec<(String, String)> {
         assert_eq!(self.status, 400);
         let problem = self.json();
-        assert_eq!(problem["code"], "request.invalid_fields");
+        assert_eq!(problem["code"], code);
         problem["errors"]
             .as_array()
             .unwrap()

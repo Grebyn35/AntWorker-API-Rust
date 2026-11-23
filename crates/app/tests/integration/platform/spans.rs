@@ -7,27 +7,17 @@ use opentelemetry_proto::tonic::trace::v1::{Span, span::SpanKind};
 use platform::{
     jobs::JobContext,
     telemetry::testing::{
-        collector::{Collector, Received, attribute},
+        collector::{Collector, attribute},
         spans::OpenSpans,
     },
 };
 use tracing::{Instrument, instrument::WithSubscriber};
 
 use crate::support::{
-    TestDatabase,
+    TestDatabase, children,
     events::{self, Event},
-    execute_on, hex, query_waits_on_a_lock, users,
+    execute_on, is_the_request_s, query_waits_on_a_lock, users,
 };
-
-/// The spans among `received` whose parent is `parent`.
-fn children<'a>(received: &'a Received, parent: &Span) -> Vec<&'a Span> {
-    received
-        .spans()
-        .into_iter()
-        .map(|(_, span)| span)
-        .filter(|span| span.parent_span_id == parent.span_id)
-        .collect()
-}
 
 /// The names of `span`'s attributes, sorted.
 fn keys(span: &Span) -> Vec<&str> {
@@ -80,16 +70,13 @@ async fn platform_104_a_request_s_unit_of_work_and_its_limits_counts_run_in_chil
             trace,
         )
         .await;
-    let is_the_request_s = |span: &Span| -> bool {
-        hex(&span.trace_id) == trace && span.kind == i32::from(SpanKind::Server)
-    };
     // The request's span ends after the spans inside it, so its export follows theirs.
     let received = collector
         .wait_for(|received| {
             received
                 .spans()
                 .iter()
-                .any(|(_, span)| is_the_request_s(span))
+                .any(|(_, span)| is_the_request_s(span, trace))
         })
         .await;
 
@@ -98,7 +85,7 @@ async fn platform_104_a_request_s_unit_of_work_and_its_limits_counts_run_in_chil
     let (_, request) = received
         .spans()
         .into_iter()
-        .find(|(_, span)| is_the_request_s(span))
+        .find(|(_, span)| is_the_request_s(span, trace))
         .unwrap();
     let within = children(&received, request);
     let named = |name: &str| -> Vec<&Span> {

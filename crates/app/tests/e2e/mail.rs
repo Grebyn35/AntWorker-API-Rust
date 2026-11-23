@@ -3,17 +3,16 @@
 
 use serde_json::json;
 
-use crate::{deployment::Deployment, docker::lossy};
+use crate::{
+    deployment::{Deployment, pairs},
+    docker::lossy,
+};
 
 #[tokio::test]
 async fn platform_021_the_deployed_api_sends_an_email_through_its_mail_server() {
     let deployment = Deployment::managed(&[]);
     let mail = deployment.server.start_mail_server();
-    let mail: Vec<(&str, &str)> = mail
-        .iter()
-        .map(|(name, value)| (name.as_str(), value.as_str()))
-        .collect();
-    deployment.set(&mail);
+    deployment.set(&pairs(&mail));
     let applied = deployment.apply(&deployment.api, &[]).await;
     assert!(applied.status.success(), "{}", lossy(&applied));
     // The job that a module's `Mail::send` enqueues, as it holds the rendered email.

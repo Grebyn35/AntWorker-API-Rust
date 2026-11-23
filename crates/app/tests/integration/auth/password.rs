@@ -7,19 +7,15 @@ use serde_json::{Value, json};
 use crate::support::{
     Api, Options, answer_before_a_lock_wait,
     api::Response,
-    execute_on, mailbox, queries_wait_on_locks, query_waits_on_a_lock, second_factors,
+    closed_port, execute_on, mailbox,
+    password_reset::{ask, code_sent},
+    queries_wait_on_locks, query_waits_on_a_lock, second_factors,
     users::{self, SignedIn},
+    verification, with_fields,
 };
 
 /// The new password of the tests' resets and changes.
 const NEW_PASSWORD: &str = "lantern-orchard-58-brisk";
-
-/// Asks for a reset of `email`'s password.
-async fn ask(api: &Api, email: &str) -> Response {
-    api.post("/v1/password-resets", &json!({ "email": email }))
-        .send()
-        .await
-}
 
 /// Confirms a reset of `email`'s password with `code`, to [`NEW_PASSWORD`].
 async fn confirm(api: &Api, email: &str, code: &str) -> Response {
@@ -40,18 +36,6 @@ async fn change(api: &Api, user: &SignedIn, current: &str) -> Response {
     .bearer(&user.access)
     .send()
     .await
-}
-
-/// The reset code in the newest reset email that `address` received, once the API's jobs have
-/// run.
-async fn code_sent(api: &Api, address: &str) -> String {
-    api.run_jobs().await;
-    let emails = mailbox::to(address).await;
-    let email = emails
-        .iter()
-        .find(|email| email.subject.contains("password reset code"))
-        .expect("an email with a reset code");
-    mailbox::grouped_code_in(&email.text).expect("a reset code in the email")
 }
 
 /// The entries of `user_id`'s log, the oldest first: each one's action, actor, resource type,
@@ -172,11 +156,10 @@ async fn auth_034_a_request_whose_email_isn_t_an_address_answers_400_at_email() 
         .send()
         .await;
 
-    assert_eq!(refused.status, 400);
-    let error = &refused.json()["errors"][0];
-    assert_eq!(error["field"], "/email");
-    assert_eq!(error["code"], "invalid_email");
-    assert_eq!(refused.json()["errors"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        refused.refused_fields(),
+        [("/email".to_owned(), "invalid_email".to_owned())]
+    );
     assert!(
         api.database()
             .owner_reads("SELECT kind FROM jobs")
@@ -247,11 +230,7 @@ async fn auth_035_requests_for_resets_fill_neither_bucket_of_codes_that_prove_an
         assert_eq!(ask(&api, &address).await.status, 202);
     }
 
-    let asked = api
-        .request(http::Method::POST, "/v1/users/me/email/verification")
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let asked = verification::ask(&api, &ada).await;
 
     assert_eq!(asked.status, 202);
 }
@@ -409,11 +388,7 @@ async fn auth_036_a_run_for_no_one_issues_nothing() {
 #[tokio::test]
 async fn auth_036_an_attempt_after_a_failed_send_issues_a_code_of_its_own_beside_the_first() {
     let address = mailbox::address("ada");
-    let unreachable = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .unwrap()
-        .local_addr()
-        .unwrap();
+    let unreachable = closed_port().await;
     let failing = Api::with(Options::default().set("SMTP_PORT", unreachable.port())).await;
     users::register(&failing, &address).await;
     ask(&failing, &address).await;
@@ -464,20 +439,13 @@ async fn auth_036_a_reset_code_leaves_the_account_s_verification_code_in_place()
             .await,
         ["email_verification", "password_reset"]
     );
-    let verification = mailbox::to(&address)
+    let sent = mailbox::to(&address)
         .await
         .into_iter()
         .find(|email| email.subject.contains("verification code"))
         .unwrap();
-    let digits = mailbox::digits_code_in(&verification.text).unwrap();
-    let confirmed = api
-        .post(
-            "/v1/users/me/email/verification/confirm",
-            &json!({ "code": digits }),
-        )
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let digits = mailbox::digits_code_in(&sent.text).unwrap();
+    let confirmed = verification::confirm(&api, &ada, &digits).await;
     assert_eq!(confirmed.status, 200);
 }
 
@@ -846,26 +814,14 @@ async fn auth_038_a_malformed_address_code_and_password_answer_400_with_every_fi
         .send()
         .await;
 
-    assert_eq!(refused.status, 400);
-    let errors = refused.json()["errors"].clone();
-    let fields: Vec<(&str, &str)> = errors
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|error| {
-            (
-                error["field"].as_str().unwrap(),
-                error["code"].as_str().unwrap(),
-            )
-        })
-        .collect();
     assert_eq!(
-        fields,
+        refused.refused_fields(),
         [
             ("/email", "invalid_email"),
             ("/code", "invalid_code"),
             ("/password", "breached")
         ]
+        .map(|(field, code)| (field.to_owned(), code.to_owned()))
     );
 }
 
@@ -952,13 +908,7 @@ async fn auth_040_changing_sets_the_password_ends_the_other_sessions_and_keeps_t
     let address = mailbox::address("ada");
     let ada = users::register(&api, &address).await;
     let other = users::new_session(&api, &address).await;
-    let before = api
-        .get("/v1/users/me/sessions/current")
-        .bearer(&ada.access)
-        .send()
-        .await
-        .json()["authenticated_at"]
-        .clone();
+    let before = users::current(&api, &ada.access).await.json()["authenticated_at"].clone();
     let mut signals = api.database().signals().await;
 
     let changed = change(&api, &ada, users::PASSWORD).await;
@@ -969,11 +919,7 @@ async fn auth_040_changing_sets_the_password_ends_the_other_sessions_and_keeps_t
     assert_eq!(renewed.session_id, ada.session_id);
     let refused = api.get("/v1/users/me").bearer(&other.access).send().await;
     assert_eq!(refused.status, 401);
-    let session = api
-        .get("/v1/users/me/sessions/current")
-        .bearer(&renewed.access)
-        .send()
-        .await;
+    let session = users::current(&api, &renewed.access).await;
     assert_eq!(session.status, 200);
     assert_eq!(
         session.json()["authenticated_at"],
@@ -1096,25 +1042,13 @@ async fn auth_040_a_refused_new_password_and_an_empty_current_one_answer_400_wit
         .send()
         .await;
 
-    assert_eq!(refused.status, 400);
-    let errors = refused.json()["errors"].clone();
-    let fields: Vec<(&str, &str)> = errors
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|error| {
-            (
-                error["field"].as_str().unwrap(),
-                error["code"].as_str().unwrap(),
-            )
-        })
-        .collect();
     assert_eq!(
-        fields,
+        refused.refused_fields(),
         [
             ("/current_password", "required"),
             ("/password", "context_word")
         ]
+        .map(|(field, code)| (field.to_owned(), code.to_owned()))
     );
 }
 
@@ -1199,11 +1133,8 @@ async fn auth_041_with_email_off_a_change_enqueues_no_email() {
 /// The body of a confirmation of a reset of `email`'s password with `code`, to
 /// [`NEW_PASSWORD`], with `factor`'s fields, a second factor's code, added.
 fn with_factor(email: &str, code: &str, factor: Value) -> Value {
-    let mut body = json!({ "email": email, "code": code, "password": NEW_PASSWORD });
-    for (name, value) in factor.as_object().unwrap() {
-        body[name] = value.clone();
-    }
-    body
+    let body = json!({ "email": email, "code": code, "password": NEW_PASSWORD });
+    with_fields(body, factor)
 }
 
 /// Confirms a reset of `email`'s password with `code`, to [`NEW_PASSWORD`], with `factor`'s

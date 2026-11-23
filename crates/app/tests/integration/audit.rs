@@ -7,7 +7,7 @@ mod retention;
 
 use platform::telemetry::testing;
 
-use crate::support::{Api, Options, users};
+use crate::support::{Api, Options, users, workspaces};
 
 #[tokio::test]
 async fn audit_001_an_entry_commits_or_rolls_back_with_its_change() {
@@ -160,7 +160,7 @@ async fn audit_006_deleting_a_user_deletes_their_log_and_anonymizes_the_entries_
     let ada = users::register(&api, "ada@example.com").await;
     let bob = users::register(&api, "bob@example.com").await;
     let db = api.database();
-    let workspace = crate::support::workspaces::arrange(
+    let workspace = workspaces::arrange(
         db,
         "Acme",
         &[(&bob.user_id, "owner"), (&ada.user_id, "admin")],
@@ -168,24 +168,13 @@ async fn audit_006_deleting_a_user_deletes_their_log_and_anonymizes_the_entries_
     .await;
     // Ada acts in the workspace, so an entry of its log names her as its actor, with her client;
     // her leaving adds one that names her as its target.
-    let renamed = api
-        .patch(
-            &format!("/v1/workspaces/{workspace}"),
-            &serde_json::json!({ "name": "Acme Inc" }),
-        )
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let renamed = workspaces::rename(&api, &ada, &workspace, "Acme Inc", &[]).await;
     assert_eq!(renamed.status, 200);
     let entries_before = db
         .owner_reads("SELECT count(*)::text FROM audit_entries WHERE workspace_id IS NOT NULL")
         .await;
 
-    let deleted = api
-        .request(http::Method::DELETE, "/v1/users/me")
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let deleted = users::delete(&api, &ada).await;
 
     assert_eq!(deleted.status, 204);
     let ada_id = &ada.user_id;

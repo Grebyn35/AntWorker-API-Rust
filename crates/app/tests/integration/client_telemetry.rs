@@ -8,7 +8,7 @@ use http::Method;
 use serde_json::{Value, json};
 
 use crate::{
-    accounts::exports::{built, document},
+    accounts::exports::{built, document, download},
     support::{
         Api, execute_on, query_waits_on_a_lock,
         users::{self, SignedIn},
@@ -313,11 +313,7 @@ async fn client_telemetry_003_deleting_an_account_deletes_its_consent() {
     assert_eq!(choose(&api, &ada, true, None).await.status, 200);
     assert_eq!(choose(&api, &grace, true, None).await.status, 200);
 
-    let deleted = api
-        .request(Method::DELETE, "/v1/users/me")
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let deleted = users::delete(&api, &ada).await;
 
     assert_eq!(deleted.status, 204);
     assert_eq!(rows(&api).await, [format!("{} true 1", grace.user_id)]);
@@ -371,11 +367,7 @@ async fn client_telemetry_003_an_export_holds_the_consent_of_a_user_who_chose() 
     let mut archives = Vec::new();
     for user in [&ada, &grace] {
         let export = built(&api, user).await;
-        let archive = api
-            .get(&format!("/v1/users/me/exports/{export}/content"))
-            .bearer(&user.access)
-            .send()
-            .await;
+        let archive = download(&api, user, &export, &[]).await;
         assert_eq!(archive.status, 200);
         archives.push(document(
             &archive.body,

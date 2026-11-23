@@ -9,17 +9,18 @@ use crate::support::{
     Api,
     api::Response,
     execute_on, lists, queries_wait_on_locks, streams,
-    users::{self, PASSWORD, SignedIn, browser_sign_in, browsers_api, cookie},
+    users::{self, PASSWORD, SignedIn, browser_sign_in, browsers_api, cookie, end_others},
+    with_fields,
 };
 
 /// Signs ada@example.com in with `body`'s other fields, such as a device's ID and name, and
 /// returns the new session.
 async fn sign_in_with(api: &Api, fields: Value) -> SignedIn {
-    let mut body = json!({ "email": "ada@example.com", "password": PASSWORD });
-    body.as_object_mut()
-        .unwrap()
-        .extend(fields.as_object().unwrap().clone());
-    let response = api.post("/v1/sessions", &body).send().await;
+    let body = json!({ "email": "ada@example.com", "password": PASSWORD });
+    let response = api
+        .post("/v1/sessions", &with_fields(body, fields))
+        .send()
+        .await;
     assert_eq!(response.status, 201, "{}", response.json());
     SignedIn::from(&response)
 }
@@ -27,14 +28,6 @@ async fn sign_in_with(api: &Api, fields: Value) -> SignedIn {
 /// Ends `user`'s session `id`.
 async fn end(api: &Api, user: &SignedIn, id: &str) -> Response {
     api.request(http::Method::DELETE, &format!("/v1/users/me/sessions/{id}"))
-        .bearer(&user.access)
-        .send()
-        .await
-}
-
-/// Ends every session of `user`'s but their own.
-async fn end_others(api: &Api, user: &SignedIn) -> Response {
-    api.request(http::Method::DELETE, "/v1/users/me/sessions/others")
         .bearer(&user.access)
         .send()
         .await
@@ -113,18 +106,10 @@ async fn auth_042_a_registration_s_and_a_sign_in_s_device_name_is_kept_normalize
     )
     .await;
 
-    let current = api
-        .get("/v1/users/me/sessions/current")
-        .bearer(&phone.access)
-        .send()
-        .await;
+    let current = users::current(&api, &phone.access).await;
     // A sign-in that replaces its device's session gives the new one its own name, or none.
     let replaced = sign_in_with(&api, json!({ "device_id": "phone_1" })).await;
-    let unnamed = api
-        .get("/v1/users/me/sessions/current")
-        .bearer(&replaced.access)
-        .send()
-        .await;
+    let unnamed = users::current(&api, &replaced.access).await;
 
     assert_eq!(registered.json()["device_name"], "Ada's laptop");
     assert_eq!(current.json()["device_name"], "Ada's phone");
@@ -496,11 +481,7 @@ async fn auth_044_an_account_that_must_verify_signs_out_through_current_alone() 
     let ada = users::register_unverified(&api, "ada@example.com").await;
 
     let by_id = end(&api, &ada, &ada.session_id).await;
-    let still = api
-        .get("/v1/users/me/sessions/current")
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let still = users::current(&api, &ada.access).await;
     let current = end(&api, &ada, "current").await;
 
     assert_eq!(by_id.status, 403);
@@ -712,11 +693,7 @@ async fn auth_046_a_deletion_of_the_account_publishes_no_session_s_end() {
     let ada = users::register(&api, "ada@example.com").await;
     users::new_session(&api, "ada@example.com").await;
 
-    let deleted = api
-        .request(http::Method::DELETE, "/v1/users/me")
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let deleted = users::delete(&api, &ada).await;
 
     assert_eq!(deleted.status, 204);
     let events = api

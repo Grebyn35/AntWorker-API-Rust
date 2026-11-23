@@ -26,16 +26,6 @@ async fn change_password(api: &Api, user: &SignedIn, new: &str) -> Response {
     .await
 }
 
-/// The status of a read of the current session with the access token `access`.
-async fn current(api: &Api, access: &str) -> u16 {
-    api.get("/v1/users/me/sessions/current")
-        .bearer(access)
-        .send()
-        .await
-        .status
-        .as_u16()
-}
-
 /// Asserts that `response` answers `user`'s session with a new pair of tokens, that the pair it
 /// had stops working, and that the new pair works; returns the session with the new pair.
 async fn renewed(api: &Api, user: &SignedIn, response: &Response) -> SignedIn {
@@ -45,8 +35,8 @@ async fn renewed(api: &Api, user: &SignedIn, response: &Response) -> SignedIn {
     assert_eq!(after.user_id, user.user_id);
     assert_ne!(after.access, user.access);
     assert_ne!(after.refresh, user.refresh);
-    assert_eq!(current(api, &user.access).await, 401);
-    assert_eq!(current(api, &after.access).await, 200);
+    assert_eq!(users::current(api, &user.access).await.status, 401);
+    assert_eq!(users::current(api, &after.access).await.status, 200);
     after
 }
 
@@ -93,7 +83,7 @@ async fn auth_095_the_refresh_token_that_a_proof_replaced_ends_the_session_when_
 
     assert_eq!(reused.status, 401, "{}", reused.json());
     assert_eq!(reused.json()["code"], "auth.invalid_refresh_token");
-    assert_eq!(current(&api, &after.access).await, 401);
+    assert_eq!(users::current(&api, &after.access).await.status, 401);
     assert_eq!(
         reads(
             &api,
@@ -126,7 +116,7 @@ async fn auth_095_a_change_of_the_password_gives_the_caller_s_session_new_tokens
     // The pair that the change replaced, presented, ends the session, as after a refresh.
     let reused = users::refresh(&api, &ada.refresh).await;
     assert_eq!(reused.status, 401, "{}", reused.json());
-    assert_eq!(current(&api, &after.access).await, 401);
+    assert_eq!(users::current(&api, &after.access).await.status, 401);
 }
 
 #[tokio::test]
@@ -175,8 +165,8 @@ async fn auth_095_a_browser_takes_the_new_tokens_as_cookies() {
         users::cookie(&response, "refresh_token"),
         users::cookie(&signed_in, "refresh_token")
     );
-    assert_eq!(current(&api, &before).await, 401);
-    assert_eq!(current(&api, &access).await, 200);
+    assert_eq!(users::current(&api, &before).await.status, 401);
+    assert_eq!(users::current(&api, &access).await.status, 200);
 }
 
 #[tokio::test]
@@ -209,7 +199,12 @@ async fn auth_095_of_two_proofs_sent_at_once_the_pair_that_the_second_answers_ho
     assert_eq!(second.0, 200, "{}", second.1);
     let mut works = Vec::new();
     for answer in [&first.1, &second.1] {
-        works.push(current(&api, answer["access_token"].as_str().unwrap()).await);
+        works.push(
+            users::current(&api, answer["access_token"].as_str().unwrap())
+                .await
+                .status
+                .as_u16(),
+        );
     }
     works.sort_unstable();
     assert_eq!(works, [200, 401]);
@@ -239,7 +234,7 @@ async fn auth_095_a_proof_that_fails_leaves_the_session_its_tokens() {
     assert_eq!(wrong.status, 403, "{}", wrong.json());
     assert_eq!(wrong_change.status, 403, "{}", wrong_change.json());
     assert_eq!(reads(&api, hashes).await, before);
-    assert_eq!(current(&api, &ada.access).await, 200);
+    assert_eq!(users::current(&api, &ada.access).await.status, 200);
     // The right password with a code that isn't the app's.
     let app = add_app(&api, &ada).await;
     let code = other_code(&second_factors::code(&api, &app.secret).await);

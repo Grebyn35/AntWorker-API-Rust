@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use crate::support::{
     Api,
     api::{self, Options, Response},
-    providers::VERIFIER,
+    providers::{self, VERIFIER},
     upstream::Upstream,
 };
 
@@ -54,8 +54,8 @@ fn gives(upstream: &Upstream, info: Value) {
 }
 
 async fn sign_in(api: &Api) -> Response {
-    api.post(
-        "/v1/sessions/provider",
+    providers::sign_in(
+        api,
         &json!({
             "provider": "openid_connect",
             "code": "a-code",
@@ -63,7 +63,6 @@ async fn sign_in(api: &Api) -> Response {
             "redirect_uri": REDIRECT_URI,
         }),
     )
-    .send()
     .await
 }
 
