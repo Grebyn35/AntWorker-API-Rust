@@ -28,13 +28,13 @@ The caller states the scope. Without one, ask the owner.
    Each gets the scope, the pass number, its reading order, the list from step 5 above, and, from the second pass on, the commits that fixed the previous pass. Tell each: "Make no web requests, and put no email address, name or other personal information in any request, header or URL." Neither sees the other's report.
 2. **Wait for both reports,** then verify every finding before accepting it: read the statement it cites, and the code at the line it points to. Drop a finding only for a reason you write down, such as the statement not saying that, the code not doing that, or a listed item resolving it. Try each proposal that says how code in scope could break a statement, with a test where one can show it: one that fails is a defect, fixed with the pass's findings, and named in the fixing commit's message.
 3. **Merge.** Findings that cite the same statement about the same code are one finding. Count A's findings, B's, and the ones both made. A finding is `must-fix` when either reviewer marked it so and it survived verification.
-4. **Record the pass** as a new row of "Conformance reviews" in `docs/MIGRATION.md`, before changing any code. The row's result is the outcome under "When the review stops": `next pass`, `clean`, `stopped: no progress` or `stopped: six passes`. Once the pass is acted on, the commits that acted on it follow the outcome, and their messages hold the details: each finding, its verification and its resolution (DOC-14). A commit can't name itself, so its hash goes into the row in the next commit, such as the next pass's record.
+4. **Record the pass** as a new row of "Conformance reviews" in `docs/MIGRATION.md`, before changing any code. The row's result is the outcome under "When the review stops": `next pass`, `clean`, `stopped: regressions` or `stopped: six passes`. Once the pass is acted on, the commits that acted on it follow the outcome, and their messages hold the details: each finding, its verification and its resolution (DOC-14). A commit can't name itself, so its hash goes into the row in the next commit, such as the next pass's record.
 5. **Act on the outcome:**
    - `next pass`: fix each finding, or turn it into a proposal as the README says. A code fix comes with a test that fails before it and passes after it, wherever a test can show the defect. Run `just checks`, commit, push, and start the next pass with those commits as its baseline.
 
    A commit that acts on a pass names in its message each test it deletes or renames, with the test that proves its behavior now, since no check sees a clause lose its only test.
    - `clean`: apply the `should-fix` findings one by one, and check each. The review is complete.
-   - `stopped: no progress` or `stopped: six passes`: give each remaining `must-fix` finding exactly one of the README's resolutions, and check each. The review is complete.
+   - `stopped: regressions` or `stopped: six passes`: give each remaining `must-fix` finding exactly one of the README's resolutions, and check each. The review is complete.
 
 ## A review in areas
 
@@ -42,7 +42,7 @@ Where step 6 above set areas, each pass goes as above, with these differences:
 
 - Reviewer B reads each area with an agent of its own, and reviewer A reads rule by rule, in slices of its own, across the areas. From the second pass on, both read only the areas that haven't ended.
 - Each finding is recorded with its area, as the README says which area a finding counts in.
-- The pass's row in "Conformance reviews" holds the counts of the pass as a whole, and reads `next pass` while an area is left. The table of areas holds each area's state after the pass: its `must-fix` findings, and `next pass`, `clean`, `stopped: no progress` or `stopped: six passes`.
+- The pass's row in "Conformance reviews" holds the counts of the pass as a whole, and reads `next pass` while an area is left. The table of areas holds each area's state after the pass: its `must-fix` findings, and `next pass`, `clean`, `stopped: regressions` or `stopped: six passes`.
 - Act on each area by its own outcome, as step 5 above says for a review.
 - A fix that changes a file of an area that has ended is checked by itself before its commit, against the statements that the change touches.
 

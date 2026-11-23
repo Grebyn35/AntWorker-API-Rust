@@ -44,7 +44,7 @@ A `ci:` check that isn't listed in [docs/operations/ci.md](../operations/ci.md) 
 
 ## Reviews
 
-A review checks a change, a module or the documents against these rules. It never asks for open-ended improvements.
+A review checks a change, a module or the documents against these rules. It never asks for open-ended improvements. The whole codebase is reviewed once, as the migration's last review, and no review takes it as its scope again (D227): a defect that is found later is fixed as a defect, with its test, and a review reads the change.
 
 ### Passes
 
@@ -68,12 +68,12 @@ A review runs in passes over its whole scope, or, where it reads the scope in ar
 
 The review stops at the first of these:
 1. **A pass reports no `must-fix` findings.** That pass's `should-fix` findings are applied and checked one by one, without another full pass. The review is complete.
-2. **A pass makes no progress.** It reports at least as many `must-fix` findings as the pass before, those tagged `regression` among them.
+2. **A pass finds more regressions than other defects.** Of its `must-fix` findings, more are tagged `regression` than `found`.
 3. **Six passes have run.**
 
-The second condition alone ends every review, because the number of `must-fix` findings has to fall with each pass. A finding tagged `regression` counts as any other, and ends no review by itself (D225): fixes that bring in as many defects as they resolve end the review, and one whose count falls goes on, so that it ends, where it can, on a pass that read its last fixes. The cap bounds what a slowly falling count can cost: a scope that still yields new `must-fix` findings after five rounds of fixes points at loose rules more than at its code, and the resolutions below settle what remains.
+The second condition ends a review whose fixes bring in more defects than its reviewers still find, since another round of fixes would do the same; a pass with as many findings of the one tag as of the other goes on (D227). How many `must-fix` findings a pass reports, against the pass before, ends nothing: two reviewers find different defects, so a count can rise while every fix holds. The third condition is the one that ends every review: a scope that still yields new `must-fix` findings after five rounds of fixes points at loose rules more than at its code, and the resolutions below settle what remains.
 
-A review that reads its scope in areas, as the review of the whole codebase does, whose scope no one reviewer's agent holds, applies the three conditions to each area by itself (D223). The areas are groups of the scope's files, set before the first pass, each file in one area. A finding counts in the area that holds the file its defect is in: the code that breaks a statement, or the document whose statement says other than code that is right. After each pass, an area whose findings hold no `must-fix` one is complete, an area that made no progress stops, with the resolutions below for its remaining `must-fix` findings, and the next pass reads the areas that are left, each to its sixth pass at most. A fix that changes a file of an area that has ended is checked as a changed item, as the last step below checks one. The review is complete once every area has ended.
+A review that reads its scope in areas, as the review of the whole codebase does, whose scope no one reviewer's agent holds, applies the three conditions to each area by itself (D223). The areas are groups of the scope's files, set before the first pass, each file in one area. A finding counts in the area that holds the file its defect is in: the code that breaks a statement, or the document whose statement says other than code that is right. After each pass, an area whose findings hold no `must-fix` one is complete, an area whose `must-fix` findings are more regressions than other defects stops, with the resolutions below for them, and the next pass reads the areas that are left, each to its sixth pass at most. A fix that changes a file of an area that has ended is checked as a changed item, as the last step below checks one. The review is complete once every area has ended.
 
 If the review stops under 2 or 3, each remaining `must-fix` finding gets exactly one resolution. No further full pass runs.
 - **Fix.** A defect in code is fixed, with a test that fails before the fix wherever a test can show it.
