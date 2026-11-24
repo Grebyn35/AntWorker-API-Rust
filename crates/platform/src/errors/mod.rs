@@ -94,7 +94,7 @@ pub trait ErrorCode: Error {
     }
 
     /// How many seconds a client waits before it retries, which a 503's `Retry-After` gives
-    /// (API-07).
+    /// (OPS-07, the platform spec's Design: Request pipeline, Errors).
     fn retry_after_seconds(&self) -> u32 {
         1
     }

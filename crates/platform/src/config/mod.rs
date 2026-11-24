@@ -971,16 +971,15 @@ mod tests {
     }
 
     #[test]
-    fn platform_065_every_variable_env_example_lists_is_refused() {
+    fn platform_065_every_variable_that_env_example_says_must_be_unset_is_refused() {
         let example = include_str!("../../../../.env.example");
-        let listed: Vec<&str> = example
+        let (_, unset) = example.split_once("must be unset").unwrap();
+        let (unset, _) = unset.split_once(".\n").unwrap();
+        let listed: std::collections::BTreeSet<&str> = unset
             .split(|c: char| !(c.is_ascii_uppercase() || c == '_'))
-            .filter(|word| word.starts_with("OTEL_") && *word != "OTEL_EXPORTER_OTLP_ENDPOINT")
+            .filter(|word| word.starts_with("OTEL_"))
             .collect();
-        assert_eq!(listed.len(), OTEL_VARIABLES.len());
-        for name in listed {
-            assert!(OTEL_VARIABLES.contains(&name), "{name}");
-        }
+        assert_eq!(listed, std::collections::BTreeSet::from(OTEL_VARIABLES));
     }
 
     #[test]

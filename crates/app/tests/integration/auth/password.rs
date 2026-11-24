@@ -792,6 +792,34 @@ async fn auth_038_an_unknown_address_and_a_wrong_code_hash_the_password_before_t
 }
 
 #[tokio::test]
+async fn sec_05_a_wrong_reset_code_makes_the_same_keyed_hashes_whether_an_account_holds_the_address_or_not()
+ {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let no_code_address = mailbox::address("hopper");
+    users::register(&api, &address).await;
+    users::register(&api, &no_code_address).await;
+    // Two reset codes, each of which a check of a code compares.
+    ask(&api, &address).await;
+    code_sent(&api, &address).await;
+    ask(&api, &address).await;
+    let wrong = mailbox::other_grouped_code(&code_sent(&api, &address).await);
+    let unknown = mailbox::address("nobody");
+
+    let mut checks = Vec::new();
+    for email in [&unknown, &no_code_address, &address] {
+        let before = api.keyed_hashes();
+        let status = confirm(&api, email, &wrong).await.status;
+        checks.push((status, api.keyed_hashes() - before));
+    }
+
+    for (status, hashes) in &checks {
+        assert_eq!(*status, 401);
+        assert_eq!(*hashes, checks[0].1, "{checks:?}");
+    }
+}
+
+#[tokio::test]
 async fn auth_038_a_malformed_address_code_and_password_answer_400_with_every_field() {
     let api = Api::new().await;
 

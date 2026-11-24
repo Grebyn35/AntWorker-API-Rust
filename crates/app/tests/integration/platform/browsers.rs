@@ -7,6 +7,7 @@ use serde_json::json;
 
 use crate::support::{
     Api, Options,
+    api::Response,
     fixtures::{self, Gate},
     users::{self, WEB, browser_sign_in, browsers_api, cookies},
 };
@@ -57,6 +58,119 @@ async fn platform_058_a_listed_origin_s_preflight_is_answered() {
             .contains("content-type")
     );
 }
+
+/// The names that `response`'s header `name` lists, in lowercase.
+fn listed(response: &Response, name: &str) -> Vec<String> {
+    response
+        .header(name)
+        .split(',')
+        .map(|listed| listed.trim().to_ascii_lowercase())
+        .collect()
+}
+
+#[tokio::test]
+async fn platform_058_a_listed_origin_may_read_a_written_resource_s_and_a_download_s_headers() {
+    let api = browsers_api().await;
+
+    let response = api
+        .get("/v1/capabilities")
+        .header("origin", WEB)
+        .send()
+        .await;
+
+    let exposed = listed(&response, "access-control-expose-headers");
+    for name in ["content-location", "content-disposition", "content-range"] {
+        assert!(exposed.contains(&name.to_owned()), "{name} in {exposed:?}");
+    }
+}
+
+#[tokio::test]
+async fn platform_058_a_listed_origin_s_preflight_allows_a_download_s_conditions() {
+    let api = browsers_api().await;
+
+    let preflight = api
+        .request(
+            Method::OPTIONS,
+            "/v1/users/me/exports/01900000-0000-7000-8000-000000000000/content",
+        )
+        .header("origin", WEB)
+        .header("access-control-request-method", "GET")
+        .header("access-control-request-headers", "if-none-match,if-range")
+        .send()
+        .await;
+
+    assert_eq!(preflight.status, 204);
+    let allowed = listed(&preflight, "access-control-allow-headers");
+    for name in ["if-none-match", "if-range"] {
+        assert!(allowed.contains(&name.to_owned()), "{name} in {allowed:?}");
+    }
+}
+
+#[tokio::test]
+async fn platform_058_a_listed_origin_s_preflight_allows_a_range_and_the_trace_state() {
+    let api = browsers_api().await;
+
+    let preflight = api
+        .request(
+            Method::OPTIONS,
+            "/v1/users/me/exports/01900000-0000-7000-8000-000000000000/content",
+        )
+        .header("origin", WEB)
+        .header("access-control-request-method", "GET")
+        .header("access-control-request-headers", "range,tracestate")
+        .send()
+        .await;
+
+    assert_eq!(preflight.status, 204);
+    let allowed = listed(&preflight, "access-control-allow-headers");
+    for name in ["range", "tracestate"] {
+        assert!(allowed.contains(&name.to_owned()), "{name} in {allowed:?}");
+    }
+}
+
+// part: files
+#[tokio::test]
+async fn platform_058_a_listed_origin_s_preflight_allows_an_upload_s_content_disposition() {
+    let api = browsers_api().await;
+
+    let preflight = api
+        .request(Method::OPTIONS, "/v1/users/me/files")
+        .header("origin", WEB)
+        .header("access-control-request-method", "POST")
+        .header("access-control-request-headers", "content-disposition")
+        .send()
+        .await;
+
+    assert_eq!(preflight.status, 204);
+    let allowed = listed(&preflight, "access-control-allow-headers");
+    assert!(
+        allowed.contains(&"content-disposition".to_owned()),
+        "{allowed:?}"
+    );
+}
+// end part: files
+
+// part: client_telemetry
+#[tokio::test]
+async fn platform_058_a_listed_origin_s_preflight_allows_a_batch_s_content_encoding() {
+    let api = browsers_api().await;
+
+    let preflight = api
+        .request(Method::OPTIONS, "/v1/users/me/telemetry/traces")
+        .header("origin", WEB)
+        .header("access-control-request-method", "POST")
+        .header("access-control-request-headers", "content-encoding")
+        .send()
+        .await;
+
+    assert_eq!(preflight.status, 204);
+    let allowed = listed(&preflight, "access-control-allow-headers");
+    assert!(
+        allowed.contains(&"content-encoding".to_owned()),
+        "{allowed:?}"
+    );
+}
+// end part: client_telemetry
 
 #[tokio::test]
 async fn platform_058_any_other_origin_gets_no_cors_header() {

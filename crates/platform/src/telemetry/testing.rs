@@ -40,8 +40,8 @@ static LOGGED: Mutex<Logged> = Mutex::new(Logged {
 /// Numbers the watches.
 static NEXT_WATCH: AtomicU64 = AtomicU64::new(0);
 
-/// How long a test runs before its [`Watch`] prints what it logged: longer than the whole suite
-/// of integration tests takes, and well inside the time limit of CI's job.
+/// How long a test runs before its [`Watch`] prints what it logged, so that a test that the time
+/// limit of CI's job ends shows what it logged (TEST-06).
 const PRINTED_AFTER: Duration = Duration::from_secs(300);
 
 struct Logged {

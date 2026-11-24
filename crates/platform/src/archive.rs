@@ -656,4 +656,158 @@ mod tests {
             assert_eq!(read[0].1, content, "{passing}");
         }
     }
+
+    fn u16_at(bytes: &[u8], at: usize) -> u16 {
+        u16::from_le_bytes([bytes[at], bytes[at + 1]])
+    }
+
+    fn u32_at(bytes: &[u8], at: usize) -> u32 {
+        u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap())
+    }
+
+    fn u64_at(bytes: &[u8], at: usize) -> u64 {
+        u64::from_le_bytes(bytes[at..at + 8].try_into().unwrap())
+    }
+
+    /// An entry of `path` whose sizes are `size` and `stored_size`, deflated, of which the
+    /// layout needs no byte.
+    fn sized(path: &str, size: u64, stored_size: u64) -> Entry {
+        Entry {
+            path: path.to_owned(),
+            size,
+            stored_size,
+            crc32: 0,
+            deflated: true,
+        }
+    }
+
+    #[test]
+    fn platform_083_a_size_of_4_294_967_295_takes_zip64_s_fields_and_one_below_it_none() {
+        // The Design's number, as the format's own field holds it.
+        let field = 4_294_967_295;
+        // What a field of four bytes holds of one of these values.
+        let held = |value: u64| {
+            if value == field {
+                0xFFFF_FFFF
+            } else {
+                low(value)
+            }
+        };
+        for (size, stored_size, zip64) in [
+            (field - 1, 1, false),
+            (field, 1, true),
+            (1, field - 1, false),
+            (1, field, true),
+        ] {
+            let case = format!("{size} {stored_size}");
+            let entry = sized("0", size, stored_size);
+
+            let layout = Layout::new(vec![entry.clone()], at());
+            let header = layout.local_header(&entry);
+
+            // The local header: its version, both sizes' fields and its extra field's length,
+            // then the size of the header that the layout counts before the entry's bytes.
+            let version = if zip64 { VERSION_ZIP64 } else { VERSION };
+            assert_eq!(u16_at(&header, 4), version, "{case}");
+            let both = if zip64 {
+                (0xFFFF_FFFF, 0xFFFF_FFFF)
+            } else {
+                (held(stored_size), held(size))
+            };
+            assert_eq!((u32_at(&header, 18), u32_at(&header, 22)), both, "{case}");
+            assert_eq!(u16_at(&header, 28), if zip64 { 20 } else { 0 }, "{case}");
+            assert_eq!(
+                layout.directory_at,
+                31 + if zip64 { 20 } else { 0 } + stored_size,
+                "{case}"
+            );
+            // The directory's header: its version, both sizes' fields, and an extra field that
+            // holds the one value at the limit.
+            let directory = &layout.directory;
+            assert_eq!(u16_at(directory, 6), version, "{case}");
+            assert_eq!(
+                (u32_at(directory, 20), u32_at(directory, 24)),
+                (held(stored_size), held(size)),
+                "{case}"
+            );
+            assert_eq!(u16_at(directory, 30), if zip64 { 12 } else { 0 }, "{case}");
+            if zip64 {
+                assert_eq!(u64_at(directory, 51), field, "{case}");
+            }
+        }
+    }
+
+    #[test]
+    fn platform_083_an_offset_of_4_294_967_295_takes_zip64_s_fields_and_one_below_it_none() {
+        let field = 4_294_967_295;
+        for (offset, zip64) in [(field - 1, false), (field, true)] {
+            // The first entry's local header, of 31 bytes, and its stored bytes end at `offset`.
+            let entries = vec![sized("0", 1, offset - 31), sized("1", 0, 0)];
+
+            let layout = Layout::new(entries, at());
+
+            assert_eq!(layout.offsets[1], offset);
+            // The second entry's header in the directory, after the first one's 47 bytes: its
+            // version, its offset's field, and its extra field, which holds the offset alone.
+            let second = &layout.directory[47..];
+            let version = if zip64 { VERSION_ZIP64 } else { VERSION };
+            assert_eq!(u16_at(second, 6), version, "{offset}");
+            let held = if zip64 { 0xFFFF_FFFF } else { 0xFFFF_FFFE };
+            assert_eq!(u32_at(second, 42), held, "{offset}");
+            assert_eq!(u16_at(second, 30), if zip64 { 12 } else { 0 }, "{offset}");
+            if zip64 {
+                assert_eq!(u64_at(second, 51), offset, "{offset}");
+            }
+        }
+    }
+
+    #[test]
+    fn platform_083_a_directory_at_4_294_967_295_or_of_65_535_entries_takes_zip64_s_end_records() {
+        let (field, count) = (4_294_967_295, 65_535);
+        let many = |entries: u64| -> Vec<Entry> {
+            (0..entries)
+                .map(|index| sized(&index.to_string(), 0, 0))
+                .collect()
+        };
+        // A directory at the limit, or one below it, after one entry's local header of 31 bytes
+        // and its stored bytes; and the limit's number of entries, or one fewer. Each with the
+        // count and the offset that the end record's fields hold.
+        let cases = [
+            (
+                "an offset below",
+                vec![sized("0", 1, field - 1 - 31)],
+                false,
+                1,
+                0xFFFF_FFFE,
+            ),
+            (
+                "the offset",
+                vec![sized("0", 1, field - 31)],
+                true,
+                1,
+                0xFFFF_FFFF,
+            ),
+            ("a count below", many(count - 1), false, 0xFFFE, 0),
+            ("the count", many(count), true, 0xFFFF, 0),
+        ];
+        let signature = ZIP64_END.to_le_bytes();
+        for (reaching, entries, zip64, counted, at_field) in cases {
+            let layout = Layout::new(entries, at());
+
+            let directory = &layout.directory;
+            let end = directory.len() - 22;
+            assert_eq!(u32_at(directory, end), END, "{reaching}");
+            // ZIP64's end record and its locator stand right before the end record, or nothing
+            // of theirs does.
+            assert_eq!(
+                directory.len() >= 98 && directory[end - 76..end - 72] == signature,
+                zip64,
+                "{reaching}"
+            );
+            assert_eq!(u16_at(directory, end + 10), counted, "{reaching}");
+            if at_field != 0 {
+                assert_eq!(u32_at(directory, end + 16), at_field, "{reaching}");
+            }
+        }
+    }
 }

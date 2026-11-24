@@ -135,9 +135,9 @@ impl Admin {
     }
 
     /// Grants the roles their privileges on the connected database (DATA-19): both may
-    /// connect, only `owner` may create objects in the schema `public`, and no role may create
-    /// temporary tables. `CREATE` on the schema is revoked from `PUBLIC`, which a database
-    /// created by an older Postgres still grants it.
+    /// connect, only `owner` of the two may create objects in the schema `public`, and neither
+    /// may create temporary tables. `CREATE` on the schema is revoked from `PUBLIC`, which a
+    /// database created by an older Postgres still grants it.
     pub async fn grant_database(&mut self) -> Result<(), BootstrapError> {
         let database = identifier(&self.database);
         self.execute(format!(

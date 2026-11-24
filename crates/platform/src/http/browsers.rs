@@ -22,12 +22,20 @@ use crate::{
 const ALLOWED_METHODS: &str = "GET, HEAD, POST, PUT, PATCH, DELETE";
 
 /// The request headers a preflight allows.
-const ALLOWED_HEADERS: &str =
-    "authorization, content-type, idempotency-key, if-match, last-event-id, traceparent";
+const ALLOWED_HEADERS: &str = concat!(
+    "authorization, content-type, idempotency-key, if-match, if-none-match, if-range, \
+     last-event-id, range, traceparent, tracestate",
+    // part: files
+    ", content-disposition",
+    // end part: files
+    // part: client_telemetry
+    ", content-encoding",
+    // end part: client_telemetry
+);
 
 /// The response headers a browser lets a web client read, beyond the ones it always may.
-const EXPOSED_HEADERS: &str =
-    "location, etag, ratelimit, ratelimit-policy, retry-after, server-timing";
+const EXPOSED_HEADERS: &str = "location, content-location, etag, content-disposition, \
+     content-range, ratelimit, ratelimit-policy, retry-after, server-timing";
 
 /// How long a browser may keep a preflight's answer, in seconds.
 const PREFLIGHT_MAX_AGE: &str = "600";

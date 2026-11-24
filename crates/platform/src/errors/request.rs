@@ -249,9 +249,6 @@ impl ErrorCode for RequestError {
             Self::ReauthenticationRequired => {
                 Some("Prove who you are again, then send the request again.".to_owned())
             }
-            Self::FeatureDisabled => {
-                Some("The deployment has turned this feature off.".to_owned())
-            }
             // part: files
             Self::SignedUrlExpired => Some(
                 "The URL's time has passed: read the file again for a fresh one.".to_owned(),

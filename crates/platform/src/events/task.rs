@@ -76,6 +76,8 @@ pub(super) struct Task {
 /// What failed, and the hub tries again at every check (PLATFORM-033).
 #[derive(Clone, Copy, Debug, Default)]
 struct Owed {
+    /// A reconnect whose read of the log's head failed.
+    reconnect: bool,
     /// The events up to the last position a notification named.
     load: bool,
     /// A re-check of every stream.
@@ -184,26 +186,32 @@ impl Task {
     /// they fell among the events, so every stream closes with `interrupted`, and its client's
     /// reconnect replays what committed meanwhile with its access as it then stands
     /// (PLATFORM-033). The head then moves to the log's, since no stream is left to deliver the
-    /// events in between to.
+    /// events in between to. A read of the log's head that fails owes the reconnect, which the
+    /// next check makes again.
     async fn reconnected(&mut self) {
         self.streams.interrupt();
         // No stream is left for a re-check to close.
         self.owed.recheck = false;
         match self.log_head().await {
-            Ok(latest) if latest > self.streams.head() => {
-                self.streams.set_head(latest);
-                self.notified = self.notified.max(latest);
-                self.owed.load = false;
-                self.record_unloaded();
+            Ok(latest) => {
+                self.owed.reconnect = false;
+                if latest > self.streams.head() {
+                    self.streams.set_head(latest);
+                    self.notified = self.notified.max(latest);
+                    self.owed.load = false;
+                    self.record_unloaded();
+                }
             }
-            Ok(_) => {}
-            // The head stays, and so does a load that the hub owes, which the next check makes
-            // (PLATFORM-033): that load, or else the next notification's, reaches the events in
-            // between, from the head, for the streams that open meanwhile.
-            Err(error) => tracing::warn!(
-                { names::EXCEPTION_MESSAGE } = errors::chain(&error),
-                "the hub couldn't read the log's head"
-            ),
+            // The head stays, and so does a load that the hub owes. A stream that opens before
+            // the next check replays only up to the head, so that check closes it, and reads the
+            // log's head again (PLATFORM-033).
+            Err(error) => {
+                self.owed.reconnect = true;
+                tracing::warn!(
+                    { names::EXCEPTION_MESSAGE } = errors::chain(&error),
+                    "the hub couldn't read the log's head"
+                );
+            }
         }
     }
 
@@ -212,9 +220,12 @@ impl Task {
         log::head(&mut uow).await
     }
 
-    /// Tries again what failed: a re-check, and a load up to the last position a notification
-    /// named.
+    /// Tries again what failed: a reconnect whose read of the log's head failed, a re-check,
+    /// and a load up to the last position a notification named.
     async fn settle(&mut self) {
+        if self.owed.reconnect {
+            self.reconnected().await;
+        }
         if self.owed.recheck {
             self.recheck().await;
         }

@@ -53,8 +53,9 @@ pub(crate) struct Settings {
 /// that the settings take for a budget, whose window then holds any batch.
 pub(crate) const MAX_BATCH_BYTES: u32 = 1 << 20;
 
-/// A batch that a client sent the proxy, as its route read it (CLIENT_TELEMETRY-004).
-#[derive(Clone, Debug)]
+/// A batch that a client sent the proxy, as its route read it (CLIENT_TELEMETRY-004). It has no
+/// `Debug`, which would print the batch's bytes (OBS-04).
+#[derive(Clone)]
 pub(super) struct Sent {
     /// The signal that the batch holds, which its route says.
     pub(super) signal: Signal,

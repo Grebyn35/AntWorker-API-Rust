@@ -426,7 +426,10 @@ impl PartialSchema for EmailAddress {
     fn schema() -> RefOr<Schema> {
         ObjectBuilder::new()
             .schema_type(Type::String)
-            .format(Some(SchemaFormat::KnownFormat(KnownFormat::Email)))
+            .description(Some(
+                "An address that the HTML standard's `<input type=\"email\">` takes, trimmed and \
+                 lowercased (ACCOUNTS-002).",
+            ))
             .min_length(Some(1))
             .max_length(Some(EMAIL_MAX_CHARS))
             .into()

@@ -1145,6 +1145,55 @@ async fn platform_033_a_load_that_fails_is_tried_again_after_a_reconnect_that_ca
 }
 
 #[tokio::test]
+async fn platform_033_a_reconnect_that_cannot_read_the_log_s_head_is_made_again_at_the_next_check()
+{
+    let api = announcements::api().await;
+    let clock = api.clock();
+    let ada = users::register(&api, "ada@example.com").await;
+    let mut stream = streams::opened(&api, &ada).await;
+    announcements::announce(&api, &ada, 1).await;
+    stream.event().await;
+    let last = stream.last_event_id.clone();
+    clock.sleeping(CHECK_INTERVAL).await;
+    // Every pooled connection is held, so the hub's read of the log's head fails once its
+    // listener connects again, while an event that committed without a connection, whose
+    // notification is lost, waits past the hub's head.
+    let held = api.every_connection().await;
+    lose_the_connection(
+        &api,
+        &events::statement(
+            &[Event::to_user(&ada.user_id, r#"{"label": "away"}"#)],
+            false,
+        ),
+    )
+    .await;
+    stream.closed().await;
+    while !logged("the hub couldn't read the log's head") {
+        tokio::task::yield_now().await;
+    }
+    drop(held);
+    // A client that reconnects before the next check, whose replay reaches only the head that
+    // stayed.
+    let bearer = format!("Bearer {}", ada.access);
+    let resumed = [
+        ("authorization", bearer.as_str()),
+        ("last-event-id", last.as_deref().unwrap()),
+    ];
+    let mut early = streams::open(&api, &resumed).await.stream().unwrap();
+    early.opened().await;
+
+    clock.advance(CHECK_INTERVAL);
+    let (before, reason) = early.closed().await;
+    let mut again = streams::connect(&api, &ada.access, last.as_deref()).await;
+    again.opened().await;
+    let replayed = again.event().await;
+
+    assert!(before.is_empty(), "{before:?}");
+    assert_eq!(reason, "interrupted");
+    assert_eq!(replayed.payload(), &json!({ "label": "away" }));
+}
+
+#[tokio::test]
 async fn platform_035_the_hub_records_the_events_it_owes_while_its_loads_fail() {
     let api = announcements::api().await;
     let clock = api.clock();

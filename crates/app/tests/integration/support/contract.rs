@@ -7,9 +7,17 @@
 use http::{HeaderMap, Method, StatusCode, header};
 use serde_json::{Value, json};
 
+/// The paths of the health probes, which `GET` and `HEAD` take (OPS-05).
+const PROBES: [&str; 2] = ["/health/live", "/health/ready"];
+
+/// The paths of the API reference that development serves to `GET` and `HEAD` (PLATFORM-052).
+const REFERENCE: [&str; 2] = ["/docs", "/docs/openapi.json"];
+
 /// The checks against one OpenAPI document.
 pub struct Contract {
     document: Value,
+    /// Whether the API serves the reference, as it does in development.
+    reference: bool,
     /// The document's components, with every object schema closed to properties it doesn't
     /// list. The published document leaves response objects open, because clients ignore fields
     /// they don't know (API-05), but a field the API sends must be documented.
@@ -22,13 +30,15 @@ impl Contract {
         &self.document
     }
 
-    pub fn new(document: Value) -> Self {
+    /// The checks against `document`, of an API that serves the reference if `reference`.
+    pub fn new(document: Value, reference: bool) -> Self {
         let mut components = document["components"].clone();
         if let Some(schemas) = components["schemas"].as_object_mut() {
             schemas.values_mut().for_each(close);
         }
         Self {
             document,
+            reference,
             components,
         }
     }
@@ -117,8 +127,10 @@ impl Contract {
 
     /// Panics with every way the response breaks the document: a status, content type or field
     /// it doesn't list, and a header it lists that the response lacks. A request that no
-    /// operation documents must get the router's `NotFound` or `MethodNotAllowed`. The health
-    /// probes aren't in the document, so they aren't checked (OPS-05).
+    /// operation documents must get the router's `NotFound` or `MethodNotAllowed`, but for a
+    /// `GET` or a `HEAD` of a health probe's path, or of the reference's in development, which
+    /// the document leaves out, and isn't checked, while another method of those paths must get
+    /// `MethodNotAllowed` (OPS-05, PLATFORM-052).
     pub fn check(
         &self,
         method: &Method,
@@ -133,12 +145,20 @@ impl Contract {
         let preflight =
             method == Method::OPTIONS && headers.contains_key(header::ACCESS_CONTROL_ALLOW_METHODS);
         let path = path.split('?').next().unwrap_or_default();
-        let reference = path == "/docs" || path.starts_with("/docs/");
-        if path.starts_with("/health/") || reference || preflight {
+        let served = PROBES.contains(&path) || (self.reference && REFERENCE.contains(&path));
+        if (served && (method == Method::GET || method == Method::HEAD)) || preflight {
             return;
         }
         let fallbacks = &self.document["components"]["responses"];
         let response = match self.operation(method, path) {
+            _ if served => {
+                assert_eq!(
+                    status,
+                    StatusCode::METHOD_NOT_ALLOWED,
+                    "{method} {path} takes only GET and HEAD, so it must answer 405"
+                );
+                &fallbacks["MethodNotAllowed"]
+            }
             (_, Some(operation)) => {
                 let response = &operation["responses"][status.as_str()];
                 assert!(

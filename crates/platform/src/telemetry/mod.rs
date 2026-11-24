@@ -10,7 +10,11 @@ pub mod process;
 mod relay;
 // end part: client_telemetry
 
-use std::{io, panic::PanicHookInfo};
+use std::{
+    io,
+    panic::PanicHookInfo,
+    sync::{Arc, OnceLock},
+};
 
 use json_subscriber::JsonLayer;
 use opentelemetry::trace::{
@@ -22,7 +26,7 @@ use opentelemetry_sdk::{
     metrics::SdkMeterProvider,
     trace::{Sampler, SdkTracerProvider},
 };
-use tracing::{Span, Subscriber};
+use tracing::{Dispatch, Span, Subscriber, dispatcher::WeakDispatch};
 use tracing_appender::non_blocking::{NonBlockingBuilder, WorkerGuard};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use tracing_subscriber::{
@@ -33,7 +37,7 @@ use tracing_subscriber::{
         format::Writer,
         time::{FormatTime, SystemTime},
     },
-    layer::SubscriberExt,
+    layer::{Context, Layered, SubscriberExt},
     registry::LookupSpan,
 };
 
@@ -224,14 +228,32 @@ pub(crate) fn timestamp() -> String {
     time
 }
 
+/// The dispatcher that the layer of JSON lines is registered with, through which it reads a
+/// span's trace context. Asking for the current dispatcher inside the layer's own callback would
+/// get none while any thread of the process holds a scoped one, since tracing's
+/// `dispatcher::get_default` isn't to be nested.
+#[derive(Clone, Default)]
+pub(crate) struct Registered(Arc<OnceLock<WeakDispatch>>);
+
+impl<S: Subscriber> Layer<S> for Registered {
+    fn on_register_dispatch(&self, subscriber: &Dispatch) {
+        self.0.get_or_init(|| subscriber.downgrade());
+    }
+}
+
 /// One JSON object per line, with the event's fields at the top level next to `timestamp`,
 /// `level` and `message`, the service's fields, and the trace context of the span the event
 /// was written in (OBS-02, OBS-05).
-pub(crate) fn json<S, W>(service: Service, environment: Environment, writer: W) -> JsonLayer<S, W>
+pub(crate) fn json<S, W>(
+    service: Service,
+    environment: Environment,
+    writer: W,
+) -> Layered<Registered, JsonLayer<S, W>, S>
 where
     S: Subscriber + for<'lookup> LookupSpan<'lookup>,
     W: for<'w> MakeWriter<'w> + Send + Sync + 'static,
 {
+    let registered = Registered::default();
     let mut layer = JsonLayer::new(writer);
     layer
         .with_timer("timestamp", SystemTime)
@@ -245,24 +267,26 @@ where
     );
     // json-subscriber's own OpenTelemetry option nests the IDs in an object, and OBS-05 wants
     // them at the top level.
-    layer.add_dynamic_field(names::TRACE_ID, |_, context| {
-        context_ids(context).map(|(trace, _)| trace)
+    let trace = registered.clone();
+    layer.add_dynamic_field(names::TRACE_ID, move |_, context| {
+        context_ids(&trace, context).map(|(trace, _)| trace)
     });
-    layer.add_dynamic_field(names::SPAN_ID, |_, context| {
-        context_ids(context).map(|(_, span)| span)
+    let span = registered.clone();
+    layer.add_dynamic_field(names::SPAN_ID, move |_, context| {
+        context_ids(&span, context).map(|(_, span)| span)
     });
-    layer
+    layer.and_then(registered)
 }
 
-/// The trace and span IDs of the span an event is written in.
-fn context_ids<S>(context: &tracing_subscriber::layer::Context<'_, S>) -> Option<(String, String)>
+/// The trace and span IDs of the span an event is written in, which the dispatcher that
+/// `registered` holds gives.
+fn context_ids<S>(registered: &Registered, context: &Context<'_, S>) -> Option<(String, String)>
 where
     S: Subscriber + for<'lookup> LookupSpan<'lookup>,
 {
     let span = context.lookup_current()?;
-    let otel = tracing::dispatcher::get_default(|dispatch| {
-        tracing_opentelemetry::get_otel_context(&span.id(), dispatch)
-    })?;
+    let dispatch = registered.0.get()?.upgrade()?;
+    let otel = tracing_opentelemetry::get_otel_context(&span.id(), &dispatch)?;
     let otel_span = otel.span();
     let ids = otel_span.span_context();
     ids.is_valid()

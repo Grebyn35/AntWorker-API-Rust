@@ -233,7 +233,8 @@ impl Auth {
 
     /// The account that holds `email`, if one does, and whether `code` is one of its reset codes
     /// that last, read without a lock. For an address that no account holds, the same
-    /// statements run, the codes' for no account (SEC-05).
+    /// statements run, the codes' for no account, and the same keyed hash, the nil user's
+    /// (SEC-05).
     async fn read_reset_code(
         &self,
         uow: &mut UnitOfWork,
@@ -243,9 +244,10 @@ impl Auth {
         let user_id = accounts::find_by_email(uow, email).await?;
         let stored = codes::resets(uow, user_id).await?;
         // `email` is the account's address, as its index found it, which a code's keyed hash
-        // covers.
+        // covers. No code is stored for the nil user, whose ID `uuidv7()` never gives (DATA-08).
+        let hashed_for = user_id.unwrap_or(UserId::from_uuid(uuid::Uuid::nil()));
         let matched =
-            user_id.is_some_and(|user_id| self.matching(user_id, email, code, &stored).is_some());
+            self.matching(hashed_for, email, code, &stored).is_some() && user_id.is_some();
         Ok((user_id, matched))
     }
 
@@ -278,11 +280,12 @@ impl Auth {
         code: &ResetCode,
         stored: &[StoredCode],
     ) -> Option<uuid::Uuid> {
-        let input = code_input(user_id, address, code);
-        // Each lasting code is compared, in constant time, so the time doesn't tell which matched.
+        // One keyed hash, however many codes are stored, compared with each in constant time, so
+        // the time doesn't tell which matched.
+        let tag = self.key.tag(CODE_KIND, &code_input(user_id, address, code));
         let mut matched = None;
         for stored in stored {
-            if self.key.verify(CODE_KIND, &input, &stored.hash) && !stored.expired {
+            if tag.is(&stored.hash) && !stored.expired {
                 matched = Some(stored.id);
             }
         }

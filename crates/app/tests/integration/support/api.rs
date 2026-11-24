@@ -187,6 +187,10 @@ pub struct Application {
     pub hub: Hub,
     /// The turns of its CPU-heavy work, which a test takes to hold its works back.
     pub workers: Workers,
+    /// The key of its keyed hashes, whose count of them a test reads.
+    pub hmac_key: HmacKey,
+    /// Whether it serves the API reference, as in development (PLATFORM-052).
+    pub reference: bool,
 }
 
 /// The API's application as `serve` builds it on `database`, with `options`. It installs the
@@ -216,6 +220,7 @@ pub async fn application(
         .await
         .unwrap();
     let pipeline = app::pipeline(&resources, &config, &services, SERVICE);
+    let reference = pipeline.reference.is_some();
     let jobs = services.jobs;
     let hub = services.hub;
     let (document, routes) = match options.routes {
@@ -231,6 +236,8 @@ pub async fn application(
         jobs,
         hub,
         workers,
+        hmac_key: config.hmac_key,
+        reference,
     }
 }
 
@@ -280,6 +287,7 @@ pub struct Api {
     jobs: Arc<Jobs>,
     hub: Hub,
     workers: Workers,
+    hmac_key: HmacKey,
 }
 
 impl Api {
@@ -324,7 +332,7 @@ impl Api {
         let application = application(&pool, options, clock.clone(), readiness.clone()).await;
         Self {
             router: application.router,
-            contract: Arc::new(Contract::new(application.document)),
+            contract: Arc::new(Contract::new(application.document, application.reference)),
             clock,
             readiness,
             database,
@@ -332,6 +340,7 @@ impl Api {
             jobs: Arc::new(application.jobs),
             hub: application.hub,
             workers: application.workers,
+            hmac_key: application.hmac_key,
         }
     }
 
@@ -357,7 +366,7 @@ impl Api {
         let application = application(&self.pool, options, clock.clone(), readiness.clone()).await;
         Self {
             router: application.router,
-            contract: Arc::new(Contract::new(application.document)),
+            contract: Arc::new(Contract::new(application.document, application.reference)),
             clock,
             readiness,
             database: self.database.clone(),
@@ -365,6 +374,7 @@ impl Api {
             jobs: Arc::new(application.jobs),
             hub: application.hub,
             workers: application.workers,
+            hmac_key: application.hmac_key,
         }
     }
 
@@ -377,6 +387,11 @@ impl Api {
     /// (PLATFORM-060).
     pub fn workers(&self) -> &Workers {
         &self.workers
+    }
+
+    /// How many keyed hashes the API has made, through its `HMAC_KEY` (SEC-05).
+    pub fn keyed_hashes(&self) -> usize {
+        self.hmac_key.hashes()
     }
 
     /// Takes every turn of the API's CPU-heavy work, as a burst of sign-ins does, so that each

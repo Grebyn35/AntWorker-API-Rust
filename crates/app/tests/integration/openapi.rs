@@ -10,7 +10,9 @@ use std::{
 use http::{HeaderMap, HeaderValue, Method, StatusCode, header};
 use serde_json::Value;
 
-use crate::support::{Api, Options, fixtures, run_binary, streams, users, with_fields, workspaces};
+use crate::support::{
+    Api, Options, api::Response, fixtures, run_binary, streams, users, with_fields, workspaces,
+};
 
 /// The document as committed at the repository's root.
 const COMMITTED: &str = include_str!("../../../../openapi.json");
@@ -312,19 +314,24 @@ fn resolved<'a>(document: &'a Value, schema: &'a Value) -> &'a Value {
     }
 }
 
+/// An email address of `length` characters: `a` repeated, at `example.com`.
+fn address_of(length: usize) -> String {
+    format!("{}@example.com", "a".repeat(length - "@example.com".len()))
+}
+
 /// The values that API-10's generated test sends a field of a JSON request body whose schema is
-/// `field`: `a` repeated once more than its `maxLength`, a value of its `maxLength` followed by a
-/// space, which a type that trims would take, `a` repeated, or, for the format `email`, an
-/// address at `example.com`, and `a` repeated once fewer than its `minLength`, when that is above
-/// 0, and, for a `pattern` or an `enum`, U+0001 repeated as often as its `minLength`, or once. The
-/// test checks that the field's schema refuses each.
-fn outside_its_bounds(field: &Value) -> Vec<String> {
+/// `field`, which is an email address if `address`: `a` repeated once more than its `maxLength`,
+/// a value of its `maxLength` followed by a space, which a type that trims would take, `a`
+/// repeated, or, for an email address, [`address_of`] that length, and `a` repeated once fewer
+/// than its `minLength`, when that is above 0, and, for a `pattern` or an `enum`, U+0001 repeated
+/// as often as its `minLength`, or once. The test checks that the field's schema refuses each.
+fn outside_its_bounds(field: &Value, address: bool) -> Vec<String> {
     let length = |key: &str| field[key].as_u64().map(|n| usize::try_from(n).unwrap());
     let mut values = Vec::new();
     if let Some(max) = length("maxLength") {
         values.push("a".repeat(max + 1));
-        let at_bound = if field["format"] == "email" {
-            format!("{}@example.com", "a".repeat(max - "@example.com".len()))
+        let at_bound = if address {
+            address_of(max)
         } else {
             "a".repeat(max)
         };
@@ -350,6 +357,9 @@ struct BodyField {
     name: String,
     /// The field's schema.
     field: Value,
+    /// Whether the field is an email address, the schema `EmailAddress`, whose form ACCOUNTS-002
+    /// gives and no keyword of the schema states.
+    address: bool,
 }
 
 /// Each property of the schema of each request body of `document` whose media type, without its
@@ -374,8 +384,8 @@ fn json_body_fields(document: &Value) -> Vec<BodyField> {
                 for unread in UNREAD_FORMS {
                     assert!(body[unread].is_null(), "{template}: {unread}");
                 }
-                for (name, field) in body["properties"].as_object().into_iter().flatten() {
-                    let field = resolved(document, field);
+                for (name, property) in body["properties"].as_object().into_iter().flatten() {
+                    let field = resolved(document, property);
                     for unread in UNREAD_FORMS.iter().chain(&UNREAD_BOUNDS) {
                         assert!(field[unread].is_null(), "{template} {name}: {unread}");
                     }
@@ -387,6 +397,7 @@ fn json_body_fields(document: &Value) -> Vec<BodyField> {
                         body: body.clone(),
                         name: name.clone(),
                         field: field.clone(),
+                        address: property["$ref"] == "#/components/schemas/EmailAddress",
                     });
                 }
             }
@@ -432,51 +443,100 @@ fn body_with(document: &Value, field: &BodyField, value: &str) -> String {
     Value::Object(body).to_string()
 }
 
+/// The value that API-10's generated test sends a field of a JSON request body whose schema is
+/// `field`, which is an email address if `address`, and gives a `maxLength`, of that many
+/// characters, which the field's conversion takes: the first of these that the schema takes:
+/// `ab` repeated, or, for an email address, [`address_of`] that length, or, for the format
+/// `uuid`, a UUID; or `1` repeated as often as its `minLength`, or once, followed by spaces,
+/// which a code's conversion trims.
+fn at_its_bound(field: &Value, address: bool) -> Option<String> {
+    let length = |key: &str| field[key].as_u64().map(|n| usize::try_from(n).unwrap());
+    let max = length("maxLength")?;
+    let core = match field["format"].as_str() {
+        _ if address => address_of(max),
+        Some("uuid") => "01900000-0000-7000-8000-000000000000".to_owned(),
+        _ => "ab".chars().cycle().take(max).collect(),
+    };
+    let digits = length("minLength").unwrap_or(1).max(1);
+    let padded = format!("{}{}", "1".repeat(digits), " ".repeat(max - digits));
+    let schema = jsonschema::validator_for(field).unwrap();
+    [core, padded]
+        .into_iter()
+        .find(|value| schema.is_valid(&Value::from(value.as_str())))
+}
+
+/// The fields that API-10's generated test sends no value at its bound: a redirect URI, which
+/// the conversion checks against the clients of the provider that the body names, and no
+/// provider lists one of 2,048 characters (AUTH-078).
+const CHECKED_AGAINST_STATE: [&str; 1] = ["redirect_uri"];
+
+/// What the API answers to `field`'s operation, in `workspace`, called by the holder of
+/// `access` unless the operation is public, with a body that gives the field `value`.
+async fn sent(
+    api: &Api,
+    access: &str,
+    workspace: &str,
+    field: &BodyField,
+    value: &str,
+) -> Response {
+    let path = field
+        .template
+        .split('/')
+        .map(|part| match part {
+            "{workspace_id}" => workspace,
+            _ if part.starts_with('{') => "01900000-0000-7000-8000-000000000000",
+            _ => part,
+        })
+        .collect::<Vec<_>>()
+        .join("/");
+    let call = api
+        .request(field.method.clone(), &path)
+        .header("content-type", &field.media)
+        .body(body_with(api.document(), field, value));
+    let call = if field.access == "public" {
+        call
+    } else {
+        call.bearer(access)
+    };
+    call.send().await
+}
+
 #[tokio::test]
-async fn api_10_every_bound_of_a_json_body_s_field_refuses_a_value_outside_it_at_the_field() {
+async fn api_10_every_bound_of_a_json_body_s_field_refuses_a_value_outside_it_and_takes_one_at_it()
+{
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     let workspace = workspaces::arrange(api.database(), "Acme", &[(&ada.user_id, "owner")]).await;
-    let mut sent = 0;
+    let (mut outside, mut at_bounds) = (0, 0);
+    let fields = json_body_fields(api.document());
+    assert!(
+        fields.iter().any(|field| field.address),
+        "no field is an address"
+    );
 
-    for field in json_body_fields(api.document()) {
-        let path = field
-            .template
-            .split('/')
-            .map(|part| match part {
-                "{workspace_id}" => workspace.as_str(),
-                _ if part.starts_with('{') => "01900000-0000-7000-8000-000000000000",
-                _ => part,
-            })
-            .collect::<Vec<_>>()
-            .join("/");
-        for value in outside_its_bounds(&field.field) {
+    for field in fields {
+        let at = |value: &str| {
+            format!(
+                "{} {} /{} {value:?}",
+                field.method, field.template, field.name
+            )
+        };
+        let pointer = format!("/{}", field.name);
+        for value in outside_its_bounds(&field.field, field.address) {
             let schema = jsonschema::validator_for(&field.field).unwrap();
             assert!(
                 !schema.is_valid(&Value::from(value.as_str())),
-                "{} {value:?}",
-                field.name
+                "{}",
+                at(&value)
             );
-            let call = api
-                .request(field.method.clone(), &path)
-                .header("content-type", &field.media)
-                .body(body_with(api.document(), &field, &value));
-            let call = if field.access == "public" {
-                call
-            } else {
-                call.bearer(&ada.access)
-            };
 
-            let response = call.send().await;
+            let response = sent(&api, &ada.access, &workspace, &field, &value).await;
 
-            let at = format!(
-                "{} {} /{} {value:?}",
-                field.method, field.template, field.name
-            );
             assert_eq!(
                 response.status,
                 StatusCode::BAD_REQUEST,
-                "{at}: {}",
+                "{}: {}",
+                at(&value),
                 String::from_utf8_lossy(&response.body)
             );
             let refused: Vec<String> = response
@@ -484,14 +544,34 @@ async fn api_10_every_bound_of_a_json_body_s_field_refuses_a_value_outside_it_at
                 .into_iter()
                 .map(|(refused, _)| refused)
                 .collect();
-            assert!(
-                refused.contains(&format!("/{}", field.name)),
-                "{at}: {refused:?}"
-            );
-            sent += 1;
+            assert!(refused.contains(&pointer), "{}: {refused:?}", at(&value));
+            outside += 1;
         }
+        let Some(value) = at_its_bound(&field.field, field.address)
+            .filter(|_| !CHECKED_AGAINST_STATE.contains(&field.name.as_str()))
+        else {
+            continue;
+        };
+
+        let response = sent(&api, &ada.access, &workspace, &field, &value).await;
+
+        // A 400 that refuses other fields, such as the blank ones, or an answer of the request
+        // that the body's conversion took.
+        let errors = if response.status == StatusCode::BAD_REQUEST {
+            response.json()["errors"].clone()
+        } else {
+            Value::Null
+        };
+        let refused = errors
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|error| error["field"] == pointer.as_str());
+        assert!(!refused, "{}: {errors}", at(&value));
+        at_bounds += 1;
     }
-    assert!(sent >= 100, "only {sent} values");
+    assert!(outside >= 100, "only {outside} values outside the bounds");
+    assert!(at_bounds >= 50, "only {at_bounds} values at the bounds");
 }
 
 #[tokio::test]
@@ -692,6 +772,53 @@ async fn api_17_a_response_that_breaks_the_document_fails_the_test() {
         "the content type",
         "the documented header etag is missing",
         "isn't documented, so it must answer 405",
+        "so it must answer 404",
+    ];
+    for (refusal, expected) in refused.into_iter().zip(expected) {
+        let refusal = refusal.unwrap_or_default();
+        assert!(refusal.contains(expected), "{expected:?} in {refusal:?}");
+    }
+}
+
+#[tokio::test]
+async fn api_17_a_request_that_no_probe_and_no_reference_answers_must_get_the_router_s_answer() {
+    let api = Api::new().await;
+    let contract = api.contract();
+    // What the check panics with, given an answer of `method` and `path`, or none if it passes.
+    let refusal = |method: Method, path: &str, status, headers: &HeaderMap, body: &[u8]| {
+        let (contract, path) = (contract.clone(), path.to_owned());
+        let (headers, body) = (headers.clone(), body.to_vec());
+        panic::catch_unwind(move || contract.check(&method, &path, status, &headers, &body))
+            .err()
+            .map(message)
+    };
+    // The router's answers, beside a probe, to another method of a probe's path, and at the
+    // reference's path outside development.
+    let beside = api.get("/health/x").send().await;
+    let posted = api.request(Method::POST, "/health/live").send().await;
+    let reference = api.get("/docs").send().await;
+    let (get, ok) = (Method::GET, StatusCode::OK);
+
+    let probe = refusal(get.clone(), "/health/live", ok, &HeaderMap::new(), b"OK");
+    let refused = [
+        refusal(get.clone(), "/health/x", ok, &beside.headers, &beside.body),
+        refusal(
+            Method::POST,
+            "/health/live",
+            ok,
+            &posted.headers,
+            &posted.body,
+        ),
+        refusal(get, "/docs", ok, &reference.headers, &reference.body),
+    ];
+
+    assert_eq!(beside.status, StatusCode::NOT_FOUND);
+    assert_eq!(posted.status, StatusCode::METHOD_NOT_ALLOWED);
+    assert_eq!(reference.status, StatusCode::NOT_FOUND);
+    assert_eq!(probe, None);
+    let expected = [
+        "so it must answer 404",
+        "so it must answer 405",
         "so it must answer 404",
     ];
     for (refusal, expected) in refused.into_iter().zip(expected) {

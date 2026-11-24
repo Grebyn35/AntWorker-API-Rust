@@ -4,7 +4,7 @@
 
 use std::{
     io,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, mpsc},
     time::Duration,
 };
 
@@ -39,6 +39,35 @@ fn obs_05_events_from_other_crates_are_not_written() {
             .iter()
             .any(|line| line["message"] == "the tests wrote this")
     );
+}
+
+#[test]
+fn obs_02_a_line_written_while_another_thread_holds_a_scoped_dispatcher_carries_its_trace_id() {
+    testing::install(SERVICE).unwrap();
+    let (holding, held) = mpsc::channel();
+    let (release, released) = mpsc::channel::<()>();
+    // A thread that holds a dispatcher of its own, as a test of spans or of jobs holds one.
+    let other = std::thread::spawn(move || {
+        let scoped = tracing::subscriber::NoSubscriber::default();
+        tracing::subscriber::with_default(scoped, || {
+            holding.send(()).unwrap();
+            released.recv().unwrap_or_default();
+        });
+    });
+    held.recv().unwrap();
+
+    tracing::info_span!("request").in_scope(|| {
+        tracing::warn!("written while another thread holds a dispatcher");
+    });
+
+    release.send(()).unwrap();
+    other.join().unwrap();
+    let line = testing::logged_on_this_thread()
+        .into_iter()
+        .find(|line| line["message"] == "written while another thread holds a dispatcher")
+        .unwrap();
+    assert_eq!(line["trace_id"].as_str().map(str::len), Some(32), "{line}");
+    assert_eq!(line["span_id"].as_str().map(str::len), Some(16), "{line}");
 }
 
 #[tokio::test]

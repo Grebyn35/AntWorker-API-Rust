@@ -751,7 +751,7 @@
         "type": "string"
       },
       "EmailAddress": {
-        "format": "email",
+        "description": "An address that the HTML standard's `<input type=\"email\">` takes, trimmed and lowercased (ACCOUNTS-002).",
         "maxLength": 254,
         "minLength": 1,
         "type": "string"
