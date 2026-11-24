@@ -42,8 +42,9 @@ write_deploy_env() {
         if [ -f "$deployment/certs/backup-ca.crt" ]; then echo "BACKUP_CA_FILE=/etc/deployment-certs/backup-ca.crt"; fi
         # part: files
         if [ -f "$deployment/certs/files-ca.crt" ]; then echo "FILES_CA_FILE=/etc/deployment-certs/files-ca.crt"; fi
-        # How long the bytes of a file that no row names stay: the backups' reach with the bundled
-        # database, so a restore finds every file's bytes it brings back (FILES-011).
+        # How long the bytes of a file that no row names stay: the setting, or else the backups'
+        # reach with the bundled database, so a restore finds every file's bytes it brings back
+        # (FILES-011), and 35 days with a managed one.
         delay=$(setting FILE_DELETION_DELAY_DAYS)
         if [ -z "$delay" ] && [ "$database" = bundled ]; then delay=$(($(setting BACKUP_RETENTION_DAYS 28) + 7)); fi
         printf '%s\n' "FILE_DELETION_DELAY=${delay:-35}"

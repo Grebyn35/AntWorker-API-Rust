@@ -73,7 +73,7 @@ A batch of telemetry is the body that the OpenTelemetry Protocol defines, as Pro
 - Check: `ci: check-layers` (every type in a module's routes that derives `Deserialize` carries `#[serde(deny_unknown_fields)]`), plus `test`.
 
 ### API-09 Query parameters are strict
-Unknown query parameters are rejected with 400. Filters are explicit, named parameters. Booleans are `true` or `false`.
+Unknown query parameters are rejected with 400, except on the health probes (PLATFORM-038). Filters are explicit, named parameters. Booleans are `true` or `false`.
 - Why: a misspelled filter must never return unfiltered data (D8).
 - Check: `ci: check-layers` (the API-08 check covers query types), plus `test`.
 

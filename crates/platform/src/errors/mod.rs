@@ -139,8 +139,8 @@ impl<E: ErrorCode + 'static> IntoResponse for Problem<E> {
     }
 }
 
-/// The body of every error response, an RFC 9457 problem with the error's stable code and the
-/// request's trace ID (API-07).
+/// The body of an error response, as API-07 gives it: an RFC 9457 problem with the error's
+/// stable code and the request's trace ID.
 #[derive(Debug, Serialize, ToSchema)]
 #[schema(as = Problem, description = "An RFC 9457 problem, with the error's stable code and the request's trace ID.")]
 pub(crate) struct ProblemBody {

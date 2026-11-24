@@ -333,7 +333,8 @@ async fn client_telemetry_003_a_deletion_waits_for_a_choice_that_holds_the_conse
         .await;
 
     let mut deletion = api.spawn(Method::DELETE, "/v1/users/me", &ada.access, None);
-    // The erasure waits for the row, before the deletion of the user's row, which waits for no lock.
+    // The erasure waits for the row, before the deletion of the user's row, which waits for a lock
+    // only as long as ACCOUNTS-016 lets it.
     tokio::select! {
         () = query_waits_on_a_lock(db, "DELETE FROM telemetry_consents") => {}
         ended = &mut deletion => panic!("the deletion ended without waiting for the row: {ended:?}"),

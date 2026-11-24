@@ -31,7 +31,8 @@ pub enum MigrateError {
     /// statements applied (PLATFORM-005).
     #[error(
         "migrations {0} are marked to run outside a transaction, which only a migration that \
-         holds one `CREATE INDEX CONCURRENTLY IF NOT EXISTS <name> ON ...` and nothing else may"
+         holds one `CREATE [UNIQUE] INDEX CONCURRENTLY IF NOT EXISTS <name> ON ...` and nothing \
+         else may"
     )]
     OutsideTransaction(Versions),
     /// A migration or the bookkeeping around it failed.
