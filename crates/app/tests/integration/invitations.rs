@@ -9,7 +9,7 @@ use crate::support::{
     Api, Options,
     api::Response,
     execute_on,
-    invitations::{accept, accepting, invite},
+    invitations::{accept, accepting, decline, invite},
     mailbox, queries_wait_on_locks, query_waits_on_a_lock, streams,
     users::{self, SignedIn},
     workspaces,
@@ -24,17 +24,6 @@ async fn received(api: &Api, user: &SignedIn, query: &str) -> Value {
         .await;
     assert_eq!(response.status, 200);
     response.json()
-}
-
-/// Declines the invitation `id`, as `user`.
-async fn decline(api: &Api, user: &SignedIn, id: &str) -> Response {
-    api.request(
-        http::Method::POST,
-        &format!("/v1/users/me/invitations/{id}/decline"),
-    )
-    .bearer(&user.access)
-    .send()
-    .await
 }
 
 /// A workspace named Acme that `owner` owns, with `others` as its other members.

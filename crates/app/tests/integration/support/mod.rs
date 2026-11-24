@@ -931,22 +931,34 @@ pub async fn answer_before_a_lock_wait<T>(
     }
 }
 
+/// What `request` answers while a transaction of the test holds `sql`, such as a lock of what the
+/// request must not wait for, once it asserts that the request answered before a query of the
+/// test database waited on a lock, as [`answer_before_a_lock_wait`] tells.
+pub async fn answer_while_holding(
+    db: &TestDatabase,
+    sql: &str,
+    request: impl std::future::Future<Output = api::Response>,
+) -> api::Response {
+    let mut held = db.holding(sql).await;
+
+    let answer = answer_before_a_lock_wait(db, request).await;
+
+    execute_on(&mut held, "COMMIT").await;
+    assert!(answer.is_some(), "the request waited on a lock first");
+    answer.unwrap()
+}
+
 /// Sends `request`, one beyond its limit, while a transaction of the test holds `sql`, such as a
 /// lock of what the request must not read before it counts, and asserts that it answered 429
 /// `request.rate_limited` before a query of the test database waited on a lock, as
-/// [`answer_before_a_lock_wait`] tells.
+/// [`answer_while_holding`] tells.
 pub async fn limited_while_holding(
     db: &TestDatabase,
     sql: &str,
     request: impl std::future::Future<Output = api::Response>,
 ) {
-    let mut held = db.holding(sql).await;
+    let refused = answer_while_holding(db, sql, request).await;
 
-    let refused = answer_before_a_lock_wait(db, request).await;
-
-    execute_on(&mut held, "COMMIT").await;
-    assert!(refused.is_some(), "the request waited on a lock first");
-    let refused = refused.unwrap();
     assert_eq!(refused.status, 429, "{}", refused.json());
     assert_eq!(refused.json()["code"], "request.rate_limited");
 }

@@ -5,7 +5,7 @@ use platform::telemetry::testing::collector::Collector;
 use serde_json::json;
 
 use crate::support::{
-    Api, Options, TestDatabase, answer_before_a_lock_wait,
+    Api, Options, TestDatabase, answer_while_holding,
     api::Response,
     execute_on, limited_while_holding, query_waits_on_a_lock,
     users::{self, PASSWORD, sign_in_from, signing_in},
@@ -309,21 +309,14 @@ async fn sec_05_a_wrong_password_answers_401_while_another_transaction_holds_the
 {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
-    let db = api.database();
-    let mut held = users::holding_identities(db, &ada).await;
 
-    let answer = answer_before_a_lock_wait(
-        db,
+    let answer = answer_while_holding(
+        api.database(),
+        &users::identities_lock(&ada),
         users::sign_in(&api, "ada@example.com", "wrong-password-123"),
     )
     .await;
 
-    execute_on(&mut held, "COMMIT").await;
-    assert!(
-        answer.is_some(),
-        "the sign-in waited for the identity's lock"
-    );
-    let answer = answer.unwrap();
     assert_eq!(answer.status, 401, "{}", answer.json());
     assert_eq!(answer.json()["code"], "auth.invalid_credentials");
 }

@@ -1,5 +1,5 @@
-//! Inviting, as a member's request does, accepting, as the invitee's request does, and an
-//! invitation's row, through the `owner` connection (TEST-09).
+//! Inviting, as a member's request does, accepting and declining, as the invitee's requests do,
+//! and an invitation's row, through the `owner` connection (TEST-09).
 
 use serde_json::json;
 
@@ -27,6 +27,17 @@ pub async fn accept(api: &Api, user: &SignedIn, id: &str) -> Response {
     api.request(
         http::Method::POST,
         &format!("/v1/users/me/invitations/{id}/accept"),
+    )
+    .bearer(&user.access)
+    .send()
+    .await
+}
+
+/// Declines the invitation `id`, as `user`.
+pub async fn decline(api: &Api, user: &SignedIn, id: &str) -> Response {
+    api.request(
+        http::Method::POST,
+        &format!("/v1/users/me/invitations/{id}/decline"),
     )
     .bearer(&user.access)
     .send()

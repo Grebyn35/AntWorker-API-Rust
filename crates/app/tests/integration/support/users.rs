@@ -492,15 +492,20 @@ pub async fn stopped_lasting(api: &Api, user: &SignedIn) {
         .await;
 }
 
-/// A connection as `owner` that holds the rows of `user`'s identities locked, as a sign-in of
-/// theirs locks their password identity, in a transaction that the test ends with
-/// [`execute_on`], so that what locks one of the rows meanwhile waits for it.
-pub async fn holding_identities(db: &TestDatabase, user: &SignedIn) -> PgConnection {
-    db.holding(&format!(
+/// The statement that locks the rows of `user`'s identities, as a sign-in of theirs locks their
+/// password identity.
+pub fn identities_lock(user: &SignedIn) -> String {
+    format!(
         "SELECT 1 FROM identities WHERE user_id = '{}' FOR UPDATE",
         user.user_id
-    ))
-    .await
+    )
+}
+
+/// A connection as `owner` that holds the rows of `user`'s identities locked, as
+/// [`identities_lock`] locks them, in a transaction that the test ends with [`execute_on`], so
+/// that what locks one of the rows meanwhile waits for it.
+pub async fn holding_identities(db: &TestDatabase, user: &SignedIn) -> PgConnection {
+    db.holding(&identities_lock(user)).await
 }
 
 /// How many passwords the request of each of `traces` verified, by the `verify_password` spans of

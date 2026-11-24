@@ -5,7 +5,7 @@
 use serde_json::{Value, json};
 
 use crate::support::{
-    Api, Options, answer_before_a_lock_wait,
+    Api, Options, answer_while_holding,
     api::Response,
     closed_port, execute_on, limited_while_holding, mailbox,
     password_reset::{ask, code_sent},
@@ -678,23 +678,18 @@ async fn sec_05_a_wrong_reset_code_answers_401_while_another_transaction_holds_t
     let ada = users::register(&api, &address).await;
     ask(&api, &address).await;
     let wrong = mailbox::other_grouped_code(&code_sent(&api, &address).await);
-    let db = api.database();
+
     // Held as a confirmation whose code matched holds it until it commits.
-    let mut held = db
-        .holding(&format!(
+    let answer = answer_while_holding(
+        api.database(),
+        &format!(
             "SELECT 1 FROM users WHERE id = '{}' FOR NO KEY UPDATE",
             ada.user_id
-        ))
-        .await;
+        ),
+        confirm(&api, &address, &wrong),
+    )
+    .await;
 
-    let answer = answer_before_a_lock_wait(db, confirm(&api, &address, &wrong)).await;
-
-    execute_on(&mut held, "COMMIT").await;
-    assert!(
-        answer.is_some(),
-        "the confirmation waited for the account's lock"
-    );
-    let answer = answer.unwrap();
     assert_eq!(answer.status, 401, "{}", answer.json());
     assert_eq!(answer.json()["code"], "auth.invalid_reset_code");
 }
