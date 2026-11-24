@@ -56,14 +56,19 @@ async fn jobs(db: &TestDatabase, column: &str) -> Vec<String> {
 /// A mail server on a port of its own that refuses every recipient with a permanent reply,
 /// which quotes the recipient's address, as many servers' replies do.
 async fn refusing_server() -> SocketAddr {
-    scripted_server("220 refusing ESMTP", |_| "550 5.1.1").await
+    scripted_server("220 refusing ESMTP", None, |_| "550 5.1.1").await
 }
 
-/// A mail server on a port of its own that greets with `greeting`, offers no extension, such as
-/// STARTTLS, and answers each recipient with what `refusal` gives for the recipient as the
-/// command names it, such as `<ada@example.com>`: a reply's code and its enhanced code, which the
-/// recipient follows.
-async fn scripted_server(greeting: &'static str, refusal: fn(&str) -> &'static str) -> SocketAddr {
+/// A mail server on a port of its own that greets with `greeting`, offers no extension but
+/// STARTTLS, and that only when `starttls` gives the reply with which it answers the command, and
+/// answers each recipient with what `refusal` gives for the recipient as the command names it,
+/// such as `<ada@example.com>`: a reply's code and its enhanced code, which the recipient
+/// follows.
+async fn scripted_server(
+    greeting: &'static str,
+    starttls: Option<&'static str>,
+    refusal: fn(&str) -> &'static str,
+) -> SocketAddr {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     tokio::spawn(async move {
@@ -77,8 +82,13 @@ async fn scripted_server(greeting: &'static str, refusal: fn(&str) -> &'static s
                     .unwrap();
                 while let Ok(Some(line)) = lines.next_line().await {
                     let upper = line.to_ascii_uppercase();
-                    let reply = if upper.starts_with("EHLO") || upper.starts_with("HELO") {
+                    let reply = if upper.starts_with("EHLO") && starttls.is_some() {
+                        "250-scripted\r\n250 STARTTLS\r\n".to_owned()
+                    } else if upper.starts_with("EHLO") || upper.starts_with("HELO") {
                         "250 scripted\r\n".to_owned()
+                    } else if let Some(answer) = starttls.filter(|_| upper.starts_with("STARTTLS"))
+                    {
+                        format!("{answer}\r\n")
                     } else if upper.starts_with("RCPT TO:") {
                         let recipient = &line[8..];
                         format!("{} {recipient} no such user\r\n", refusal(recipient))
@@ -524,9 +534,9 @@ async fn platform_105_a_send_the_server_takes_counts_as_sent_by_a_job_and_by_sen
 }
 
 #[tokio::test]
-async fn platform_105_a_reply_from_400_to_599_but_421_counts_as_refused() {
+async fn platform_105_a_reply_from_400_to_599_but_421_and_454_counts_as_refused() {
     // It defers the recipient whose address starts with `deferred`, and rejects the other.
-    let server = scripted_server("220 refusing ESMTP", |recipient| {
+    let server = scripted_server("220 refusing ESMTP", None, |recipient| {
         if recipient.starts_with("<deferred") {
             "451 4.3.0"
         } else {
@@ -555,10 +565,14 @@ async fn platform_105_a_reply_from_400_to_599_but_421_counts_as_refused() {
 #[tokio::test]
 async fn platform_105_a_send_that_no_server_serves_counts_as_unavailable() {
     let closed = support::closed_port().await.port().to_string();
-    let down = scripted_server("421 4.3.2 the service isn't available", |_| "550 5.1.1")
-        .await
-        .port()
-        .to_string();
+    let down = scripted_server(
+        "421 4.3.2 the service isn't available",
+        None,
+        |_| "550 5.1.1",
+    )
+    .await
+    .port()
+    .to_string();
     let plain = refusing_server().await.port().to_string();
     // The settings of each `serve`, which reads one mail server.
     let servers = [
@@ -592,6 +606,54 @@ async fn platform_105_a_send_that_no_server_serves_counts_as_unavailable() {
         counted,
         [["unavailable 1"], ["unavailable 1"], ["unavailable 1"]]
     );
+}
+
+#[tokio::test]
+async fn platform_105_a_reply_of_454_counts_as_unavailable_to_starttls_as_to_a_recipient() {
+    // RFC 3207's reply to STARTTLS when TLS isn't available for now.
+    let no_tls = scripted_server(
+        "220 scripted ESMTP",
+        Some("454 4.7.0 TLS not available due to temporary reason"),
+        |_| "550 5.1.1",
+    )
+    .await
+    .port()
+    .to_string();
+    let deferring = scripted_server("220 scripted ESMTP", None, |_| "454 4.7.1")
+        .await
+        .port()
+        .to_string();
+    // The settings of each `serve`, which reads one mail server.
+    let servers = [
+        vec![
+            ("SMTP_PORT", no_tls.as_str()),
+            ("SMTP_SECURITY", "starttls"),
+        ],
+        vec![("SMTP_PORT", deferring.as_str())],
+    ];
+    let mut databases = Vec::new();
+    for _ in &servers {
+        let db = TestDatabase::migrated().await;
+        enqueue(&db, &mailbox::address("unavailable")).await;
+        databases.push(db);
+    }
+
+    let counted = futures_util::future::join_all(
+        databases
+            .iter()
+            .zip(&servers)
+            .map(|(db, env)| sends_counted(db, env)),
+    )
+    .await;
+
+    for db in &databases {
+        // The reply retries its job (PLATFORM-021).
+        assert_eq!(
+            jobs(db, "state::text || ' ' || attempts || ' ' || failure").await,
+            ["waiting 1 internal error: the mail server replied 454"]
+        );
+    }
+    assert_eq!(counted, [["unavailable 1"], ["unavailable 1"]]);
 }
 
 #[tokio::test]

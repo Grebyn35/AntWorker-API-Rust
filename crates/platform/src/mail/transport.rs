@@ -32,10 +32,12 @@ static SENDS: Counter<1> = Counter::new(
     "platform.mail_sends",
     "{send}",
     "Sends of emails to the mail server, by how each ended: sent, when the server took the \
-     email, refused, when it answered with a reply from 400 to 599 other than 421, or \
+     email, refused, when it answered with a reply from 400 to 599 other than 421 and 454, or \
      unavailable, for any other failure, such as a connection that didn't open, a reply of 421, \
-     that its service isn't available, or a send that took longer than its 30 seconds. An email \
-     that reaches no server, as one the API can't build, counts in none (PLATFORM-105).",
+     that its service isn't available, a reply of 454 to any command, which a request to upgrade \
+     the connection to TLS gets when TLS isn't available for now, or a send that took longer than \
+     its 30 seconds. An email that reaches no server, as one the API can't build, counts in none \
+     (PLATFORM-105).",
     [names::MAIL_OUTCOME],
 );
 
@@ -169,12 +171,13 @@ fn count(outcome: &'static str) {
 }
 
 /// How a send that failed with `error` counts (PLATFORM-105): as refused when the server
-/// answered with a reply from 400 to 599 other than 421, and as unavailable otherwise, a reply
-/// of 421 among them, by which the server says that its service isn't available.
+/// answered with a reply from 400 to 599 other than 421 and 454, and as unavailable otherwise,
+/// among them a reply of 421, by which the server says that its service isn't available, and
+/// one of 454 to any command, which `STARTTLS` gets when TLS isn't available for now.
 fn outcome(error: &lettre::transport::smtp::Error) -> &'static str {
     match error.status().map(u16::from) {
-        Some(code) if code != 421 => "refused",
-        _ => "unavailable",
+        Some(421 | 454) | None => "unavailable",
+        Some(_) => "refused",
     }
 }
 

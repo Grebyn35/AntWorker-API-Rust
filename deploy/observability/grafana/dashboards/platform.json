@@ -608,7 +608,7 @@
     {
       "type": "timeseries",
       "title": "Does the mail server answer?",
-      "description": "Sends of emails to the mail server in the last 5 minutes, by a job of platform.send_email or by a module's job that sends an email at once, by how each ended: sent, when the server took the email, refused, when it answered with a reply from 400 to 599 other than 421, or unavailable, for any other failure, such as a connection that didn't open, a reply of 421, or a send that took longer than its 30 seconds (PLATFORM-105). Unavailable sends, with none taken or refused for 20 minutes, are the alert MailServerUnreachable.",
+      "description": "Sends of emails to the mail server in the last 5 minutes, by a job of platform.send_email or by a module's job that sends an email at once, by how each ended: sent, when the server took the email, refused, when it answered with a reply from 400 to 599 other than 421 and 454, or unavailable, for any other failure, such as a connection that didn't open, a reply of 421, a reply of 454 to any command, such as a request to upgrade the connection to TLS, or a send that took longer than its 30 seconds (PLATFORM-105). Unavailable sends, with none taken or refused for 20 minutes, are the alert MailServerUnreachable.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
