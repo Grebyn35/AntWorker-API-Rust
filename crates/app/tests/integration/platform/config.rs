@@ -173,6 +173,48 @@ fn ops_01_each_number_setting_is_refused_just_outside_its_range() {
     }
 }
 
+/// Each of the numbers that OPS-01 lists, written with a sign and with a leading zero, is
+/// refused: each setting of `.env.example` whose type is a whole number, at the least of its
+/// range, and, at 1, the version that encrypts, a version of the key ring, and each port of an
+/// address.
+#[test]
+fn ops_01_each_number_that_a_setting_holds_refuses_a_sign_and_a_leading_zero() {
+    let (_, key) = api::KEY_RING.split_once(':').unwrap();
+    let mut refused = Vec::new();
+    for (name, low, high) in ranged_settings() {
+        let refusal = format!("{name} must be a whole number from {low} to {high}");
+        for value in [format!("+{low}"), format!("0{low}")] {
+            refused.push((Options::default().set(&name, value), refusal.clone()));
+        }
+    }
+    for written in ["+1", "01"] {
+        refused.push((
+            Options::default().set("ENCRYPTION_KEY_VERSION", written),
+            "ENCRYPTION_KEY_VERSION must be one of the versions of ENCRYPTION_KEYS".to_owned(),
+        ));
+        refused.push((
+            Options::default().set("ENCRYPTION_KEYS", format!("{written}:{key}")),
+            "ENCRYPTION_KEYS must be keys separated by commas, each a version from 1 to 32767, a \
+             colon and the base64 of 32 random bytes, such as 1:<key>, with no version twice"
+                .to_owned(),
+        ));
+        refused.push((
+            Options::default().set("LISTEN_ADDR", format!("127.0.0.1:{written}")),
+            "LISTEN_ADDR must be a socket address such as 0.0.0.0:8080".to_owned(),
+        ));
+        // part: files
+        refused.push((
+            Options::default().set("CLAMD_ADDRESS", format!("127.0.0.1:{written}")),
+            "CLAMD_ADDRESS must be a host and a port, such as scanner:3310".to_owned(),
+        ));
+        // end part: files
+    }
+
+    for (options, refusal) in &refused {
+        assert_eq!(&api::refusal(options), refusal, "{:?}", options.settings);
+    }
+}
+
 /// Each setting of `.env.example` whose `Type:` line, a whole number's, holds `Optional, default `
 /// then digits that a `.` or a `,` ends, with those digits.
 #[expect(

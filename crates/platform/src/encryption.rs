@@ -10,7 +10,7 @@ use aes_gcm::{
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 
-use crate::{errors::Internal, random, types::Secret};
+use crate::{config::whole_number, errors::Internal, random, types::Secret};
 
 /// How many bytes a key holds: AES-256's.
 pub const KEY_BYTES: usize = 32;
@@ -39,13 +39,14 @@ pub enum KeyringError {
 }
 
 impl Keyring {
-    /// The ring of `keys`, such as `1:<base64>,2:<base64>`, in which `current` encrypts, or the
-    /// highest version when it is `None` (PLATFORM-086).
+    /// The ring of `keys`, such as `1:<base64>,2:<base64>`, each version in digits alone, with no
+    /// sign and no leading zero (OPS-01), in which `current` encrypts, or the highest version when
+    /// it is `None` (PLATFORM-086).
     pub fn parse(keys: &str, current: Option<i16>) -> Result<Self, KeyringError> {
         let mut ring = BTreeMap::new();
         for entry in keys.split(',') {
             let (version, key) = entry.trim().split_once(':').ok_or(KeyringError::Keys)?;
-            let version: i16 = version.trim().parse().map_err(|_| KeyringError::Keys)?;
+            let version: i16 = whole_number(version.trim()).ok_or(KeyringError::Keys)?;
             if version < 1 {
                 return Err(KeyringError::Keys);
             }

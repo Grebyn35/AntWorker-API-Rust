@@ -3,7 +3,7 @@
 
 use std::{ffi::OsString, io, path::Path};
 
-use super::{ConfigError, Problem, Settings};
+use super::{ConfigError, Problem, Settings, numbers::whole_number};
 use crate::encryption::{Keyring, KeyringError};
 
 /// What `ENCRYPTION_KEYS` must be, as its refusal says it.
@@ -21,9 +21,11 @@ where
     /// The ring of `ENCRYPTION_KEYS`, in which `ENCRYPTION_KEY_VERSION` encrypts, or the highest
     /// version when it is unset (PLATFORM-086).
     pub(super) fn keyring(&self) -> Result<Keyring, ConfigError> {
-        let current = self.optional_with("ENCRYPTION_KEY_VERSION", VERSION_EXPECTED, |value| {
-            value.parse::<i16>().ok()
-        })?;
+        let current = self.optional_with(
+            "ENCRYPTION_KEY_VERSION",
+            VERSION_EXPECTED,
+            whole_number::<i16>,
+        )?;
         let keys = self.with("ENCRYPTION_KEYS", KEYS_EXPECTED, |value| {
             Some(value.to_owned())
         })?;

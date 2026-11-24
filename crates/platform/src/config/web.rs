@@ -1,13 +1,21 @@
-//! The settings of the API's web clients and of the requests that reach it: the origins of web
-//! clients, the proxies in front of it, the key of its keyed hashes, and its rate limits.
+//! The settings of the API's web clients and of the requests that reach it: the address it
+//! listens on, the origins of web clients, the proxies in front of it, the key of its keyed
+//! hashes, and its rate limits.
 
-use std::{ffi::OsString, fmt, io, net::IpAddr, path::Path, str::FromStr, time::Duration};
+use std::{
+    ffi::OsString,
+    fmt, io,
+    net::{IpAddr, SocketAddr},
+    path::Path,
+    str::FromStr,
+    time::Duration,
+};
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use ipnet::IpNet;
 use url::{Host, Url};
 
-use super::{ConfigError, Environment, Settings};
+use super::{ConfigError, Environment, Settings, numbers::whole_number};
 use crate::hashing::{self, HmacKey};
 
 /// The limits on the requests of one client IP, and of one user (PLATFORM-054).
@@ -65,6 +73,14 @@ where
             window: self.duration("RATE_LIMIT_WINDOW_SECONDS", 60, 1..=86_400)?,
         })
     }
+}
+
+/// The socket address in `value`, such as `0.0.0.0:8080`, whose port is written as
+/// [`whole_number`] reads one.
+pub(super) fn listen_address(value: &str) -> Option<SocketAddr> {
+    let (_, port) = value.rsplit_once(':')?;
+    whole_number::<u16>(port)?;
+    value.parse().ok()
 }
 
 /// The origin of a web client, such as `https://app.example.com` (PLATFORM-058): a scheme, a

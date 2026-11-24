@@ -3,7 +3,7 @@
 
 use std::{ffi::OsString, io, path::Path};
 
-use super::{ConfigError, Settings};
+use super::{ConfigError, Settings, numbers::whole_number};
 use crate::scanner::ScannerConfig;
 
 const ADDRESS_EXPECTED: &str = "a host and a port, such as scanner:3310";
@@ -20,7 +20,8 @@ where
     }
 }
 
-/// The host and the port that `value` names, if it names both.
+/// The host and the port that `value` names, if it names both, the port as [`whole_number`]
+/// reads one.
 fn address(value: &str) -> Option<ScannerConfig> {
     let (host, port) = value.rsplit_once(':')?;
     let host = match host.strip_prefix('[') {
@@ -28,7 +29,7 @@ fn address(value: &str) -> Option<ScannerConfig> {
         None if host.contains(':') => return None,
         None => host,
     };
-    let port: u16 = port.parse().ok().filter(|port| *port > 0)?;
+    let port = whole_number::<u16>(port).filter(|port| *port > 0)?;
     let valid = !host.is_empty()
         && host
             .chars()

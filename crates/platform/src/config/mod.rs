@@ -21,6 +21,7 @@ mod web;
 
 pub use error::ConfigError;
 use error::Problem;
+pub(crate) use numbers::whole_number;
 
 use ipnet::IpNet;
 
@@ -297,7 +298,9 @@ where
         }
         Ok(TelemetryConfig {
             environment: self.required("ENVIRONMENT", "development, test or production")?,
-            level: self.optional("LOG_LEVEL", LogLevel::Info, "info, debug or trace")?,
+            level: self
+                .parsed("LOG_LEVEL", "info, debug or trace")?
+                .unwrap_or(LogLevel::Info),
             otlp_endpoint: self.parsed("OTEL_EXPORTER_OTLP_ENDPOINT", OTLP_ENDPOINT_EXPECTED)?,
         })
     }
@@ -313,7 +316,7 @@ where
         let environment = self.required("ENVIRONMENT", "development, test or production")?;
         Ok(ServerConfig {
             environment,
-            listen_addr: self.required("LISTEN_ADDR", LISTEN_ADDR_EXPECTED)?,
+            listen_addr: self.with("LISTEN_ADDR", LISTEN_ADDR_EXPECTED, web::listen_address)?,
             database_url: self.database_url("DATABASE_URL")?,
             database_max_connections: self.number("DATABASE_MAX_CONNECTIONS", 10, 1..=1000)?,
             max_concurrent_requests: self.number("MAX_CONCURRENT_REQUESTS", 100, 1..=100_000)?,
@@ -378,7 +381,7 @@ where
     /// The settings for `health`.
     pub fn health(&self) -> Result<HealthConfig, ConfigError> {
         Ok(HealthConfig {
-            listen_addr: self.required("LISTEN_ADDR", LISTEN_ADDR_EXPECTED)?,
+            listen_addr: self.with("LISTEN_ADDR", LISTEN_ADDR_EXPECTED, web::listen_address)?,
         })
     }
 
@@ -424,15 +427,6 @@ where
     fn required<T: FromStr>(&self, name: &str, expected: &'static str) -> Result<T, ConfigError> {
         self.parsed(name, expected)?
             .ok_or_else(|| ConfigError::new(name, Problem::Missing))
-    }
-
-    fn optional<T: FromStr>(
-        &self,
-        name: &str,
-        default: T,
-        expected: &'static str,
-    ) -> Result<T, ConfigError> {
-        Ok(self.parsed(name, expected)?.unwrap_or(default))
     }
 
     fn parsed<T: FromStr>(

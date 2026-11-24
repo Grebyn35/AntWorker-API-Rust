@@ -1,8 +1,10 @@
 //! Health probes and readiness (OPS-05), the probe that `health` sends (PLATFORM-063), the
-//! bounded shutdown (OPS-06), and the startup-failure format (OPS-03).
+//! bounded shutdown (OPS-06), the async runtime that a subcommand runs on, and the
+//! startup-failure format (OPS-03).
 
 use std::{
     error::Error,
+    ffi::OsStr,
     io::{self, Read, Write},
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpStream},
     sync::{
@@ -17,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use tokio::{
     net::TcpListener,
+    runtime::Runtime,
     sync::{Notify, watch},
     task::JoinError,
 };
@@ -329,6 +332,35 @@ fn joined(result: Result<io::Result<()>, JoinError>) -> io::Result<()> {
     result.map_err(io::Error::other)?
 }
 
+/// Why the async runtime of a subcommand wasn't built.
+#[derive(Debug, thiserror::Error)]
+pub enum RuntimeError {
+    /// `TOKIO_WORKER_THREADS` names no count of worker threads that tokio takes.
+    #[error("TOKIO_WORKER_THREADS must be a whole number above 0, or unset")]
+    WorkerThreads,
+    /// The runtime didn't start.
+    #[error(transparent)]
+    Build(#[from] io::Error),
+}
+
+/// The multi-threaded async runtime that a subcommand runs on, with as many worker threads as
+/// `worker_threads`, the value of `TOKIO_WORKER_THREADS`, names, as tokio reads that variable,
+/// or as many as tokio gives a runtime without it when it is `None`. A value on which tokio's
+/// own reading of the variable panics fails the runtime instead: one that isn't Unicode, or that
+/// `usize`'s parser reads as no whole number above 0, such as an empty one (OPS-03).
+pub fn runtime(worker_threads: Option<&OsStr>) -> Result<Runtime, RuntimeError> {
+    let mut builder = tokio::runtime::Builder::new_multi_thread();
+    if let Some(value) = worker_threads {
+        let count = value
+            .to_str()
+            .and_then(|text| text.parse::<usize>().ok())
+            .filter(|count| *count > 0)
+            .ok_or(RuntimeError::WorkerThreads)?;
+        builder.worker_threads(count);
+    }
+    Ok(builder.enable_all().build()?)
+}
+
 /// Logs a startup failure through the logging setup: one `ERROR` event with the message
 /// `startup failed`, the part of startup that failed, and the cause chain (OPS-03).
 pub fn report_startup_failure(area: &str, error: &(dyn Error + 'static)) {
@@ -530,5 +562,42 @@ mod tests {
                 &error
             ))
         );
+    }
+
+    /// A value of `TOKIO_WORKER_THREADS` that isn't Unicode.
+    fn not_unicode() -> std::ffi::OsString {
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStringExt;
+            std::ffi::OsString::from_vec(vec![b'4', 0x80])
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::ffi::OsStringExt;
+            std::ffi::OsString::from_wide(&[u16::from(b'4'), 0xD800])
+        }
+    }
+
+    #[test]
+    fn ops_03_a_count_of_worker_threads_that_tokio_panics_on_fails_the_runtime_without_a_panic() {
+        let refused = ["", "0", "-1", "x", " 4", "4.0"].map(std::ffi::OsString::from);
+
+        for value in refused.into_iter().chain([not_unicode()]) {
+            let built = runtime(Some(&value));
+
+            assert!(
+                matches!(built, Err(RuntimeError::WorkerThreads)),
+                "{value:?}: {built:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn ops_03_a_count_of_worker_threads_that_tokio_takes_is_the_runtime_s() {
+        for (value, count) in [("4", 4), ("+2", 2), ("03", 3)] {
+            let built = runtime(Some(OsStr::new(value))).unwrap();
+
+            assert_eq!(built.metrics().num_workers(), count, "{value}");
+        }
     }
 }

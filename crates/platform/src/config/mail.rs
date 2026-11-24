@@ -1,6 +1,6 @@
 //! The email settings (PLATFORM-024), which `serve` reads with the rest of its settings.
 
-use std::{ffi::OsString, io, path::Path};
+use std::{ffi::OsString, io, net::IpAddr, path::Path};
 
 use lettre::message::Mailbox;
 
@@ -25,9 +25,7 @@ where
         if !on {
             return Ok(MailConfig::Off);
         }
-        let host = self.with("SMTP_HOST", "a host name or an IP address", |value| {
-            url::Host::parse(value).ok().map(|_| value.to_owned())
-        })?;
+        let host = self.with("SMTP_HOST", "a host name or an IP address", host)?;
         let security = self
             .optional_with(
                 "SMTP_SECURITY",
@@ -74,6 +72,19 @@ where
             from,
         }))
     }
+}
+
+/// The mail server's host in `value`, kept as written, which lettre connects to, and names to TLS
+/// when the connection uses it: a name or an IPv4 address, as a URL's host is read, or an IP
+/// address as the standard library reads one, an IPv6 address among them, without the brackets
+/// that a URL puts around it.
+fn host(value: &str) -> Option<String> {
+    let address = value.parse::<IpAddr>().is_ok();
+    let named = matches!(
+        url::Host::parse(value),
+        Ok(url::Host::Domain(_) | url::Host::Ipv4(_))
+    );
+    (address || named).then(|| value.to_owned())
 }
 
 /// The setting `setting` must be `expected`, as another setting decides.
@@ -217,5 +228,32 @@ mod tests {
             .unwrap()
             .starts_with("EMAIL_FROM must be a name and an address")
         );
+    }
+
+    #[test]
+    fn platform_024_the_host_is_a_name_or_an_ip_address_an_ipv6_one_without_brackets() {
+        let host = |host: &'static str| {
+            read(&[
+                ("EMAIL", "smtp"),
+                ("SMTP_HOST", host),
+                ("EMAIL_FROM", "a@example.com"),
+            ])
+        };
+
+        for taken in ["smtp.example.com", "192.0.2.25", "::1", "2001:db8::25"] {
+            let kept = match host(taken) {
+                Ok(MailConfig::Smtp(smtp)) => smtp.host,
+                Ok(MailConfig::Off) => "off".to_owned(),
+                Err(error) => error,
+            };
+            assert_eq!(kept, taken);
+        }
+        for refused in ["[::1]", "[2001:db8::25]"] {
+            assert_eq!(
+                host(refused).err().unwrap(),
+                "SMTP_HOST must be a host name or an IP address",
+                "{refused}"
+            );
+        }
     }
 }

@@ -134,10 +134,7 @@ where
         Ok(telemetry) => telemetry,
         Err(error) => return failed_before_logging(environment, "telemetry", &error),
     };
-    let code = match tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-    {
+    let code = match lifecycle::runtime(std::env::var_os("TOKIO_WORKER_THREADS").as_deref()) {
         Ok(runtime) => runtime.block_on(task(config)),
         Err(error) => failed("runtime", &error),
     };

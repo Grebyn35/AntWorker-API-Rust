@@ -80,6 +80,36 @@ async fn ops_03_a_logged_startup_failure_is_one_error_line_and_exit_code_1() {
 }
 
 #[tokio::test]
+async fn ops_03_a_count_of_worker_threads_that_tokio_panics_on_fails_startup_with_exit_code_1() {
+    // A database that `migrate` never reaches: the runtime it would connect on isn't built.
+    let settings = [
+        ("ENVIRONMENT", "production"),
+        (
+            "DATABASE_OWNER_URL",
+            "postgres://owner:secret@127.0.0.1:9/api",
+        ),
+        ("TOKIO_WORKER_THREADS", "0"),
+    ];
+
+    let output = run_binary(&["migrate"], &settings).await;
+
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let errors: Vec<Value> = stdout
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .filter(|line| line["level"] == "ERROR")
+        .collect();
+    assert_eq!(errors.len(), 1, "{stdout}");
+    assert_eq!(errors[0]["message"], "startup failed");
+    assert_eq!(errors[0]["startup.area"], "runtime");
+    assert_eq!(
+        errors[0]["exception.message"],
+        "TOKIO_WORKER_THREADS must be a whole number above 0, or unset"
+    );
+}
+
+#[tokio::test]
 async fn ops_03_a_subcommand_that_an_operator_runs_logs_what_it_did_as_one_info_line() {
     let api = Api::without_email().await;
     let ada = users::register(&api, "ada@example.com").await;

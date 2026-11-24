@@ -8,10 +8,14 @@ Configuration, background jobs, runtime behavior, CI, releases, deploys, backups
 `platform::config` loads every setting once at startup into typed values:
 - Values are trimmed, and an empty value counts as unset.
 - A setting can be read from a file named by `<NAME>_FILE` (SEC-01).
-- A number is written in digits alone, with no sign and no leading zero, and is range-checked, a number that another setting bounds is refused beyond it, such as an access token's lifetime beyond its refresh token's (AUTH-007), and unknown values for a closed set are errors.
+- Each of these numbers is written in digits alone, with no sign and no leading zero, and is range-checked: a setting that `.env.example` types as a whole number, `ENCRYPTION_KEY_VERSION`, a version of `ENCRYPTION_KEYS`, and the port of `LISTEN_ADDR`.
+  So is the port of `CLAMD_ADDRESS`. <!-- part: files -->
+- A number that another setting bounds is refused beyond it, such as an access token's lifetime beyond its refresh token's (AUTH-007), and unknown values for a closed set are errors.
 - Required settings have no defaults. `ENVIRONMENT` is required.
 - Why: a misconfiguration fails at startup, never in the middle of a request (D9).
-- Check: `test` (a test reads each whole number's range from `.env.example`, and refuses the values just outside it, and the test of each bounded pair, such as AUTH-007's, refuses a value beyond its bound), plus `review` (which settings another bounds).
+- Check: `test`, plus `review`, each for what its item below says.
+  - `test`: a test reads each whole number's range from `.env.example`, and refuses the values just outside it; a test refuses each of the numbers above written with a sign, and with a leading zero; a test refuses a line of the sources of `platform::config` and of `encryption.rs` that parses an integer outside `numbers.rs`, where `whole_number` reads those numbers, as the doc of [`integer_parses`](../../crates/platform/src/config/numbers.rs) says it reads one; and the test of each bounded pair, such as AUTH-007's, refuses a value beyond its bound.
+  - `review`: which settings another bounds, and a reader of a number that the test of the sources doesn't read.
 
 ### OPS-02 Every setting earns its place and is documented
 A setting exists only if two deployments would set it differently, such as a URL, a credential, a capacity or a feature switch. A value every deployment would share is a constant in code. Every setting of the API appears in `.env.example`, but those that only the test environment may set, which the test support sets: the outbound clients' `OUTBOUND_TEST_ORIGIN`, which startup refuses in any other environment (SEC-10), and the stand-in providers' `STAND_IN_` settings, which only the tests' build reads ([auth spec](../spec/auth.md#signing-in-through-a-provider)). Every setting of the reference deployment appears in `deploy/settings.env.example`, each with its type, default and meaning, but the API's settings under a comment that points to `.env.example`, which gives theirs. Compose passes each container only the settings it reads, and a fingerprint of files it mounts, by which a deploy recreates it.
