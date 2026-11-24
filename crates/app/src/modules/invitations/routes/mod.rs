@@ -8,7 +8,7 @@ use platform::{
     authn::Principal,
     authz::Authorize,
     errors::{Problem, RequestError},
-    http::{FieldErrors, Idempotent, PathIds, Query, ResourceResponse, Routes},
+    http::{FieldErrors, Idempotent, IfMatch, PathIds, Query, ResourceResponse, Routes},
     idempotency::IdempotencyKey,
     lists::{Cursor, Limit, List, Page, Search},
     rate_limit::RateLimits,
@@ -89,12 +89,14 @@ impl TryFrom<InviteRequest> for NewInvitation {
         ("workspace_id" = WorkspaceId, Path, description = "The workspace."),
         ("Idempotency-Key" = inline(Option<IdempotencyKey>), Header,
             description = "A key of the caller's own, as a quoted string, so a retry invites once (API-12)."),
+        ("If-Match" = Option<String>, Header,
+            description = "The `ETag` of the version of the address's invitation that the client refreshes, so that the refresh fails rather than overwrite a change made since the client read it, and creates no invitation where the address holds none (API-13)."),
     ),
     responses(
         (status = 201, description = "The new invitation.", body = Invitation,
             headers(
                 ("location" = String, description = "The new invitation: `/v1/workspaces/{workspace_id}/invitations/{id}`."),
-                ("etag" = String, description = "The invitation's version, which a change of its role's `If-Match` names (API-13)."),
+                ("etag" = String, description = "The invitation's version, which the `If-Match` of a change of its role, or of a refresh, names (API-13)."),
             )),
         (status = 200, description = "The address's invitation to the workspace, expired or not, refreshed in place.", body = Invitation,
             headers(("etag" = String, description = "The invitation's new version (API-13)."))),
@@ -104,6 +106,7 @@ async fn invite(
     State(invitations): State<Invitations>,
     limits: RateLimits,
     authorize: Authorize<InvitationsCreate>,
+    if_match: IfMatch,
     request: Idempotent<InviteRequest>,
 ) -> Result<ResourceResponse<Invitation>, Problem<InvitationsError>> {
     let input = NewInvitation::try_from(request.body).map_err(InvitationsError::from)?;
@@ -111,6 +114,7 @@ async fn invite(
         &limits,
         authorize,
         request.key.as_ref(),
+        if_match.versions(),
         input,
         &invitations,
     )

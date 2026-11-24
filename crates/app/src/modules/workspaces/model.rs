@@ -383,6 +383,7 @@ mod tests {
     #[test]
     fn workspaces_002_a_name_has_1_to_255_characters() {
         assert_eq!(WorkspaceName::parse(" \t ").unwrap_err().code, "required");
+        assert_eq!(WorkspaceName::parse("é").unwrap().as_str(), "é");
         assert!(WorkspaceName::parse(&"é".repeat(255)).is_ok());
         assert_eq!(
             WorkspaceName::parse(&"a".repeat(256)).unwrap_err().code,

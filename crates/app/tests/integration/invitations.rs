@@ -73,6 +73,26 @@ async fn written(api: &Api) -> String {
         .remove(0)
 }
 
+/// Invites `email` to `workspace` at `role`, as `user`, with `if_match` as the request's
+/// `If-Match` (INVITATIONS-018).
+async fn invite_if_match(
+    api: &Api,
+    user: &SignedIn,
+    workspace: &str,
+    email: &str,
+    role: &str,
+    if_match: &str,
+) -> Response {
+    api.post(
+        &format!("/v1/workspaces/{workspace}/invitations"),
+        &json!({ "email": email, "role": role }),
+    )
+    .header("if-match", if_match)
+    .bearer(&user.access)
+    .send()
+    .await
+}
+
 #[tokio::test]
 async fn invitations_001_inviting_an_email_creates_a_pending_invitation_and_enqueues_its_email() {
     let api = Api::new().await;
@@ -1240,7 +1260,7 @@ async fn invitations_007_the_sweep_leaves_an_invitation_renewed_while_it_waited(
 }
 
 #[tokio::test]
-async fn invitations_007_a_batch_that_a_renewal_shortened_ends_no_run_while_expired_ones_remain() {
+async fn invitations_007_a_batch_that_a_renewal_shortened_but_not_emptied_ends_no_run() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     let workspace = acme(&api, &ada, &[]).await;
@@ -1271,4 +1291,140 @@ async fn invitations_007_a_batch_that_a_renewal_shortened_ends_no_run_while_expi
 
     let left = db.owner_reads("SELECT email FROM invitations").await;
     assert_eq!(left, ["carol@example.com"]);
+}
+
+#[tokio::test]
+async fn invitations_018_a_refresh_whose_if_match_is_stale_answers_412_and_changes_nothing() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let workspace = acme(&api, &ada, &[]).await;
+    let read = invite(&api, &ada, &workspace, "carol@example.com", "member").await;
+    let db = api.database();
+    // A change made since the client read the invitation, which moves its version past the tag
+    // the client holds.
+    db.owner_executes("UPDATE invitations SET expires_at = now() + interval '1 day'")
+        .await;
+    let before = written(&api).await;
+
+    let response = invite_if_match(
+        &api,
+        &ada,
+        &workspace,
+        "carol@example.com",
+        "admin",
+        read.header("etag"),
+    )
+    .await;
+
+    assert_eq!(response.status, 412);
+    assert_eq!(response.json()["code"], "request.precondition_failed");
+    let row = db
+        .owner_reads(
+            "SELECT role::text || ' ' || version || ' ' \
+             || (expires_at < now() + interval '2 days')::text FROM invitations",
+        )
+        .await;
+    assert_eq!(row, ["member 2 true"]);
+    assert_eq!(before, "1 1 1 1");
+    assert_eq!(written(&api).await, before);
+}
+
+#[tokio::test]
+async fn invitations_018_a_refresh_whose_if_match_names_its_version_refreshes_it() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let workspace = acme(&api, &ada, &[]).await;
+    let read = invite(&api, &ada, &workspace, "carol@example.com", "member").await;
+
+    let response = invite_if_match(
+        &api,
+        &ada,
+        &workspace,
+        "carol@example.com",
+        "admin",
+        read.header("etag"),
+    )
+    .await;
+
+    assert_eq!(response.status, 200);
+    assert_eq!(response.json()["id"], read.json()["id"]);
+    assert_eq!(response.json()["role"], "admin");
+    assert_eq!(response.header("etag"), "\"2\"");
+}
+
+#[tokio::test]
+async fn invitations_018_an_if_match_for_an_address_without_an_invitation_answers_412_and_creates_none()
+ {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let workspace = acme(&api, &ada, &[]).await;
+
+    let response = invite_if_match(
+        &api,
+        &ada,
+        &workspace,
+        "carol@example.com",
+        "admin",
+        "\"1\"",
+    )
+    .await;
+
+    assert_eq!(response.status, 412);
+    assert_eq!(response.json()["code"], "request.precondition_failed");
+    assert_eq!(written(&api).await, "0 0 0 0");
+}
+
+#[tokio::test]
+async fn invitations_018_an_if_match_of_a_star_alone_invites_as_none_does() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let workspace = acme(&api, &ada, &[]).await;
+
+    let response = invite_if_match(&api, &ada, &workspace, "carol@example.com", "admin", "*").await;
+
+    assert_eq!(response.status, 201);
+    assert_eq!(response.header("etag"), "\"1\"");
+}
+
+#[tokio::test]
+async fn invitations_018_a_member_s_address_answers_409_whatever_its_if_match() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let bob = users::register(&api, "bob@example.com").await;
+    let workspace = acme(&api, &ada, &[(&bob, "member")]).await;
+
+    let response =
+        invite_if_match(&api, &ada, &workspace, "bob@example.com", "admin", "\"1\"").await;
+
+    assert_eq!(response.status, 409);
+    assert_eq!(response.json()["code"], "invitations.already_member");
+    assert_eq!(written(&api).await, "0 0 0 0");
+}
+
+#[tokio::test]
+async fn invitations_018_an_invitation_at_a_role_the_caller_may_not_offer_answers_403_whatever_its_if_match()
+ {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let bob = users::register(&api, "bob@example.com").await;
+    let workspace = acme(&api, &ada, &[(&bob, "admin")]).await;
+    invite(&api, &ada, &workspace, "carol@example.com", "admin").await;
+
+    let response = invite_if_match(
+        &api,
+        &bob,
+        &workspace,
+        "carol@example.com",
+        "member",
+        "\"9\"",
+    )
+    .await;
+
+    assert_eq!(response.status, 403);
+    assert_eq!(response.json()["code"], "request.permission_denied");
+    let row = api
+        .database()
+        .owner_reads("SELECT role::text || ' ' || version FROM invitations")
+        .await;
+    assert_eq!(row, ["admin 1"]);
 }

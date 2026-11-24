@@ -23,13 +23,13 @@ use platform::{
     authn::Principal,
     authz::{self, Authorize, Authorized},
     db::{Database, UnitOfWork},
-    errors::Internal,
+    errors::{Internal, RequestError},
     events::{UserEvent, WorkspaceEvent},
     idempotency::{Claimed, IdempotencyKey},
     lists::{List, Page, Search, key},
     mail::Mail,
     rate_limit::RateLimits,
-    types::{Client, EmailAddress, UserId, WorkspaceId},
+    types::{Client, EmailAddress, UserId, Version, WorkspaceId},
 };
 
 pub(crate) use managing::{cancel, change_role, invitation, invitations, resend};
@@ -57,11 +57,13 @@ impl Invitations {
 /// Invites `input.email` to the caller's workspace, once the caller's bucket has counted the
 /// request (INVITATIONS-009), in the unit of work `authorize` opens, which claims `key` first, so
 /// a retry with the same key and request answers the same invitation (INVITATIONS-001 to
-/// INVITATIONS-003, INVITATIONS-008, PLATFORM-036).
+/// INVITATIONS-003, INVITATIONS-008, PLATFORM-036). Unless `versions` is `None`, it refreshes
+/// only an invitation at one of them, and creates none (INVITATIONS-018).
 pub(crate) async fn invite(
     limits: &RateLimits,
     authorize: Authorize<InvitationsCreate>,
     key: Option<&IdempotencyKey>,
+    versions: Option<&[Version]>,
     input: NewInvitation,
     invitations: &Invitations,
 ) -> Result<Invited, InvitationsError> {
@@ -87,7 +89,7 @@ pub(crate) async fn invite(
         (&input.email, input.role),
         inviter,
         invitations.settings.expiry_days,
-        &offerable,
+        (&offerable, versions),
     )
     .await?;
     // Held, so that the entry's target and the event's user meet their foreign keys: an account
@@ -104,9 +106,13 @@ pub(crate) async fn invite(
         return Err(InvitationsError::AlreadyMember);
     }
     let Some((current, created)) = upserted else {
-        // The address's invitation offers a role the caller may not offer (INVITATIONS-014).
-        return Err(authz::refuse(uow, authorized).await.into());
+        return Err(unrefreshed(uow, authorized, &input.email, &offerable, versions).await);
     };
+    if created && versions.is_some() {
+        // No version of an invitation that didn't exist is named, and the insert goes with the
+        // unit of work's rollback (INVITATIONS-018).
+        return Err(RequestError::PreconditionFailed.into());
+    }
     let id = current.invitation.id;
     let (action, event) = if created {
         (audit::INVITATION_CREATED, &published::INVITATION_CREATED)
@@ -136,6 +142,30 @@ pub(crate) async fn invite(
     let invited = Invited { created, current };
     uow.commit_with(&invited).await?;
     Ok(invited)
+}
+
+/// The refusal of a request to invite whose refresh left the address's invitation as it was:
+/// 412 when `versions` isn't `None` and the invitation offers one of `offerable`, so its version
+/// is none of them (INVITATIONS-018), and otherwise the refusal of its role, through
+/// `authz::refuse` (INVITATIONS-014). The unit of work holds the invitation's row since the
+/// refresh, so the read of its role takes no lock.
+async fn unrefreshed(
+    mut uow: UnitOfWork,
+    authorized: &Authorized<InvitationsCreate>,
+    email: &EmailAddress,
+    offerable: &[Role],
+    versions: Option<&[Version]>,
+) -> InvitationsError {
+    if versions.is_some() {
+        match repo::offered(&mut uow, authorized.workspace_id(), email).await {
+            Ok(role) if offerable.contains(&role) => {
+                return RequestError::PreconditionFailed.into();
+            }
+            Ok(_) => {}
+            Err(error) => return error.into(),
+        }
+    }
+    authz::refuse(uow, authorized).await.into()
 }
 
 /// Enqueues the invitation email to `to`, offering `role` in the caller's workspace, with the

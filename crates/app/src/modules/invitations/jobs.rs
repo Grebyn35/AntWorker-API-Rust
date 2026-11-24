@@ -2,9 +2,9 @@
 //! every hour, and touching `invitations` alone. It spans every workspace by nature, so it
 //! selects invitations by expiry alone, which DATA-16 exempts, and `check-tenancy` lets `expire`
 //! do, as a function that it lists. Scheduled maintenance isn't audited (DATA-22). A run deletes
-//! batches, the longest expired first, until one deletes nothing, so a second run finds nothing
-//! more to delete, and an invitation that a resend or a refresh renewed while the sweep waited
-//! for its lock stays (DATA-20, INVITATIONS-015).
+//! batches, the longest expired first, until one deletes nothing, so a run right after one whose
+//! last batch selected no invitation finds nothing more to delete, and an invitation that a resend
+//! or a refresh renewed while the sweep waited for its lock stays (DATA-20, INVITATIONS-015).
 
 use std::time::Duration;
 
@@ -37,8 +37,9 @@ impl Invitations {
 }
 
 /// Deletes the expired invitations of every workspace, a batch at a time, the longest expired
-/// first, until a batch deletes none: one that a renewal, or a deletion of its own, shortened
-/// while it waited ends no run while expired invitations remain.
+/// first, until a batch deletes none. A batch some of whose invitations a renewal, or another
+/// deletion, took while it waited ends no run if it deletes one; one whose every invitation they
+/// took deletes none, and ends the run, though others may still be expired until the next run.
 async fn expire(database: &Database, context: &JobContext) -> Result<(), Internal> {
     loop {
         let mut uow = database.for_job(context).await?;

@@ -132,16 +132,7 @@ async fn events(
         .subscribe(&principal, last_event_id.as_deref())
         .await
         .map_err(RealtimeError::from)?;
-    let frames = Frames {
-        beat: realtime.clock.sleep(realtime.heartbeat),
-        subscription,
-        user: principal.user_id(),
-        clock: realtime.clock,
-        heartbeat: realtime.heartbeat,
-        trace_id: telemetry::trace_id(),
-        opened: false,
-        ended: false,
-    };
+    let frames = Frames::new(subscription, principal.user_id(), realtime);
     let mut response = Sse::new(frames.into_stream()).into_response();
     // In place of the `no-cache` that `Sse` sets, which lets a cache keep the stream (SEC-12).
     response
@@ -168,6 +159,22 @@ struct Frames {
 }
 
 impl Frames {
+    /// The frames of the stream of `user` that the hub subscribed as `subscription`, with the
+    /// trace ID of the request whose span is the current one (REALTIME-002), and the heartbeats of
+    /// `realtime`, whose first one's wait starts now, at the stream's start (REALTIME-003).
+    fn new(subscription: Subscription, user: UserId, realtime: Realtime) -> Self {
+        Self {
+            beat: realtime.clock.sleep(realtime.heartbeat),
+            subscription,
+            user,
+            clock: realtime.clock,
+            heartbeat: realtime.heartbeat,
+            trace_id: telemetry::trace_id(),
+            opened: false,
+            ended: false,
+        }
+    }
+
     fn into_stream(self) -> impl Stream<Item = Result<Frame, Infallible>> + Send {
         futures_util::stream::unfold(self, |mut frames| async move {
             let frame = frames.next().await?;

@@ -101,7 +101,7 @@ async fn workspace_invitations(
     ),
     responses(
         (status = 200, description = "The invitation.", body = Invitation,
-            headers(("etag" = String, description = "The invitation's version, which a change of its role's `If-Match` names (API-13)."))),
+            headers(("etag" = String, description = "The invitation's version, which the `If-Match` of a change of its role, or of a refresh, names (API-13)."))),
     )
 )]
 async fn workspace_invitation(

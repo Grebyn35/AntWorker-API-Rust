@@ -33903,6 +33903,15 @@
               "pattern": "^ *\"(?:[ !#-\\[\\]-~]|\\\\[\"\\\\]){1,255}\" *$",
               "type": "string"
             }
+          },
+          {
+            "description": "The `ETag` of the version of the address's invitation that the client refreshes, so that the refresh fails rather than overwrite a change made since the client read it, and creates no invitation where the address holds none (API-13).",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -33957,7 +33966,7 @@
             "description": "The new invitation.",
             "headers": {
               "etag": {
-                "description": "The invitation's version, which a change of its role's `If-Match` names (API-13).",
+                "description": "The invitation's version, which the `If-Match` of a change of its role, or of a refresh, names (API-13).",
                 "schema": {
                   "type": "string"
                 }
@@ -34170,6 +34179,45 @@
               }
             },
             "description": "`request.idempotency_key_in_flight`: A request is outstanding for this idempotency key. `invitations.already_member`: Already a member.",
+            "headers": {
+              "ratelimit": {
+                "description": "The quota left in the bucket that decided the response, and the seconds until its window ends.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "ratelimit-policy": {
+                "description": "That bucket's quota, and its window in seconds.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Problem"
+                    },
+                    {
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "request.precondition_failed"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "`request.precondition_failed`: Precondition failed.",
             "headers": {
               "ratelimit": {
                 "description": "The quota left in the bucket that decided the response, and the seconds until its window ends.",
@@ -34767,7 +34815,7 @@
             "description": "The invitation.",
             "headers": {
               "etag": {
-                "description": "The invitation's version, which a change of its role's `If-Match` names (API-13).",
+                "description": "The invitation's version, which the `If-Match` of a change of its role, or of a refresh, names (API-13).",
                 "schema": {
                   "type": "string"
                 }

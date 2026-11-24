@@ -18,23 +18,26 @@ use super::model::{CurrentInvitation, ExportedInvitation, Found, Invitation, Pen
 use crate::modules::access::Role;
 
 /// Inserts the invitation of `email` to `workspace` at `role`, or refreshes the one there is if
-/// it offers one of `offerable`: its role, inviter and expiry are replaced and its ID kept.
-/// Returns it, with its row's version and whether it is new, or `None` for an invitation there is
-/// at another role, which it leaves as it was, but locked (INVITATIONS-001, INVITATIONS-003,
-/// INVITATIONS-014).
+/// it offers one of `offerable`, and, unless `versions` is `None`, if its row's version is one of
+/// them (DATA-18): its role, inviter and expiry are replaced and its ID kept. Returns it, with its
+/// row's version and whether it is new, or `None` for an invitation there is at another role or
+/// version, which it leaves as it was, but locked (INVITATIONS-001, INVITATIONS-003,
+/// INVITATIONS-014, INVITATIONS-018).
 pub(super) async fn upsert(
     uow: &mut UnitOfWork,
     workspace: WorkspaceId,
     (email, role): (&EmailAddress, Role),
     inviter_id: UserId,
     expiry_days: u32,
-    offerable: &[Role],
+    (offerable, versions): (&[Role], Option<&[Version]>),
 ) -> Result<Option<(CurrentInvitation, bool)>, Internal> {
     let days = i32::try_from(expiry_days).map_err(Internal::new)?;
     let offerable: Vec<String> = offerable
         .iter()
         .map(|role| role.name().to_owned())
         .collect();
+    let versions: Option<Vec<i64>> =
+        versions.map(|versions| versions.iter().map(|version| version.value()).collect());
     let row = sqlx::query!(
         r#"INSERT INTO invitations (workspace_id, email, role, inviter_id, expires_at)
         VALUES ($1, $2, $3::text::workspace_role, $4, now() + make_interval(days => $5))
@@ -43,6 +46,7 @@ pub(super) async fn upsert(
             inviter_id = EXCLUDED.inviter_id,
             expires_at = EXCLUDED.expires_at
         WHERE invitations.role::text = ANY($6)
+            AND ($7::bigint[] IS NULL OR invitations.version = ANY($7))
         RETURNING id, created_at, expires_at, version, (xmax = 0) AS "created!""#,
         workspace.uuid(),
         email.as_str(),
@@ -50,6 +54,7 @@ pub(super) async fn upsert(
         inviter_id.uuid(),
         days,
         &offerable,
+        versions.as_deref(),
     )
     .fetch_optional(uow.executor())
     .await?;
@@ -70,6 +75,23 @@ pub(super) async fn upsert(
         version: Version::from_database(row.version),
     };
     Ok(Some((current, row.created)))
+}
+
+/// The role that the invitation of `email` to `workspace` offers, which the unit of work holds
+/// once `upsert` has left it as it was (INVITATIONS-018).
+pub(super) async fn offered(
+    uow: &mut UnitOfWork,
+    workspace: WorkspaceId,
+    email: &EmailAddress,
+) -> Result<Role, Internal> {
+    let role = sqlx::query_scalar!(
+        r#"SELECT role::text AS "role!" FROM invitations WHERE workspace_id = $1 AND email = $2"#,
+        workspace.uuid(),
+        email.as_str(),
+    )
+    .fetch_one(uow.executor())
+    .await?;
+    Role::from_name(&role)
 }
 
 /// A page of the unexpired invitations to `email`, the latest first, to `workspaces` only when a

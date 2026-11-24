@@ -211,6 +211,7 @@ mod tests {
     #[test]
     fn accounts_003_a_display_name_has_1_to_100_characters() {
         assert_eq!(DisplayName::parse(" \t ").unwrap_err().code, "required");
+        assert_eq!(DisplayName::parse("é").unwrap().as_str(), "é");
         assert!(DisplayName::parse(&"é".repeat(100)).is_ok());
         assert_eq!(
             DisplayName::parse(&"a".repeat(101)).unwrap_err().code,

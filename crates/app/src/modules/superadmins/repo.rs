@@ -1,6 +1,7 @@
 //! The SQL of `superadmins` (ARCH-10). Every query reads or writes the row of one user: the
-//! caller, or the account that the operator's subcommand names by its address (DATA-16). The
-//! subcommand's list is the exception: it reads every superadmin's row, for the operator.
+//! caller, the account that the operator's subcommand names by its address, or the user whose
+//! export a job builds (DATA-16). The subcommand's list is the exception: it reads every
+//! superadmin's row, for the operator.
 
 use platform::{
     db::UnitOfWork,
