@@ -3,7 +3,7 @@
 //! browser's cookie (D18, D61), and the audit scope a proof gives an entry. A caller whose account
 //! must still prove its email address is refused, but on the routes that proving it needs
 //! (AUTH-025, D67), and so is one without a second factor while the deployment requires one, but
-//! on the routes that setting one up needs (AUTH-070, D133).
+//! on the routes that proving the address or setting one up needs (AUTH-070, D133).
 // part: files
 //! On a download route, the session that a signed URL names proves it instead (PLATFORM-080,
 //! D113).

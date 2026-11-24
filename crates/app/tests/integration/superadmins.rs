@@ -202,7 +202,7 @@ async fn superadmins_002_with_email_on_an_account_that_has_not_proved_its_addres
 async fn superadmins_002_with_email_off_an_account_that_never_proved_its_address_becomes_one() {
     let api = Api::new().await;
     let address = mailbox::address("ada");
-    // Nothing proves an address with email off, so the account never proved its own.
+    // No code proves an address with email off, so the account never proved its own.
     let ada = users::register_unverified(&api, &address).await;
 
     let added = operator::run(&api, AREA, &EMAIL_OFF, &["add", &address]).await;

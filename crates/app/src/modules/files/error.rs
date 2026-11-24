@@ -36,7 +36,7 @@ pub(crate) enum FilesError {
     #[error("the storage is unavailable")]
     StorageUnavailable(#[source] Option<Internal>),
     /// `platform` refused the request, such as by authorization, its idempotency key or its
-    /// input, or couldn't check it, or the update failed its precondition (PLATFORM-071).
+    /// input, or couldn't check it.
     #[error(transparent)]
     Platform(#[from] PlatformError),
     /// Anything else (ERR-04).

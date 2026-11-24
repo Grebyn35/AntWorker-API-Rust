@@ -1246,7 +1246,7 @@
             "oneOf": [
               {
                 "$ref": "#/components/schemas/Timestamp",
-                "description": "When `content_url` stops working, an hour after the response was made, or null for a\npublic file's, which never does (FILES-021)."
+                "description": "When `content_url` stops working, an hour after the response's unit of work began, by the\ndatabase's clock, cut to the second, or null for a public file's, which never does\n(FILES-021)."
               },
               {
                 "type": "null"
@@ -2473,7 +2473,7 @@
                   "oneOf": [
                     {
                       "$ref": "#/components/schemas/Timestamp",
-                      "description": "When `content_url` stops working, an hour after the response was made, or null for a\npublic file's, which never does (FILES-021)."
+                      "description": "When `content_url` stops working, an hour after the response's unit of work began, by the\ndatabase's clock, cut to the second, or null for a public file's, which never does\n(FILES-021)."
                     },
                     {
                       "type": "null"
@@ -2990,7 +2990,7 @@
                   "oneOf": [
                     {
                       "$ref": "#/components/schemas/Timestamp",
-                      "description": "When `content_url` stops working, an hour after the response was made, or null for a\npublic file's, which never does (FILES-021)."
+                      "description": "When `content_url` stops working, an hour after the response's unit of work began, by the\ndatabase's clock, cut to the second, or null for a public file's, which never does\n(FILES-021)."
                     },
                     {
                       "type": "null"
@@ -6136,7 +6136,7 @@
             "oneOf": [
               {
                 "$ref": "#/components/schemas/Timestamp",
-                "description": "When `content_url` stops working, an hour after the response was made, or null for a\npublic file's, which never does (FILES-021)."
+                "description": "When `content_url` stops working, an hour after the response's unit of work began, by the\ndatabase's clock, cut to the second, or null for a public file's, which never does\n(FILES-021)."
               },
               {
                 "type": "null"

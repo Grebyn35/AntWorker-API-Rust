@@ -207,8 +207,9 @@ pub(crate) struct File {
     /// The path of its bytes, after the API's address: its public download for a public file,
     /// and its download, signed for the caller's session, for a private one (FILES-021).
     pub(crate) content_url: String,
-    /// When `content_url` stops working, an hour after the response was made, or null for a
-    /// public file's, which never does (FILES-021).
+    /// When `content_url` stops working, an hour after the response's unit of work began, by the
+    /// database's clock, cut to the second, or null for a public file's, which never does
+    /// (FILES-021).
     pub(crate) content_url_expires_at: Option<Timestamp>,
     /// When it was uploaded.
     pub(crate) created_at: Timestamp,
@@ -250,8 +251,9 @@ pub(crate) struct UserFile {
     /// The path of its bytes, after the API's address: its public download for a public file,
     /// and its download, signed for the caller's session, for a private one (FILES-021).
     pub(crate) content_url: String,
-    /// When `content_url` stops working, an hour after the response was made, or null for a
-    /// public file's, which never does (FILES-021).
+    /// When `content_url` stops working, an hour after the response's unit of work began, by the
+    /// database's clock, cut to the second, or null for a public file's, which never does
+    /// (FILES-021).
     pub(crate) content_url_expires_at: Option<Timestamp>,
     /// When it was uploaded.
     pub(crate) created_at: Timestamp,

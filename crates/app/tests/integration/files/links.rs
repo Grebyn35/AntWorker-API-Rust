@@ -399,8 +399,8 @@ async fn auth_020_a_session_whose_account_must_verify_its_address_downloads_noth
     let own = upload_own(&api, &ada, "mine.txt", b"mine", "", None)
         .await
         .json();
-    // The account hasn't proved its address, as one that registered while email was off hasn't
-    // once a deploy turns it on (AUTH-025).
+    // The account hasn't proved its address, as one that registered with a password while email
+    // was off hasn't once a deploy turns it on (AUTH-025).
     api.database()
         .owner_executes("UPDATE users SET email_verified = false")
         .await;

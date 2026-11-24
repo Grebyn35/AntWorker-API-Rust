@@ -173,7 +173,7 @@ A trait that abstracts a dependency exists for one of two reasons:
   The operator's making of a superadmin that the composition root hands `seed` inverts one too, as a function, since `system` uses no other module. <!-- part: superadmins -->
 - It covers an external system with more than one implementation: the clock, which the tests replace with one they move, and a provider of sign-in, with one implementation for each provider and the tests' stand-in.
 
-No trait exists just so something can be mocked. Traits that define a behavior many types share, such as `ErrorCode`, `Permission` and job handlers, aren't dependency abstractions, and this rule doesn't limit them.
+No trait exists just so something can be mocked. Traits that define a behavior many types share, such as `ErrorCode`, `Permission` and `Job`, which a queued job's payload implements, aren't dependency abstractions, and this rule doesn't limit them.
 - Why: an interface with no second implementation and no inversion adds indirection without flexibility. Tests use the real database (D23).
 - Check: `review`.
 

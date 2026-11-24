@@ -144,7 +144,7 @@ checks what a deploy of the latest release, or of the release a second argument 
 - checks the server's memory against the services the settings choose;
 - checks that the server's clock is synchronized, as systemd's `timedatectl` reports it;
 - with the bundled database, reads the bucket through the release's pgBackRest, with the key pair, the passphrase and the authority a deploy would use;
-- checks that each bucket keeps what is deleted in it, where its key pair can't remove it ([above](#what-a-server-needs), OPS-22);
+- checks that each bucket keeps what is deleted in it, where its key pair can't remove it, or, with `BUCKETS_KEEP_DELETED_DAYS=0`, keeps no version for more than a day ([above](#what-a-server-needs), OPS-22);
 - with a managed backend, sends it an export of no telemetry, and asks its Grafana for its folders with the import's token.
 
 From your machine, it checks that each address the settings name resolves to the server, which Let's Encrypt needs before it issues the address's certificate, and that the server's ports 80 and 443 answer, or refuse, where a firewall that drops them would leave no answer at all.
@@ -341,7 +341,7 @@ The replicas keep the bytes of the files that users upload in a bucket that a pr
 - the settings `FILES_S3_ENDPOINT`, the provider's host, `FILES_S3_REGION` and `FILES_S3_BUCKET`, and `FILES_S3_URI_STYLE=path` for a provider whose bucket names don't appear in its host names, which [deploy/settings.env.example](../../deploy/settings.env.example) describes;
 - for a bucket of your own, whose certificate a private authority signs, that authority's certificate in `certs/files-ca.crt`.
 
-Use a bucket of its own, not the backups' one, which pgBackRest manages whole. The API deletes the bytes of a file that no row names only `FILE_DELETION_DELAY_DAYS` after it first finds it so: by default the backups' reach, `BACKUP_RETENTION_DAYS` plus 7, with the bundled database, so a restore to any moment it reaches finds every file's bytes; with a managed database, set it to the provider's recovery window if that is longer than 35 days. Like every bucket of the deployment, it keeps what is deleted in it for `BUCKETS_KEEP_DELETED_DAYS` days, where its key pair can't remove it, which `just server-check` checks ([What a server needs](#what-a-server-needs)): the bytes that the API deletes leave the bucket that many days later. The replicas never replace an object, and delete one only once no restore can need it. Set no lifecycle rule that deletes the bucket's current files.
+Use a bucket of its own, not the backups' one, which pgBackRest manages whole. The API deletes the bytes of a file that no row names only `FILE_DELETION_DELAY_DAYS` after it first finds it so: by default the backups' reach, `BACKUP_RETENTION_DAYS` plus 7, with the bundled database, so a restore to any moment it reaches finds every file's bytes; with a managed database, set it to the provider's recovery window if that is longer than 35 days. Like every bucket of the deployment, it keeps what is deleted in it for `BUCKETS_KEEP_DELETED_DAYS` days, where its key pair can't remove it, which `just server-check` checks ([What a server needs](#what-a-server-needs)): the bytes that the API deletes leave the bucket that many days later. With `BUCKETS_KEEP_DELETED_DAYS=0`, its key pair can remove them, and it keeps no version for more than a day. The replicas never replace an object, and delete one only once no restore can need it. Set no lifecycle rule that deletes the bucket's current files.
 
 The bucket holds the only copy of each file's bytes: the backups hold the files' rows, never their bytes. The provider's durability is the files' durability, so choose a provider that states it.
 
@@ -349,7 +349,7 @@ What the bucket takes in is bounded for each user, by the day: `UPLOAD_USER_BYTE
 
 ## Writing deleted files back
 
-Whoever holds the server holds the files bucket's key pair, and can delete the files' objects, or write other bytes under their keys, but not the versions that the bucket keeps of them for `BUCKETS_KEEP_DELETED_DAYS` days ([What a server needs](#what-a-server-needs), OPS-22). Within those days,
+Whoever holds the server holds the files bucket's key pair, and can delete the files' objects, or write other bytes under their keys, but not the versions that the bucket keeps of them for `BUCKETS_KEEP_DELETED_DAYS` days, unless the setting is 0 ([What a server needs](#what-a-server-needs), OPS-22). While the bucket keeps a version,
 
 ```
 just restore-files production "2026-10-25 10:30:00+00"

@@ -144,7 +144,10 @@ impl Database {
     /// first statement sets, so that each statement after it reads the rows as they were at the
     /// first of them, whatever commits meanwhile: its archive then holds every module's data as of
     /// one moment (PLATFORM-085, DATA-20). The caller's first statement locks the export's row, so
-    /// that no write of its meets a serialization failure.
+    /// that its writes of that row, and its inserts that name no user, meet no serialization
+    /// failure. An insert that names a user, whose foreign key reads the user's row, meets one when
+    /// another unit of work that locked that row `FOR UPDATE` and then changed it, as a rename of
+    /// the user does, committed after the first statement: the run then fails (DATA-20).
     pub async fn for_snapshot_job(&self, context: &JobContext) -> Result<UnitOfWork, Internal> {
         let mut uow = self.for_job(context).await?;
         // The transaction's first statement, as Postgres requires of its isolation level.
