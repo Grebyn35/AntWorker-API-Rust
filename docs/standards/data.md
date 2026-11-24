@@ -189,6 +189,7 @@ What is audited:
 - Reads that a module spec names as audited, such as the download of an export (D31).
 
 Platform bookkeeping (rate-limit buckets, idempotency records, job state) and scheduled maintenance (retention, sweeps) aren't audited. Metrics count them instead. Deleting an account records only the entries that the logs of the workspaces the user shared keep, since their own log goes with the account (ACCOUNTS-014, D31). Deleting a workspace records its one entry in the own log of whoever deletes it, since the workspace's log goes with the workspace (WORKSPACES-017).
+The subcommand that restores the files' bytes records no entry: it writes back earlier versions of the bucket's objects, each under its own key, from what the bucket keeps, changes no row, and connects to no database ([Restoring bytes](../spec/files.md#restoring-bytes), FILES-028). <!-- part: files -->
 - Why: a change and its side effects commit together or not at all (D1, D6).
 - Check: `review`, plus `test` (each mutating behavior asserts its audit entry and events, such as WORKSPACES-014's and ACCOUNTS-007's).
 
