@@ -1,5 +1,5 @@
--- Where an export stands: its archive being built, built, or its job's last attempt failed
--- (ACCOUNTS-022).
+-- Where an export stands: its archive being built, built, or failed: its job's last attempt
+-- failed, or it was still pending 24 hours after its request (ACCOUNTS-022, ACCOUNTS-027).
 CREATE TYPE export_state AS ENUM ('pending', 'ready', 'failed');
 
 -- Each export a user requested (ACCOUNTS-020): only its job and its expiry change a row.
