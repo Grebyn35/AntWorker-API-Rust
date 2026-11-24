@@ -239,9 +239,9 @@ impl ErrorCode for RequestError {
             Self::IdempotencyKeyInFlight => {
                 Some("The key's first request is still running: retry later.".to_owned())
             }
-            Self::EmailUnverified => Some(
-                "Verify the account's email address with the code sent to it first.".to_owned(),
-            ),
+            Self::EmailUnverified => {
+                Some("Verify the account's email address first.".to_owned())
+            }
             Self::SecondFactorSetupRequired => Some(
                 "A second factor is required: set up an authenticator app first."
                     .to_owned(),

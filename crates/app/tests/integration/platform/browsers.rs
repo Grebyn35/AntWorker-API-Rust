@@ -277,6 +277,32 @@ async fn platform_058_a_listed_origin_may_read_the_concurrency_limit_s_503() {
 }
 
 #[tokio::test]
+async fn platform_058_a_listed_origin_may_read_a_panic_s_500() {
+    let api = Api::with(
+        Options::routes(fixtures::routes(Arc::default())).set("CORS_ALLOWED_ORIGINS", WEB),
+    )
+    .await;
+
+    let panicked = api.get("/v1/panic").header("origin", WEB).send().await;
+
+    assert_eq!(panicked.status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(panicked.header("access-control-allow-origin"), WEB);
+    assert_eq!(panicked.header("access-control-allow-credentials"), "true");
+    assert!(panicked.headers("vary").contains(&"origin"));
+}
+
+#[tokio::test]
+async fn platform_058_a_health_probe_from_a_listed_origin_gets_no_cors_header() {
+    let api = browsers_api().await;
+
+    let probe = api.get("/health/live").header("origin", WEB).send().await;
+
+    assert_eq!(probe.status, StatusCode::OK);
+    assert!(probe.headers("access-control-allow-origin").is_empty());
+    assert!(probe.headers("access-control-allow-credentials").is_empty());
+}
+
+#[tokio::test]
 async fn platform_059_a_change_from_an_unlisted_origin_answers_403() {
     let api = browsers_api().await;
     for origin in ["https://evil.example.com", "null"] {

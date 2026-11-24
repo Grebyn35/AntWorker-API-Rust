@@ -22,6 +22,16 @@ async fn platform_038_the_live_probe_answers_alive() {
 }
 
 #[tokio::test]
+async fn platform_038_a_probe_given_a_query_parameter_answers_its_status() {
+    let api = Api::new().await;
+
+    let response = api.get("/health/live?x=1").send().await;
+
+    assert_eq!(response.status, StatusCode::OK);
+    assert_eq!(response.json(), json!({"status": "alive"}));
+}
+
+#[tokio::test]
 async fn platform_061_a_draining_instance_is_not_ready() {
     let api = Api::new().await;
     api.readiness().drain();

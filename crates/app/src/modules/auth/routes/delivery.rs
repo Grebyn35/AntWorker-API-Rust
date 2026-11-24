@@ -52,8 +52,8 @@ pub(crate) struct SessionResponse {
     /// account that has one: when it began, re-authenticated, or changed the password (AUTH-021,
     /// AUTH-040, AUTH-065).
     authenticated_at: Timestamp,
-    /// Whether its account must prove its email address, with the code sent to it, before the
-    /// API serves it anything but proving it (AUTH-025, AUTH-026).
+    /// Whether its account must prove its email address before the API serves it anything but
+    /// proving it (AUTH-025, AUTH-026).
     email_verification_required: bool,
     /// Whether its account must set up an authenticator app before the API serves it anything
     /// but that and proving its address: true while the deployment requires a second factor and

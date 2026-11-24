@@ -117,6 +117,42 @@ async fn platform_046_a_limit_out_of_range_and_a_cursor_of_another_route_are_ref
     );
 }
 
+/// A cursor of `GET /v1/workspaces` that a client builds, as the platform spec's Lists says: the
+/// first 4 bytes of the route's SHA-256 digest, then the sort key, `micros` since the Unix epoch,
+/// then an ID.
+fn workspaces_cursor(micros: i64) -> String {
+    let mut bytes = platform::hashing::sha256(b"/v1/workspaces")[..4].to_vec();
+    bytes.extend_from_slice(&micros.to_be_bytes());
+    bytes.extend_from_slice(&[0; 16]);
+    data_encoding::BASE64URL_NOPAD.encode(&bytes)
+}
+
+#[tokio::test]
+async fn platform_046_a_cursor_whose_time_postgres_doesn_t_hold_is_refused() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    // The earliest moment that a `timestamptz` holds: the midnight in UTC that starts 24 November
+    // 4714 BC.
+    let earliest = -210_866_803_200_000_000;
+    let page_after = |micros: i64| {
+        api.get(&format!(
+            "/v1/workspaces?cursor={}",
+            workspaces_cursor(micros)
+        ))
+        .bearer(&ada.access)
+        .send()
+    };
+
+    let held = page_after(earliest).await;
+    let before = page_after(earliest - 1).await;
+
+    assert_eq!(held.status, 200);
+    assert_eq!(
+        before.refused_parameters(),
+        [("/cursor".to_owned(), "invalid".to_owned())]
+    );
+}
+
 #[tokio::test]
 async fn platform_047_a_search_matches_any_part_ignoring_case_in_every_script() {
     let api = Api::new().await;

@@ -211,8 +211,9 @@ async fn read_answer(stream: &mut (impl AsyncRead + Unpin)) -> io::Result<Vec<u8
 }
 
 /// The verdict that clamd's `answer` gives: `stream: OK`, or `stream: <signature> FOUND`. Any
-/// other answer, such as one that ends in `ERROR`, is a failure, whose cause holds the answer,
-/// which names neither the bytes nor a signature.
+/// other answer is a failure. The cause of one that ends in `ERROR` holds the first 200 of its
+/// characters that are no control character, and that of any other, such as `PONG`, says only
+/// that the client couldn't read it: neither names the bytes nor a signature.
 fn verdict(answer: &[u8]) -> Result<Verdict, ScanError> {
     let text = String::from_utf8_lossy(answer);
     let text = text.trim_end();

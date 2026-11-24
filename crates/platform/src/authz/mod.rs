@@ -232,8 +232,9 @@ impl<P: Permission> Authorize<P> {
 
     /// Opens the request's unit of work and authorizes the caller inside it: the open unit of
     /// work with the proof, or 404 `request.not_found` for a caller who isn't a member and 403
-    /// `request.permission_denied` for a member without `P`, each recorded first (ACCESS-003,
-    /// PLATFORM-009).
+    /// `request.permission_denied` for a member without `P`, each recorded first, or 404
+    /// `request.not_found` unrecorded, before any unit of work opens, for a workspace ID that
+    /// isn't a UUID (ACCESS-003, PLATFORM-009).
     pub async fn open(self) -> Result<(UnitOfWork, Authorized<P>), PlatformError> {
         let (mut uow, workspace_id, decision) = self.decide().await?;
         let Decision::Allowed(role) = decision else {

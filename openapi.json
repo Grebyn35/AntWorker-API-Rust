@@ -5020,7 +5020,7 @@
             ]
           },
           "email_verification_required": {
-            "description": "Whether its account must prove its email address, with the code sent to it, before the\nAPI serves it anything but proving it: true while the deployment sends email and the\naddress isn't proven (AUTH-025, AUTH-026).",
+            "description": "Whether its account must prove its email address before the API serves it anything but\nproving it: true while the deployment sends email and the address isn't proven (AUTH-025,\nAUTH-026).",
             "type": "boolean"
           },
           "expires_at": {
@@ -5415,7 +5415,7 @@
             "type": "string"
           },
           "email_verification_required": {
-            "description": "Whether its account must prove its email address, with the code sent to it, before the\nAPI serves it anything but proving it (AUTH-025, AUTH-026).",
+            "description": "Whether its account must prove its email address before the API serves it anything but\nproving it (AUTH-025, AUTH-026).",
             "type": "boolean"
           },
           "expires_at": {

@@ -28,6 +28,9 @@ const SEARCH_MAX_CHARS: usize = 100;
 const MAX_VALUES: usize = 50;
 /// The bytes of a cursor: the tag of its route, the microseconds of its sort key, and its ID.
 const CURSOR_LEN: usize = 4 + 8 + 16;
+/// The earliest moment that Postgres's `timestamptz` holds, the midnight in UTC that starts 24
+/// November 4714 BC, in microseconds since the Unix epoch.
+const EARLIEST_MICROS: i64 = -210_866_803_200_000_000;
 
 /// Where a page starts, after the item that ended the last one: its sort key and its ID.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -187,6 +190,11 @@ fn decode(value: &str, tag: [u8; 4]) -> Result<Cursor, Invalid> {
         return Err(invalid());
     }
     let micros = i64::from_be_bytes(micros.try_into().map_err(|_| invalid())?);
+    // A sort key before the earliest moment that a `timestamptz` holds is no route's, and the
+    // database refuses it as the parameter of the route's query.
+    if micros < EARLIEST_MICROS {
+        return Err(invalid());
+    }
     let at = time::OffsetDateTime::from_unix_timestamp_nanos(i128::from(micros) * 1_000)
         .map_err(|_| invalid())?;
     let id = uuid::Uuid::from_slice(id).map_err(|_| invalid())?;

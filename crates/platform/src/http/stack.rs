@@ -136,18 +136,20 @@ pub(super) struct Stack {
 }
 
 /// The stack every request below the security headers passes, health probes aside, in the order
-/// of architecture §6: trace context, the request log, panic catching, the client, CORS, the
+/// of architecture §6: trace context, the request log, CORS, panic catching, the client, the
 /// concurrency limit, the IP limit, the cross-site check, and the check of a caller that is gone.
 pub(super) fn request(router: Router, stack: Stack) -> Router {
     let layers = ServiceBuilder::new()
         .layer(middleware::from_fn(trace))
         .layer(middleware::from_fn_with_state(stack.clock.clone(), log))
+        // Outside the catch, so that a listed origin's browser can read a panic's 500 too
+        // (PLATFORM-058).
+        .layer(middleware::from_fn_with_state(stack.origins.clone(), cors))
         .layer(CatchPanicLayer::custom(panicked))
         .layer(middleware::from_fn_with_state(
             stack.trusted_proxies,
             client,
         ))
-        .layer(middleware::from_fn_with_state(stack.origins.clone(), cors))
         .layer(HandleErrorLayer::new(overloaded))
         .layer(LoadShedLayer::new())
         .layer(GlobalConcurrencyLimitLayer::new(stack.max_concurrent))

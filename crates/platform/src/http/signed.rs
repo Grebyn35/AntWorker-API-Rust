@@ -72,8 +72,9 @@ mod tests {
         SignedUrls::new(HmacKey::new(&[byte; 32]).unwrap())
     }
 
-    fn at(seconds: i64) -> Timestamp {
-        Timestamp::from_database(time::OffsetDateTime::from_unix_timestamp(seconds).unwrap())
+    /// The time that the tests sign their URLs until: 1,800,000,000 seconds after the Unix epoch.
+    fn until() -> Timestamp {
+        Timestamp::from_database(time::OffsetDateTime::from_unix_timestamp(1_800_000_000).unwrap())
     }
 
     fn query_of(url: &str) -> Presented {
@@ -96,20 +97,20 @@ mod tests {
 
     #[test]
     fn platform_080_a_signed_url_names_its_time_its_session_and_its_signature() {
-        let signed = signer(1).sign("/v1/a/content", session(), at(1_800_000_000));
+        let signed = signer(1).sign("/v1/a/content", session(), until());
         assert!(signed.url.starts_with(
             "/v1/a/content?expires=1800000000&session=00000000-0000-0000-0000-000000000007&signature="
         ));
-        assert_eq!(signed.expires_at, at(1_800_000_000));
+        assert_eq!(signed.expires_at, until());
         let signature = signature_of(&signed.url);
         assert_eq!(signature.session(), session());
-        assert_eq!(signature.expires_at(), Some(at(1_800_000_000).at()));
+        assert_eq!(signature.expires_at(), Some(until().at()));
         assert!(signer(1).matches("/v1/a/content", &signature));
     }
 
     #[test]
     fn platform_080_a_signature_holds_only_for_its_path_its_session_its_time_and_its_key() {
-        let signed = signer(1).sign("/v1/a/content", session(), at(1_800_000_000));
+        let signed = signer(1).sign("/v1/a/content", session(), until());
         let signature = signature_of(&signed.url);
         assert!(!signer(2).matches("/v1/a/content", &signature));
         assert!(!signer(1).matches("/v1/b/content", &signature));

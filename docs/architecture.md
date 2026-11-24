@@ -281,7 +281,7 @@ sequenceDiagram
   participant S as Module service
   participant DB as PostgreSQL
   C->>P: request
-  P->>P: security headers, trace context, request log,<br/>panics, client, CORS, load shedding, IP rate limit, cross-site check,<br/>the check of a caller who is gone
+  P->>P: security headers, trace context, request log,<br/>CORS, panics, client, load shedding, IP rate limit, cross-site check,<br/>the check of a caller who is gone
   P->>H: routed request
   H->>H: timeout, body limit, query check, Principal (authn),<br/>user rate limit, idempotency key, parse to domain types
   H->>DB: on a workspace route without a per-action limit, BEGIN and authorize (authz)
@@ -305,9 +305,9 @@ sequenceDiagram
    - the security headers
    - trace context: the request's server span, and the trace-ID response header (D10)
    - the request log: one line when the request completes, or as it ends before any response, and the error line of a 5xx (OBS-03, ERR-10)
+   - CORS for the listed web origins (D61)
    - panic catching (ERR-12)
    - the client: its IP, from the trusted proxies' header, and its user agent (PLATFORM-053)
-   - CORS for the listed web origins (D61)
    - concurrency limit with load shedding (D20)
    - pre-authentication IP rate limit (D11)
    - the cross-site check (D61)
@@ -365,7 +365,7 @@ Each of these has a standard in `docs/standards/` with numbered rules. This is t
 
 - **Errors (D17).** Each module has its own error enum. Every variant of an error that a route can answer declares a stable code and a category, and the category alone sets the HTTP status. Infrastructure errors never leave their adapter. An error is logged once, where it is handled.
 - **Validation (D25).** Request types reject unknown fields and convert at the boundary into domain types that can only hold valid values. Code past the boundary accepts only those types.
-- **Authentication (D5, D18, D61, D63, D67).** Sessions slide on refresh but have an absolute maximum lifetime. Desktop and web clients are both supported: credentials arrive in the Bearer header from a client that sets its own headers, or in an `HttpOnly` cookie from a browser, whose requests CSRF protection guards, from the origins that the CORS allowlist names. With email on, an account proves its address, with a code sent to it, before the API serves it anything else.
+- **Authentication (D5, D18, D61, D63, D67).** Sessions slide on refresh but have an absolute maximum lifetime. Desktop and web clients are both supported: credentials arrive in the Bearer header from a client that sets its own headers, or in an `HttpOnly` cookie from a browser, whose requests CSRF protection guards, from the origins that the CORS allowlist names. With email on, an account proves its address before the API serves it anything else.
   A download also takes a URL signed for a session, whose user it authorizes as any caller's (D113). <!-- part: files -->
   Every user may add a second factor, an authenticator app with recovery codes; a deployment may require one of every user.
   Every superadmin must have one. <!-- part: superadmins -->
