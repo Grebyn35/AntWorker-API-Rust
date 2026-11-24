@@ -1,20 +1,23 @@
-//! The reference deployment with its self-hosted observability stack (D42), on a server of the
-//! tests' own.
+//! The reference deployment with its observability, the self-hosted stack or a managed backend
+//! (D42), on a server of the tests' own.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
+    io::{BufRead, BufReader},
     path::Path,
+    sync::mpsc,
+    thread,
     time::Duration,
 };
 
 use crate::{
     deployment::{
         Deployment, GRAFANA_ADDRESS, GRAFANA_ADMIN_PASSWORD, GRAFANA_ADMIN_USER, get, get_traced,
-        get_with_cookie, get_within, get_within_as, pairs, post, post_for_cookies, send,
-        unanswered_as,
+        get_with_cookie, get_within, get_within_as, pairs, post, post_for_cookies,
+        post_with_cookie, send, streaming_client, unanswered_as,
     },
-    docker::{compose, lossy},
+    docker::{curl_image, lossy},
     server::DEPLOYMENT,
     support,
 };
@@ -196,13 +199,7 @@ fn assert_the_stores_answer_the_collector_and_grafana_alone(deployment: &Deploym
             .any(|network| network == "deployment_telemetry"),
         "{senders:?}"
     );
-    let curl = compose(&[
-        "--file",
-        "../../deploy/tools/compose.yaml",
-        "config",
-        "--images",
-        "curl",
-    ]);
+    let curl = curl_image();
     let healthy = |network: &str| {
         format!(
             "docker run --rm --quiet --network {network} {curl} --silent --fail --max-time 5 \
@@ -339,6 +336,7 @@ async fn sec_14_a_server_publishes_only_the_proxy_and_grafana_signs_every_viewer
     assert_the_session_s_cookie_is_this_host_s_alone(&cookies);
     assert_a_browser_guards_grafana_s_pages(&page_headers);
     assert_grafana_lists_no_directory_and_echoes_no_trace(&deployment, &root, &cookies);
+    assert_grafana_shares_nothing_that_opens_without_a_sign_in(&deployment, &root, &cookies);
     assert_the_stores_answer_the_collector_and_grafana_alone(&deployment);
     assert_the_proxy_answers_no_other_host(&deployment, &root);
 }
@@ -404,6 +402,16 @@ fn assert_the_session_s_cookie_is_this_host_s_alone(cookies: &[String]) {
     }
 }
 
+/// The cookies that a response set, `cookies`, as a browser sends them back: each one's name and
+/// value.
+fn sent_back(cookies: &[String]) -> String {
+    cookies
+        .iter()
+        .filter_map(|cookie| cookie.split(';').next())
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
 /// Asserts that Grafana lists neither directory of its own assets: a request for one without a
 /// session goes to the sign-in page, and one with the cookies of a sign-in, `cookies`, gets 404.
 /// Asserts too that a `TRACE`, which Caddy passes on to Grafana, gets neither a success nor an
@@ -413,12 +421,7 @@ fn assert_grafana_lists_no_directory_and_echoes_no_trace(
     root: &str,
     cookies: &[String],
 ) {
-    // The cookies as a browser sends them back: each one's name and value.
-    let session = cookies
-        .iter()
-        .filter_map(|cookie| cookie.split(';').next())
-        .collect::<Vec<_>>()
-        .join("; ");
+    let session = sent_back(cookies);
     let directories = ["/public/", "/public/build/"]
         .map(|directory| deployment.url_at(GRAFANA_ADDRESS, "https", 443, directory));
     let signed_out = directories.clone().map(|url| {
@@ -441,6 +444,45 @@ fn assert_grafana_lists_no_directory_and_echoes_no_trace(
     assert_eq!(signed_in, [404, 404]);
     assert!(!(200..300).contains(&traced), "{traced}: {echo}");
     assert!(!echo.contains("TRACE"), "{echo}");
+}
+
+/// Asserts that Grafana's administrator, signed in with `cookies`, makes neither a snapshot of a
+/// dashboard nor an externally shared dashboard, each of which opens without a sign-in (SEC-14).
+fn assert_grafana_shares_nothing_that_opens_without_a_sign_in(
+    deployment: &Deployment,
+    root: &str,
+    cookies: &[String],
+) {
+    let session = sent_back(cookies);
+    let (snapshot, snapshot_refusal) = post_with_cookie(
+        root.to_owned(),
+        deployment.url_at(GRAFANA_ADDRESS, "https", 443, "/api/snapshots"),
+        session.clone(),
+        serde_json::json!({"dashboard": {"title": "A snapshot", "uid": "api-overview", "panels": []}, "expires": 3600})
+            .to_string(),
+    );
+    let (shared, shared_refusal) = post_with_cookie(
+        root.to_owned(),
+        deployment.url_at(
+            GRAFANA_ADDRESS,
+            "https",
+            443,
+            "/api/dashboards/uid/api-overview/public-dashboards",
+        ),
+        session,
+        serde_json::json!({"isEnabled": true, "share": "public"}).to_string(),
+    );
+
+    assert!(
+        !(200..300).contains(&snapshot),
+        "{snapshot}: {snapshot_refusal}"
+    );
+    assert!(
+        snapshot_refusal.contains("Dashboard Snapshots are disabled"),
+        "{snapshot_refusal}"
+    );
+    assert!(!(200..300).contains(&shared), "{shared}: {shared_refusal}");
+    assert!(shared_refusal.contains("Not found"), "{shared_refusal}");
 }
 
 /// The headers of a page of Grafana's tell a browser to guess no type, to name the page to no
@@ -771,6 +813,13 @@ async fn obs_08_a_managed_backend_receives_the_trace_and_the_logs_of_a_4xx_respo
 #[tokio::test]
 async fn obs_14_a_deploy_warns_until_the_release_names_an_integration_that_alerts_then_reach() {
     let deployment = Deployment::managed(&[("TELEMETRY", "self-hosted")]);
+    // A first release whose receivers name no integration, whatever the repository's
+    // alertmanager.yaml names, as a fork's names its own; the test keeps that file for the second.
+    deployment.server.shell_ok(
+        "cd /root/release/observability/alertmanager \
+         && cp alertmanager.yaml /root/alertmanager.release.yaml \
+         && printf 'route:\n  receiver: page\nreceivers:\n  - name: page\n' > alertmanager.yaml",
+    );
     let first = deployment.apply(&deployment.api, &[]).await;
     assert!(first.status.success(), "{}", lossy(&first));
     let receiver = deployment.server.start_alert_receiver();
@@ -787,8 +836,7 @@ async fn obs_14_a_deploy_warns_until_the_release_names_an_integration_that_alert
     );
     deployment.server.shell_ok(
         "cd /root/release/observability \
-         && awk -f /root/page.awk alertmanager/alertmanager.yaml > /root/alertmanager.yaml \
-         && cp /root/alertmanager.yaml alertmanager/alertmanager.yaml \
+         && awk -f /root/page.awk /root/alertmanager.release.yaml > alertmanager/alertmanager.yaml \
          && printf '  - name: e2e\n    rules:\n      - alert: E2EPage\n        expr: vector(1)\n        labels:\n          severity: page\n' \
          >> prometheus/rules.yaml",
     );
@@ -1222,6 +1270,73 @@ async fn obs_04_the_proxy_s_span_and_logs_hold_no_personal_data() {
                 "{what} holds the address {address}: {text}"
             );
         }
+    }
+}
+
+#[tokio::test]
+async fn obs_04_the_proxy_s_own_line_of_a_response_that_a_replica_ends_short_holds_no_personal_data()
+ {
+    let deployment = Deployment::managed(&[]);
+    let deployed = deployment.apply(&deployment.api, &[]).await;
+    assert!(deployed.status.success(), "{}", lossy(&deployed));
+    let addresses = addresses_caddy_may_see(&deployment);
+    let token = deployment.registered("ada@example.com");
+    let (root, url) = (
+        deployment.server.caddy_root(),
+        deployment.url("https", 443, "/v1/users/me/events"),
+    );
+    // A user's stream, read through the proxy from a thread of the test, as a client reads one,
+    // until it ends. A stream ends only when its replica ends it, so a replica that stops while
+    // it is open ends the response short, whatever the sockets between them hold.
+    let (opening, opened) = mpsc::channel();
+    let reader = thread::spawn(move || {
+        let response = streaming_client(&root, Duration::from_secs(60))
+            .get(&url)
+            .bearer_auth(token)
+            .header("user-agent", AGENT)
+            .send()
+            .expect("the stream");
+        let mut lines = BufReader::new(response).lines().map_while(Result::ok);
+        let open = lines.by_ref().any(|line| line == "event: stream.opened");
+        if let Err(unread) = opening.send(open) {
+            platform::errors::ignore(&unread, "test_opening_unread");
+        }
+        lines.for_each(drop);
+    });
+    assert_eq!(opened.recv(), Ok(true), "the stream's opening");
+
+    deployment.server.shell_ok(
+        "for service in api-blue api-green; do \
+         docker ps --quiet --filter label=com.docker.compose.service=$service; \
+         done | xargs -r docker kill > /dev/null",
+    );
+    reader.join().expect("the stream's reader");
+    let own = lossy(&deployment.server.shell(
+        "timeout 60 sh -c 'until docker logs deployment-caddy-1 2>&1 \
+         | grep -q \"aborting with incomplete response\"; do sleep 1; done'; \
+         docker logs deployment-caddy-1 2>&1",
+    ));
+
+    let short: Vec<&str> = own
+        .lines()
+        .filter(|line| line.contains("aborting with incomplete response"))
+        .collect();
+    assert!(!short.is_empty(), "{own}");
+    for line in &short {
+        for name in PERSONAL {
+            assert!(!line.contains(name), "{name}: {line}");
+        }
+    }
+    assert!(
+        !own.contains(AGENT),
+        "Caddy's own log holds the user agent: {own}"
+    );
+    assert!(!addresses.is_empty());
+    for address in &addresses {
+        assert!(
+            !holds_address(&own, address),
+            "Caddy's own log holds the address {address}: {own}"
+        );
     }
 }
 

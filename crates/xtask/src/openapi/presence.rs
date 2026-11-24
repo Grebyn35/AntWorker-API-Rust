@@ -80,18 +80,20 @@ fn closure(document: &Value, mut names: Vec<String>) -> BTreeSet<String> {
     found
 }
 
-/// Adds to `names` the name of each component that a `$ref` anywhere in `value` names.
+/// Adds to `names` the name of each component that a `$ref` anywhere in `value` names: the text
+/// after [`SCHEMAS`] of a member `$ref` whose value starts with it. A text under another key,
+/// such as a `description`'s or an `example`'s, names none.
 fn references(value: &Value, names: &mut Vec<String>) {
     match value {
-        Value::String(text) => {
-            if let Some(name) = text.strip_prefix(SCHEMAS) {
-                names.push(name.to_owned());
+        Value::Array(items) => items.iter().for_each(|item| references(item, names)),
+        Value::Object(members) => {
+            for (key, member) in members {
+                match member.as_str().and_then(|text| text.strip_prefix(SCHEMAS)) {
+                    Some(name) if key == "$ref" => names.push(name.to_owned()),
+                    _ => references(member, names),
+                }
             }
         }
-        Value::Array(items) => items.iter().for_each(|item| references(item, names)),
-        Value::Object(members) => members
-            .values()
-            .for_each(|member| references(member, names)),
         _ => {}
     }
 }
@@ -289,6 +291,25 @@ mod tests {
                 "schema Shared has a property that may be null and isn't required, and both a \
                  request and a response refer to it: a request may leave the field out, and a \
                  response holds it, so each takes a type of its own (API-05)"
+            ]
+        );
+    }
+
+    #[test]
+    fn api_05_a_text_that_names_a_component_outside_a_ref_refers_to_nothing() {
+        let schemas = json!({
+            "Thing": { "properties": { "note": { "type": ["string", "null"] } } },
+            "NewThing": {
+                "description": "#/components/schemas/Thing",
+                "example": "#/components/schemas/Thing",
+            },
+        });
+
+        assert_eq!(
+            messages(&reference("Thing"), &schemas),
+            [
+                "schema Thing: the property note may be null, so every response holds it, and it \
+                 isn't required (API-05)"
             ]
         );
     }

@@ -82,14 +82,19 @@ check() {
 
 # Fails the check unless the server's clock is synchronized, as systemd reports it of the kernel,
 # whatever keeps it so, such as systemd-timesyncd or chrony: the clock stamps each log line, each
-# metric, and, with the bundled database, each stored time. A server without systemd's timedatectl
-# is one the check can't read.
+# metric, and, with the bundled database, each stored time. A server without systemd's
+# timedatectl, or whose timedatectl fails, as it does where systemd doesn't run, is one the check
+# can't read.
 check_clock() {
     if ! command -v timedatectl > /dev/null 2>&1; then
         noted "whether the clock is synchronized can't be seen without systemd's timedatectl; keep it synchronized (docs/operations/deploy.md#what-a-server-needs)"
         return
     fi
-    if [ "$(timedatectl show --property=NTPSynchronized --value 2> /dev/null)" = yes ]; then
+    if ! clock_synchronized=$(timedatectl show --property=NTPSynchronized --value 2> /dev/null); then
+        noted "whether the clock is synchronized can't be seen: systemd's timedatectl can't read it, as where systemd doesn't run; keep it synchronized (docs/operations/deploy.md#what-a-server-needs)"
+        return
+    fi
+    if [ "$clock_synchronized" = yes ]; then
         passed "the clock is synchronized"
     else
         failed "the clock isn't synchronized: nothing keeps the server's time, so start a service that does, such as systemd-timesyncd or chrony"

@@ -69,14 +69,7 @@ fn excludes_null(document: &Value, schema: &Value, depth: usize) -> bool {
 mod tests {
     use serde_json::json;
 
-    use super::*;
-
-    fn messages(document: &Value) -> Vec<String> {
-        super::super::schemas::problems(document)
-            .into_iter()
-            .map(|(_, message)| message)
-            .collect()
-    }
+    use crate::openapi::schemas::tests::messages;
 
     /// The message for the header at `at`.
     fn refused(at: &str) -> String {

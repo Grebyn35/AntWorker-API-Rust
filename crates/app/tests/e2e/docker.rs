@@ -39,6 +39,18 @@ pub fn compose(args: &[&str]) -> String {
     docker(&[&["compose"], args].concat())
 }
 
+/// The image of curl among the deployment's tools, as `deploy/tools/compose.yaml` names it, which
+/// a test runs on a server or in the stack.
+pub fn curl_image() -> String {
+    compose(&[
+        "--file",
+        "../../deploy/tools/compose.yaml",
+        "config",
+        "--images",
+        "curl",
+    ])
+}
+
 /// Compose's network, on which a container reaches the development Postgres as `postgres`, and
 /// the tests' Postgres as `postgres-tests`.
 pub fn postgres_network() -> String {
@@ -87,15 +99,18 @@ impl Container {
     }
 
     /// Waits for Docker's first verdict on the container: `healthy` or `unhealthy`, from its
-    /// health check, or `exited`. Docker reaches one once the health check's start period and
-    /// retries run out, so the wait ends without a timeout of its own.
+    /// health check, or `exited`, or `no verdict` once [`Container::verdict_due`] passes without
+    /// one, when Docker's events, which `--until` bounds, end.
     pub fn health(&self) -> String {
         let created = self.inspect("{{.Created}}");
+        let due = self.verdict_due();
         let mut events = Command::new("docker")
             .args([
                 "events",
                 "--since",
                 &created,
+                "--until",
+                &due,
                 "--filter",
                 &format!("container={}", self.id),
                 "--filter",
@@ -124,6 +139,33 @@ impl Container {
             .and_then(|()| events.wait())
             .expect("stop following the events");
         verdict.to_owned()
+    }
+
+    /// The moment, in whole seconds since 1970, at which the wait for Docker's verdict on the
+    /// container gives up: the container's start, then its health check's start period, within
+    /// which Docker counts no failure, then one more probe than the check's retries, each of an
+    /// interval and a timeout. Each is the container's, as `.Config.Healthcheck` holds it, or
+    /// else Docker's default: 30 seconds for an interval and a timeout, no start period, and 3
+    /// retries.
+    fn verdict_due(&self) -> String {
+        let check: Value = serde_json::from_str(&self.inspect("{{json .Config.Healthcheck}}"))
+            .expect("the health check");
+        let given = |name: &str, default: u64| {
+            check[name]
+                .as_u64()
+                .filter(|given| *given > 0)
+                .unwrap_or(default)
+        };
+        let second = 1_000_000_000;
+        let probe = given("Interval", 30 * second) + given("Timeout", 30 * second);
+        let bound = given("StartPeriod", 0) + (given("Retries", 3) + 1) * probe;
+        let started = time::OffsetDateTime::parse(
+            &self.inspect("{{.State.StartedAt}}"),
+            &time::format_description::well_known::Rfc3339,
+        )
+        .expect("the moment the container started");
+        let due = started + std::time::Duration::from_nanos(bound);
+        (due.unix_timestamp() + 1).to_string()
     }
 
     /// The address on this machine at which the container's `port` is published.

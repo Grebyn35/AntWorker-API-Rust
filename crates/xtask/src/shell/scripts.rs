@@ -6,12 +6,15 @@
 
 use crate::repo::Repo;
 
-/// Each line of `script` whose `echo`, the word `echo ` where a command starts, writes a value: an
-/// argument with an expansion, as [`writes_expansion`] reads it on the `echo`'s line, or whose
-/// arguments go on past the line, which the check doesn't read. A server's sh, such as Ubuntu's
-/// dash, reads a backslash in echo's arguments as an escape, and `\c` ends the output, while
-/// printf's `%s` writes the value as it is. Alpine's sh, the tests' server's, writes it as it is,
-/// so no test would find one.
+/// Each line of `script` whose `echo` writes a value: an argument with an expansion, as
+/// [`writes_expansion`] reads it on the `echo`'s line, or whose arguments go on past the line,
+/// which the check doesn't read. An `echo` is the text `echo ` at the line's start, or after
+/// white space or one of `(`, `;`, `|`, `&` and `{`, on a line whose first character other than
+/// white space isn't `#`: so the word in a string or in a comment after a command reads as one,
+/// and an `echo ` after a backtick doesn't. A server's sh, such as Ubuntu's dash, reads a
+/// backslash in echo's arguments as an escape, and `\c` ends the output, while printf's `%s`
+/// writes the value as it is. Alpine's sh, the tests' server's, writes it as it is, so no test
+/// would find one.
 pub fn echo_problems(script: &str) -> Vec<(usize, &'static str)> {
     let mut problems = Vec::new();
     for (index, line) in script.lines().enumerate() {
@@ -533,6 +536,24 @@ mod tests {
             .collect();
 
         assert_eq!(problems, [3, 4]);
+    }
+
+    #[test]
+    fn code_07_an_echo_is_read_after_white_space_or_a_separator_on_a_line_that_is_no_comment() {
+        let script = "#!/bin/sh\n\
+            printf '%s\\n' \"no echo $x\"\n\
+            ls  # now echo $x\n\
+            v=`echo \"$y\"`\n\
+            noecho $x\n\
+            {echo $x; }\n\
+            \x20 # echo $x\n";
+
+        let problems: Vec<usize> = echo_problems(script)
+            .into_iter()
+            .map(|(line, _)| line)
+            .collect();
+
+        assert_eq!(problems, [2, 3, 6]);
     }
 
     #[test]

@@ -16,9 +16,10 @@ use std::{
 
 use serde_json::Value;
 
-/// The files that the API's image is built from, as git's pathspecs: the `Dockerfile`, and what
-/// its `.dockerignore` lets into the build's context, without what no build of the API's binary
-/// reads, the tests of `app` and all of `xtask` but its manifest, which the workspace names.
+/// The files that the API's image is built from, as git's pathspecs: the `Dockerfile` and its
+/// `.dockerignore`, and what the `.dockerignore` lets into the build's context, without what no
+/// build of the API's binary reads, the tests of `app` and all of `xtask` but its manifest, which
+/// the workspace names.
 pub const API_IMAGE: &[&str] = &[
     "Dockerfile",
     ".dockerignore",
@@ -215,6 +216,7 @@ mod tests {
             .collect();
 
         assert_ne!(identify(API_IMAGE).unwrap(), identify(&with_tests).unwrap());
+        assert!(API_IMAGE.contains(&"Dockerfile") && API_IMAGE.contains(&".dockerignore"));
         // Each entry that the `.dockerignore` lets into the context is among the inputs, itself
         // or as the directories below it.
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");

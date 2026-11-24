@@ -5,9 +5,21 @@
 {
 	# Caddy's own log, which `just logs` shows, without the line its health checks write for each
 	# check that fails: the replicas of the color that isn't live fail every check, by design
-	# (sites/api.caddy), and a deploy reads which replicas are ready from Caddy's metrics.
+	# (sites/api.caddy), and a deploy reads which replicas are ready from Caddy's metrics. A line
+	# that names a request, such as the one that the proxy writes of a response that a replica
+	# ends short, keeps no field of it that holds personal data, as the access log keeps none
+	# (OBS-04).
 	log default {
 		exclude http.handlers.reverse_proxy.health_checker.active
+		format filter {
+			wrap json
+			request>remote_ip delete
+			request>remote_port delete
+			request>client_ip delete
+			request>headers delete
+			request>uri delete
+			request>tls delete
+		}
 	}
 	# The authority that issues the certificates of the addresses: Let's Encrypt, and no other.
 	# Caddy issues those of names that no public authority certifies, such as one under

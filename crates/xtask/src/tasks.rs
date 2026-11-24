@@ -18,8 +18,11 @@ pub enum ServerTask {
         host: String,
         /// The release's version, such as 1.4.0; the latest by default.
         version: Option<String>,
-        /// Restarts a service that runs once, such as Postgres or Caddy, if the release changes
-        /// it, which interrupts requests.
+        /// Restarts a service that runs once, such as Postgres or Caddy, if the deploy changes
+        /// it, through the release, a setting, a secret or a file it reads, which interrupts
+        /// requests; and replaces the network of Caddy and the replicas if `PROXY_SUBNET` names
+        /// another subnet than the network's, which stops Caddy and every replica, so that no
+        /// request is served until the release's replicas serve.
         // part: files
         /// The scanner's restart interrupts only uploads.
         // end part: files

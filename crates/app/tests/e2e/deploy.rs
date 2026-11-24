@@ -11,7 +11,7 @@ use crate::{
         Deployment, MANAGED_TLS, Traffic, assert_all_succeeded, get, get_with_too_many_headers,
         get_within, post, unanswered,
     },
-    docker::{compose, lossy},
+    docker::{curl_image, lossy},
     server::DEPLOYMENT,
 };
 // part: files
@@ -509,13 +509,7 @@ fn left_for_two_forwarded_clients(
     network: &str,
     replica: &str,
 ) -> (u64, u64) {
-    let curl = compose(&[
-        "--file",
-        "../../deploy/tools/compose.yaml",
-        "config",
-        "--images",
-        "curl",
-    ]);
+    let curl = curl_image();
     let request = |client: &str| {
         format!(
             "--silent --max-time 10 --output /dev/null --dump-header - \

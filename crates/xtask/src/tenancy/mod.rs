@@ -435,21 +435,26 @@ fn names_tenant(sql: &str, tenants: &[&str]) -> bool {
     })
 }
 
-/// The words of `text`, lowercased, each with its line, outside its quoted strings and comments.
+/// The words of `text`, lowercased, each with its line, outside its quoted strings and comments:
+/// a comment runs from a `--` outside a string to the end of its line.
 pub fn words(text: &str) -> Vec<(String, usize)> {
     let mut words = Vec::new();
     for (number, line) in text.lines().enumerate() {
-        let code = line.split("--").next().unwrap_or_default();
         let mut quoted = false;
         let mut word = String::new();
-        for c in code.chars().chain(std::iter::once(' ')) {
+        let mut chars = line.chars().chain(std::iter::once(' ')).peekable();
+        while let Some(c) = chars.next() {
+            let comment = !quoted && c == '-' && chars.peek() == Some(&'-');
             if c == '\'' {
                 quoted = !quoted;
             }
-            if !quoted && (c.is_ascii_alphanumeric() || c == '_') {
+            if !comment && !quoted && (c.is_ascii_alphanumeric() || c == '_') {
                 word.push(c.to_ascii_lowercase());
             } else if !word.is_empty() {
                 words.push((std::mem::take(&mut word), number + 1));
+            }
+            if comment {
+                break;
             }
         }
     }

@@ -543,6 +543,33 @@ mod tests {
     }
 
     #[test]
+    fn obs_13_an_alert_s_increase_of_a_declared_metric_counts_the_first_value_too() {
+        let x = "platform_panics_total";
+        let form = format!("(increase({x}[5m]) and {x} offset 5m) or ({x} unless {x} offset 5m)");
+        let rules = |expr: &str| {
+            format!(
+                "groups:\n  - name: a\n    rules:\n      - alert: Panics\n        expr: {expr}\n      \
+                 - alert: Down\n        expr: up == 0\n"
+            )
+        };
+
+        let counted = findings(
+            &dashboard("Is it up?", "up"),
+            &rules(&format!("sum({form}) > 0")),
+        );
+        let missed = findings(
+            &dashboard("Is it up?", "up"),
+            &rules(&format!("increase({x}[5m]) > 0")),
+        );
+
+        assert!(counted.is_empty(), "{counted:?}");
+        assert!(
+            missed.len() == 1 && missed[0].contains("counts nothing of the first value"),
+            "{missed:?}"
+        );
+    }
+
+    #[test]
     fn obs_13_an_increase_s_form_that_a_function_or_an_operator_takes_half_of_fails() {
         let rules =
             "groups:\n  - name: a\n    rules:\n      - alert: Down\n        expr: up == 0\n";

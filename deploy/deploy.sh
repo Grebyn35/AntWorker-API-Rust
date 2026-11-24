@@ -105,7 +105,9 @@
 #       one. Prints a line for each check that it runs, and fails if any fails.
 #
 # A deploy restarts a service that runs once, such as Postgres or Caddy, only with
-# --allow-restart, because restarting one interrupts requests.
+# --allow-restart, because restarting one interrupts requests. It likewise replaces the network of
+# Caddy and the replicas, when PROXY_SUBNET names another subnet than the network's, only with
+# --allow-restart, since doing so stops Caddy and every replica.
 # The scanner runs once too, and its restart interrupts only uploads. # part: files
 # DEPLOYMENT names the deployment's directory, which holds settings.env, secrets/ and state/. The script first installs the files of
 # its own release there, so the deployment runs the release's configuration.

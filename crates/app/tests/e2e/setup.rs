@@ -534,7 +534,8 @@ async fn ops_22_at_0_days_the_check_passes_a_bucket_that_keeps_no_versions() {
 }
 
 #[tokio::test]
-async fn ops_19_the_check_fails_while_the_server_s_clock_isn_t_synchronized() {
+async fn ops_19_the_check_fails_while_systemd_reports_the_clock_unsynchronized_and_notes_what_it_can_t_report()
+ {
     let (server, settings) = new_server();
     let api = Pushed::api().in_network();
     let postgres = Pushed::postgres().in_network();
@@ -546,13 +547,14 @@ async fn ops_19_the_check_fails_while_the_server_s_clock_isn_t_synchronized() {
         &["backup_cipher_pass", "postgres_password"],
     );
     // A stand-in for systemd's timedatectl, which the tests' server lacks, that answers the one
-    // question the check asks as systemd does of the kernel's clock, and no other.
-    let answers = |synchronized: &str| {
+    // question the check asks with `answer`: as systemd does of the kernel's clock, or as
+    // timedatectl does where systemd doesn't run, with a message and a failure.
+    let answers = |answer: &str| {
         server.write(
             "/usr/local/bin/timedatectl",
             &format!(
                 "#!/bin/sh\n[ \"$*\" = 'show --property=NTPSynchronized --value' ] || exit 2\n\
-                 echo {synchronized}\n"
+                 {answer}\n"
             ),
         );
         server.shell_ok("chmod +x /usr/local/bin/timedatectl");
@@ -562,8 +564,9 @@ async fn ops_19_the_check_fails_while_the_server_s_clock_isn_t_synchronized() {
         )
     };
 
-    let unsynchronized = answers("no");
-    let synchronized = answers("yes");
+    let unsynchronized = answers("echo no");
+    let synchronized = answers("echo yes");
+    let unreported = answers("echo 'Failed to connect to bus: Host is down' >&2; exit 1");
 
     assert_found(
         &unsynchronized,
@@ -577,6 +580,14 @@ async fn ops_19_the_check_fails_while_the_server_s_clock_isn_t_synchronized() {
         &synchronized,
         true,
         &["check: ok    the clock is synchronized"],
+    );
+    assert_found(
+        &unreported,
+        true,
+        &[
+            "check: note  whether the clock is synchronized can't be seen: systemd's timedatectl \
+           can't read it",
+        ],
     );
 }
 

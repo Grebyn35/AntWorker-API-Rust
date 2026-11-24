@@ -10,13 +10,14 @@
 //! these forms; or a call of `code` without arguments, such as `error.code()`, whose codes the
 //! check reads in that error's own `code`. It fails on any other form, such as `Self::LOST`,
 //! `errors::LOST` or a body with a statement, and on a name that no such `const` sets, since it
-//! can't read the code.
+//! can't read the code. Outside tests is outside every item that carries `#[cfg(test)]`, such as
+//! a module of tests, a function or an `impl`, with all that the item holds.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Map, Value};
 use syn::{
-    Expr, ExprLit, ExprPath, Ident, ImplItem, ItemConst, ItemImpl, ItemMod, Lit, Stmt,
+    Attribute, Expr, ExprLit, ExprPath, Ident, ImplItem, Item, ItemConst, ItemImpl, Lit, Stmt,
     visit::{self, Visit},
 };
 
@@ -132,9 +133,10 @@ struct Constants {
 }
 
 impl<'ast> Visit<'ast> for Constants {
-    fn visit_item_mod(&mut self, item: &'ast ItemMod) {
-        if !only_tests(&item.attrs) {
-            visit::visit_item_mod(self, item);
+    /// Skips an item that only tests compile, with what it holds.
+    fn visit_item(&mut self, item: &'ast Item) {
+        if !only_tests(attributes(item)) {
+            visit::visit_item(self, item);
         }
     }
 
@@ -153,10 +155,10 @@ impl<'ast> Visit<'ast> for Constants {
 }
 
 impl<'ast> Visit<'ast> for Codes {
-    /// Skips a module that only tests compile, whose errors no route answers.
-    fn visit_item_mod(&mut self, item: &'ast ItemMod) {
-        if !only_tests(&item.attrs) {
-            visit::visit_item_mod(self, item);
+    /// Skips an item that only tests compile, with what it holds, whose errors no route answers.
+    fn visit_item(&mut self, item: &'ast Item) {
+        if !only_tests(attributes(item)) {
+            visit::visit_item(self, item);
         }
     }
 
@@ -205,6 +207,28 @@ impl Codes {
                 None => self.unread.push(line),
             },
         }
+    }
+}
+
+/// The attributes of `item`, such as a `#[cfg(test)]`.
+fn attributes(item: &Item) -> &[Attribute] {
+    match item {
+        Item::Const(item) => &item.attrs,
+        Item::Enum(item) => &item.attrs,
+        Item::ExternCrate(item) => &item.attrs,
+        Item::Fn(item) => &item.attrs,
+        Item::ForeignMod(item) => &item.attrs,
+        Item::Impl(item) => &item.attrs,
+        Item::Macro(item) => &item.attrs,
+        Item::Mod(item) => &item.attrs,
+        Item::Static(item) => &item.attrs,
+        Item::Struct(item) => &item.attrs,
+        Item::Trait(item) => &item.attrs,
+        Item::TraitAlias(item) => &item.attrs,
+        Item::Type(item) => &item.attrs,
+        Item::Union(item) => &item.attrs,
+        Item::Use(item) => &item.attrs,
+        _ => &[],
     }
 }
 
@@ -286,6 +310,41 @@ mod tests {
                 "crates/app/src/modules/things/error.rs:6"
             ]
         );
+    }
+
+    #[test]
+    fn err_13_a_code_or_a_constant_of_an_item_that_only_tests_compile_is_read_nowhere() {
+        let error = "impl ErrorCode for ThingsError {\n\
+                     \x20   fn code(&self) -> &'static str {\n\
+                     \x20       LOST\n\
+                     \x20   }\n\
+                     }\n\
+                     const LOST: &str = \"things.lost\";\n\
+                     #[cfg(test)]\n\
+                     const LOST: &str = \"things.lost_in_tests\";\n\
+                     #[cfg(test)]\n\
+                     impl ErrorCode for Fake { fn code(&self) -> &'static str { \"fake.only\" } }\n\
+                     #[cfg(test)]\n\
+                     fn fake() {\n\
+                     \x20   const LOST: &str = \"things.lost_in_a_test\";\n\
+                     \x20   impl ErrorCode for Inner { fn code(&self) -> &'static str { \"inner.only\" } }\n\
+                     }\n";
+        let repo = Repo::of(&[("crates/app/src/modules/things/error.rs", error)]);
+        let document = json!({
+            "paths": { "/v1/things": { "get": { "responses": { "404": {
+                "content": { "application/problem+json": { "schema": { "allOf": [
+                    { "$ref": "#/components/schemas/ProblemBody" },
+                    { "properties": { "code": { "enum": ["things.lost"] } } },
+                ] } } },
+            } } } } },
+        });
+
+        let messages: Vec<String> = check(&repo, &document)
+            .into_iter()
+            .map(|finding| format!("{}:{} {}", finding.path, finding.line, finding.message))
+            .collect();
+
+        assert_eq!(messages, Vec::<String>::new());
     }
 
     #[test]

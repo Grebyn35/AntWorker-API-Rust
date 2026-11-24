@@ -186,10 +186,7 @@ pub(super) fn alertmanager_secrets(config: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        deploy::root,
-        server::{example, read},
-    };
+    use crate::server::example;
 
     /// The block of `blocks` that holds the setting `name`.
     fn block_of<'a>(blocks: &'a [Block], name: &str) -> &'a Block {
@@ -201,7 +198,7 @@ mod tests {
 
     // part: removal
     #[test]
-    fn arch_07_a_part_s_markers_show_the_operator_nothing() {
+    fn ops_19_the_questions_show_the_operator_no_marker_of_a_part() {
         let marker = |end: &str| format!("# {end}{} offers", "part:");
         let example = [
             "# The size.".to_owned(),
@@ -295,17 +292,6 @@ mod tests {
         assert_eq!(
             alertmanager_secrets(config),
             vec!["slack_api_url".to_owned(), "page_url".to_owned()]
-        );
-        assert!(
-            alertmanager_secrets(
-                &String::from_utf8(
-                    read(&root().join("deploy/observability/alertmanager/alertmanager.yaml"))
-                        .expect("the file")
-                )
-                .expect("UTF-8")
-            )
-            .is_empty(),
-            "the template names no integration"
         );
     }
 

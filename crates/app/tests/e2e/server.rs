@@ -15,7 +15,7 @@ use std::{
 use tokio::sync::SemaphorePermit;
 
 use crate::{
-    docker::{Container, compose, docker, lossy, postgres_network},
+    docker::{Container, compose, curl_image, docker, lossy, postgres_network},
     memory::{self, Turn},
 };
 
@@ -480,13 +480,7 @@ impl Server {
     /// two seconds, under a timeout of three minutes: the collector decides on a trace 15 seconds
     /// after its first span arrived (OBS-08). Panics with the last answer if none holds `text`.
     pub fn telemetry_once_it_holds(&self, url: &str, text: &str) -> String {
-        let curl = compose(&[
-            "--file",
-            "../../deploy/tools/compose.yaml",
-            "config",
-            "--images",
-            "curl",
-        ]);
+        let curl = curl_image();
         self.write(
             "/root/telemetry-answer.sh",
             &format!(
@@ -666,13 +660,7 @@ impl Server {
     /// Waits until the stand-in managed Grafana answers its health check, asking every two
     /// seconds under a timeout of four minutes, which curl's `--retry-max-time` sets.
     fn managed_grafana_until_ready(&self) {
-        let curl = compose(&[
-            "--file",
-            "../../deploy/tools/compose.yaml",
-            "config",
-            "--images",
-            "curl",
-        ]);
+        let curl = curl_image();
         let address = self
             .container
             .inspect("{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}");
@@ -688,13 +676,7 @@ impl Server {
     /// JSON `body` unless it is empty, once Grafana answers, asking every two seconds under a
     /// timeout of a minute, and returns the answer's body. Panics if Grafana refuses.
     pub fn managed_grafana(&self, method: &str, path: &str, body: &str) -> String {
-        let curl = compose(&[
-            "--file",
-            "../../deploy/tools/compose.yaml",
-            "config",
-            "--images",
-            "curl",
-        ]);
+        let curl = curl_image();
         let address = self
             .container
             .inspect("{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}");

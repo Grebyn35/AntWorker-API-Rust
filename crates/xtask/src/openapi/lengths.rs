@@ -113,17 +113,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-
-    fn messages(document: &Value) -> Vec<String> {
-        super::super::schemas::problems(document)
-            .into_iter()
-            .map(|(_, message)| message)
-            .collect()
-    }
-
-    fn document(operation: Value, schemas: Value) -> Value {
-        json!({ "paths": { "/v1/things": { "post": operation } }, "components": { "schemas": schemas } })
-    }
+    use crate::openapi::schemas::tests::{document, messages};
 
     #[test]
     fn api_17_every_string_of_a_request_body_has_a_max_length_or_an_enum() {

@@ -289,8 +289,8 @@ enum Command {
         /// The directory that `RELEASE_MIGRATIONS` names for the tests.
         directory: std::path::PathBuf,
     },
-    /// Restarts each running service of compose.yaml whose configuration, the files that it
-    /// mounts from `deploy/`, changed since it started. `just services` runs it first.
+    /// Restarts each running service of compose.yaml whose configuration, what it mounts from
+    /// `deploy/`, changed since it started, as `services.rs` reads it. `just services` runs it.
     #[command(name = "stale-services")]
     StaleServices,
     /// Measures one replica's capacity: the highest constant rate of requests it serves with

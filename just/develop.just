@@ -52,7 +52,8 @@ env:
 
 # Starts the services in compose.yaml, and waits until they are healthy. First it restarts each
 # running one whose configuration, the files that it mounts from deploy/, changed since it
-# started, the observability stack's among them, which `up` leaves as they are (OPS-20).
+# started, as the doc of crates/xtask/src/services.rs says it reads a change, the observability
+# stack's among them, which `up` leaves as they are (OPS-20).
 [doc("Starts the services in compose.yaml, such as Postgres")]
 [group('develop')]
 services:

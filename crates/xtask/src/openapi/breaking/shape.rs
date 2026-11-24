@@ -52,9 +52,9 @@ pub struct Shape<'a> {
 
 impl<'a> Shape<'a> {
     /// The shape that `schemas`, of `document`, give one value together, or what it can't read:
-    /// a schema that is no object, a reference that isn't one to a schema that `document`
-    /// holds, a `type` that is no name or list of names, or a second `oneOf` of two or more
-    /// members that aren't null.
+    /// a schema that is neither an object nor `true`, which it reads as one that says nothing of
+    /// the value, a reference that isn't one to a schema that `document` holds, a `type` that is
+    /// no name or list of names, or a second `oneOf` of two or more members that aren't null.
     pub fn of(document: &'a Value, schemas: &[&'a Value]) -> Result<Self, String> {
         let mut shape = Self::default();
         let mut waiting: Vec<&'a Value> = schemas.to_vec();
@@ -302,6 +302,21 @@ mod tests {
             Shape::of(&document, &[&twice]).unwrap().other("format"),
             Err("two schemas of one value give it a `format` each".to_owned())
         );
+    }
+
+    #[test]
+    fn api_18_a_shape_reads_the_schema_true_as_one_that_says_nothing_and_can_t_read_false() {
+        let document = json!({"components": {"schemas": {}}});
+        let string = json!({"type": "string"});
+
+        let beside = Shape::of(&document, &[&json!(true), &string]).unwrap();
+        let alone = Shape::of(&document, &[&json!(true)]).unwrap();
+        let refused = Shape::of(&document, &[&json!(false)]).err();
+
+        assert_eq!(beside.types, Some(BTreeSet::from(["string"])));
+        assert_eq!(alone.types, None);
+        assert!(alone.properties.is_empty() && alone.others.is_empty() && !alone.nullable);
+        assert_eq!(refused.as_deref(), Some("the schema `false` is no object"));
     }
 
     #[test]

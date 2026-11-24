@@ -588,6 +588,24 @@ pub fn post_for_cookies(root: String, url: String, body: String) -> (u16, Vec<St
     .expect("the request")
 }
 
+/// Sends `POST` to `url` with the JSON body `body` and `cookie` as its `Cookie` header, through a
+/// client that trusts `root`, and returns the response's status and body.
+pub fn post_with_cookie(root: String, url: String, cookie: String, body: String) -> (u16, String) {
+    thread::spawn(move || {
+        let response = client(&root)
+            .post(&url)
+            .header("content-type", "application/json")
+            .header("cookie", cookie)
+            .body(body)
+            .send()
+            .expect("an answer");
+        let status = response.status().as_u16();
+        (status, response.text().expect("the body"))
+    })
+    .join()
+    .expect("the request")
+}
+
 /// Sends a request of `method`, without a body, to `url`, through a client that trusts `root`,
 /// and returns the response's status and body.
 pub fn send(root: String, method: reqwest::Method, url: String) -> (u16, String) {

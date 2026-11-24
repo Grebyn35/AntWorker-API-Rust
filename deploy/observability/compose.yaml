@@ -68,6 +68,10 @@ services:
       GF_SECURITY_DISABLE_GRAVATAR: "true"
       GF_NEWS_NEWS_FEED_ENABLED: "false"
       GF_SNAPSHOTS_EXTERNAL_ENABLED: "false"
+      # No snapshot and no externally shared dashboard, each of which opens without a sign-in, so
+      # the reference deployment's Grafana admits no anonymous viewer (SEC-14).
+      GF_SNAPSHOTS_ENABLED: "false"
+      GF_PUBLIC_DASHBOARDS_ENABLED: "false"
       # What a browser loads for Grafana's pages, and which pages may frame them: Grafana's own
       # template, without the hosts of Grafana Labs and of map tiles, which no dashboard here
       # loads, and with `frame-ancestors`, so no page frames Grafana (SEC-12). A panel that loads

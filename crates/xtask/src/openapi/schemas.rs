@@ -442,19 +442,22 @@ fn is_id(name: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use serde_json::json;
 
     use super::*;
 
-    fn messages(document: &Value) -> Vec<String> {
+    /// The messages of the problems that the checks of the document's schemas find in
+    /// `document`, which the tests of those checks in the other files of the module read too.
+    pub fn messages(document: &Value) -> Vec<String> {
         problems(document)
             .into_iter()
             .map(|(_, message)| message)
             .collect()
     }
 
-    fn document(operation: Value, schemas: Value) -> Value {
+    /// A document whose `POST /v1/things` is `operation`, beside the components `schemas`.
+    pub fn document(operation: Value, schemas: Value) -> Value {
         json!({ "paths": { "/v1/things": { "post": operation } }, "components": { "schemas": schemas } })
     }
 

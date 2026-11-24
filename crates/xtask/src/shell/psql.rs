@@ -156,6 +156,21 @@ mod tests {
     }
 
     #[test]
+    fn arch_14_a_script_s_psql_statement_is_read_past_two_dashes_inside_a_string() {
+        let script = "#!/bin/sh\n\
+                      psql -qAt -c \"SELECT '--' FROM users\"\n\
+                      psql -qAt -c \"SELECT 1 -- FROM users\"\n";
+        let tables = ["users".to_owned()];
+
+        let problems: Vec<usize> = psql_problems(script, &tables)
+            .into_iter()
+            .map(|(line, _)| line)
+            .collect();
+
+        assert_eq!(problems, [2]);
+    }
+
+    #[test]
     fn arch_14_a_script_s_psql_statement_that_goes_on_past_its_line_is_found() {
         let script = "#!/bin/sh\n\
                       psql -qAt -c 'SELECT 1\n\

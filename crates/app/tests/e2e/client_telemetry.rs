@@ -603,12 +603,17 @@ fn one_in_each(at: &str) -> Value {
 
 /// The points that the collector keeps, each in the series that the test expects it in. Under
 /// 404: one that names its status beside attributes that the configuration doesn't list, one that
-/// names two statuses, and one of a resource that names two services, `api` second. Without a
-/// status: one whose status isn't of the lists, and one whose status isn't an integer. By why the
-/// request failed: a listed kind, one that isn't listed, and a point that names two kinds.
+/// names two statuses, one of a resource that names two services, `api` second, and one whose sum
+/// is 0 and one whose sum is a billion, the bounds of the sums it keeps. Without a status: one
+/// whose status isn't of the lists, and one whose status isn't an integer. By why the request
+/// failed: a listed kind, one that isn't listed, and a point that names two kinds.
 fn kept(at: &str, api: &str) -> Vec<Value> {
     let client = resource(Some(CLIENT));
     let one = |attributes: Value, count: u64| point(&attributes, count, at);
+    let mut least = one(json!([status(404)]), 1_000);
+    least["sum"] = json!(0.0);
+    let mut most = one(json!([status(404)]), 10_000);
+    most["sum"] = json!(1.0e9);
     vec![
         measured(
             &client,
@@ -622,6 +627,8 @@ fn kept(at: &str, api: &str) -> Vec<Value> {
                     1,
                 ),
                 one(json!([status(404), status(500)]), 10),
+                least,
+                most,
             ]),
         ),
         measured(
@@ -648,9 +655,9 @@ fn kept(at: &str, api: &str) -> Vec<Value> {
 
 /// The points that the collector drops, each of which names a status of [`READ`] that no kept
 /// point names: another metric; the listed one whose points hold what the client measured since
-/// it started, in milliseconds, in other buckets, with a sum that is no number, that is below
-/// 0 or that is above a billion, and with the flag of a point that holds no value; and the
-/// listed one from a client that isn't listed, and from a resource whose first name, `api`,
+/// it started, in milliseconds, in other buckets, with a sum that is no number, that is just
+/// below 0 or that is just above a billion, and with the flag of a point that holds no value; and
+/// the listed one from a client that isn't listed, and from a resource whose first name, `api`,
 /// isn't listed.
 fn dropped(at: &str, api: &str) -> Vec<Value> {
     let client = resource(Some(CLIENT));
@@ -663,9 +670,9 @@ fn dropped(at: &str, api: &str) -> Vec<Value> {
     let mut no_value = one(511);
     no_value["flags"] = json!(1);
     let mut below = one(417);
-    below["sum"] = json!(-0.5);
+    below["sum"] = json!(-0.001);
     let mut above = one(421);
-    above["sum"] = json!(2.0e9);
+    above["sum"] = json!(1.0e9 + 0.001);
     let metric = "http.client.request.duration";
     vec![
         measured(&client, &named("another.metric", "s", 1, &one(501))),
@@ -715,14 +722,14 @@ async fn client_telemetry_015_the_collector_keeps_of_a_client_s_metrics_what_its
         .iter()
         .map(|series| grew(&before, &after, series))
         .collect();
-    // 404 by its three kept points' 1, 10 and 100 requests, 500 by none, though a kept point
-    // names it second, and none of the nine statuses that the dropped points name; then each
-    // kind of failure by one point; then the series of neither by its two points' 1 and 10
-    // requests.
+    // 404 by its five kept points' 1, 10, 100, 1,000 and 10,000 requests, 500 by none, though a
+    // kept point names it second, and none of the nine statuses that the dropped points name;
+    // then each kind of failure by one point; then the series of neither by its two points' 1 and
+    // 10 requests.
     assert_eq!(
         grown,
         [
-            111.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 11.0
+            11_111.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 11.0
         ],
         "{read:?}\n{after}"
     );

@@ -5,11 +5,14 @@
 //! mounted by itself as it was when the container started, even once the file is replaced.
 //!
 //! A service's configuration is what Compose's resolved file gives it as a bind mount whose
-//! source is under the repository's `deploy/`: a directory, with every file below it, or a file.
-//! It changed when one of those files was modified after the moment at which the service's
-//! container last started, as Docker names it, each as precisely as Docker and the filesystem
-//! give it. A service without a container, or whose container doesn't run, reads its
-//! configuration when a task starts it.
+//! source is under the repository's `deploy/`: a directory, with every file and directory below
+//! it, or a file. It changed when one of those files or directories was modified after the moment
+//! at which the service's container last started, as Docker names it, each as precisely as Docker
+//! and the filesystem give it. A directory is modified when an entry is added to it, removed from
+//! it or renamed in it, so a file deleted from a mounted directory is a change, and so is one
+//! moved into it with a time before the start. A file mounted by itself that is replaced by
+//! another whose time is before the start is no change. A service without a container, or whose
+//! container doesn't run, reads its configuration when a task starts it.
 
 use std::{
     path::{Path, PathBuf},
@@ -93,30 +96,34 @@ fn mounted(config: &Value, deploy: &Path) -> Vec<(String, Vec<PathBuf>)> {
         .collect()
 }
 
-/// Whether a file at one of `sources`, or below it, was modified after `started`, a moment since
-/// 1970.
+/// Whether a file or a directory at one of `sources`, or below it, was modified after `started`,
+/// a moment since 1970.
 fn changed(sources: &[PathBuf], started: Duration) -> bool {
     let modified = sources.iter().filter_map(|source| newest(source)).max();
     modified.is_some_and(|modified| modified > started)
 }
 
-/// The moment, since 1970, at which the newest file at `path`, or below it, was modified, or
-/// `None` where no file is there.
+/// The moment, since 1970, at which the newest file or directory at `path`, or below it, was
+/// modified, or `None` where nothing is there.
 #[expect(
     clippy::disallowed_methods,
     reason = "the task runs as a synchronous program, with no async runtime to stall"
 )]
 fn newest(path: &Path) -> Option<Duration> {
     let metadata = std::fs::metadata(path).ok()?;
-    if metadata.is_dir() {
-        return std::fs::read_dir(path)
-            .ok()?
-            .filter_map(Result::ok)
-            .filter_map(|entry| newest(&entry.path()))
-            .max();
+    let modified = metadata
+        .modified()
+        .ok()
+        .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok());
+    if !metadata.is_dir() {
+        return modified;
     }
-    let modified = metadata.modified().ok()?;
-    modified.duration_since(UNIX_EPOCH).ok()
+    let below = std::fs::read_dir(path)
+        .ok()?
+        .filter_map(Result::ok)
+        .filter_map(|entry| newest(&entry.path()))
+        .max();
+    modified.max(below)
 }
 
 /// The moment, since 1970, of `time`, a moment in UTC as Docker writes one, such as
@@ -286,6 +293,12 @@ mod tests {
             .set_modified(UNIX_EPOCH + second + Duration::from_millis(700))
             .unwrap();
         drop(written);
+        // The directory, whose entry the file's creation modified, was last modified before both
+        // starts.
+        std::fs::File::open(&root)
+            .unwrap()
+            .set_modified(UNIX_EPOCH + second)
+            .unwrap();
         let sources = [root.clone()];
 
         let after = changed(&sources, moment("2026-11-22T00:51:44.3Z").unwrap());
@@ -300,5 +313,101 @@ mod tests {
             !before,
             "a file modified at .7 before a start at .9 is none"
         );
+    }
+
+    /// A directory of the test's own, named `name`, in `target/`, which holds the files `files`,
+    /// each, with the directory itself, last modified at `2026-11-22T00:51:44Z`.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test writes files of its own, outside any async runtime"
+    )]
+    fn mounted_directory(name: &str, files: &[&str]) -> PathBuf {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/stale-services")
+            .join(format!("{}-{name}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let at = UNIX_EPOCH + moment("2026-11-22T00:51:44Z").unwrap();
+        for file in files {
+            std::fs::File::create(root.join(file))
+                .unwrap()
+                .set_modified(at)
+                .unwrap();
+        }
+        std::fs::File::open(&root)
+            .unwrap()
+            .set_modified(at)
+            .unwrap();
+        root
+    }
+
+    #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test writes files of its own, outside any async runtime"
+    )]
+    fn ops_20_a_file_deleted_from_a_mounted_directory_after_its_service_started_is_a_change() {
+        let root = mounted_directory("deleted", &["kept.yaml", "deleted.yaml"]);
+        let (sources, started) = ([root.clone()], moment("2026-11-22T00:51:44.3Z").unwrap());
+        let unchanged = changed(&sources, started);
+
+        std::fs::remove_file(root.join("deleted.yaml")).unwrap();
+        let deleted = changed(&sources, started);
+        std::fs::remove_dir_all(&root).unwrap();
+
+        assert!(
+            !unchanged,
+            "nothing below the directory changed after the start"
+        );
+        assert!(deleted, "a file deleted after the start is a change");
+    }
+
+    #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test writes files of its own, outside any async runtime"
+    )]
+    fn ops_20_a_file_moved_into_a_mounted_directory_with_its_earlier_time_is_a_change() {
+        let root = mounted_directory("moved", &["kept.yaml"]);
+        let outside = root.with_extension("outside");
+        std::fs::File::create(&outside)
+            .unwrap()
+            .set_modified(UNIX_EPOCH + moment("2026-11-22T00:51:44Z").unwrap())
+            .unwrap();
+        let (sources, started) = ([root.clone()], moment("2026-11-22T00:51:44.3Z").unwrap());
+        let unchanged = changed(&sources, started);
+
+        std::fs::rename(&outside, root.join("moved.yaml")).unwrap();
+        let moved = changed(&sources, started);
+        std::fs::remove_dir_all(&root).unwrap();
+
+        assert!(
+            !unchanged,
+            "nothing below the directory changed after the start"
+        );
+        assert!(
+            moved,
+            "a file moved in after the start, with a time before it, is a change"
+        );
+    }
+
+    #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test writes files of its own, outside any async runtime"
+    )]
+    fn ops_20_a_file_mounted_by_itself_that_one_with_a_time_before_the_start_replaces_is_none() {
+        let root = mounted_directory("replaced", &["mounted.yaml", "other.yaml"]);
+        let started = moment("2026-11-22T00:51:44.3Z").unwrap();
+
+        std::fs::rename(root.join("other.yaml"), root.join("mounted.yaml")).unwrap();
+        let replaced = changed(&[root.join("mounted.yaml")], started);
+        let directory = changed(std::slice::from_ref(&root), started);
+        std::fs::remove_dir_all(&root).unwrap();
+
+        assert!(
+            !replaced,
+            "the file mounted by itself keeps a time before the start"
+        );
+        assert!(directory, "the directory that holds it is modified");
     }
 }
