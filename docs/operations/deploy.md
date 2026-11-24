@@ -270,7 +270,7 @@ just setup-workspace production "Acme Labs" ada@example.com "Ada Lovelace"
 creates the workspace Acme Labs, owned by the account that holds the address ([workspaces spec](../spec/workspaces.md#the-setup-subcommand), D65). What it does about the account follows the deployment's `EMAIL`:
 
 - With email on, it creates the account, with the name given, when no account holds the address, and emails the address: the owner sets their first password by asking for a password reset where they sign in, which proves the address. The name may be left out for an account that holds the address, which owns the workspace as WORKSPACES-024 says: one that signs in and hasn't proved the address is refused, since someone else may have registered the owner's address, so run the task again once its owner has proved it.
-- With email off, nothing proves an address, and no account can reset a password, so it creates no account: ask the owner to register first, with a password of their own, and run the task once they have. The workspace goes to whichever account holds the address, so run it only for an owner who told you that they registered.
+- With email off, no code proves an address, and no account can reset a password, so it creates no account: ask the owner to register first, with a password of their own, and run the task once they have. The workspace goes to whichever account holds the address, so run it only for an owner who told you that they registered.
 
 An owner who signs in through a provider signs in first, which registers their account, and then you run the task.
 
@@ -286,7 +286,7 @@ A superadmin sees every workspace of the deployment: its name, when it was creat
 just superadmin production add ada@example.com
 ```
 
-makes the account that holds the address a superadmin, and records it in the account's own log. The account exists first: its owner registers, or signs in through a provider. With email on, it must have proved the address, since someone else may have registered it, so run the task again once its owner has proved it; with email off, nothing proves an address, so run it only for an owner who told you that they registered. A superadmin's routes serve the account once it has an authenticator app, which every superadmin must have (D63): one without is asked to set one up.
+makes the account that holds the address a superadmin, and records it in the account's own log. The account exists first: its owner registers, or signs in through a provider. With email on, it must have proved the address, since someone else may have registered it, so run the task again once its owner has proved it; with email off, no code proves an address, so run it only for an owner who told you that they registered. A superadmin's routes serve the account once it has an authenticator app, which every superadmin must have (D63): one without is asked to set one up.
 
 ```
 just superadmin production remove ada@example.com

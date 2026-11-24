@@ -502,7 +502,7 @@ async fn workspaces_025_with_email_off_a_run_enqueues_no_email() {
 #[tokio::test]
 async fn workspaces_026_with_email_off_the_account_that_holds_the_address_owns_the_workspace() {
     let api = Api::without_email().await;
-    // With email off, nothing proves an address.
+    // With email off, no code proves an address.
     let ada = users::register_unverified(&api, "ada@example.com").await;
 
     let run = operator::run(&api, AREA, &EMAIL_OFF, &["Acme", "ada@example.com"]).await;
