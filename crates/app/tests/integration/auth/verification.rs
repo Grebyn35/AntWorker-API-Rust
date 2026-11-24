@@ -1013,6 +1013,25 @@ async fn auth_032_a_code_of_more_than_32_characters_or_that_isn_t_6_digits_answe
 }
 
 #[tokio::test]
+async fn auth_032_a_code_of_32_characters_with_the_whitespace_around_its_digits_is_checked() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let ada = users::register_unverified(&api, &address).await;
+    // The right code, which the spaces before it take to 32 characters.
+    let padded = format!("{}{}", " ".repeat(26), code_sent(&api, &address).await);
+
+    let confirmed = confirm(&api, &ada, &padded).await;
+
+    assert_eq!(confirmed.status, 200, "{}", confirmed.json());
+    assert_eq!(
+        api.database()
+            .owner_reads("SELECT email_verified::text FROM users")
+            .await,
+        ["true"]
+    );
+}
+
+#[tokio::test]
 async fn auth_032_with_email_off_a_code_of_6_digits_answers_503_and_a_malformed_one_400() {
     let api = Api::without_email().await;
     let ada = users::register_unverified(&api, "ada@example.com").await;

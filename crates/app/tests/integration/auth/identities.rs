@@ -168,6 +168,29 @@ async fn auth_085_the_identities_are_the_password_and_each_provider_identity_the
     assert_eq!(providers[0]["id"], retired);
     assert_eq!(providers[1]["provider"], "stand_in");
     assert_eq!(providers[1]["id"], provider_id(&api, &ada).await);
+    // Each identity's `created_at` is its row's.
+    let at = "to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"')";
+    let user = &ada.user_id;
+    assert_eq!(
+        body["password"]["created_at"],
+        reads(
+            &api,
+            &format!("SELECT {at} FROM identities WHERE user_id = '{user}'")
+        )
+        .await[0]
+    );
+    let linked = reads(
+        &api,
+        &format!(
+            "SELECT {at} FROM provider_identities WHERE user_id = '{user}' ORDER BY created_at, id"
+        ),
+    )
+    .await;
+    let given: Vec<&str> = providers
+        .iter()
+        .map(|provider| provider["created_at"].as_str().unwrap())
+        .collect();
+    assert_eq!(given, linked);
     assert!(!response.json().to_string().contains("subject-"));
 }
 

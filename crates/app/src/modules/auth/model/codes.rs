@@ -430,6 +430,13 @@ mod tests {
                 "{refused}"
             );
         }
+        // A code padded to 64 characters is taken, and one of 65 is refused.
+        assert_eq!(
+            ResetCode::parse(&format!("7KQM2XWD9RTBH4NP{}", " ".repeat(48)))
+                .unwrap()
+                .characters(),
+            "7KQM2XWD9RTBH4NP"
+        );
         assert_eq!(
             ResetCode::parse(&format!("7KQM2XWD9RTBH4NP{}", " ".repeat(49)))
                 .unwrap_err()
@@ -483,6 +490,13 @@ mod tests {
                 "{character}"
             );
         }
+        // A code padded to 64 characters is taken, and one of 65 is refused.
+        assert_eq!(
+            RecoveryCode::parse(&format!("7KQM2XWD9RTBH4NP1100ABCD{}", " ".repeat(40)))
+                .unwrap()
+                .characters(),
+            "7KQM2XWD9RTBH4NP1100ABCD"
+        );
         assert_eq!(
             RecoveryCode::parse(&format!("7KQM2XWD9RTBH4NP1100ABCD{}", " ".repeat(41)))
                 .unwrap_err()

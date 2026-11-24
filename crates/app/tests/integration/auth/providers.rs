@@ -105,6 +105,14 @@ async fn auth_073_a_linked_subject_signs_in_to_its_account_whatever_address_it_g
         provider_entries(&api).await,
         ["user.registered", "session.created"]
     );
+    let id = &first.user_id;
+    assert_eq!(
+        entries(&api, "session.created").await,
+        [format!(
+            "user {id} {id} session {} {{\"provider\": \"stand_in\"}}",
+            session["id"].as_str().unwrap()
+        )]
+    );
     let listed = api
         .get("/v1/users/me/sessions")
         .bearer(&first.access)
@@ -504,6 +512,46 @@ async fn auth_077_a_provider_whose_identity_doesn_t_come_answers_503_at_the_exch
 }
 
 #[tokio::test]
+async fn auth_077_the_token_s_request_and_the_read_of_the_identity_share_the_6_seconds() {
+    let (upstream, api) = providers::standing().await;
+    let token = upstream.hold("POST", "/token", 200, json!({ "access_token": "t" }));
+    upstream.hang("GET", "/identity");
+    let clock = api.clock();
+    let deadline = std::time::Duration::from_secs(6);
+    let mut call = {
+        let api = api.clone();
+        tokio::spawn(async move { sign_in(&api, &grant()).await })
+    };
+    let received = |method: &str, path: &str| {
+        upstream
+            .received()
+            .iter()
+            .any(|received| received.method == method && received.path == path)
+    };
+
+    // The token comes once 4 of the 6 seconds have passed, and the read of the identity waits.
+    while !received("POST", "/token") {
+        tokio::task::yield_now().await;
+    }
+    clock.sleeping(deadline).await;
+    clock.advance(std::time::Duration::from_secs(4));
+    token.notify_one();
+    while !received("GET", "/identity") {
+        tokio::task::yield_now().await;
+    }
+    clock.advance(std::time::Duration::from_secs(2));
+
+    // Six seconds have passed in all, so the exchange answers, and no sleep of 6 seconds that
+    // the read of the identity began is left waiting.
+    let response = tokio::select! {
+        biased;
+        response = &mut call => Some(response.unwrap()),
+        () = clock.sleeping(deadline) => None,
+    };
+    unavailable(&response.expect("the exchange's deadline came at 6 seconds in all"));
+}
+
+#[tokio::test]
 async fn auth_100_sign_ins_that_wait_for_the_provider_hold_no_connection_of_the_pool() {
     let (upstream, api) = providers::standing().await;
     let ada = users::register(&api, "ada@example.com").await;
@@ -769,10 +817,13 @@ async fn auth_080_the_caller_s_subject_reauthenticates_the_session() {
     // With the tokens that the proof gave the session (AUTH-095).
     let deleted = users::end_others(&api, &SignedIn::from(&response)).await;
     assert_eq!(deleted.status, 204, "the proof holds (AUTH-045)");
-    assert!(
-        provider_entries(&api)
-            .await
-            .contains(&"session.reauthenticated".to_owned())
+    let id = &ada.user_id;
+    assert_eq!(
+        entries(&api, "session.reauthenticated").await,
+        [format!(
+            "user {id} {id} session {} {{\"provider\": \"stand_in\"}}",
+            ada.session_id
+        )]
     );
 }
 
@@ -1310,6 +1361,24 @@ async fn auth_080_a_malformed_second_factor_answers_400_at_its_field() {
 }
 
 #[tokio::test]
+async fn auth_080_a_second_factor_code_of_32_characters_with_the_whitespace_around_it_proves_it() {
+    let (upstream, api) = providers::standing().await;
+    gives(&upstream, identity("subject-1", "ada@example.com", true));
+    let ada = signed_in(&api).await;
+    let app = second_factors::add_app(&api, &ada).await;
+    // The app's code, which the spaces before it take to 32 characters.
+    let padded = format!(
+        "{}{}",
+        " ".repeat(26),
+        second_factors::code(&api, &app.secret).await
+    );
+
+    let reauthenticated = reauthenticate(&api, &ada, json!({ "second_factor_code": padded })).await;
+
+    assert_eq!(reauthenticated.status, 200, "{}", reauthenticated.json());
+}
+
+#[tokio::test]
 async fn auth_080_a_wrong_second_factor_answers_403_and_a_recovery_code_proves_it() {
     let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
@@ -1547,8 +1616,13 @@ async fn auth_058_a_sign_in_through_a_provider_to_an_account_with_an_app_answers
     assert!(answer.get("access_token").is_none(), "{answer}");
     assert!(answer.get("device_token").is_none(), "{answer}");
     assert_eq!(
-        answer["expires_at"].as_str().unwrap().len(),
-        "2026-11-11T12:00:00.000000Z".len()
+        answer["expires_at"],
+        api.database()
+            .owner_reads(
+                "SELECT to_char(expires_at AT TIME ZONE 'UTC', \
+                 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') FROM sign_in_challenges"
+            )
+            .await[0]
     );
     assert_eq!(count("sessions").await, sessions, "no session");
     assert_eq!(count("device_tokens").await, tokens, "no device token");

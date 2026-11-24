@@ -1414,3 +1414,30 @@ async fn auth_038_a_malformed_second_factor_answers_400_at_its_field() {
         assert_eq!(errors[0]["code"], "invalid_code", "{errors}");
     }
 }
+
+#[tokio::test]
+async fn auth_038_a_second_factor_code_of_32_characters_with_the_whitespace_around_it_resets() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let ada = users::register(&api, &address).await;
+    let app = second_factors::add_app(&api, &ada).await;
+    ask(&api, &address).await;
+    let code = code_sent(&api, &address).await;
+    // The app's code, which the spaces before it take to 32 characters.
+    let padded = format!(
+        "{}{}",
+        " ".repeat(26),
+        second_factors::code(&api, &app.secret).await
+    );
+
+    let reset = confirm_with(
+        &api,
+        &address,
+        &code,
+        json!({ "second_factor_code": padded }),
+    )
+    .await;
+
+    assert_eq!(reset.status, 204, "{}", reset.json());
+    assert_eq!(reset_codes(&api, &ada.user_id).await, ["0"]);
+}

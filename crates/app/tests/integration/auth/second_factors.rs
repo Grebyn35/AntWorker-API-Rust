@@ -283,6 +283,26 @@ async fn auth_056_a_code_of_more_than_32_characters_answers_400_at_its_field() {
 }
 
 #[tokio::test]
+async fn auth_056_a_code_of_32_characters_with_the_whitespace_around_it_confirms_the_setup() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let secret = start_setup(&api, &ada).await.json()["secret"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    // The right code, which the spaces before it take to 32 characters.
+    let padded = format!("{}{}", " ".repeat(26), code(&api, &secret).await);
+
+    let confirmed = confirm(&api, &ada, &padded).await;
+
+    assert_eq!(confirmed.status, 200, "{}", confirmed.json());
+    assert_eq!(
+        reads(&api, "SELECT count(*)::text FROM totp_factors").await,
+        ["1"]
+    );
+}
+
+#[tokio::test]
 async fn auth_057_the_step_that_a_check_accepted_works_no_more() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
@@ -523,6 +543,20 @@ async fn auth_065_both_codes_or_a_malformed_one_answer_400_at_its_field() {
 }
 
 #[tokio::test]
+async fn auth_065_a_code_of_32_characters_with_the_whitespace_around_it_re_authenticates() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let app = add_app(&api, &ada).await;
+    // The app's code, which the spaces before it take to 32 characters.
+    let padded = format!("{}{}", " ".repeat(26), code(&api, &app.secret).await);
+
+    let reauthenticated =
+        reauthenticate(&api, &ada, &json!({ "password": PASSWORD, "code": padded })).await;
+
+    assert_eq!(reauthenticated.status, 200, "{}", reauthenticated.json());
+}
+
+#[tokio::test]
 async fn auth_065_with_an_app_re_authenticating_needs_its_code_beside_the_password() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
@@ -687,6 +721,7 @@ async fn auth_068_with_email_off_no_change_of_the_second_factor_enqueues_an_emai
     let ada = users::register(&api, "ada@example.com").await;
     add_app(&api, &ada).await;
     users::authenticated_ago(&api, &ada, 0).await;
+    assert_eq!(new_codes(&api, &ada).await.status, 200);
     assert_eq!(remove(&api, &ada).await.status, 204);
     assert!(
         reads(

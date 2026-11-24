@@ -65,8 +65,13 @@ async fn auth_058_signing_in_to_an_account_with_an_app_answers_a_challenge_and_n
     .await;
     assert_eq!(hash[0], hex_sha256(token));
     assert_eq!(
-        body["expires_at"].as_str().unwrap().len(),
-        "2026-11-11T12:00:00.000000Z".len()
+        body["expires_at"],
+        reads(
+            &api,
+            "SELECT to_char(expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') \
+             FROM sign_in_challenges"
+        )
+        .await[0]
     );
     let ada_id = &ada.user_id;
     assert_eq!(
@@ -178,13 +183,15 @@ async fn auth_059_a_code_completes_the_sign_in_with_a_session_on_its_device_and_
     let created = reads(
         &api,
         &format!(
-            "SELECT count(*)::text FROM audit_entries WHERE action = 'session.created' \
+            "SELECT user_id || ' ' || coalesce(actor_user_id::text, '-') || ' ' || resource_type \
+             || ' ' || details::text FROM audit_entries WHERE action = 'session.created' \
              AND resource_id = '{}'",
             session["id"].as_str().unwrap()
         ),
     )
     .await;
-    assert_eq!(created, ["1"]);
+    let ada_id = &ada.user_id;
+    assert_eq!(created, [format!("{ada_id} {ada_id} session {{}}")]);
     assert!(
         users::session_events(&api, "session.created")
             .await
@@ -454,6 +461,20 @@ async fn auth_060_a_code_of_more_than_32_characters_answers_400_at_its_field() {
 }
 
 #[tokio::test]
+async fn auth_060_a_code_of_32_characters_with_the_whitespace_around_it_completes_the_sign_in() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let app = add_app(&api, &ada).await;
+    let token = challenge(&api, "ada@example.com").await;
+    // The right code, which the spaces before it take to 32 characters.
+    let padded = format!("{}{}", " ".repeat(26), code(&api, &app.secret).await);
+
+    let completed = complete(&api, &token, json!({ "code": padded })).await;
+
+    assert_eq!(completed.status, 201, "{}", completed.json());
+}
+
+#[tokio::test]
 async fn auth_061_completions_count_in_the_user_s_bucket_or_their_device_token_s() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
@@ -666,6 +687,16 @@ async fn auth_066_a_run_of_the_job_moves_the_secrets_of_more_apps_than_one_batch
         .await,
         ["2 1001"]
     );
+    // How many rows each transaction of the run wrote, as the transaction's ID that each row's
+    // `xmin` holds groups them: a batch of 1,000, then the one left.
+    assert_eq!(
+        reads(
+            &api,
+            "SELECT count(*)::text FROM totp_factors GROUP BY xmin::text ORDER BY count(*) DESC"
+        )
+        .await,
+        ["1000", "1"]
+    );
 }
 
 #[tokio::test]
@@ -818,8 +849,11 @@ async fn auth_067_the_hourly_job_deletes_the_setups_and_challenges_that_expired(
             ada.user_id
         ))
         .await;
+    let db = api.database();
+    db.owner_executes("DELETE FROM events").await;
     let entries = "SELECT count(*)::text FROM audit_entries";
     let before = reads(&api, entries).await;
+    let mut signals = db.signals().await;
     let challenges = "SELECT encode(token_hash, 'hex') FROM sign_in_challenges";
     let setups = "SELECT user_id::text FROM totp_setups";
 
@@ -832,8 +866,10 @@ async fn auth_067_the_hourly_job_deletes_the_setups_and_challenges_that_expired(
     // A second run finds nothing more to delete.
     assert_eq!(reads(&api, challenges).await, once.0);
     assert_eq!(reads(&api, setups).await, once.1);
-    // Scheduled maintenance records nothing.
+    // Scheduled maintenance records, publishes and signals nothing.
     assert_eq!(reads(&api, entries).await, before);
+    assert!(db.owner_reads("SELECT name FROM events").await.is_empty());
+    assert!(signals.received().await.is_empty());
 }
 
 #[tokio::test]
@@ -928,6 +964,8 @@ async fn auth_069_a_reset_deletes_the_challenges_and_leaves_the_app_that_the_nex
     let asked = password_reset::ask(&api, &address).await;
     assert_eq!(asked.status, 202);
     let reset_code = password_reset::code_sent(&api, &address).await;
+    let codes = "SELECT encode(code_hash, 'hex') FROM recovery_codes ORDER BY 1";
+    let recovery_codes = reads(&api, codes).await;
 
     let reset = api
         .post(
@@ -944,7 +982,9 @@ async fn auth_069_a_reset_deletes_the_challenges_and_leaves_the_app_that_the_nex
             .await
             .is_empty()
     );
-    // The app stays, so the next sign-in asks for it (ASVS 6.4.3).
+    // The app and the recovery codes stay, so the next sign-in asks for one (ASVS 6.4.3).
+    assert_eq!(reads(&api, codes).await, recovery_codes);
+    assert_eq!(recovery_codes.len(), 10);
     assert_eq!(
         users::sign_in(&api, &address, "violet-harbor-73-brisk")
             .await

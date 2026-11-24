@@ -24,6 +24,7 @@ use axum::{
 };
 use platform::errors::Held;
 use serde_json::Value;
+use tokio::sync::Notify;
 
 use super::api::Options;
 
@@ -51,9 +52,11 @@ impl Received {
     }
 }
 
-/// What a route answers: a status with a JSON body, or with bytes, or nothing, ever.
+/// What a route answers: a status with a JSON body, at once or once the test releases it, or
+/// with bytes, or nothing, ever.
 enum Answer {
     Json(u16, Value),
+    Held(Arc<Notify>, u16, Value),
     // part: files
     Bytes(u16, Vec<u8>),
     // end part: files
@@ -155,6 +158,18 @@ impl Upstream {
             .insert((method.to_owned(), path.to_owned()), Answer::Never);
     }
 
+    /// Makes `method` of `path` answer `status`, with `body` as JSON, as a system that answers
+    /// late: a request waits until the test calls `notify_one` on the returned gate, which
+    /// releases one request that waits, or, when none does, the next to come.
+    pub fn hold(&self, method: &str, path: &str, status: u16, body: Value) -> Arc<Notify> {
+        let gate = Arc::new(Notify::new());
+        self.lock().by_route.insert(
+            (method.to_owned(), path.to_owned()),
+            Answer::Held(gate.clone(), status, body),
+        );
+        gate
+    }
+
     /// Every request received so far, in order.
     pub fn received(&self) -> Vec<Received> {
         self.lock().received.clone()
@@ -177,12 +192,11 @@ async fn answer(
         record(&mut answers, &method, &uri, &headers, &body)
     };
     match answer {
-        Some(Answer::Json(status, body)) => (
-            StatusCode::from_u16(status).unwrap(),
-            [(header::CONTENT_TYPE, "application/json")],
-            body.to_string(),
-        )
-            .into_response(),
+        Some(Answer::Json(status, body)) => json(status, &body),
+        Some(Answer::Held(gate, status, body)) => {
+            gate.notified().await;
+            json(status, &body)
+        }
         // part: files
         Some(Answer::Bytes(status, body)) => (
             StatusCode::from_u16(status).unwrap(),
@@ -201,6 +215,16 @@ async fn answer(
         Some(Answer::Never) => std::future::pending().await,
         None => StatusCode::NOT_FOUND.into_response(),
     }
+}
+
+/// An answer of `status`, with `body` as JSON.
+fn json(status: u16, body: &Value) -> Response {
+    (
+        StatusCode::from_u16(status).unwrap(),
+        [(header::CONTENT_TYPE, "application/json")],
+        body.to_string(),
+    )
+        .into_response()
 }
 
 /// Records the request, and gives what its route answers.
@@ -237,6 +261,9 @@ fn record(
         .get(&(method.to_string(), uri.path().to_owned()))
     {
         Some(Answer::Json(status, body)) => Some(Answer::Json(*status, body.clone())),
+        Some(Answer::Held(gate, status, body)) => {
+            Some(Answer::Held(gate.clone(), *status, body.clone()))
+        }
         // part: files
         Some(Answer::Bytes(status, body)) => Some(Answer::Bytes(*status, body.clone())),
         // end part: files
