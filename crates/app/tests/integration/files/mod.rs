@@ -1558,6 +1558,34 @@ async fn sec_10_the_bucket_s_client_follows_no_redirect() {
     assert!(!paths.contains(&"/elsewhere".to_owned()), "{paths:?}");
 }
 
+#[tokio::test]
+async fn obs_07_the_bucket_s_client_sends_no_trace_context_to_the_bucket() {
+    let bucket = bucket::giving().await;
+    let api = Api::with(Options::default().set("S3_ENDPOINT", &bucket.endpoint)).await;
+    let (workspace, ada, _) = acme(&api, "member").await;
+    let id = files::arrange_row(api.database(), &workspace, "Blue").await;
+    let path = format!("/v1/workspaces/{workspace}/files/{id}/content");
+    // The download carries a trace context, which its call of the bucket runs in.
+    let trace = "0af7651916cd43dd8448eb211c80319c";
+    let traceparent = format!("00-{trace}-b7ad6b7169203331-01");
+    let context = [
+        ("traceparent", traceparent.as_str()),
+        ("tracestate", "vendor=value"),
+        ("baggage", "key=value"),
+    ];
+
+    let downloaded = ranges::ranged(&api, &ada, &path, &context).await;
+
+    assert_eq!(downloaded.status, 200);
+    assert_eq!(downloaded.trace_id(), trace);
+    let headers = bucket.headers();
+    assert_eq!(headers.len(), 1, "{headers:?}");
+    assert!(headers[0].iter().any(|sent| sent == "host"), "{headers:?}");
+    for (name, _) in context {
+        assert!(!headers[0].iter().any(|sent| sent == name), "{headers:?}");
+    }
+}
+
 #[test]
 fn platform_076_the_client_refuses_to_start_without_its_authorities_file() {
     let config = |ca_path: Option<&str>| StorageConfig {

@@ -33,6 +33,7 @@ Each permission is tested twice: a role that has it succeeds, and a role without
 Tests use the real database, the real routes and the real services. Fakes exist only for systems outside the codebase, for a task of the deployment's that runs while a test starts another, and for the store of an export's archive:
 - the mail server, reached over the Simple Mail Transfer Protocol (SMTP), which Mailpit, the mail catcher that `just services` starts, or a scripted mail server of a test's own replaces
 - OAuth providers, and the addresses that a third party gives (a local fake server, reached through the two clients in SEC-10, the configured one and the untrusted one)
+- a proxy that `HTTP_PROXY` names, and the servers that the clients of SEC-10 call, in SEC-10's test that each client reaches its server while `HTTP_PROXY` names a proxy: a listener of the test's own replaces the proxy, and closes the first connection that it takes, and one local server, which answers every request alike, replaces the server of each client that the test builds
 - the clock (a test clock)
 - the kernel's report of the process's resident memory, which `platform::telemetry::testing::watch_memory` takes from the test
 - the OpenTelemetry Collector, which a stand-in receiver of the OpenTelemetry Protocol (OTLP) replaces, as do the in-memory logger and meter of `platform::telemetry::testing`
@@ -79,7 +80,7 @@ Tests never sleep, and act at states they observe, never after a time they guess
 Tests make no network calls outside the test environment. A test that fails intermittently counts as failing, and CI never retries a failed test.
 - Why: a flaky test trains everyone to ignore failures, and a wait bounded by a guess fails a correct run on a slower machine.
 - Check: `clippy`, `ci: check-test-map`, `test`, `ci: e2e`, plus `review`, each for what its item below says.
-  - `clippy`: `disallowed_methods` covers sleeps and timed waits in tests, and `disallowed_types` the system clock.
+  - `clippy`: `disallowed_methods` covers sleeps and timed waits in tests, and `disallowed_types` the system clock's type.
   - `ci: check-test-map`: a `for` loop that yields between polls, as the doc of [`waits.rs`](../../crates/xtask/src/test_map/waits.rs) says it reads one.
   - `test`: a test clock's `sleep`, which completes once the test advances the clock to its deadline, and at once for no time; a test's reading of its own lines by its thread (`testing::logged_on_this_thread`); the watch that prints a long test's lines; the line of a wait for a stream's frame; and the images, with their attestations, that the mirror serves the end-to-end tests' servers, so that their pulls reach no registry outside, and its refusal of an image that it can't serve.
   - `ci: e2e`: the shell of the end-to-end tests' server, which panics on a command whose first word, its first run of characters other than white space, is `sleep`; the shares of memory that the servers take, none where the machine can't hold the most that a test takes beside the heavy turn's reserve, so that every server keeps its store on disk; and a test that asks for more shares than the run has, which fails at once.

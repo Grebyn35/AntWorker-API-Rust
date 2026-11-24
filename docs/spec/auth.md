@@ -217,7 +217,7 @@ The presented token is hashed with SHA-256, and the session is read by `refresh_
 
 ### Verifying access tokens
 
-Every request that an access token authenticates reads its session by the token's hash, with no cache, so a session that ends, by signing out or by a refresh token's reuse, refuses its token at once (D5, AUTH-013). A cache in each replica would need the access-change signals to drop what it holds, which only the hub receives. `just load-test me` measures what verifying costs (OPS-16).
+Every request that an access token authenticates reads its session by the token's hash, with no cache, so a session that ends, such as by signing out or by a refresh token's reuse, refuses its token at once (D5, AUTH-013). A cache in each replica would need the access-change signals to drop what it holds, which only the hub receives. `just load-test me` measures what verifying costs (OPS-16).
 
 `SessionVerifier::lasting` reads the sessions it is given by their IDs, which came from the hub's streams' principals, and keeps those whose refresh token and absolute lifetime haven't expired: a session lasts while it can still be refreshed, so a stream outlives its access token, but not its session (AUTH-018, SEC-06).
 

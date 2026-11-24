@@ -197,7 +197,7 @@ impl UnitOfWork {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AccessChange {
-    /// A session ended, by signing out or by the reuse of a refresh token, so its streams close.
+    /// A session ended, so its streams close.
     SessionEnded {
         /// The session's user.
         user_id: UserId,

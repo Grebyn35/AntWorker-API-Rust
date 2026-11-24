@@ -14,7 +14,8 @@ use std::{
 };
 
 /// A source of time, and of waits measured by it. The system clock serves the API, and the
-/// test clock, which only the `test-support` feature compiles, serves the tests (ARCH-13).
+/// test clock, which only the tests compile, `platform`'s own and, with the `test-support`
+/// feature, those of other crates, serves them (ARCH-13).
 pub trait Clock: Send + Sync + 'static {
     /// The current instant.
     fn now(&self) -> Instant;
@@ -51,10 +52,10 @@ impl Clock for SystemClock {
     }
 }
 
-#[cfg(feature = "test-support")]
+#[cfg(any(test, feature = "test-support"))]
 pub use testing::TestClock;
 
-#[cfg(feature = "test-support")]
+#[cfg(any(test, feature = "test-support"))]
 mod testing {
     use std::{
         sync::{Arc, Mutex, Weak},

@@ -451,23 +451,39 @@ fn kept_answer(
 pub struct Scripted {
     /// Its endpoint, for `S3_ENDPOINT`.
     pub endpoint: String,
-    /// The method and the path of each request that it has read. A lock that a panic poisoned
-    /// still holds whole requests, since each change of them is one push, so it is taken as it is.
-    requests: Arc<Mutex<Vec<(String, String)>>>,
+    /// Each request that it has read. A lock that a panic poisoned still holds whole requests,
+    /// since each change of them is one push, of a request or of a header's name, so it is taken
+    /// as it is.
+    requests: Arc<Mutex<Vec<Read>>>,
     server: JoinHandle<()>,
+}
+
+/// A request that a scripted bucket has read: its method, its path, and the name of each of its
+/// headers, in lowercase, in their order.
+struct Read {
+    method: String,
+    path: String,
+    headers: Vec<String>,
 }
 
 impl Scripted {
     /// The path of each request that the bucket has read, in their order.
     pub fn paths(&self) -> Vec<String> {
         let requests = self.requests.lock().held();
-        requests.iter().map(|(_, path)| path.clone()).collect()
+        requests.iter().map(|read| read.path.clone()).collect()
     }
 
     /// The method of each request that the bucket has read, in their order.
     pub fn methods(&self) -> Vec<String> {
         let requests = self.requests.lock().held();
-        requests.iter().map(|(method, _)| method.clone()).collect()
+        requests.iter().map(|read| read.method.clone()).collect()
+    }
+
+    /// The names of the headers of each request that the bucket has read, in lowercase, in their
+    /// order.
+    pub fn headers(&self) -> Vec<Vec<String>> {
+        let requests = self.requests.lock().held();
+        requests.iter().map(|read| read.headers.clone()).collect()
     }
 }
 
@@ -577,19 +593,17 @@ async fn serve(answer: Option<Answer>) -> Scripted {
     }
 }
 
-/// Reads each request on `stream`, its body included, records its method and its path in
-/// `requests`, and answers it with `answer`, without the body when the request is a `HEAD`, or
-/// never. An answer that is `cut` closes the connection once it is sent.
-async fn answering(
-    stream: TcpStream,
-    answer: Option<Answer>,
-    requests: Arc<Mutex<Vec<(String, String)>>>,
-) {
+/// Reads each request on `stream`, its body included, records its method, its path and its
+/// headers' names in `requests`, and answers it with `answer`, without the body when the request
+/// is a `HEAD`, or never. An answer that is `cut` closes the connection once it is sent.
+async fn answering(stream: TcpStream, answer: Option<Answer>, requests: Arc<Mutex<Vec<Read>>>) {
     let mut stream = BufReader::new(stream);
     loop {
         let mut length = 0;
         let mut first = true;
         let mut head = false;
+        // Where `requests` records the request.
+        let mut at = 0;
         loop {
             let mut line = String::new();
             if stream.read_line(&mut line).await.unwrap_or(0) == 0 {
@@ -602,7 +616,17 @@ async fn answering(
                 let target = parts.next().unwrap_or_default();
                 let path = target.split('?').next().unwrap_or_default().to_owned();
                 head = method == "HEAD";
-                requests.lock().held().push((method, path));
+                let mut requests = requests.lock().held();
+                requests.push(Read {
+                    method,
+                    path,
+                    headers: Vec::new(),
+                });
+                at = requests.len() - 1;
+            } else if let Some((name, _)) = line.split_once(':')
+                && let Some(read) = requests.lock().held().get_mut(at)
+            {
+                read.headers.push(name.trim().to_ascii_lowercase());
             }
             let line = line.trim_end().to_ascii_lowercase();
             if line.is_empty() {

@@ -396,7 +396,8 @@ mod tests {
             assert!(answered.is_ok_and(|answer| answer.status().is_success()));
             // end part: files
             // part: client_telemetry
-            let clock = std::sync::Arc::new(crate::clock::SystemClock);
+            // A clock that no test moves, so the relay waits for the answer as long as it takes.
+            let clock = std::sync::Arc::new(crate::clock::TestClock::default());
             let relay = crate::telemetry::Relay::new(&endpoint, clock).unwrap();
             let traces = crate::telemetry::Signal::Traces;
             let forwarded = relay.forward(traces, "application/json", bytes::Bytes::new());

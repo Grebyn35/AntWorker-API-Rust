@@ -2,10 +2,13 @@
 //! `platform::telemetry::names`, their messages are constant, every `#[instrument]` skips its
 //! arguments, and `app` outside `main.rs` writes only `DEBUG` events and opens no spans (OBS-01,
 //! OBS-03 to OBS-06). It also fails on an exception to a print lint outside the places CODE-03
-//! allows printing.
+//! allows printing, and on the system clock's name outside the file that defines it and the
+//! binary's `main.rs` (CODE-06), as [`system_clock`] says.
 //!
 //! It reads token streams rather than syntax trees, so it also finds the calls inside other
 //! macros, such as `tokio::select!`.
+
+mod system_clock;
 
 use std::collections::BTreeMap;
 
@@ -60,7 +63,8 @@ const SPANS: [&str; 6] = [
 ];
 
 /// Checks every Rust file under `crates/`: the API's code against the list of names and the
-/// rules for levels and spans, and every crate's exceptions to the print lints.
+/// rules for levels and spans, and every crate's exceptions to the print lints and its names of
+/// the system clock.
 pub fn check(repo: &Repo) -> Outcome {
     let mut findings = Vec::new();
     let names = match names(repo) {
@@ -73,6 +77,7 @@ pub fn check(repo: &Repo) -> Outcome {
         }
         match file.text.parse::<TokenStream>() {
             Ok(tokens) => {
+                system_clock::check(&file.path, tokens.clone(), &mut findings);
                 let mut scan = Scan {
                     path: &file.path,
                     traced: CODE.iter().any(|root| file.path.starts_with(root)),

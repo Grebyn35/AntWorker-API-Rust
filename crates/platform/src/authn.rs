@@ -174,7 +174,8 @@ impl AuditScope {
         Self { log, actor: None }
     }
 
-    /// The log `log`, with `actor` as the actor, which only the proofs of `platform` build.
+    /// The log `log`, with `actor` as the actor, which only `platform::authz` builds: its
+    /// proofs of a caller, and its `Refusal`, the record of a refused request.
     pub(crate) fn proven(log: Log, actor: UserId) -> Self {
         Self {
             log,

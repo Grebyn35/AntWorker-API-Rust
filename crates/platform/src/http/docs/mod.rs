@@ -51,7 +51,7 @@ const ITEM_SCHEMA: &str = "x-itemSchema";
 /// The query parameters each method of a path accepts (API-09).
 pub(super) type QueryNames = HashMap<Method, HashSet<String>>;
 
-/// The media type of every error response (API-07).
+/// The media type of each error response that the document lists (API-07).
 const PROBLEM_MEDIA_TYPE: &str = "application/problem+json";
 
 /// The header of an idempotency key (API-12).
@@ -62,7 +62,8 @@ const IF_MATCH: &str = "if-match";
 
 /// Where the document lists a code that `platform` answers.
 enum Place {
-    /// On every operation: the route's own pipeline answers it.
+    /// On every operation: the route's own pipeline answers it, but `request.unavailable`, which
+    /// the proxy in front of the replicas answers (OPS-05).
     Every,
     /// On every operation whose method isn't safe: the cross-site check answers it (PLATFORM-059).
     Unsafe,

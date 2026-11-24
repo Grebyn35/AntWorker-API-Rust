@@ -78,8 +78,9 @@ impl Origins {
     }
 }
 
-/// Answers a preflight from a listed origin, and lets a browser read every response to one and
-/// send its cookies (PLATFORM-058). With no origin listed, it adds nothing.
+/// Answers a preflight from a listed origin, and lets a browser read each response to one that
+/// passes through this layer, and send its cookies (PLATFORM-058). With no origin listed, it adds
+/// nothing.
 pub(super) async fn cors(State(origins): State<Origins>, request: Request, next: Next) -> Response {
     if origins.0.is_empty() {
         return next.run(request).await;

@@ -14,7 +14,8 @@ use crate::{
 /// `Principal::erased_job_scope` for a job that an account's deletion enqueues once the user is
 /// erased, and the tests. One comes from no proof: [`JobScope::attempt`], which only a password
 /// reset builds, for the account that holds the address it names, and a subcommand that an
-/// operator runs, for the account it acts on, as the removal of a second factor does.
+/// operator runs, for the account it acts on, as the removal of a second factor does. The
+/// dispatcher builds again the scope that a queued job's row stores, for each run of the job.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct JobScope {
     user: Option<UserId>,
@@ -37,7 +38,8 @@ impl JobScope {
         Self::none()
     }
 
-    /// The scope that a proof gives, which only the proofs of `platform` build.
+    /// The scope of `user` and `workspace`: a proof's, which the proofs of `platform` build, or
+    /// the one that a claimed job's row stores, which the dispatcher gives the job's run.
     pub(crate) fn proven(user: Option<UserId>, workspace: Option<WorkspaceId>) -> Self {
         Self { user, workspace }
     }

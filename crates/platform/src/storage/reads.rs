@@ -170,6 +170,23 @@ mod tests {
     }
 
     #[test]
+    fn platform_094_a_read_of_a_range_fails_when_the_bucket_answers_with_the_whole_object() {
+        // Headers that name every byte of an object of 1000, under a 206, the answer to a read of
+        // a range, and under a 200, which answers with the whole object.
+        let answer = |status: u16| {
+            let answer = axum::http::Response::builder()
+                .status(status)
+                .header(CONTENT_LENGTH, "1000")
+                .header(CONTENT_RANGE, "bytes 0-999/1000");
+            reqwest::Response::from(answer.body("").unwrap())
+        };
+
+        assert_eq!(size(&answer(206), true).ok(), Some(1000));
+        let failure = size(&answer(200), true).unwrap_err();
+        assert!(matches!(failure, StorageError::Failed(_)), "{failure:?}");
+    }
+
+    #[test]
     fn platform_094_a_ranged_answer_names_the_size_of_the_whole_after_its_slash() {
         assert_eq!(whole("bytes 10-19/1000"), Some(1000));
         assert_eq!(whole("bytes 0-0/1"), Some(1));
