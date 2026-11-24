@@ -9,7 +9,7 @@ use crate::support::{
     api::Response,
     api::one,
     audit::{self, Client},
-    lists, mailbox, providers, streams,
+    execute_on, lists, mailbox, providers, query_waits_on_a_lock, streams,
     users::{self, SignedIn},
     workspaces,
 };
@@ -466,6 +466,53 @@ async fn accounts_023_a_run_of_a_job_whose_export_is_gone_changes_nothing() {
     )
     .await;
     assert_eq!(left, "0 0 0 0");
+}
+
+#[tokio::test]
+async fn accounts_023_the_archive_holds_every_module_s_data_as_of_one_moment() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    let id = request(&api, &ada).await.json()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    // The run's first statement after the one that sets its isolation level locks the export's
+    // row, so it waits for this transaction, which holds the row.
+    let mut held = db
+        .holding(&format!(
+            "SELECT 1 FROM exports WHERE id = '{id}' FOR UPDATE"
+        ))
+        .await;
+
+    let run = api.run_jobs();
+    let meanwhile = async {
+        query_waits_on_a_lock(db, "FROM exports").await;
+        // Both commit while the run waits: a workspace of Ada's, which the contract of
+        // `workspaces` reads first, and a name for her session's device, which the contract of
+        // `auth` reads later.
+        workspaces::arrange(db, "Ada's notes", &[(&ada.user_id, "owner")]).await;
+        db.owner_executes(&format!(
+            "UPDATE sessions SET device_name = 'Ada''s laptop' WHERE id = '{}'",
+            ada.session_id
+        ))
+        .await;
+        execute_on(&mut held, "ROLLBACK").await;
+    };
+    tokio::join!(run, meanwhile);
+
+    let export = api
+        .get(&format!("/v1/users/me/exports/{id}"))
+        .bearer(&ada.access)
+        .send()
+        .await;
+    assert_eq!(export.json()["state"], "ready");
+    let archive = download(&api, &ada, &id, &[]).await.body;
+    assert!(document(&archive, "workspaces/workspaces.json").is_empty());
+    assert!(document(&archive, "access/memberships.json").is_empty());
+    let sessions = document(&archive, "auth/sessions.json");
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(sessions[0]["device_name"], Value::Null);
 }
 
 /// Ada, with a workspace of her own and one of Grace's, an entry of her own log that Grace acted

@@ -368,6 +368,8 @@ async fn files_024_an_avatar_s_download_needs_no_credential_and_names_it_by_its_
     let response = fetch(&api, &url).await;
 
     assert_eq!(response.status, 200);
+    assert_eq!(response.header("content-type"), "image/png");
+    assert_eq!(response.body, files::PNG);
     assert_eq!(
         response.header("content-disposition"),
         format!("inline; filename=\"{id}.png\"; filename*=UTF-8''{id}.png")

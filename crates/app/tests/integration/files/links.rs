@@ -26,6 +26,15 @@ async fn uploaded(api: &Api, ada: &SignedIn, workspace: &str, query: &str) -> Va
         .json()
 }
 
+/// The second that the database's clock is in, as seconds since the Unix epoch.
+async fn seconds_now(api: &Api) -> i64 {
+    api.database()
+        .owner_reads("SELECT floor(extract(epoch FROM now()))::bigint::text")
+        .await[0]
+        .parse()
+        .unwrap()
+}
+
 /// The value of the query parameter `name` in `url`.
 fn parameter(url: &str, name: &str) -> String {
     let (_, query) = url.split_once('?').unwrap();
@@ -49,16 +58,18 @@ async fn files_021_a_private_file_s_link_is_its_download_signed_for_the_caller_s
         "{url}"
     );
     assert_eq!(parameter(url, "session"), ada.session_id);
-    // It lasts an hour, by the database's clock, to the second.
+    // It lasts an hour from the moment of the upload's unit of work, which the row's
+    // `created_at` records, cut to the second.
     let expires = file["content_url_expires_at"].as_str().unwrap();
     let lasting = api
         .database()
         .owner_reads(&format!(
-            "SELECT (abs(extract(epoch FROM '{expires}'::timestamptz - now())) \
-             BETWEEN 3540 AND 3600)::text"
+            "SELECT (extract(epoch FROM '{expires}'::timestamptz) \
+             - floor(extract(epoch FROM created_at)))::bigint::text \
+             FROM workspace_files WHERE id = '{id}'"
         ))
         .await;
-    assert_eq!(lasting, ["true"]);
+    assert_eq!(lasting, ["3600"]);
     let seconds = api
         .database()
         .owner_reads(&format!(
@@ -491,12 +502,14 @@ async fn files_021_a_read_of_one_file_links_it_for_the_caller_s_session() {
             Some(format!("/v1/public/user-files/{}", id(&own_public))),
         ),
     ] {
+        let before = seconds_now(&api).await;
         let read = api.get(&path).bearer(&grace.access).send().await;
+        let after = seconds_now(&api).await;
         assert_eq!(read.status, 200, "{path}: {}", read.json());
-        reads.push((path, public_path, read.json()));
+        reads.push((path, public_path, read.json(), before..=after));
     }
 
-    for (path, public_path, file) in &reads {
+    for (path, public_path, file, made) in &reads {
         let url = file["content_url"].as_str().unwrap();
         if let Some(public_path) = public_path {
             assert_eq!(url, public_path, "{path}");
@@ -508,15 +521,14 @@ async fn files_021_a_read_of_one_file_links_it_for_the_caller_s_session() {
             "{path}: {url}"
         );
         assert_eq!(parameter(url, "session"), grace.session_id, "{path}");
+        // An hour after the second in which the read's unit of work began, which lies between
+        // the database's seconds before and after the read.
         let expires = file["content_url_expires_at"].as_str().unwrap();
-        let lasting = api
-            .database()
-            .owner_reads(&format!(
-                "SELECT (abs(extract(epoch FROM '{expires}'::timestamptz - now())) \
-                 BETWEEN 3540 AND 3600)::text"
-            ))
-            .await;
-        assert_eq!(lasting, ["true"], "{path}: an hour after the response");
+        let expires = Timestamp::read(expires).unwrap().at().unix_timestamp();
+        assert!(
+            made.contains(&(expires - 3_600)),
+            "{path}: {expires}, {made:?}"
+        );
         let downloaded = api.get(url).send().await;
         assert_eq!(downloaded.status, 200, "{path}: {url}");
     }

@@ -305,6 +305,17 @@ async fn accounts_014_leaving_a_shared_workspace_records_and_publishes_member_le
         left.payload(),
         &json!({ "workspace_id": workspace, "user_id": ada.user_id })
     );
+    // Bob, the owner, holds every permission, so his stream would receive the event under any
+    // of them: the event's row gives the one it requires.
+    assert_eq!(
+        api.database()
+            .owner_reads(&format!(
+                "SELECT coalesce(permission, '-') FROM events \
+                 WHERE name = 'member.left' AND workspace_id = '{workspace}'"
+            ))
+            .await,
+        ["members.read"]
+    );
     assert_eq!(
         api.database()
             .owner_reads(&format!(

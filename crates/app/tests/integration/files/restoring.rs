@@ -233,6 +233,23 @@ async fn files_028_an_object_that_the_api_can_t_have_written_is_left_and_counted
 }
 
 #[tokio::test]
+async fn files_028_an_unchanged_object_that_the_api_can_t_have_written_is_not_counted_as_left() {
+    let kept = vec![
+        // Unchanged since the moment: an object that the listing gives one byte more than the
+        // largest that the API writes, and one under a key with an empty segment, which no
+        // request's URL names.
+        Kept::version("users/large", "1", true, at(20), b"no bytes read").listed_at(20_971_521),
+        Kept::version("users//unnamed", "1", true, at(20), b"unnamed"),
+    ];
+    let bucket = bucket::keeping(kept, 1_000, None).await;
+
+    let ran = restore(&bucket.endpoint, "files", &[MOMENT]).await;
+
+    finished(&ran, "objects seen 2, written again 0, left as they are 0");
+    assert!(bucket.written().is_empty());
+}
+
+#[tokio::test]
 async fn files_029_a_run_that_stops_exits_1_and_says_how_many_objects_it_had_written() {
     let deleted = |key: &'static str| {
         [

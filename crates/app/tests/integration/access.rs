@@ -256,19 +256,34 @@ async fn access_004_a_member_acts_only_on_members_below_their_rank() {
     let api = Api::new().await;
     let owner = users::register(&api, "owner@example.com").await;
     let admin = users::register(&api, "admin@example.com").await;
+    let peer = users::register(&api, "peer@example.com").await;
     let member = users::register(&api, "member@example.com").await;
     let db = api.database();
     let workspace = workspaces::arrange(db, "Acme", &[(&owner.user_id, "owner")]).await;
     workspaces::join(db, &workspace, &admin.user_id, "admin").await;
+    workspaces::join(db, &workspace, &peer.user_id, "admin").await;
     workspaces::join(db, &workspace, &member.user_id, "member").await;
     let remove = |target: &str| format!("/v1/workspaces/{workspace}/members/{target}");
 
     let up = call(&api, Method::DELETE, &remove(&owner.user_id), &admin).await;
+    let level = call(&api, Method::DELETE, &remove(&peer.user_id), &admin).await;
+    let peer_in_acme = (workspace.as_str(), peer.user_id.as_str());
+    let level_role = workspaces::change_role(&api, &admin, peer_in_acme, "member", None).await;
     let down = call(&api, Method::DELETE, &remove(&member.user_id), &admin).await;
 
-    assert_eq!(up.status, StatusCode::FORBIDDEN);
-    assert_eq!(up.json()["code"], "request.permission_denied");
+    for refused in [&up, &level, &level_role] {
+        assert_eq!(refused.status, StatusCode::FORBIDDEN);
+        assert_eq!(refused.json()["code"], "request.permission_denied");
+    }
     assert_eq!(down.status, StatusCode::NO_CONTENT);
+    let peer_role = db
+        .owner_reads(&format!(
+            "SELECT role::text FROM workspace_memberships \
+             WHERE workspace_id = '{workspace}' AND user_id = '{}'",
+            peer.user_id
+        ))
+        .await;
+    assert_eq!(peer_role, ["admin"]);
 }
 
 #[tokio::test]
@@ -997,6 +1012,22 @@ async fn audit_004_a_refusal_whose_caller_s_account_went_meanwhile_is_recorded_n
             .await,
         ["0"]
     );
+}
+
+#[tokio::test]
+async fn accounts_019_a_refused_request_that_waited_for_the_deletion_answers_as_refused() {
+    let (api, _, deleted, read) = reading_while_deleted().await;
+
+    assert_eq!(deleted.status, StatusCode::NO_CONTENT);
+    // Answered as a non-member's refusal is (ACCESS-003), though the refusal's entry, in Ada's
+    // own log, had no row of hers left to name.
+    assert_eq!(read.status, StatusCode::NOT_FOUND);
+    assert_eq!(read.json()["code"], "request.not_found");
+    let recorded = api
+        .database()
+        .owner_reads("SELECT count(*)::text FROM audit_entries WHERE action = 'access.denied'")
+        .await;
+    assert_eq!(recorded, ["0"]);
 }
 
 #[tokio::test]

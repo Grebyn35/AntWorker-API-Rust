@@ -177,8 +177,8 @@ async fn object_key(api: &Api, file: &str) -> String {
         .remove(0)
 }
 
-/// Writes under `key`, in the test's bucket, the bytes of a file that a builder arranges, cut
-/// short by one, so the bucket holds the object at another size than its row records.
+/// Writes under `key`, in the test's bucket, an object of zeros one byte shorter than a file
+/// that a builder arranges, so the bucket holds the object at another size than its row records.
 async fn cut_short(api: &Api, key: &str) {
     bucket::storage(&api.database().bucket().await)
         .put(

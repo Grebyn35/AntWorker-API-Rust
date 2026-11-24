@@ -1737,7 +1737,7 @@ async fn workspaces_016_a_transfer_goes_only_to_a_member_who_is_an_admin() {
         ],
     )
     .await;
-    // An admin of another workspace is no member of this one.
+    // The owner of another workspace is no member of this one.
     workspaces::arrange(db, "Other", &[(&stranger.user_id, "owner")]).await;
     let before = roles(&api, &workspace).await;
 
