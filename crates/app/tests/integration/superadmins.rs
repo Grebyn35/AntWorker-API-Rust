@@ -1101,7 +1101,7 @@ async fn access_011_a_deletion_that_waited_for_the_deletion_of_the_owner_s_accou
     // waits at it, once it has locked her memberships and ended them.
     let mut held = users::holding_identities(db, &ada).await;
 
-    let account = api.spawn(Method::DELETE, "/v1/users/me", &ada.access, None);
+    let account = users::deleting(&api, &ada);
     queries_wait_on_locks(db, 1).await;
     let deletion = api.spawn(
         Method::DELETE,
@@ -1113,7 +1113,7 @@ async fn access_011_a_deletion_that_waited_for_the_deletion_of_the_owner_s_accou
     queries_wait_on_locks(db, 2).await;
     execute_on(&mut held, "ROLLBACK").await;
 
-    assert_eq!(account.await.unwrap().0, 204);
+    assert_eq!(account.await.unwrap().status, 204);
     let (status, problem) = deletion.await.unwrap();
     assert_eq!(status, 404);
     assert_eq!(problem["code"], "workspaces.not_found");

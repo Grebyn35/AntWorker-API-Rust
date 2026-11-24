@@ -8,7 +8,7 @@ use super::{acme, written};
 use crate::support::{
     Api, Options,
     api::Response,
-    invitations::invite,
+    invitations::{accept, invite},
     lists, mailbox, streams,
     users::{self, SignedIn},
     workspaces,
@@ -760,7 +760,7 @@ async fn sec_19_the_invitation_events_reach_the_members_and_no_replay_from_befor
     cancel(&api, &ada, &workspace, &erin).await;
     let to_carol = invited(&api, &ada, &workspace, "carol@example.com", "member").await;
     super::decline(&api, &carol, &to_carol).await;
-    super::accept(&api, &dan, &welcome).await;
+    accept(&api, &dan, &welcome).await;
     let mut later = streams::connect(&api, &dan.access, received.id.as_deref()).await;
     later.opened().await;
     let replayed = [later.event().await, later.event().await];

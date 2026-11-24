@@ -7,7 +7,7 @@ use serde_json::json;
 use crate::support::{
     Api, Options, TestDatabase, answer_before_a_lock_wait,
     api::Response,
-    execute_on, query_waits_on_a_lock,
+    execute_on, limited_while_holding, query_waits_on_a_lock,
     users::{self, PASSWORD, sign_in_from, signing_in},
 };
 
@@ -607,23 +607,14 @@ async fn auth_006_a_sign_in_beyond_its_limit_answers_429_before_it_reads_the_acc
     users::register(&api, "ada@example.com").await;
     let first = sign_in_from(&api, "192.0.2.1:50000", "ada@example.com", PASSWORD, None).await;
     assert_eq!(first.status, 201, "{}", first.json());
-    let db = api.database();
-    // Held against every read of an account.
-    let mut held = db
-        .holding("LOCK TABLE users IN ACCESS EXCLUSIVE MODE")
-        .await;
 
-    let refused = answer_before_a_lock_wait(
-        db,
+    // Held against every read of an account.
+    limited_while_holding(
+        api.database(),
+        "LOCK TABLE users IN ACCESS EXCLUSIVE MODE",
         sign_in_from(&api, "192.0.2.1:50000", "ada@example.com", PASSWORD, None),
     )
     .await;
-
-    execute_on(&mut held, "COMMIT").await;
-    assert!(refused.is_some(), "the sign-in waited to read the account");
-    let refused = refused.unwrap();
-    assert_eq!(refused.status, 429, "{}", refused.json());
-    assert_eq!(refused.json()["code"], "request.rate_limited");
 }
 
 #[tokio::test]

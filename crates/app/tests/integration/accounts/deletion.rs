@@ -156,17 +156,15 @@ async fn accounts_013_a_deletion_erases_the_user_s_codes_as_a_step_of_its_own() 
         ))
         .await;
 
-    let mut deletion = tokio::spawn({
-        let api = api.clone();
-        async move { users::delete(&api, &ada).await }
-    });
-    tokio::select! {
-        answered = &mut deletion => panic!(
-            "the deletion answered {} without waiting for the code",
-            answered.unwrap().status
-        ),
-        () = queries_wait_on_locks(db, 1) => {}
-    }
+    let mut deletion = users::deleting(&api, &ada);
+    let answered_first = tokio::select! {
+        answered = &mut deletion => Some(answered.unwrap().status),
+        () = queries_wait_on_locks(db, 1) => None,
+    };
+    assert_eq!(
+        answered_first, None,
+        "the deletion answered without waiting for the code"
+    );
     execute_on(&mut job, "COMMIT").await;
     let answered = deletion.await.unwrap();
 
@@ -228,11 +226,12 @@ async fn accounts_013_a_deletion_erases_the_account_and_the_workspaces_only_it_b
     );
     let ada_id = &ada.user_id;
     assert!(naming(&api, ada_id).await.is_empty());
-    // No row holds her name, while Bob's stays in his.
-    assert_eq!(
-        tables_holding(&api, "Augusta King").await,
-        Vec::<String>::new()
-    );
+    // No row holds her name or her address, which the email of ACCOUNTS-015 holds until the jobs
+    // send it, while Bob's name stays in his.
+    for held in ["Augusta King", "ada@example.com"] {
+        let found = tables_holding(&api, held).await;
+        assert!(found.is_empty(), "{held}: {found:?}");
+    }
     assert_eq!(
         tables_holding(&api, "Ada Lovelace").await,
         ["public.users 1"]
@@ -648,13 +647,13 @@ async fn accounts_013_a_job_that_an_operation_enqueued_while_the_deletion_waited
         ))
         .await;
 
-    let deleting = api.spawn(http::Method::DELETE, "/v1/users/me", &ada.access, None);
+    let deleting = users::deleting(&api, &ada);
     queries_wait_on_locks(db, 1).await;
     execute_on(&mut operation, "COMMIT").await;
-    let (status, body) = deleting.await.unwrap();
+    let deleted = deleting.await.unwrap();
 
     // The deletion's last step waited for the operation, then deleted its job with the rest.
-    assert_eq!(status, 204, "{body}");
+    assert_eq!(deleted.status, 204, "{}", deleted.json());
     let jobs = db
         .owner_reads(&format!(
             "SELECT kind FROM jobs WHERE user_id = '{}'",
@@ -702,17 +701,7 @@ async fn accounts_019_a_deletion_that_finds_the_account_gone_as_it_reads_its_ema
         .holding("LOCK TABLE users IN ACCESS EXCLUSIVE MODE")
         .await;
 
-    let deleted = tokio::spawn({
-        let api = api.clone();
-        let access = ada.access.clone();
-        async move {
-            api.request(http::Method::DELETE, "/v1/users/me")
-                .bearer(&access)
-                .send()
-                .await
-                .status
-        }
-    });
+    let deleted = users::deleting(&api, &ada);
     // The read of the user waits on the lock.
     query_waits_on_a_lock(db, "FROM users WHERE id").await;
     execute_on(
@@ -722,7 +711,7 @@ async fn accounts_019_a_deletion_that_finds_the_account_gone_as_it_reads_its_ema
     .await;
     execute_on(&mut other, "COMMIT").await;
 
-    assert_eq!(deleted.await.unwrap(), 204);
+    assert_eq!(deleted.await.unwrap().status, 204);
 }
 
 #[tokio::test]

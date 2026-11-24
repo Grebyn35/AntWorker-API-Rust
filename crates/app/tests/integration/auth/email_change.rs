@@ -755,21 +755,10 @@ async fn auth_040_of_two_changes_sent_at_once_the_second_checks_against_the_firs
     let ada = users::register(&api, "ada@example.com").await;
     let db = api.database();
     let mut held = api.database().holding(&user_lock(&ada)).await;
-    let path = "/v1/users/me/password/change";
     let to = |password: &str| json!({ "current_password": PASSWORD, "password": password });
 
-    let first = api.spawn(
-        http::Method::POST,
-        path,
-        &ada.access,
-        Some(to("lantern-orchard-58-brisk")),
-    );
-    let second = api.spawn(
-        http::Method::POST,
-        path,
-        &ada.access,
-        Some(to("meadow-copper-73-swift")),
-    );
+    let first = users::changing_password(&api, &ada, to("lantern-orchard-58-brisk"));
+    let second = users::changing_password(&api, &ada, to("meadow-copper-73-swift"));
     // Each waits for the user's turn before it reads the password.
     queries_wait_on_locks(db, 2).await;
     execute_on(&mut held, "COMMIT").await;

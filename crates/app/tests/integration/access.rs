@@ -62,7 +62,7 @@ async fn access_001_no_change_of_a_membership_leaves_a_workspace_without_its_own
     let removed_by_herself = call(&api, Method::DELETE, &ada_member, &ada).await;
     let demoted_by_admin = workspaces::change_role(&api, &grace, ada_in_acme, "member", None).await;
     let demoted_by_herself = workspaces::change_role(&api, &ada, ada_in_acme, "member", None).await;
-    let deleted = call(&api, Method::DELETE, "/v1/users/me", &ada).await;
+    let deleted = users::delete(&api, &ada).await;
     let kept = db.owner_reads(&owners).await;
     let transferred = workspaces::transfer(&api, &ada, &workspace, &grace.user_id).await;
 
@@ -918,16 +918,8 @@ async fn access_006_accepting_an_invitation_closes_the_new_member_s_streams() {
     let mut stream = crate::support::streams::connect(&api, &carol.access, None).await;
     stream.opened().await;
 
-    let accepted = call(
-        &api,
-        Method::POST,
-        &format!(
-            "/v1/users/me/invitations/{}/accept",
-            invitation["id"].as_str().unwrap()
-        ),
-        &carol,
-    )
-    .await;
+    let accepted =
+        crate::support::invitations::accept(&api, &carol, invitation["id"].as_str().unwrap()).await;
     let (_, reason) = stream.closed().await;
 
     assert_eq!(accepted.status, StatusCode::OK);
@@ -975,7 +967,7 @@ async fn reading_while_deleted() -> (Api, SignedIn, Response, Response) {
     // account").
     let mut held = users::holding_identities(db, &ada).await;
 
-    let delete = call(&api, Method::DELETE, "/v1/users/me", &ada);
+    let delete = users::delete(&api, &ada);
     let path = format!("/v1/workspaces/{workspace}");
     let read = async {
         // The deletion holds Ada's memberships, and waits at her identity.
@@ -1043,7 +1035,7 @@ async fn access_008_erasable_refuses_while_a_workspace_the_user_owns_has_another
     .await;
     workspaces::arrange(db, "Mine", &[(&ada.user_id, "owner")]).await;
 
-    let refused = call(&api, Method::DELETE, "/v1/users/me", &ada).await;
+    let refused = users::delete(&api, &ada).await;
 
     assert_eq!(refused.status, StatusCode::CONFLICT);
 }
@@ -1066,21 +1058,20 @@ async fn access_008_erasable_waits_for_a_join_that_holds_the_owner_s_membership_
             "SELECT 1 FROM invitations WHERE id = '{id}' FOR UPDATE"
         ))
         .await;
-    let path = format!("/v1/users/me/invitations/{id}/accept");
-    let accepted = api.spawn(Method::POST, &path, &bob.access, None);
+    let accepted = crate::support::invitations::accepting(&api, &bob, &id);
     queries_wait_on_locks(db, 1).await;
 
     // The deletion's `erasable` waits for the acceptance at Ada's membership, before it counts
     // the workspace's members.
-    let deleted = api.spawn(Method::DELETE, "/v1/users/me", &ada.access, None);
+    let deleted = users::deleting(&api, &ada);
     queries_wait_on_locks(db, 2).await;
     execute_on(&mut invitation, "ROLLBACK").await;
-    let (accepted, _) = accepted.await.unwrap();
-    let (deleted, problem) = deleted.await.unwrap();
+    let accepted = accepted.await.unwrap();
+    let deleted = deleted.await.unwrap();
 
-    assert_eq!(accepted, StatusCode::OK);
-    assert_eq!(deleted, StatusCode::CONFLICT);
-    assert_eq!(problem["code"], "auth.owns_shared_workspace");
+    assert_eq!(accepted.status, StatusCode::OK);
+    assert_eq!(deleted.status, StatusCode::CONFLICT);
+    assert_eq!(deleted.json()["code"], "auth.owns_shared_workspace");
     assert_eq!(joined(&api, &bob, &workspace).await, ["member"]);
 }
 // end part: invitations
@@ -1556,7 +1547,7 @@ async fn answering_while_the_owner_is_deleted(
     // The deletion of Ada's account waits at her identity, once it has locked her membership.
     let mut held = users::holding_identities(db, &ada).await;
 
-    let delete = call(&api, Method::DELETE, "/v1/users/me", &ada);
+    let delete = users::delete(&api, &ada);
     let path = format!("/v1/users/me/invitations/{id}/{answer}");
     let answer = async {
         queries_wait_on_locks(db, 1).await;

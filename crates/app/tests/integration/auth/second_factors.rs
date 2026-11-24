@@ -605,16 +605,7 @@ async fn auth_065_with_an_app_changing_the_password_needs_its_code_beside_the_cu
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     let app = add_app(&api, &ada).await;
-    let change = |body: Value| {
-        let api = api.clone();
-        let access = ada.access.clone();
-        async move {
-            api.post("/v1/users/me/password/change", &body)
-                .bearer(&access)
-                .send()
-                .await
-        }
-    };
+    let change = |body: Value| second_factors::change_password(&api, &ada, body);
     let new_password = "violet-harbor-73-brisk";
 
     let missing = change(json!({ "current_password": PASSWORD, "password": new_password })).await;
@@ -945,10 +936,7 @@ impl Prover {
             Proof::Provider => providers::reauthenticate(api, &self.user, factor).await,
             Proof::Change => {
                 let body = json!({ "current_password": PASSWORD, "password": PASSWORD });
-                api.post("/v1/users/me/password/change", &with_fields(body, factor))
-                    .bearer(&self.user.access)
-                    .send()
-                    .await
+                second_factors::change_password(api, &self.user, with_fields(body, factor)).await
             }
         };
         if matches!(self.proof, Proof::Provider | Proof::Change) && response.status == 200 {

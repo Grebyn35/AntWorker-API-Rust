@@ -39,21 +39,14 @@ async fn end_with(api: &Api, access: &str, id: &str) -> Response {
         .await
 }
 
-/// Sends, in a task of its own, with the access token `access`, a `POST` of `body` to `path`, or a
-/// `DELETE` of `path` without one, and gives its status and its body's JSON, or null for an empty
-/// body.
+/// Sends, in a task of its own, with the access token `access`, a `DELETE` of `path`, and gives
+/// its status and its body's JSON, or null for an empty body.
 fn spawn_request(
     api: &Api,
     path: &str,
     access: &str,
-    body: Option<Value>,
 ) -> tokio::task::JoinHandle<(http::StatusCode, Value)> {
-    let method = if body.is_some() {
-        http::Method::POST
-    } else {
-        http::Method::DELETE
-    };
-    api.spawn(method, path, access, body)
+    api.spawn(http::Method::DELETE, path, access, None)
 }
 
 /// The IDs of `user`'s sessions, sorted.
@@ -529,9 +522,9 @@ async fn auth_045_two_ends_of_each_other_s_sessions_take_turns_and_the_second_an
         .await;
     let others = "/v1/users/me/sessions/others";
 
-    let first = spawn_request(&api, others, &ada.access, None);
+    let first = spawn_request(&api, others, &ada.access);
     queries_wait_on_locks(db, 1).await;
-    let second = spawn_request(&api, others, &phone.access, None);
+    let second = spawn_request(&api, others, &phone.access);
     queries_wait_on_locks(db, 2).await;
     execute_on(&mut holder, "COMMIT").await;
     let (first, second) = (first.await.unwrap(), second.await.unwrap());
@@ -561,9 +554,9 @@ async fn auth_045_two_ends_by_id_of_each_other_s_session_take_turns_and_the_seco
         format!("/v1/users/me/sessions/{}", ada.session_id),
     );
 
-    let first = spawn_request(&api, &phone_s, &ada.access, None);
+    let first = spawn_request(&api, &phone_s, &ada.access);
     queries_wait_on_locks(db, 1).await;
-    let mut second = spawn_request(&api, &ada_s, &phone.access, None);
+    let mut second = spawn_request(&api, &ada_s, &phone.access);
     // The phone's end waits for Ada's turn, or, with a lock of the user's row that takes no turn
     // with Ada's, answers while her end still waits.
     let answered_first = tokio::select! {
@@ -599,14 +592,9 @@ async fn auth_045_a_change_of_the_password_takes_its_turn_after_an_end_of_its_se
         .await;
     let change = json!({ "current_password": PASSWORD, "password": "lantern-orchard-58-brisk" });
 
-    let first = spawn_request(&api, "/v1/users/me/sessions/others", &ada.access, None);
+    let first = spawn_request(&api, "/v1/users/me/sessions/others", &ada.access);
     queries_wait_on_locks(db, 1).await;
-    let second = spawn_request(
-        &api,
-        "/v1/users/me/password/change",
-        &phone.access,
-        Some(change),
-    );
+    let second = users::changing_password(&api, &phone, change);
     queries_wait_on_locks(db, 2).await;
     execute_on(&mut holder, "COMMIT").await;
     let (first, second) = (first.await.unwrap(), second.await.unwrap());
@@ -632,7 +620,7 @@ async fn auth_044_ending_another_session_takes_its_turn_after_a_deletion_of_the_
         .await;
 
     let path = format!("/v1/users/me/sessions/{}", phone.session_id);
-    let ended = spawn_request(&api, &path, &ada.access, None);
+    let ended = spawn_request(&api, &path, &ada.access);
     queries_wait_on_locks(db, 1).await;
     execute_on(&mut deletion, "COMMIT").await;
     let (status, body) = ended.await.unwrap();
@@ -657,12 +645,7 @@ async fn data_20_a_change_of_the_password_and_a_sign_in_on_its_device_never_dead
     let mut sign_in = users::holding_identities(db, &ada).await;
     let change = json!({ "current_password": PASSWORD, "password": "lantern-orchard-58-brisk" });
 
-    let changed = spawn_request(
-        &api,
-        "/v1/users/me/password/change",
-        &phone.access,
-        Some(change),
-    );
+    let changed = users::changing_password(&api, &phone, change);
     queries_wait_on_locks(db, 1).await;
     // The change waits for the identity, holding no session's row, so this delete waits for
     // nothing.

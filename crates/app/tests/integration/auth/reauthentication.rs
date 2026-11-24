@@ -214,17 +214,12 @@ async fn auth_023_a_deletion_needs_the_password_proved_within_5_minutes() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     users::authenticated_ago(&api, &ada, 6).await;
-    let delete = |access: &str| {
-        api.request(http::Method::DELETE, "/v1/users/me")
-            .bearer(access)
-            .send()
-    };
 
-    let refused = delete(&ada.access).await;
+    let refused = users::delete(&api, &ada).await;
     let proved = users::reauthenticate(&api, &ada, PASSWORD).await;
     assert_eq!(proved.status, 200);
     // The proof gave the session new tokens (AUTH-095).
-    let deleted = delete(&SignedIn::from(&proved).access).await;
+    let deleted = users::delete(&api, &SignedIn::from(&proved)).await;
 
     assert_eq!(refused.status, 403);
     assert_eq!(refused.json()["code"], "request.reauthentication_required");
@@ -369,16 +364,7 @@ async fn deletion_meeting_a_change_of_address(api: &Api, user: &SignedIn) -> Res
         ))
         .await;
 
-    let deletion = tokio::spawn({
-        let api = api.clone();
-        let access = user.access.clone();
-        async move {
-            api.request(http::Method::DELETE, "/v1/users/me")
-                .bearer(&access)
-                .send()
-                .await
-        }
-    });
+    let deletion = users::deleting(api, user);
     // The statement that waits is the deletion's lock of the user's row, in its unit of work.
     query_waits_on_a_lock(db, "FROM users WHERE id = $1 FOR NO KEY UPDATE").await;
     execute_on(

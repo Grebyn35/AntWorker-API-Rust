@@ -7,9 +7,9 @@ use platform::telemetry::testing::collector::Collector;
 use serde_json::{Value, json};
 
 use crate::support::{
-    Api, Options, Server, TestDatabase, answer_before_a_lock_wait,
+    Api, Options, Server, TestDatabase,
     api::reads,
-    children, execute_on, is_the_request_s, mailbox,
+    children, execute_on, is_the_request_s, limited_while_holding, mailbox,
     operator::printed,
     password_reset, providers,
     second_factors::{self, add_app, challenge, code, code_at, complete, forget_steps, other_code},
@@ -653,15 +653,12 @@ async fn auth_061_a_signed_in_user_s_checks_of_codes_count_in_one_bucket_of_thei
             .await;
     assert_eq!(reauthenticated.status, 429);
     // So does a change of the password that carries a code, before its password's bucket.
-    let changed = api
-        .post(
-            "/v1/users/me/password/change",
-            &json!({ "current_password": PASSWORD, "password": "violet-harbor-73-brisk",
-                     "code": right }),
-        )
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let changed = second_factors::change_password(
+        &api,
+        &ada,
+        json!({ "current_password": PASSWORD, "password": "violet-harbor-73-brisk", "code": right }),
+    )
+    .await;
     assert_eq!(changed.status, 429);
     assert!(
         changed
@@ -695,25 +692,17 @@ async fn auth_061_a_check_of_a_code_beyond_its_limit_answers_429_before_its_unit
         let wrong = second_factors::confirm(&api, &ada, &other_code(&right)).await;
         assert_eq!(wrong.status, 422);
     }
-    let db = api.database();
+
     // Held against the user's turn, which the confirmation's unit of work takes first.
-    let mut held = db
-        .holding(&format!(
+    limited_while_holding(
+        api.database(),
+        &format!(
             "SELECT 1 FROM users WHERE id = '{}' FOR UPDATE",
             ada.user_id
-        ))
-        .await;
-
-    let refused = answer_before_a_lock_wait(db, second_factors::confirm(&api, &ada, &right)).await;
-
-    execute_on(&mut held, "COMMIT").await;
-    assert!(
-        refused.is_some(),
-        "the confirmation waited for the user's turn"
-    );
-    let refused = refused.unwrap();
-    assert_eq!(refused.status, 429, "{}", refused.json());
-    assert_eq!(refused.json()["code"], "request.rate_limited");
+        ),
+        second_factors::confirm(&api, &ada, &right),
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -1002,15 +991,13 @@ async fn auth_069_a_change_of_the_password_deletes_the_challenges_issued_before_
     let app = add_app(&api, &ada).await;
     let before = challenge(&api, "ada@example.com").await;
 
-    let changed = api
-        .post(
-            "/v1/users/me/password/change",
-            &json!({ "current_password": PASSWORD, "password": "violet-harbor-73-brisk",
-                     "code": code(&api, &app.secret).await }),
-        )
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let changed = second_factors::change_password(
+        &api,
+        &ada,
+        json!({ "current_password": PASSWORD, "password": "violet-harbor-73-brisk",
+                "code": code(&api, &app.secret).await }),
+    )
+    .await;
 
     assert_eq!(changed.status, 200, "{}", changed.json());
     forget_steps(&api, &ada.user_id).await;

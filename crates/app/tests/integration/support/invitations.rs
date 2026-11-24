@@ -1,5 +1,5 @@
-//! Inviting, as a member's request does, for the tests of invitations and of the emails they
-//! send, and an invitation's row, through the `owner` connection (TEST-09).
+//! Inviting, as a member's request does, accepting, as the invitee's request does, and an
+//! invitation's row, through the `owner` connection (TEST-09).
 
 use serde_json::json;
 
@@ -20,6 +20,24 @@ pub async fn invite(
     .bearer(&user.access)
     .send()
     .await
+}
+
+/// Accepts the invitation `id`, as `user`.
+pub async fn accept(api: &Api, user: &SignedIn, id: &str) -> Response {
+    api.request(
+        http::Method::POST,
+        &format!("/v1/users/me/invitations/{id}/accept"),
+    )
+    .bearer(&user.access)
+    .send()
+    .await
+}
+
+/// The acceptance of the invitation `id`, as [`accept`] sends it, in a task of its own, which a
+/// test holds at a lock.
+pub fn accepting(api: &Api, user: &SignedIn, id: &str) -> tokio::task::JoinHandle<Response> {
+    let (api, user, id) = (api.clone(), user.clone(), id.to_owned());
+    tokio::spawn(async move { accept(&api, &user, &id).await })
 }
 
 /// Creates an invitation of `workspace` to `arranged@example.com` at the member role, sent by

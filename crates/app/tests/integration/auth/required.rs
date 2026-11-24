@@ -252,16 +252,14 @@ async fn auth_070_a_change_of_the_password_is_refused_without_an_app_and_says_no
  {
     let api = second_factors::requiring().await;
     let ada = users::register(&api, "ada@example.com").await;
-    let change = |ada: &SignedIn, extra: serde_json::Value| {
+    let change = |extra: serde_json::Value| {
         let body = json!({ "current_password": PASSWORD, "password": "walnut-harbor-77-brisk" });
-        api.post("/v1/users/me/password/change", &with_fields(body, extra))
-            .bearer(&ada.access)
-            .send()
+        second_factors::change_password(&api, &ada, with_fields(body, extra))
     };
 
-    let refused = change(&ada, json!({})).await;
+    let refused = change(json!({})).await;
     let app = add_app(&api, &ada).await;
-    let changed = change(&ada, json!({ "code": code(&api, &app.secret).await })).await;
+    let changed = change(json!({ "code": code(&api, &app.secret).await })).await;
 
     assert_eq!(refused.status, 403);
     assert_eq!(

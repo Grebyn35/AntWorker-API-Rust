@@ -1,6 +1,7 @@
 //! Builders of second factors, through the API's own routes, or, for more apps than a test sets
-//! up one by one, through the `owner` connection (TEST-09), and the codes of an authenticator
-//! app, computed as an app computes them, by the database's clock (AUTH-057).
+//! up one by one, through the `owner` connection (TEST-09), the requests that take a second
+//! factor's code beside another proof, and the codes of an authenticator app, computed as an app
+//! computes them, by the database's clock (AUTH-057).
 
 use platform::encryption::{Binding, Keyring};
 use serde_json::{Value, json};
@@ -187,6 +188,14 @@ pub async fn complete(api: &Api, challenge: &str, body: Value) -> Response {
 /// Re-authenticates `user` with `body`.
 pub async fn reauthenticate(api: &Api, user: &SignedIn, body: &Value) -> Response {
     api.post("/v1/users/me/sessions/current/reauthenticate", body)
+        .bearer(&user.access)
+        .send()
+        .await
+}
+
+/// Changes `user`'s password with `body`.
+pub async fn change_password(api: &Api, user: &SignedIn, body: Value) -> Response {
+    api.post("/v1/users/me/password/change", &body)
         .bearer(&user.access)
         .send()
         .await

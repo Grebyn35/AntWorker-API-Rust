@@ -18,6 +18,7 @@ pub const PASSWORD: &str = "plum-tractor-41-quiet";
 pub const WEB: &str = "https://app.example.com";
 
 /// A registered user and their first session, with its tokens in the body.
+#[derive(Clone)]
 pub struct SignedIn {
     pub user_id: String,
     pub session_id: String,
@@ -145,6 +146,13 @@ pub async fn delete(api: &Api, user: &SignedIn) -> Response {
         .bearer(&user.access)
         .send()
         .await
+}
+
+/// The deletion of `user`'s account, as [`delete`] sends it, in a task of its own, which a test
+/// holds at a lock.
+pub fn deleting(api: &Api, user: &SignedIn) -> tokio::task::JoinHandle<Response> {
+    let (api, user) = (api.clone(), user.clone());
+    tokio::spawn(async move { delete(&api, &user).await })
 }
 
 /// Reads the current session with the access token `access`, as AUTH-016 reads it.

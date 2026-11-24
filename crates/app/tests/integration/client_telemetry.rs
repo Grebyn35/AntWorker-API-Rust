@@ -332,17 +332,21 @@ async fn client_telemetry_003_a_deletion_waits_for_a_choice_that_holds_the_conse
         ))
         .await;
 
-    let mut deletion = api.spawn(Method::DELETE, "/v1/users/me", &ada.access, None);
+    let mut deletion = users::deleting(&api, &ada);
     // The erasure waits for the row, before the deletion of the user's row, which waits for a lock
     // only as long as ACCOUNTS-016 lets it.
-    tokio::select! {
-        () = query_waits_on_a_lock(db, "DELETE FROM telemetry_consents") => {}
-        ended = &mut deletion => panic!("the deletion ended without waiting for the row: {ended:?}"),
-    }
+    let ended_first = tokio::select! {
+        () = query_waits_on_a_lock(db, "DELETE FROM telemetry_consents") => None,
+        ended = &mut deletion => Some(ended.unwrap().status),
+    };
+    assert_eq!(
+        ended_first, None,
+        "the deletion ended without waiting for the row"
+    );
     execute_on(&mut choice, "COMMIT").await;
-    let (status, body) = deletion.await.unwrap();
+    let deleted = deletion.await.unwrap();
 
-    assert_eq!(status, 204, "{body}");
+    assert_eq!(deleted.status, 204, "{}", deleted.json());
     assert!(rows(&api).await.is_empty());
 }
 

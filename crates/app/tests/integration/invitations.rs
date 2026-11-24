@@ -9,7 +9,7 @@ use crate::support::{
     Api, Options,
     api::Response,
     execute_on,
-    invitations::invite,
+    invitations::{accept, accepting, invite},
     mailbox, queries_wait_on_locks, query_waits_on_a_lock, streams,
     users::{self, SignedIn},
     workspaces,
@@ -24,17 +24,6 @@ async fn received(api: &Api, user: &SignedIn, query: &str) -> Value {
         .await;
     assert_eq!(response.status, 200);
     response.json()
-}
-
-/// Accepts the invitation `id`, as `user`.
-async fn accept(api: &Api, user: &SignedIn, id: &str) -> Response {
-    api.request(
-        http::Method::POST,
-        &format!("/v1/users/me/invitations/{id}/accept"),
-    )
-    .bearer(&user.access)
-    .send()
-    .await
 }
 
 /// Declines the invitation `id`, as `user`.
@@ -413,12 +402,7 @@ async fn invitations_002_inviting_while_the_invitee_accepts_answers_409_once_the
         ))
         .await;
 
-    let accepted = api.spawn(
-        http::Method::POST,
-        &format!("/v1/users/me/invitations/{id}/accept"),
-        &invitee.access,
-        None,
-    );
+    let accepted = accepting(&api, &invitee, &id);
     query_waits_on_a_lock(db, "INSERT INTO workspace_memberships").await;
     let invited = api.spawn(
         http::Method::POST,
@@ -429,10 +413,10 @@ async fn invitations_002_inviting_while_the_invitee_accepts_answers_409_once_the
     // The invite waits at the invitation's row, which the acceptance holds.
     query_waits_on_a_lock(db, "INSERT INTO invitations").await;
     execute_on(&mut held, "COMMIT").await;
-    let (accepted, _) = accepted.await.unwrap();
+    let accepted = accepted.await.unwrap();
     let (status, problem) = invited.await.unwrap();
 
-    assert_eq!(accepted, 200);
+    assert_eq!(accepted.status, 200);
     assert_eq!(status, 409, "{problem}");
     assert_eq!(problem["code"], "invitations.already_member");
     // No invitation is left, and the one entry is the acceptance's.
