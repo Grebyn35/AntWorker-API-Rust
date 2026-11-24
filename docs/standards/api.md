@@ -63,7 +63,7 @@ An error response, except from the health probes (OPS-05) and the HTTP server's 
 - `trace_id`: the request's trace ID.
 - `errors`: present only for validation failures. A list of `{field, code, message}`, where `field` is a JSON Pointer to the invalid input: into the body, or, for `request.invalid_query`, into the query's parameters, such as `/limit`.
 - Why: one standard format that every client parses the same way (D8, D10). The exception is a request that only a broken client sends, and that only another HTTP server would answer otherwise (D215).
-- Check: `compiler` (ERR-07), plus `clippy` (`disallowed_types` bans axum's `Path` and `RawPathParams`, whose rejections are plain text), plus `test`: a generated test sends a segment that percent-decodes to bytes that aren't UTF-8 in each path parameter of every documented route, and expects a problem.
+- Check: `compiler` (ERR-07), plus `clippy` (`disallowed_types` bans axum's `Path`, `RawPathParams`, `Query` and `Form`, whose rejections are plain text), plus `test`: a generated test sends a segment that percent-decodes to bytes that aren't UTF-8 in each path parameter of every documented route, and expects a problem.
 
 ### API-08 Request bodies are strict
 JSON bodies reject unknown fields. Each route group has a body size limit, and an oversized body gets the 413 problem before it is buffered.

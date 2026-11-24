@@ -11,7 +11,7 @@
 //!   holds `$ref`, and a response that holds `$ref`.
 //!
 //! Of a document that holds one of these, the check reads nothing else, but what the breaking diff
-//! compares with the last final release (`breaking`).
+//! compares with the last final release (`breaking`), which refuses the same keys of a path item.
 
 use serde_json::Value;
 
@@ -19,6 +19,12 @@ use super::{METHODS, Problem, quoted};
 
 /// The keys of a path item that hold no operation.
 const DESCRIBING: [&str; 4] = ["summary", "description", "servers", "parameters"];
+
+/// Whether the check reads `key` of a path item of `paths`: a method of [`METHODS`], a key of
+/// [`DESCRIBING`], or an extension, which starts with `x-`.
+pub(super) fn reads_in_path_item(key: &str) -> bool {
+    METHODS.contains(&key) || DESCRIBING.contains(&key) || key.starts_with("x-")
+}
 
 /// A finding for each form of `document` that the module's comment lists.
 pub fn check(document: &Value) -> Vec<Problem> {
@@ -48,10 +54,7 @@ pub fn check(document: &Value) -> Vec<Problem> {
     }
     for (path, item) in members(&document["paths"]) {
         for (key, _) in members(item) {
-            let read = METHODS.contains(&key.as_str())
-                || DESCRIBING.contains(&key.as_str())
-                || key.starts_with("x-");
-            if !read {
+            if !reads_in_path_item(key) {
                 unread(path, format!("the path item {path} holds `{key}`"));
             }
         }

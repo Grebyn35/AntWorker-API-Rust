@@ -6,14 +6,15 @@
 //!
 //! A service's configuration is what Compose's resolved file gives it as a bind mount whose
 //! source is under the repository's `deploy/`: a directory, with every file below it, or a file.
-//! It changed when one of those files was modified after the second at which the service's
-//! container last started, as Docker names it. A service without a container, or whose
-//! container doesn't run, reads its configuration when a task starts it.
+//! It changed when one of those files was modified after the moment at which the service's
+//! container last started, as Docker names it, each as precisely as Docker and the filesystem
+//! give it. A service without a container, or whose container doesn't run, reads its
+//! configuration when a task starts it.
 
 use std::{
     path::{Path, PathBuf},
     process::{Command, ExitCode},
-    time::UNIX_EPOCH,
+    time::{Duration, UNIX_EPOCH},
 };
 
 use serde_json::Value;
@@ -57,12 +58,11 @@ fn restart_stale(root: &Path) -> Result<(), String> {
         ])?;
         let Some(started) = started
             .strip_prefix("true ")
-            .and_then(|started| seconds(started.trim()))
+            .and_then(|started| moment(started.trim()))
         else {
             continue;
         };
-        let modified = sources.iter().filter_map(|source| newest(source)).max();
-        if modified.is_some_and(|modified| modified > started) {
+        if changed(&sources, started) {
             #[expect(clippy::print_stdout, reason = "the line is the tool's output")]
             {
                 println!("{service}'s configuration changed since it started; restarting it");
@@ -93,13 +93,20 @@ fn mounted(config: &Value, deploy: &Path) -> Vec<(String, Vec<PathBuf>)> {
         .collect()
 }
 
-/// The second, since 1970, at which the newest file at `path`, or below it, was modified, or
+/// Whether a file at one of `sources`, or below it, was modified after `started`, a moment since
+/// 1970.
+fn changed(sources: &[PathBuf], started: Duration) -> bool {
+    let modified = sources.iter().filter_map(|source| newest(source)).max();
+    modified.is_some_and(|modified| modified > started)
+}
+
+/// The moment, since 1970, at which the newest file at `path`, or below it, was modified, or
 /// `None` where no file is there.
 #[expect(
     clippy::disallowed_methods,
     reason = "the task runs as a synchronous program, with no async runtime to stall"
 )]
-fn newest(path: &Path) -> Option<u64> {
+fn newest(path: &Path) -> Option<Duration> {
     let metadata = std::fs::metadata(path).ok()?;
     if metadata.is_dir() {
         return std::fs::read_dir(path)
@@ -109,12 +116,13 @@ fn newest(path: &Path) -> Option<u64> {
             .max();
     }
     let modified = metadata.modified().ok()?;
-    Some(modified.duration_since(UNIX_EPOCH).ok()?.as_secs())
+    modified.duration_since(UNIX_EPOCH).ok()
 }
 
-/// The second, since 1970, of `time`, a moment in UTC as Docker writes one, such as
-/// `2026-11-22T00:51:44.132126703Z`, whose fraction it drops, or `None` for another form.
-fn seconds(time: &str) -> Option<u64> {
+/// The moment, since 1970, of `time`, a moment in UTC as Docker writes one, such as
+/// `2026-11-22T00:51:44.132126703Z`, with a fraction of 1 to 9 digits or none, or `None` for
+/// another form.
+fn moment(time: &str) -> Option<Duration> {
     let (date, clock) = time.strip_suffix('Z')?.split_once('T')?;
     let numbers = |text: &str, separator: char| -> Option<Vec<u64>> {
         text.split(separator)
@@ -125,7 +133,16 @@ fn seconds(time: &str) -> Option<u64> {
             })
             .collect()
     };
-    let clock = clock.split('.').next()?;
+    // The fraction of the second, from tenths to nanoseconds.
+    let (clock, fraction) = clock.split_once('.').unwrap_or((clock, "0"));
+    let digits = u32::try_from(fraction.len())
+        .ok()
+        .filter(|digits| (1..=9).contains(digits))?;
+    let fraction: u32 = fraction
+        .bytes()
+        .all(|byte| byte.is_ascii_digit())
+        .then(|| fraction.parse().ok())
+        .flatten()?;
     let (date, clock) = (numbers(date, '-')?, numbers(clock, ':')?);
     let ([year, month, day], [hour, minute, second]) = (date.as_slice(), clock.as_slice()) else {
         return None;
@@ -141,7 +158,8 @@ fn seconds(time: &str) -> Option<u64> {
     let day_of_year = (153 * month_index + 2) / 5 + day - 1;
     let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
     let days = (era * 146_097 + day_of_era).checked_sub(719_468)?;
-    Some(days * 86_400 + hour * 3_600 + minute * 60 + second)
+    let seconds = days * 86_400 + hour * 3_600 + minute * 60 + second;
+    Some(Duration::new(seconds, fraction * 10u32.pow(9 - digits)))
 }
 
 /// What `docker compose`, with every profile, wrote for `args`, run at `root`.
@@ -216,14 +234,24 @@ mod tests {
     }
 
     #[test]
-    fn ops_20_the_second_a_container_started_is_read_from_docker_s_time() {
-        for (time, written) in [
-            ("2026-11-22T00:51:44.132126703Z", "20261122005144"),
-            ("2024-02-29T23:59:59Z", "20240229235959"),
-            ("1970-01-01T00:00:00.5Z", "19700101000000"),
-            ("2000-03-01T12:00:00.000000001Z", "20000301120000"),
+    fn ops_20_the_moment_a_container_started_is_read_from_docker_s_time() {
+        for (time, written, nanos) in [
+            (
+                "2026-11-22T00:51:44.132126703Z",
+                "20261122005144",
+                132_126_703,
+            ),
+            ("2024-02-29T23:59:59Z", "20240229235959", 0),
+            ("1970-01-01T00:00:00.5Z", "19700101000000", 500_000_000),
+            ("2000-03-01T12:00:00.000000001Z", "20000301120000", 1),
         ] {
-            assert_eq!(seconds(time).map(civil).as_deref(), Some(written), "{time}");
+            let read = moment(time);
+
+            assert_eq!(
+                read.map(|read| (civil(read.as_secs()), read.subsec_nanos())),
+                Some((written.to_owned(), nanos)),
+                "{time}"
+            );
         }
         for unread in [
             "0001-01-01T00:00:00Z",
@@ -232,9 +260,45 @@ mod tests {
             "2026-13-22T00:51:44Z",
             "2026-11-22T00:51Z",
             "2026-11-+2T00:51:44Z",
+            "2026-11-22T00:51:44.Z",
+            "2026-11-22T00:51:44.+5Z",
+            "2026-11-22T00:51:44.1321267031Z",
             "",
         ] {
-            assert_eq!(seconds(unread), None, "{unread}");
+            assert_eq!(moment(unread), None, "{unread}");
         }
+    }
+
+    #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test writes a file of its own, outside any async runtime"
+    )]
+    fn ops_20_a_file_modified_within_the_second_its_service_started_but_after_it_is_a_change() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/stale-services")
+            .join(std::process::id().to_string());
+        std::fs::create_dir_all(&root).unwrap();
+        let file = root.join("collector.yaml");
+        let written = std::fs::File::create(&file).unwrap();
+        let second = moment("2026-11-22T00:51:44Z").unwrap();
+        written
+            .set_modified(UNIX_EPOCH + second + Duration::from_millis(700))
+            .unwrap();
+        drop(written);
+        let sources = [root.clone()];
+
+        let after = changed(&sources, moment("2026-11-22T00:51:44.3Z").unwrap());
+        let before = changed(&sources, moment("2026-11-22T00:51:44.9Z").unwrap());
+        std::fs::remove_dir_all(&root).unwrap();
+
+        assert!(
+            after,
+            "a file modified at .7 after a start at .3 is a change"
+        );
+        assert!(
+            !before,
+            "a file modified at .7 before a start at .9 is none"
+        );
     }
 }

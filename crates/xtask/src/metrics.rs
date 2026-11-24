@@ -268,12 +268,12 @@ fn check_use(repo: &Repo, catalog: &Catalog, findings: &mut Vec<Finding>) {
 
 /// Fails each `increase(` of a panel's Prometheus query or of a rule's expression, read with its
 /// whitespace collapsed to single spaces, whose argument, the text up to the first `)` outside a
-/// string in double quotes, names a series of a metric that the API declares before its first
-/// `{` or `[`, spaces aside, unless the argument is `S[W]` and the text from the `(` before the
-/// `increase(` is `(increase(S[W]) and S offset W) or (S unless S offset W)`, between a `(`, a
-/// `,` or the query's start and a `)`, a `,` or its end, spaces aside, which counts a series
-/// that appears within the window by its first value (OBS-13). It reads no other function, such
-/// as `rate(`.
+/// string, in double quotes, single quotes or backticks, as [`promql::past_string`] reads one,
+/// names a series of a metric that the API declares before its first `{` or `[`, spaces aside,
+/// unless the argument is `S[W]` and the text from the `(` before the `increase(` is
+/// `(increase(S[W]) and S offset W) or (S unless S offset W)`, between a `(`, a `,` or the
+/// query's start and a `)`, a `,` or its end, spaces aside, which counts a series that appears
+/// within the window by its first value (OBS-13). It reads no other function, such as `rate(`.
 fn first_values(
     catalog: &Catalog,
     dashboards: &stack::Dashboards,
@@ -342,17 +342,15 @@ fn form_problem(text: &str, start: usize, argument: &str) -> Option<String> {
     })
 }
 
-/// The text of `rest` up to the first `)` outside a string in double quotes.
+/// The text of `rest` up to the first `)` outside a string, as [`first_values`] reads one.
 fn argument(rest: &str) -> &str {
-    let mut quoted = false;
-    let mut escaped = false;
-    for (index, c) in rest.char_indices() {
+    let chars: Vec<char> = rest.chars().collect();
+    let mut i = 0;
+    while let Some(c) = chars.get(i) {
         match c {
-            _ if escaped => escaped = false,
-            '\\' if quoted => escaped = true,
-            '"' => quoted = !quoted,
-            ')' if !quoted => return &rest[..index],
-            _ => {}
+            '"' | '\'' | '`' => i = promql::past_string(&chars, i),
+            ')' => return &rest[..chars[..i].iter().map(|c| c.len_utf8()).sum()],
+            _ => i += 1,
         }
     }
     rest
@@ -583,6 +581,29 @@ mod tests {
                     && found[0].contains("a function or an operator takes one half of the form"),
                 "{query}: {found:?}"
             );
+        }
+    }
+
+    #[test]
+    fn obs_13_an_increase_s_argument_ends_at_no_parenthesis_inside_a_string_of_any_quote() {
+        let rules =
+            "groups:\n  - name: a\n    rules:\n      - alert: Down\n        expr: up == 0\n";
+        let form = |s: &str| {
+            format!("(increase({s}[5m]) and {s} offset 5m) or ({s} unless {s} offset 5m)")
+        };
+        // A `)` in a string of each quote: after an escaped single quote, before a backslash
+        // that escapes nothing between backticks, and beside a quote of the other kind.
+        let selectors = [
+            r#"platform_panics_total{a=~'\'(b)'}"#,
+            r#"platform_panics_total{a=~`(b)\`}"#,
+            r#"platform_panics_total{a=~'(b)"'}"#,
+            r#"platform_panics_total{a=~"'(b)"}"#,
+        ];
+
+        let found = selectors.map(|s| findings(&dashboard("Did anything panic?", &form(s)), rules));
+
+        for (selector, found) in selectors.iter().zip(&found) {
+            assert!(found.is_empty(), "{selector}: {found:?}");
         }
     }
 

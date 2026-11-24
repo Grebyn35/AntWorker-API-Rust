@@ -1,14 +1,22 @@
-//! ERR-13: every code that an `ErrorCode` of `platform` or `app` gives, as a string or as a
-//! constant that holds one, is among the codes of the document's problem responses: an
-//! operation's, or a shared one's, such as the 405 that answers the methods no operation
-//! documents. The integration tests check each problem a test receives against the document
-//! (API-17), so this finds the code that the document lists nowhere and no test receives.
+//! ERR-13: every code that the `code` method of an `ErrorCode` of `platform` or `app` returns,
+//! outside tests, is among the codes of the document's problem responses: an operation's, or a
+//! shared one's, such as the 405 that answers the methods no operation documents. The integration
+//! tests check each problem a test receives against the document (API-17), so this finds the code
+//! that the document lists nowhere and no test receives.
+//!
+//! The check reads the expression that the method's body is: a string; a name of one segment in
+//! capitals, such as `INTERNAL_CODE`, whose codes are the strings that each `const` of that name
+//! in `platform` or `app`, outside tests, is set to; a `match` whose arms each return one of
+//! these forms; or a call of `code` without arguments, such as `error.code()`, whose codes the
+//! check reads in that error's own `code`. It fails on any other form, such as `Self::LOST`,
+//! `errors::LOST` or a body with a statement, and on a name that no such `const` sets, since it
+//! can't read the code.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Map, Value};
 use syn::{
-    Expr, ExprLit, ExprPath, ImplItem, ItemConst, ItemImpl, ItemMod, Lit, LitStr,
+    Expr, ExprLit, ExprPath, Ident, ImplItem, ItemConst, ItemImpl, ItemMod, Lit, Stmt,
     visit::{self, Visit},
 };
 
@@ -38,10 +46,29 @@ pub fn check(repo: &Repo, document: &Value) -> Vec<Finding> {
     for (path, parsed) in &files {
         let mut visitor = Codes::default();
         visitor.visit_file(parsed);
-        let named = visitor
-            .constants
-            .into_iter()
-            .filter_map(|(name, line)| Some((constants.strings.get(&name)?.clone(), line)));
+        let mut named = Vec::new();
+        for (name, line) in visitor.constants {
+            match constants.strings.get(&name) {
+                Some(codes) => named.extend(codes.iter().map(|code| (code.clone(), line))),
+                None => findings.push(Finding::new(
+                    path,
+                    line,
+                    format!(
+                        "the check reads `{name}` from a `const` of `platform` or `app` that sets \
+                         it to a string, and none does (ERR-13)"
+                    ),
+                )),
+            }
+        }
+        for line in visitor.unread {
+            findings.push(Finding::new(
+                path,
+                line,
+                "the check can't read what this `code` returns: return a string, a constant \
+                 that holds one, a `match` whose arms each return one, or another error's \
+                 `.code()` (ERR-13)",
+            ));
+        }
         for (code, line) in visitor.codes.into_iter().chain(named) {
             if !listed.contains(&code) {
                 findings.push(Finding::new(
@@ -88,18 +115,20 @@ fn problem_codes(document: &Value) -> BTreeSet<String> {
         .collect()
 }
 
-/// The string literals in the `code` methods of a file's implementations of `ErrorCode`, and the
-/// constants they name, with their lines.
+/// What the `code` methods of a file's implementations of `ErrorCode` return, as the module's
+/// comment says the check reads it: the strings and the constants' names, with their lines, and
+/// the line of each form that the check can't read.
 #[derive(Default)]
 struct Codes {
     codes: Vec<(String, usize)>,
     constants: Vec<(String, usize)>,
+    unread: Vec<usize>,
 }
 
-/// The string constants of the code, by name, outside the tests.
+/// The strings that the constants of the code are set to, by name, outside the tests.
 #[derive(Default)]
 struct Constants {
-    strings: BTreeMap<String, String>,
+    strings: BTreeMap<String, Vec<String>>,
 }
 
 impl<'ast> Visit<'ast> for Constants {
@@ -115,7 +144,10 @@ impl<'ast> Visit<'ast> for Constants {
             ..
         }) = item.expr.as_ref()
         {
-            self.strings.insert(item.ident.to_string(), text.value());
+            self.strings
+                .entry(item.ident.to_string())
+                .or_default()
+                .push(text.value());
         }
     }
 }
@@ -141,39 +173,55 @@ impl<'ast> Visit<'ast> for Codes {
             if let ImplItem::Fn(function) = item
                 && function.sig.ident == "code"
             {
-                let mut literals = Literals::default();
-                literals.visit_block(&function.block);
-                self.codes.extend(literals.found);
-                self.constants.extend(literals.constants);
+                let line = function.sig.ident.span().start().line;
+                match function.block.stmts.as_slice() {
+                    [Stmt::Expr(returned, None)] => self.returned(returned, line),
+                    _ => self.unread.push(line),
+                }
             }
         }
     }
 }
 
-#[derive(Default)]
-struct Literals {
-    found: Vec<(String, usize)>,
-    constants: Vec<(String, usize)>,
-}
-
-impl<'ast> Visit<'ast> for Literals {
-    fn visit_lit_str(&mut self, literal: &'ast LitStr) {
-        self.found
-            .push((literal.value(), literal.span().start().line));
-    }
-
-    /// A constant's name, such as `INTERNAL_CODE`: a path of one segment in capitals.
-    fn visit_expr_path(&mut self, path: &'ast ExprPath) {
-        if let Some(ident) = path.path.get_ident()
-            && ident
-                .to_string()
-                .chars()
-                .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
-        {
-            self.constants
-                .push((ident.to_string(), ident.span().start().line));
+impl Codes {
+    /// Reads `returned`, what a `code` method returns, in the forms that the module's comment
+    /// lists, and names `line` for a form that it can't read.
+    fn returned(&mut self, returned: &Expr, line: usize) {
+        match returned {
+            Expr::Lit(ExprLit {
+                lit: Lit::Str(text),
+                ..
+            }) => self.codes.push((text.value(), text.span().start().line)),
+            Expr::Match(matched) => {
+                for arm in &matched.arms {
+                    self.returned(&arm.body, arm.fat_arrow_token.spans[0].start().line);
+                }
+            }
+            Expr::MethodCall(call) if call.method == "code" && call.args.is_empty() => {}
+            other => match constant(other) {
+                Some(name) => self
+                    .constants
+                    .push((name.to_string(), name.span().start().line)),
+                None => self.unread.push(line),
+            },
         }
     }
+}
+
+/// The name that `expr` is, where it is a constant's as the module's comment reads one: a path
+/// of one segment in capitals.
+fn constant(expr: &Expr) -> Option<&Ident> {
+    let Expr::Path(ExprPath {
+        qself: None, path, ..
+    }) = expr
+    else {
+        return None;
+    };
+    path.get_ident().filter(|name| {
+        name.to_string()
+            .chars()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+    })
 }
 
 #[cfg(test)]
@@ -238,6 +286,81 @@ mod tests {
                 "crates/app/src/modules/things/error.rs:6"
             ]
         );
+    }
+
+    #[test]
+    fn err_13_a_code_in_a_form_that_the_check_can_t_read_fails() {
+        let error = "impl ErrorCode for ThingsError {\n\
+                     \x20   fn code(&self) -> &'static str {\n\
+                     \x20       match self {\n\
+                     \x20           Self::Gone => \"things.gone\",\n\
+                     \x20           Self::Inner(error) => error.code(),\n\
+                     \x20           Self::Lost => Self::LOST,\n\
+                     \x20           Self::Moved => errors::MOVED,\n\
+                     \x20           Self::Named => named(),\n\
+                     \x20           Self::Unset => UNSET,\n\
+                     \x20       }\n\
+                     \x20   }\n\
+                     }\n\
+                     impl ErrorCode for OtherError {\n\
+                     \x20   fn code(&self) -> &'static str {\n\
+                     \x20       let code = \"things.gone\";\n\
+                     \x20       code\n\
+                     \x20   }\n\
+                     }\n";
+        let repo = Repo::of(&[("crates/app/src/modules/things/error.rs", error)]);
+        let document = json!({
+            "paths": { "/v1/things": { "get": { "responses": { "404": {
+                "content": { "application/problem+json": { "schema": { "allOf": [
+                    { "$ref": "#/components/schemas/ProblemBody" },
+                    { "properties": { "code": { "enum": ["things.gone"] } } },
+                ] } } },
+            } } } } },
+        });
+
+        let messages: Vec<String> = check(&repo, &document)
+            .into_iter()
+            .map(|finding| format!("{}:{}", finding.path, finding.line))
+            .collect();
+
+        assert_eq!(
+            messages,
+            [
+                "crates/app/src/modules/things/error.rs:9",
+                "crates/app/src/modules/things/error.rs:6",
+                "crates/app/src/modules/things/error.rs:7",
+                "crates/app/src/modules/things/error.rs:8",
+                "crates/app/src/modules/things/error.rs:14",
+            ]
+        );
+    }
+
+    #[test]
+    fn err_13_a_constant_s_codes_are_the_strings_of_each_const_of_its_name() {
+        let error = "impl ErrorCode for ThingsError {\n\
+                     \x20   fn code(&self) -> &'static str {\n\
+                     \x20       LOST\n\
+                     \x20   }\n\
+                     }\n\
+                     mod a { const LOST: &str = \"things.lost\"; }\n\
+                     mod b { const LOST: &str = \"things.gone\"; }\n";
+        let repo = Repo::of(&[("crates/app/src/modules/things/error.rs", error)]);
+        let document = json!({
+            "paths": { "/v1/things": { "get": { "responses": { "404": {
+                "content": { "application/problem+json": { "schema": { "allOf": [
+                    { "$ref": "#/components/schemas/ProblemBody" },
+                    { "properties": { "code": { "enum": ["things.gone"] } } },
+                ] } } },
+            } } } } },
+        });
+
+        let messages: Vec<String> = check(&repo, &document)
+            .into_iter()
+            .map(|finding| finding.message)
+            .collect();
+
+        assert_eq!(messages.len(), 1, "{messages:?}");
+        assert!(messages[0].starts_with("`things.lost` is in no problem response"));
     }
 
     #[test]

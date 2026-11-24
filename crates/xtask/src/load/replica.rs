@@ -375,13 +375,18 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test removes a file of its own, outside any async runtime"
+    )]
     fn ops_21_a_load_test_holds_the_machine_so_that_another_fails_at_once() {
         // A file of this test's own, so a run of the end-to-end tests that holds the machine
-        // meanwhile changes nothing.
+        // meanwhile changes nothing, which the test removes, so that no run leaves one.
         let path = std::env::temp_dir().join(format!("image-tests-{}.lock", std::process::id()));
 
         let first = hold(&path);
         let second = hold(&path);
+        let removed = std::fs::remove_file(&path);
 
         assert!(first.is_ok(), "{first:?}");
         assert!(
@@ -390,5 +395,6 @@ mod tests {
                 .is_err_and(|refused| refused.contains("holds this machine")),
             "{second:?}"
         );
+        assert!(removed.is_ok(), "{removed:?}");
     }
 }

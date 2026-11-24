@@ -292,7 +292,10 @@ fn alerts_share(repo: &Repo, objective: f64, findings: &mut Vec<Finding>) {
     for rule in stack::rules(repo, findings) {
         for bound in bucket_bounds(&rule.expr) {
             measured = true;
-            if bound.parse::<f64>().ok().map(|seconds| seconds * 1000.0) != Some(objective) {
+            if !bound
+                .parse::<f64>()
+                .is_ok_and(|seconds| is_objective(seconds, objective))
+            {
                 findings.push(Finding::new(
                     stack::RULES,
                     rule.line,
@@ -332,7 +335,7 @@ fn dashboards_share(repo: &Repo, objective: f64, findings: &mut Vec<Finding>) {
     for query in &dashboards.queries {
         let durations = query.store == Store::Prometheus && query.query.contains(BUCKET);
         for threshold in query.thresholds.iter().filter(|_| durations) {
-            if threshold * 1000.0 != objective {
+            if !is_objective(*threshold, objective) {
                 findings.push(Finding::new(
                     &query.path,
                     query.line,
@@ -357,8 +360,8 @@ fn dashboards_share(repo: &Repo, objective: f64, findings: &mut Vec<Finding>) {
             "no dashboard lists the traces slower than the latency objective (OBS-08)",
         ));
     }
-    for (query, milliseconds) in lists {
-        if milliseconds != Some(objective) {
+    for (query, seconds) in lists {
+        if !seconds.is_some_and(|seconds| is_objective(seconds, objective)) {
             findings.push(Finding::new(
                 &query.path,
                 query.line,
@@ -371,8 +374,14 @@ fn dashboards_share(repo: &Repo, objective: f64, findings: &mut Vec<Finding>) {
     }
 }
 
-/// The duration a TraceQL query keeps the traces above, in milliseconds: `Some(None)` when
-/// the query compares the duration with a value it can't read.
+/// Whether `seconds` is the latency objective of `milliseconds`, each a 64-bit float of seconds:
+/// the product by 1,000 of a bound such as 1.001 s isn't 1,001.
+fn is_objective(seconds: f64, milliseconds: f64) -> bool {
+    seconds == milliseconds / 1000.0
+}
+
+/// The duration a TraceQL query keeps the traces above, in seconds: `Some(None)` when the query
+/// compares the duration with a value it can't read.
 fn threshold(query: &str) -> Option<Option<f64>> {
     let rest = query
         .split("duration")
@@ -384,14 +393,17 @@ fn threshold(query: &str) -> Option<Option<f64>> {
         .chars()
         .take_while(|c| c.is_ascii_alphanumeric() || *c == '.')
         .collect();
-    let milliseconds = if let Some(number) = value.strip_suffix("ms") {
-        number.parse::<f64>().ok()
+    let seconds = if let Some(number) = value.strip_suffix("ms") {
+        number
+            .parse::<f64>()
+            .ok()
+            .map(|milliseconds| milliseconds / 1000.0)
     } else if let Some(number) = value.strip_suffix('s') {
-        number.parse::<f64>().ok().map(|seconds| seconds * 1000.0)
+        number.parse::<f64>().ok()
     } else {
         None
     };
-    Some(milliseconds)
+    Some(seconds)
 }
 
 #[cfg(test)]
@@ -609,6 +621,27 @@ mod tests {
         };
         assert!(findings(&collector(POLICIES), RULES, &panel(0.5)).is_empty());
         assert_eq!(findings(&collector(POLICIES), RULES, &panel(1.0)).len(), 1);
+    }
+
+    #[test]
+    fn obs_08_a_bound_or_a_threshold_in_seconds_matches_the_objective_of_its_milliseconds() {
+        // 1.001 s, whose product by 1,000 as 64-bit floats isn't 1,001, in each of the four
+        // places: the policy, a rule's bucket, the list of slow traces and a panel's line.
+        let policies = POLICIES.replace("{threshold_ms: 500}", "{threshold_ms: 1001}");
+        let rules = RULES.replace("le=\"0.5\"", "le=\"1.001\"");
+        let dashboard = serde_json::json!({"panels": [
+            {"type": "table", "title": "Which?", "datasource": {"type": "tempo"},
+             "targets": [{"query": "{ duration > 1.001s }"}]},
+            {"type": "timeseries", "title": "How long?", "datasource": {"type": "prometheus"},
+             "fieldConfig": {"defaults": {"thresholds": {"steps": [
+                 {"color": "green", "value": null}, {"color": "red", "value": 1.001}]}}},
+             "targets": [{"expr": "histogram_quantile(0.99, sum by (le) (rate(http_server_request_duration_seconds_bucket[5m])))"}]}
+        ]})
+        .to_string();
+
+        let found = findings(&collector(&policies), &rules, &dashboard);
+
+        assert!(found.is_empty(), "{found:?}");
     }
 
     #[test]

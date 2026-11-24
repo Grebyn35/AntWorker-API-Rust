@@ -8,6 +8,9 @@
 //! the value itself. It reads no other schema inside a schema: `not`'s and `if`'s describe what a
 //! value is tested against, `propertyNames`'s the names of its members, `contentSchema`'s what a
 //! string holds, and `$defs`'s what a reference names, which the check follows where one does.
+//! It checks each schema that it reads by itself: a `maxLength` or an `enum` bounds the string of
+//! its own schema alone, not one that a `$ref` beside it names, nor one that another member of
+//! the `allOf` that holds it describes.
 
 use serde_json::Value;
 
@@ -150,6 +153,31 @@ mod tests {
                 "POST /v1/things application/json request: the string at /label has no maxLength (API-17)",
                 "POST /v1/things application/json request: the string at /note has no maxLength (API-17)",
                 "POST /v1/things application/json request: the string at /tags/* has no maxLength (API-17)",
+            ]
+        );
+    }
+
+    #[test]
+    fn api_17_a_bound_beside_a_reference_bounds_its_own_schema_s_string_alone() {
+        let schemas = json!({
+            "Note": { "type": "string" },
+            "Request": { "type": "object", "properties": {
+                "beside": { "$ref": "#/components/schemas/Note", "maxLength": 5 },
+                "member": { "allOf": [{ "$ref": "#/components/schemas/Note" }, { "maxLength": 5 }] },
+                "own": { "$ref": "#/components/schemas/Note", "type": "string", "enum": ["a"] },
+            } },
+        });
+        let operation = json!({
+            "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Request" } } } },
+            "responses": {},
+        });
+
+        assert_eq!(
+            messages(&document(operation, schemas)),
+            [
+                "POST /v1/things application/json request: the string at /beside has no maxLength (API-17)",
+                "POST /v1/things application/json request: the string at /member has no maxLength (API-17)",
+                "POST /v1/things application/json request: the string at /own has no maxLength (API-17)",
             ]
         );
     }

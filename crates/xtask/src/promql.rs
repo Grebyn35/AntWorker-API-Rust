@@ -111,8 +111,9 @@ fn past(chars: &[char], i: usize, close: char) -> usize {
     j + 1
 }
 
-/// The index after the string whose quote is at `i`.
-fn past_string(chars: &[char], i: usize) -> usize {
+/// The index after the string whose quote, `"`, `'` or a backtick, is at `i`: a backslash
+/// escapes the character after it, but in a string between backticks.
+pub(crate) fn past_string(chars: &[char], i: usize) -> usize {
     let quote = chars[i];
     let mut j = i + 1;
     while j < chars.len() && chars[j] != quote {

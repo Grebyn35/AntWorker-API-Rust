@@ -4,14 +4,22 @@
 //! semantic versioning; a repository without one, such as a fork before its first, has nothing
 //! to keep. The diff reads the tag from git, so a checkout needs its tags: CI's fetches them.
 //!
+//! Of each path of the release's document, a finding is its path item's `servers`, where the
+//! committed document's path item holds others, or holds them where the release's holds none, or
+//! none where it holds some; the diff compares nothing of a path item's `summary`, `description`
+//! and extensions.
+//!
 //! Of each operation of the release's document, a method under a path, a finding is:
 //! - the operation, where the committed document has none under that path and method;
 //! - its access level, `x-access`, where the committed document's is another, and is neither
 //!   `public`, which takes every caller, nor, where the release's isn't `public`, `user`, which
 //!   takes every caller signed in;
-//! - a parameter, by where it stands and its name, that is gone, or whose `style` or `explode`
-//!   differs; a parameter that is required now and wasn't, a new one included; and what the
-//!   parameter's schema breaks as a request's (`schema`);
+//! - its permission, `x-permission`, where the release's operation names one and the committed
+//!   document's, at the same access level, names another or none;
+//! - a parameter, by where it stands and its name, among the operation's and its path item's,
+//!   of which the operation's own takes the place of the path item's of that place and name: one
+//!   that is gone, or whose `style` or `explode` differs; one that is required now and wasn't, a
+//!   new one included; and what the parameter's schema breaks as a request's (`schema`);
 //! - a body that is gone, or required now where it wasn't or where there was none; a content
 //!   type of the body, or a content type's schema, that is gone; and what the schema breaks
 //!   as a request's;
@@ -26,9 +34,9 @@
 //!   code that changed from an error that is gone beside one that is new, and takes a code that
 //!   is gone alone for a request that is taken where it was refused.
 //!
-//! It refuses what it can't read: a key of a path that is no method, a parameter without a
-//! place and a name, a response whose status is no number or that refers to none of the
-//! document's, and what `shape` can't read of a schema.
+//! It refuses what it can't read: a key of a path item that `forms` refuses too, a parameter
+//! without a place and a name, a response whose status is no number or that refers to none of
+//! the document's, and what `shape` can't read of a schema.
 
 mod schema;
 mod shape;
@@ -44,7 +52,7 @@ use self::{
     schema::{Comparison, Place, Side},
     shape::Shape,
 };
-use super::{DOCUMENT, METHODS};
+use super::{DOCUMENT, METHODS, forms};
 use crate::{Finding, release, repo::Repo};
 
 /// The content type of a problem (API-07).
@@ -93,7 +101,7 @@ fn broken<'a>(release: &'a Value, current: &'a Value) -> Vec<String> {
     for (whose, document) in [("the release's", release), ("the", current)] {
         for (path, item) in paths(document) {
             for key in item.as_object().into_iter().flatten().map(|(key, _)| key) {
-                if !METHODS.contains(&key.as_str()) {
+                if !forms::reads_in_path_item(key) {
                     findings.push(format!(
                         "`{path}` of {whose} document holds `{key}`, which the diff can't read \
                          (API-18)"
@@ -103,12 +111,16 @@ fn broken<'a>(release: &'a Value, current: &'a Value) -> Vec<String> {
         }
     }
     for (path, item) in paths(release) {
+        let of_path = &current["paths"][path];
+        if item.get("servers") != of_path.get("servers") {
+            findings.push(format!("`{path}` has other `servers` (API-18)"));
+        }
         for method in METHODS {
             let Some(of_release) = item.get(method) else {
                 continue;
             };
             let name = format!("`{} {path}`", method.to_uppercase());
-            let Some(of_current) = current["paths"][path].get(method) else {
+            let Some(of_current) = of_path.get(method) else {
                 findings.push(format!("{name} is gone (API-18)"));
                 continue;
             };
@@ -116,9 +128,11 @@ fn broken<'a>(release: &'a Value, current: &'a Value) -> Vec<String> {
                 comparison: Comparison::new(release, current),
                 release: of_release,
                 current: of_current,
+                items: [item, of_path],
                 codes: Vec::new(),
             };
             operation.access();
+            operation.permission();
             operation.parameters();
             operation.body();
             operation.responses();
@@ -146,6 +160,8 @@ struct Operation<'a> {
     comparison: Comparison<'a>,
     release: &'a Value,
     current: &'a Value,
+    /// The path items that hold the operation, the release's and the committed document's.
+    items: [&'a Value; 2],
     /// What the operation breaks of its codes.
     codes: Vec<String>,
 }
@@ -168,10 +184,26 @@ impl<'a> Operation<'a> {
         }
     }
 
+    /// The permission, where the document's operation, at the release's access level, names
+    /// another than the release's or none: a caller whose role holds the release's may hold no
+    /// other.
+    fn permission(&mut self) {
+        let (was, now) = (&self.release["x-permission"], &self.current["x-permission"]);
+        if was.is_string() && now != was && self.release["x-access"] == self.current["x-access"] {
+            let name = |permission: &Value| permission.as_str().unwrap_or("none").to_owned();
+            self.finding(format!(
+                "the permission `{}` is `{}` now",
+                name(was),
+                name(now)
+            ));
+        }
+    }
+
     fn parameters(&mut self) {
+        let [release_item, current_item] = self.items;
         let (of_release, of_current) = (
-            self.named(self.release, "the release's"),
-            self.named(self.current, "the document's"),
+            self.named(release_item, self.release, "the release's"),
+            self.named(current_item, self.current, "the document's"),
         );
         for ((place, name), parameter) in &of_release {
             let here = format!("the {place} parameter `{name}`");
@@ -203,14 +235,19 @@ impl<'a> Operation<'a> {
         }
     }
 
-    /// The parameters of `operation`, each by its place and its name.
+    /// The parameters of `operation` and of `item`, the path item that holds it, each by its
+    /// place and its name, of which the operation's take the place of the path item's.
     fn named(
         &mut self,
+        item: &'a Value,
         operation: &'a Value,
         document: &str,
     ) -> BTreeMap<(&'a str, &'a str), &'a Value> {
         let mut named = BTreeMap::new();
-        for parameter in operation["parameters"].as_array().into_iter().flatten() {
+        let parameters = [item, operation]
+            .into_iter()
+            .flat_map(|holder| holder["parameters"].as_array().into_iter().flatten());
+        for parameter in parameters {
             match (parameter["in"].as_str(), parameter["name"].as_str()) {
                 (Some(place), Some(name)) => {
                     named.insert((place, name), parameter);
@@ -528,6 +565,76 @@ mod tests {
     }
 
     #[test]
+    fn api_18_an_operation_s_permission_stays_at_its_access_level() {
+        let changed = |was: (&str, Option<&str>), now: (&str, Option<&str>)| {
+            let (mut release, mut current) = (document(), document());
+            for (document, (access, permission)) in [(&mut release, was), (&mut current, now)] {
+                let operation = operation(document);
+                operation["x-access"] = json!(access);
+                if let Some(permission) = permission {
+                    operation["x-permission"] = json!(permission);
+                }
+            }
+            broken(&release, &current)
+        };
+        let read = ("workspace", Some("things.read"));
+
+        assert_eq!(
+            changed(read, ("workspace", Some("things.update"))),
+            [format!(
+                "{NAME}: the permission `things.read` is `things.update` now (API-18)"
+            )]
+        );
+        assert_eq!(
+            changed(read, ("workspace", None)),
+            [format!(
+                "{NAME}: the permission `things.read` is `none` now (API-18)"
+            )]
+        );
+        assert_eq!(changed(read, read), Vec::<String>::new());
+        assert_eq!(changed(read, ("user", None)), Vec::<String>::new());
+    }
+
+    #[test]
+    fn api_18_a_path_item_s_parameters_are_each_of_its_operations_and_its_servers_stay() {
+        let path = "/v1/things/{thing_id}";
+        let moved = broken_by(|document| {
+            let limit = operation(document)["parameters"]
+                .as_array_mut()
+                .unwrap()
+                .remove(1);
+            let item = &mut document["paths"][path];
+            item["parameters"] = json!([limit]);
+            item["summary"] = json!("A thing.");
+            item["description"] = json!("The thing.");
+            item["x-group"] = json!("things");
+        });
+        // The path item's `limit` is required, but the operation's own takes its place.
+        let shadowed = broken_by(|document| {
+            let mut required = operation(document)["parameters"][1].clone();
+            required["required"] = json!(true);
+            document["paths"][path]["parameters"] = json!([required]);
+        });
+        let (mut release, current) = (document(), document());
+        release["paths"][path]["parameters"] =
+            json!([{"in": "header", "name": "x-tag", "schema": {"type": "string"}}]);
+        let gone = broken(&release, &current);
+        let served = broken_by(|document| {
+            document["paths"][path]["servers"] = json!([{"url": "/elsewhere"}]);
+        });
+
+        assert_eq!(moved, Vec::<String>::new());
+        assert_eq!(shadowed, Vec::<String>::new());
+        assert_eq!(
+            gone,
+            [format!(
+                "{NAME}: the header parameter `x-tag` is gone (API-18)"
+            )]
+        );
+        assert_eq!(served, [format!("`{path}` has other `servers` (API-18)")]);
+    }
+
+    #[test]
     fn api_18_a_parameter_stays_as_it_is_taken_and_none_is_required_now() {
         let found = broken_by(|document| {
             *operation(document).pointer_mut("/parameters").unwrap() = json!([
@@ -794,7 +901,8 @@ mod tests {
     #[test]
     fn api_18_what_the_diff_can_t_read_of_an_operation_is_a_finding() {
         let keyed = broken_by(|document| {
-            document["paths"]["/v1/things/{thing_id}"]["parameters"] = json!([]);
+            document["paths"]["/v1/things/{thing_id}"]["$ref"] =
+                json!("#/components/pathItems/Thing");
         });
         let unnamed = broken_by(|document| {
             operation(document)["parameters"]
@@ -814,7 +922,7 @@ mod tests {
         assert_eq!(
             keyed,
             [
-                "`/v1/things/{thing_id}` of the document holds `parameters`, which the diff can't read (API-18)"
+                "`/v1/things/{thing_id}` of the document holds `$ref`, which the diff can't read (API-18)"
             ]
         );
         assert_eq!(
