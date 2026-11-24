@@ -8,7 +8,7 @@ use sqlx::{
     migrate::{AppliedMigration, Migrate, MigrateError as SqlxMigrateError, Migration, Migrator},
 };
 
-use super::{ConnectError, DatabaseUrl, roles};
+use super::{ConnectError, DatabaseUrl, is_lock_timeout, roles};
 
 /// `migrate` couldn't finish. Every migration it applied before the failure stays applied.
 #[derive(Debug, thiserror::Error)]
@@ -74,7 +74,7 @@ impl fmt::Display for Versions {
 /// is applied while `migrations` holds any other migration marked `-- no-transaction`, or while
 /// any applied migration differs from its file. A recorded migration that `migrations` doesn't
 /// contain is ignored, so an earlier release can still run `migrate` (PLATFORM-006). Concurrent
-/// runs apply each migration once.
+/// runs apply each migration once, each taking the database's lock through [`lock`].
 #[expect(
     clippy::disallowed_methods,
     reason = "platform::db opens the owner's connection for migrate (DATA-15)"
@@ -94,11 +94,43 @@ pub async fn migrate(url: &DatabaseUrl, migrations: &Migrator) -> Result<Vec<i64
     if role != roles::OWNER {
         return Err(MigrateError::NotOwner(role));
     }
-    conn.lock().await?;
+    lock(&mut conn).await?;
     let applied = apply_missing(&mut conn, migrations).await?;
     // Closing the connection ends the session, which releases the advisory lock.
     conn.close().await?;
     Ok(applied)
+}
+
+/// Takes the lock that sqlx's migrator takes on the database, in tries that each wait for it at
+/// most half of the server's `deadlock_timeout`, in whole milliseconds and at least one, then
+/// sets the session's `lock_timeout` back to its default. A run that waits for the lock holds a
+/// snapshot while its try lasts, which a build of an index outside a transaction, in the run that
+/// holds the lock, waits for, so a wait that outlasted `deadlock_timeout` could end in a deadlock
+/// that fails one of the runs (PLATFORM-004).
+async fn lock(conn: &mut PgConnection) -> Result<(), MigrateError> {
+    sqlx::query_scalar!(
+        "SELECT set_config(
+            'lock_timeout',
+            greatest(
+                1,
+                floor(extract(epoch FROM current_setting('deadlock_timeout')::interval) * 500)
+            )::int::text,
+            false
+        )"
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    loop {
+        match conn.lock().await {
+            Ok(()) => break,
+            Err(SqlxMigrateError::Execute(error)) if is_lock_timeout(&error) => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    sqlx::query!("SET lock_timeout TO DEFAULT")
+        .execute(&mut *conn)
+        .await?;
+    Ok(())
 }
 
 async fn apply_missing(

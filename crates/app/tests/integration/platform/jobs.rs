@@ -15,7 +15,7 @@ use platform::{
     clock::{SharedClock, TestClock},
     db::Database,
     errors::Internal,
-    jobs::{Job, JobContext, JobFailure, JobScope, Jobs},
+    jobs::{self, Job, JobContext, JobFailure, JobScope, Jobs},
     telemetry::{
         Service, names,
         testing::{
@@ -1027,6 +1027,43 @@ impl Job for Unrecorded {
     const KIND: &'static str = "tests.counted_unrecorded";
 }
 
+/// A job that only the test of a stale run's count enqueues.
+#[derive(Serialize, Deserialize)]
+struct Contested;
+
+impl Job for Contested {
+    const KIND: &'static str = "tests.counted_contested";
+}
+
+/// A job that only the test of a stale run released at shutdown enqueues.
+#[derive(Serialize, Deserialize)]
+struct ContestedReleased;
+
+impl Job for ContestedReleased {
+    const KIND: &'static str = "tests.counted_contested_released";
+}
+
+/// A job that only the test of a run whose job a deletion removed enqueues.
+#[derive(Serialize, Deserialize)]
+struct Forgotten;
+
+impl Job for Forgotten {
+    const KIND: &'static str = "tests.counted_forgotten";
+}
+
+/// A registry whose one queued job is `J`, whose runs `steering` steers, beside `platform`'s
+/// sweeps.
+fn steered<J: Job>(database: &Database, steering: &Arc<Steering>) -> Jobs {
+    let mut jobs = Jobs::new(database, Duration::from_secs(86_400));
+    let steering = steering.clone();
+    jobs.queued(move |context, _: J| {
+        let steering = steering.clone();
+        async move { steering.run(context, J::KIND.to_owned()).await }
+    })
+    .unwrap();
+    jobs
+}
+
 /// The runs of `kind` that `platform.job_runs` has counted, as each outcome and its count, such
 /// as `succeeded 1`, in the order of those texts.
 fn counted(kind: &str) -> Vec<String> {
@@ -1164,6 +1201,154 @@ async fn platform_020_a_run_whose_outcome_the_queue_doesn_t_record_isn_t_counted
 
     assert_eq!(runs, 1);
     assert_eq!(counted(Unrecorded::KIND), Vec::<String>::new());
+}
+
+#[tokio::test]
+async fn platform_020_a_stale_run_isn_t_counted() {
+    testing::install(Service {
+        name: "api",
+        version: "0.0.0",
+    })
+    .unwrap();
+    let db = TestDatabase::migrated().await;
+    let database = db.app().await;
+    let (stale, mut stale_starts) = Steering::new(&[Act::Wait]);
+    let (fresh, _fresh_starts) = Steering::new(&[Act::Fail]);
+    enqueue(&database, JobScope::for_tests(), &Contested).await;
+    let clock = Arc::new(TestClock::default());
+    let (stop, running) = start(steered::<Contested>(&database, &stale), &database, &clock);
+    stale_starts.recv().await.unwrap();
+    // As if the first replica stopped without ending or releasing the run: once its lease ran
+    // out, another replica runs the job again, and that run fails.
+    db.owner_executes("UPDATE jobs SET lease_expires_at = now() - interval '1 second'")
+        .await;
+    let other: SharedClock = Arc::new(TestClock::default());
+    steered::<Contested>(&database, &fresh)
+        .run_pending(&database, &other)
+        .await;
+
+    // The stale run succeeds.
+    stale.release.add_permits(1);
+    stop.send_replace(true);
+    running.await.unwrap();
+
+    assert_eq!(counted(Contested::KIND), ["retried 1"]);
+}
+
+#[tokio::test]
+async fn platform_020_a_run_whose_job_a_deletion_removed_isn_t_counted() {
+    testing::install(Service {
+        name: "api",
+        version: "0.0.0",
+    })
+    .unwrap();
+    let db = TestDatabase::migrated().await;
+    let database = db.app().await;
+    let (steering, mut starts) = Steering::new(&[Act::Wait]);
+    let user = UserId::from_uuid(uuid::Uuid::from_u128(7));
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test enqueues a job for a user, whose jobs the deletion of their account removes"
+    )]
+    let principal = Principal::new(user, SessionId::from_uuid(uuid::Uuid::from_u128(8)));
+    enqueue(&database, principal.job_scope(), &Forgotten).await;
+    let clock = Arc::new(TestClock::default());
+    let (stop, running) = start(
+        steered::<Forgotten>(&database, &steering),
+        &database,
+        &clock,
+    );
+    starts.recv().await.unwrap();
+    // The deletion of the user's account removes their jobs while the run goes on.
+    let mut uow = database.begin(&support::client(), None).await.unwrap();
+    jobs::forget_user(&mut uow, user).await.unwrap();
+    uow.commit().await.unwrap();
+
+    // The run succeeds.
+    steering.release.add_permits(1);
+    stop.send_replace(true);
+    running.await.unwrap();
+
+    assert_eq!(counted(Forgotten::KIND), Vec::<String>::new());
+}
+
+#[tokio::test]
+async fn platform_020_a_stale_periodic_run_isn_t_counted() {
+    testing::install(Service {
+        name: "api",
+        version: "0.0.0",
+    })
+    .unwrap();
+    let db = TestDatabase::migrated().await;
+    let database = db.app().await;
+    let name = "tests.counted_contested_periodic";
+    let (started, mut starts) = mpsc::unbounded_channel();
+    let release = Arc::new(Semaphore::new(0));
+    let mut jobs = Jobs::new(&database, Duration::from_secs(86_400));
+    held(&mut jobs, name, started, &release);
+    let clock = Arc::new(TestClock::default());
+    let (stop, running) = start(jobs, &database, &clock);
+    starts.recv().await.unwrap();
+    // As if the run's lease ran out and another replica claimed the job. The test writes that
+    // claim itself: once the lease ran out, this replica's scheduler, woken as its sweeps end,
+    // could claim the job again before another replica did.
+    db.owner_executes(&format!(
+        "UPDATE job_schedules SET claim_id = gen_random_uuid(), \
+         lease_expires_at = now() + interval '1 hour' WHERE name = '{name}'"
+    ))
+    .await;
+
+    // The stale run succeeds.
+    release.add_permits(1);
+    stop.send_replace(true);
+    running.await.unwrap();
+
+    assert_eq!(counted(name), Vec::<String>::new());
+}
+
+#[tokio::test]
+async fn platform_020_a_stale_run_still_going_at_the_shutdown_s_deadline_isn_t_counted() {
+    testing::install(Service {
+        name: "api",
+        version: "0.0.0",
+    })
+    .unwrap();
+    let db = TestDatabase::migrated().await;
+    let database = db.app().await;
+    let mut jobs = Jobs::new(&database, Duration::from_secs(86_400));
+    let (started, mut starts) = mpsc::unbounded_channel();
+    // A queued run and a periodic one, neither of which ends on its own.
+    let queued = started.clone();
+    jobs.queued(move |_, ContestedReleased| {
+        queued.send(()).unwrap();
+        std::future::pending()
+    })
+    .unwrap();
+    let name = "tests.counted_contested_held";
+    held(&mut jobs, name, started, &Arc::new(Semaphore::new(0)));
+    enqueue(&database, JobScope::for_tests(), &ContestedReleased).await;
+    let clock = Arc::new(TestClock::default());
+    let (stop, running) = start(jobs, &database, &clock);
+    starts.recv().await.unwrap();
+    starts.recv().await.unwrap();
+    // As if each run's lease ran out and another replica claimed its job.
+    db.owner_executes(
+        "UPDATE jobs SET claim_id = gen_random_uuid(), lease_expires_at = now() + interval '1 hour'",
+    )
+    .await;
+    db.owner_executes(&format!(
+        "UPDATE job_schedules SET claim_id = gen_random_uuid(), \
+         lease_expires_at = now() + interval '1 hour' WHERE name = '{name}'"
+    ))
+    .await;
+
+    stop.send_replace(true);
+    clock.sleeping(GRACE).await;
+    clock.advance(GRACE);
+    running.await.unwrap();
+
+    assert_eq!(counted(ContestedReleased::KIND), Vec::<String>::new());
+    assert_eq!(counted(name), Vec::<String>::new());
 }
 
 #[tokio::test]

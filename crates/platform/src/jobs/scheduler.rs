@@ -93,7 +93,7 @@ pub(super) async fn schedule(
     release_within(&clock, async {
         for claim in cancelled {
             match database.release_schedule(claim.name, claim.claim).await {
-                Ok(()) => count(claim.name, Outcome::Released),
+                Ok(released) => count(claim.name, Outcome::Released, released),
                 Err(error) => tracing::warn!(
                     { names::EXCEPTION_MESSAGE } = errors::chain(&error),
                     { names::JOB_KIND } = claim.name,
@@ -106,8 +106,9 @@ pub(super) async fn schedule(
 }
 
 /// Runs a periodic job in a span of its own, renewing its lease while it runs and cancelling it
-/// at its time limit, then sets its next run one interval after this one began. A failed run
-/// waits for its next interval too, and its span ends with an error status (PLATFORM-020).
+/// at its time limit, then sets its next run one interval after this one began, by its claim, and
+/// counts it only when that found the periodic job under the claim. A failed run waits for its
+/// next interval too, and its span ends with an error status (PLATFORM-020).
 async fn run_periodic(
     job: Periodic,
     schedule: ClaimedSchedule,
@@ -160,7 +161,7 @@ async fn run(job: Periodic, schedule: ClaimedSchedule, database: Database, clock
         .finish_schedule(job.name, claim, schedule.claimed_at, job.interval)
         .await;
     match finished {
-        Ok(()) => count(job.name, outcome),
+        Ok(recorded) => count(job.name, outcome, recorded),
         Err(error) => tracing::warn!(
             { names::EXCEPTION_MESSAGE } = errors::chain(&error),
             "can't record a periodic job's next run, so it runs again once its lease runs out"

@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT set_config(\n            'lock_timeout',\n            greatest(\n                1,\n                floor(extract(epoch FROM current_setting('deadlock_timeout')::interval) * 500)\n            )::int::text,\n            false\n        )",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "set_config",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "dbd17de45babe21d0cffc598c8571fb890bf284f75c9dc80fabe380afa4c7145"
+}

@@ -3,7 +3,7 @@ use std::path::Path;
 use platform::db::{ConnectError, Database, MigrateError, SchemaProblem, Versions, migrate};
 use sqlx::migrate::Migrator;
 
-use crate::support::TestDatabase;
+use crate::support::{self, TestDatabase, execute_on};
 
 /// Two migrations, each creating one table.
 static TWO_TABLES: Migrator = sqlx::migrate!("tests/integration/migrations/two_tables");
@@ -73,6 +73,36 @@ async fn platform_004_concurrent_runs_apply_each_migration_once() {
     applied.sort_unstable();
     assert_eq!(applied, [1, 2]);
     assert_eq!(db.applied_versions().await, [1, 2]);
+}
+
+/// The key of the advisory lock that `migrate` takes on the database, as sqlx-postgres derives
+/// it from the database's name: 1026731422 times the name's CRC-32.
+const LOCK: &str = "1026731422 * crc32(convert_to(current_database(), 'UTF8'))";
+
+#[tokio::test]
+async fn platform_004_concurrent_runs_apply_a_migration_outside_a_transaction_once() {
+    let db = TestDatabase::empty().await;
+    let url = db.owner_url();
+    // The test holds the lock until both runs wait for it, so that one run builds the index
+    // while the other waits.
+    let mut held = db.owner_connection().await;
+    execute_on(&mut held, &format!("SELECT pg_advisory_lock({LOCK})")).await;
+    let release = async {
+        support::queries_wait_on_locks(&db, 2).await;
+        execute_on(&mut held, &format!("SELECT pg_advisory_unlock({LOCK})")).await;
+    };
+
+    let (first, second, ()) = tokio::join!(
+        migrate(&url, &INDEX_OUTSIDE),
+        migrate(&url, &INDEX_OUTSIDE),
+        release
+    );
+
+    let mut applied = [first.unwrap(), second.unwrap()].concat();
+    applied.sort_unstable();
+    assert_eq!(applied, [1, 2]);
+    assert_eq!(db.applied_versions().await, [1, 2]);
+    assert_eq!(usable(&db, "things_name_idx").await, ["true"]);
 }
 
 #[tokio::test]

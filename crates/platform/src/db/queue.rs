@@ -2,7 +2,9 @@
 //! span of its own where it runs inside one, as a run's span (PLATFORM-104): the claims of jobs
 //! and periodic jobs, the renewals of their leases, and their outcomes (the platform spec's
 //! "The job queue"). Every statement after a claim names the claim's ID, so a run whose
-//! lease ran out, while another replica claimed the job, changes nothing.
+//! lease ran out, while another replica claimed the job, changes nothing. Each statement that
+//! records a run's outcome gives whether it found its row under the claim: the run is counted
+//! only when it did (PLATFORM-020).
 
 use std::time::Duration;
 
@@ -109,9 +111,10 @@ impl Database {
         Ok(())
     }
 
-    /// Deletes the job that `claim` holds, which succeeded.
-    pub(crate) async fn succeed_job(&self, id: Uuid, claim: Uuid) -> Result<(), Internal> {
-        sqlx::query!(
+    /// Deletes the job that `claim` holds, which succeeded, and gives whether it found the job
+    /// under `claim`.
+    pub(crate) async fn succeed_job(&self, id: Uuid, claim: Uuid) -> Result<bool, Internal> {
+        let done = sqlx::query!(
             "DELETE FROM jobs WHERE id = $1 AND claim_id = $2",
             id,
             claim
@@ -119,19 +122,19 @@ impl Database {
         .execute(&self.pool)
         .instrument(self.statement("DELETE jobs"))
         .await?;
-        Ok(())
+        Ok(done.rows_affected() > 0)
     }
 
-    /// Ends the claim of the job that `claim` holds, which failed with `failure`, and lets it
-    /// run again after `delay`.
+    /// Ends the claim of the job that `claim` holds, which failed with `failure`, lets it run
+    /// again after `delay`, and gives whether it found the job under `claim`.
     pub(crate) async fn retry_job(
         &self,
         id: Uuid,
         claim: Uuid,
         delay: Duration,
         failure: &str,
-    ) -> Result<(), Internal> {
-        sqlx::query!(
+    ) -> Result<bool, Internal> {
+        let done = sqlx::query!(
             "UPDATE jobs SET
                 run_at = now() + make_interval(secs => $3),
                 claim_id = NULL,
@@ -146,17 +149,18 @@ impl Database {
         .execute(&self.pool)
         .instrument(self.statement("UPDATE jobs"))
         .await?;
-        Ok(())
+        Ok(done.rows_affected() > 0)
     }
 
-    /// Moves the job that `claim` holds, which failed with `failure`, to the dead-letter state.
+    /// Moves the job that `claim` holds, which failed with `failure`, to the dead-letter state,
+    /// and gives whether it found the job under `claim`.
     pub(crate) async fn kill_job(
         &self,
         id: Uuid,
         claim: Uuid,
         failure: &str,
-    ) -> Result<(), Internal> {
-        sqlx::query!(
+    ) -> Result<bool, Internal> {
+        let done = sqlx::query!(
             "UPDATE jobs SET
                 state = 'dead',
                 dead_at = now(),
@@ -171,13 +175,13 @@ impl Database {
         .execute(&self.pool)
         .instrument(self.statement("UPDATE jobs"))
         .await?;
-        Ok(())
+        Ok(done.rows_affected() > 0)
     }
 
     /// Ends the claim of the job that `claim` holds without counting its attempt, so another
-    /// replica runs it at once.
-    pub(crate) async fn release_job(&self, id: Uuid, claim: Uuid) -> Result<(), Internal> {
-        sqlx::query!(
+    /// replica runs it at once, and gives whether it found the job under `claim`.
+    pub(crate) async fn release_job(&self, id: Uuid, claim: Uuid) -> Result<bool, Internal> {
+        let done = sqlx::query!(
             "UPDATE jobs SET claim_id = NULL, lease_expires_at = NULL, attempts = attempts - 1
             WHERE id = $1 AND claim_id = $2",
             id,
@@ -186,7 +190,7 @@ impl Database {
         .execute(&self.pool)
         .instrument(self.statement("UPDATE jobs"))
         .await?;
-        Ok(())
+        Ok(done.rows_affected() > 0)
     }
 
     /// How long the longest-waiting runnable job has waited past its `run_at`, or zero when none
@@ -266,16 +270,17 @@ impl Database {
         Ok(())
     }
 
-    /// Ends the claim of the periodic job that `claim` holds, whose run ended, and sets its next
-    /// run `interval` after its claim began, at `claimed_at`.
+    /// Ends the claim of the periodic job that `claim` holds, whose run ended, sets its next run
+    /// `interval` after its claim began, at `claimed_at`, and gives whether it found the periodic
+    /// job under `claim`.
     pub(crate) async fn finish_schedule(
         &self,
         name: &str,
         claim: Uuid,
         claimed_at: OffsetDateTime,
         interval: Duration,
-    ) -> Result<(), Internal> {
-        sqlx::query!(
+    ) -> Result<bool, Internal> {
+        let done = sqlx::query!(
             "UPDATE job_schedules SET
                 next_run_at = $3::timestamptz + make_interval(secs => $4),
                 claim_id = NULL,
@@ -289,13 +294,13 @@ impl Database {
         .execute(&self.pool)
         .instrument(self.statement("UPDATE job_schedules"))
         .await?;
-        Ok(())
+        Ok(done.rows_affected() > 0)
     }
 
     /// Ends the claim of the periodic job that `claim` holds, leaving it due, so another replica
-    /// runs it at once.
-    pub(crate) async fn release_schedule(&self, name: &str, claim: Uuid) -> Result<(), Internal> {
-        sqlx::query!(
+    /// runs it at once, and gives whether it found the periodic job under `claim`.
+    pub(crate) async fn release_schedule(&self, name: &str, claim: Uuid) -> Result<bool, Internal> {
+        let done = sqlx::query!(
             "UPDATE job_schedules SET claim_id = NULL, lease_expires_at = NULL
             WHERE name = $1 AND claim_id = $2",
             name,
@@ -304,6 +309,6 @@ impl Database {
         .execute(&self.pool)
         .instrument(self.statement("UPDATE job_schedules"))
         .await?;
-        Ok(())
+        Ok(done.rows_affected() > 0)
     }
 }

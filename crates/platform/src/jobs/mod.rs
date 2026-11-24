@@ -364,9 +364,14 @@ impl Outcome {
     }
 }
 
-/// Counts a run of the job `kind` that ended as `outcome`.
-fn count(kind: &'static str, outcome: Outcome) {
-    RUNS.add(1, [kind.into(), outcome.label().into()]);
+/// Counts a run of the job `kind` that ended as `outcome`, when `recorded`: when the job queue's
+/// statement that records the outcome found its row under the run's claim, which it doesn't for
+/// a stale run, whose job was claimed again once its lease ran out, nor for a run whose job a
+/// deletion removed meanwhile (PLATFORM-020).
+fn count(kind: &'static str, outcome: Outcome, recorded: bool) {
+    if recorded {
+        RUNS.add(1, [kind.into(), outcome.label().into()]);
+    }
 }
 
 /// Gives the span of the run that the caller runs in, its job's span, an error status, as a 5xx

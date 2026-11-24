@@ -359,7 +359,7 @@
     {
       "type": "timeseries",
       "title": "How do job runs end?",
-      "description": "Job runs in the last 5 minutes, by kind and how each ended: succeeded, retried, dead_lettered, failed for a periodic job, or released at shutdown (PLATFORM-020).",
+      "description": "Job runs in the last 5 minutes whose outcome the job queue recorded, by kind and that outcome: succeeded, retried, dead_lettered, failed for a periodic job, or released at shutdown (PLATFORM-020).",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"

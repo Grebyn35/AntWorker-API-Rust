@@ -26,7 +26,8 @@ const MOST_RUNNING: usize = 4;
 /// How long the dispatcher waits before it polls again, once it found nothing to claim.
 const POLL: Duration = Duration::from_secs(1);
 
-/// The wait before the first retry, which each retry after it doubles.
+/// The longest wait before the first retry, which doubles for each retry after it, up to
+/// [`LONGEST_RETRY`], as [`backoff`] says.
 const FIRST_RETRY: Duration = Duration::from_secs(10);
 
 /// The longest wait before a retry.
@@ -89,7 +90,7 @@ pub(super) async fn dispatch(
     release_within(&clock, async {
         for claim in cancelled {
             match database.release_job(claim.id, claim.claim).await {
-                Ok(()) => count(claim.kind, Outcome::Released),
+                Ok(released) => count(claim.kind, Outcome::Released, released),
                 Err(error) => tracing::warn!(
                     { names::EXCEPTION_MESSAGE } = errors::chain(&error),
                     { names::JOB_KIND } = claim.kind,
@@ -105,8 +106,9 @@ pub(super) async fn dispatch(
 /// Runs `job` in a span of its own, linked to the span that enqueued it (OBS-07), renewing its
 /// lease while it runs and cancelling it at its time limit (PLATFORM-017), then writes its
 /// outcome by its claim, so a run whose lease ran out, while another replica claimed the job,
-/// changes nothing. The span of a run that fails, or that moves its job to the dead-letter
-/// state, ends with an error status (PLATFORM-020).
+/// changes nothing, and counts it only when that write found the job under the claim. The span of
+/// a run that fails, or that moves its job to the dead-letter state, ends with an error status
+/// (PLATFORM-020).
 pub(super) async fn run_job(
     queued: Queued,
     job: ClaimedJob,
@@ -152,7 +154,7 @@ async fn run(
         database
             .kill_job(id, claim, failure)
             .await
-            .map(|()| Outcome::DeadLettered)
+            .map(|recorded| (Outcome::DeadLettered, recorded))
     } else {
         let context = JobContext {
             id,
@@ -180,7 +182,7 @@ async fn run(
         end(&queued, id, claim, attempt, result, &database).await
     };
     match outcome {
-        Ok(outcome) => count(queued.kind, outcome),
+        Ok((outcome, recorded)) => count(queued.kind, outcome, recorded),
         Err(error) => tracing::warn!(
             { names::EXCEPTION_MESSAGE } = errors::chain(&error),
             "can't record a job's outcome, so it runs again once its lease runs out"
@@ -188,7 +190,8 @@ async fn run(
     }
 }
 
-/// Writes the outcome of a run that ended with `result` (PLATFORM-014).
+/// Writes the outcome of a run that ended with `result` (PLATFORM-014), and gives it, with
+/// whether the statement that wrote it found the job under `claim`.
 async fn end(
     queued: &Queued,
     id: Uuid,
@@ -196,11 +199,11 @@ async fn end(
     attempt: u32,
     result: Result<(), JobFailure>,
     database: &Database,
-) -> Result<Outcome, Internal> {
+) -> Result<(Outcome, bool), Internal> {
     let (error, permanent) = match result {
         Ok(()) => {
-            database.succeed_job(id, claim).await?;
-            return Ok(Outcome::Succeeded);
+            let recorded = database.succeed_job(id, claim).await?;
+            return Ok((Outcome::Succeeded, recorded));
         }
         Err(JobFailure::Transient(error)) => (error, false),
         Err(JobFailure::Permanent(error)) => (error, true),
@@ -212,8 +215,8 @@ async fn end(
             { names::EXCEPTION_MESSAGE } = failure,
             "job dead-lettered"
         );
-        database.kill_job(id, claim, &failure).await?;
-        return Ok(Outcome::DeadLettered);
+        let recorded = database.kill_job(id, claim, &failure).await?;
+        return Ok((Outcome::DeadLettered, recorded));
     }
     let delay = backoff(attempt)?;
     tracing::warn!(
@@ -221,8 +224,8 @@ async fn end(
         { names::EXCEPTION_MESSAGE } = failure,
         "job failed, and runs again later"
     );
-    database.retry_job(id, claim, delay, &failure).await?;
-    Ok(Outcome::Retried)
+    let recorded = database.retry_job(id, claim, delay, &failure).await?;
+    Ok((Outcome::Retried, recorded))
 }
 
 /// The wait before the retry that follows attempt `attempt`: a random time between half of and
