@@ -107,17 +107,6 @@ async fn entries(api: &Api, user: &SignedIn, action: &str) -> Vec<String> {
     .await
 }
 
-/// Whether `user`'s session still signs them in.
-async fn works(api: &Api, user: &SignedIn) -> bool {
-    let response = api.get("/v1/users/me").bearer(&user.access).send().await;
-    assert!(
-        matches!(response.status.as_u16(), 200 | 401),
-        "{}",
-        response.status
-    );
-    response.status == 200
-}
-
 /// The bucket of the changes of `user`'s identities, which a first change adds once a first
 /// authenticated request has added the bucket of their requests (AUTH-090, PLATFORM-054).
 async fn change_bucket(api: &Api, user: &SignedIn) -> String {
@@ -245,7 +234,10 @@ async fn auth_086_adding_a_password_needs_a_recent_proof_then_the_password_signs
             .status,
         201
     );
-    assert!(works(&api, &ada).await, "the account's sessions stay");
+    assert!(
+        users::authenticates(&api, &ada).await,
+        "the account's sessions stay"
+    );
 }
 
 #[tokio::test]
@@ -365,7 +357,10 @@ async fn auth_087_linking_needs_a_recent_proof_then_the_provider_signs_in_to_the
         reads(&api, "SELECT email FROM users").await,
         ["ada@example.com"]
     );
-    assert!(works(&api, &ada).await, "the account's sessions stay");
+    assert!(
+        users::authenticates(&api, &ada).await,
+        "the account's sessions stay"
+    );
 }
 
 #[tokio::test]
@@ -440,7 +435,7 @@ async fn auth_087_a_code_that_the_provider_refuses_answers_403_and_the_session_s
 
     assert_eq!(response.status, 403);
     assert_eq!(response.json()["code"], "auth.provider_proof_rejected");
-    assert!(works(&api, &ada).await);
+    assert!(users::authenticates(&api, &ada).await);
 }
 
 #[tokio::test]
@@ -736,7 +731,7 @@ async fn auth_088_removing_the_password_needs_a_recent_proof_then_ends_its_other
     users::authenticated_ago(&api, &ada, 10).await;
 
     let refused = remove(&api, &ada, &password).await;
-    let still = works(&api, &phone).await;
+    let still = users::authenticates(&api, &phone).await;
     users::authenticated_ago(&api, &ada, 0).await;
     let mut signals = api.database().signals().await;
     let removed = remove(&api, &ada, &password).await;
@@ -747,12 +742,18 @@ async fn auth_088_removing_the_password_needs_a_recent_proof_then_ends_its_other
     assert_eq!(removed.status, 204);
     assert!(removed.body.is_empty());
     assert_eq!(read(&api, &ada).await.json()["password"], Value::Null);
-    assert!(!works(&api, &phone).await, "it signed in with the password");
     assert!(
-        works(&api, &tablet).await,
+        !users::authenticates(&api, &phone).await,
+        "it signed in with the password"
+    );
+    assert!(
+        users::authenticates(&api, &tablet).await,
         "it signed in through the provider"
     );
-    assert!(works(&api, &ada).await, "the request's own session stays");
+    assert!(
+        users::authenticates(&api, &ada).await,
+        "the request's own session stays"
+    );
     assert_eq!(
         users::sign_in(&api, "ada@example.com", PASSWORD)
             .await
@@ -789,14 +790,17 @@ async fn auth_088_removing_a_provider_identity_ends_the_other_sessions_that_sign
 
     assert_eq!(removed.status, 204);
     assert!(
-        works(&api, &ada).await,
+        users::authenticates(&api, &ada).await,
         "the request's own session stays, whatever way it signed in"
     );
     assert!(
-        !works(&api, &tablet).await,
+        !users::authenticates(&api, &tablet).await,
         "it signed in through the provider"
     );
-    assert!(works(&api, &phone).await, "it signed in with the password");
+    assert!(
+        users::authenticates(&api, &phone).await,
+        "it signed in with the password"
+    );
     assert_eq!(read(&api, &ada).await.json()["providers"], json!([]));
     assert_eq!(
         entries(&api, &ada, "provider.unlinked").await,
@@ -840,7 +844,7 @@ async fn auth_046_a_removal_of_an_identity_publishes_session_ended_for_each_sess
         users::session_events(&api, "session.ended").await,
         [format!("{} {}", ada.user_id, tablet.session_id)]
     );
-    assert!(works(&api, &phone).await);
+    assert!(users::authenticates(&api, &phone).await);
 }
 
 #[tokio::test]
@@ -864,7 +868,7 @@ async fn auth_088_an_identity_of_a_provider_that_the_deployment_dropped_is_remov
         reads(&api, "SELECT count(*)::text FROM provider_identities").await,
         ["0"]
     );
-    assert!(!works(&api, &phone).await);
+    assert!(!users::authenticates(&api, &phone).await);
     assert_eq!(
         entries(&api, &ada, "provider.unlinked").await,
         [format!(

@@ -170,8 +170,8 @@ async fn auth_093_a_sign_in_gives_its_turn_up_before_its_writes() {
     users::register(&api, "ada@example.com").await;
     let db = api.database();
     let busy = every_turn_but_one(&api).await;
-    // Held against the sign-in's first write, which ends the device's session, and against
-    // none of its reads.
+    // Held against the sign-in's first write, the insert of its session, since it names no
+    // device and sends no cookie, so it ends no session, and against none of its reads.
     let mut held = db
         .holding("LOCK TABLE sessions IN SHARE ROW EXCLUSIVE MODE")
         .await;

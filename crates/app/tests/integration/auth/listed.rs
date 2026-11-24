@@ -60,17 +60,6 @@ async fn sessions_of(api: &Api, user: &SignedIn) -> Vec<String> {
         .await
 }
 
-/// Whether `user`'s access token still authenticates a request.
-async fn signed_in(api: &Api, user: &SignedIn) -> bool {
-    let response = api.get("/v1/users/me").bearer(&user.access).send().await;
-    assert!(
-        response.status == 200 || response.status == 401,
-        "{}",
-        response.status
-    );
-    response.status == 200
-}
-
 /// The IDs of `user`'s sessions that `session.ended` entries of their log name, sorted.
 async fn ended_entries(api: &Api, user: &SignedIn) -> Vec<String> {
     api.database()
@@ -187,6 +176,34 @@ async fn auth_042_a_device_name_that_the_rule_refuses_answers_400() {
 }
 
 #[tokio::test]
+async fn auth_042_a_device_name_is_counted_once_normalized_too() {
+    let api = Api::new().await;
+    users::register(&api, "ada@example.com").await;
+    // U+0958, which NFC writes as two characters, U+0915 U+093C: 50 of them make a name of 100
+    // characters once normalized, and 51 one of 102, each within the 100 as given.
+    let (longest, too_long) = ("\u{958}".repeat(50), "\u{958}".repeat(51));
+    let signs_in_as = |device_name: &str| {
+        api.post(
+            "/v1/sessions",
+            &json!({ "email": "ada@example.com", "password": PASSWORD, "device_name": device_name }),
+        )
+        .send()
+    };
+
+    let kept = signs_in_as(&longest).await;
+    let refused = signs_in_as(&too_long).await;
+
+    assert_eq!(kept.status, 201, "{}", kept.json());
+    assert_eq!(kept.json()["device_name"], "\u{915}\u{93c}".repeat(50));
+    assert_eq!(refused.status, 400, "{}", refused.json());
+    assert_eq!(refused.json()["code"], "request.invalid_fields");
+    assert_eq!(refused.json()["errors"][0]["field"], "/device_name");
+    assert_eq!(refused.json()["errors"][0]["code"], "too_long");
+    // The registration's session and the one kept.
+    assert_eq!(users::sessions(&api).await.len(), 2);
+}
+
+#[tokio::test]
 async fn auth_043_the_caller_lists_their_sessions_that_last_and_no_other_user_s() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
@@ -228,15 +245,20 @@ async fn auth_043_the_caller_lists_their_sessions_that_last_and_no_other_user_s(
     assert_eq!(newest["device_id"], "phone_1");
     assert_eq!(newest["device_name"], "Ada's phone");
     assert_eq!(oldest["device_name"], json!(null));
-    for field in [
-        "created_at",
-        "access_token_expires_at",
-        "refresh_token_expires_at",
-        "expires_at",
-        "authenticated_at",
-    ] {
-        assert!(newest[field].is_string(), "{field}");
+    // Each item's times are its session's, which differ from the other's, and of which Ada's
+    // first, whose creation the arrangement moved a minute back, holds five that differ.
+    for item in [newest, oldest] {
+        let id = item["id"].as_str().unwrap();
+        let times: Vec<Value> = users::SESSION_TIMES
+            .iter()
+            .map(|field| item[*field].clone())
+            .collect();
+        assert_eq!(times, users::session_times(&api, id).await, "{id}");
     }
+    let mut apart = users::session_times(&api, &ada.session_id).await;
+    apart.sort();
+    apart.dedup();
+    assert_eq!(apart.len(), 5, "{apart:?}");
     for item in body["items"].as_array().unwrap() {
         assert_eq!(item.get("provider"), Some(&json!(null)), "a password's");
         assert!(item.get("access_token").is_none());
@@ -312,7 +334,7 @@ async fn auth_044_ending_another_session_needs_a_recent_proof_then_ends_it_and_i
     users::authenticated_ago(&api, &ada, 10).await;
 
     let refused = end(&api, &ada, &phone.session_id).await;
-    let still = signed_in(&api, &phone).await;
+    let still = users::authenticates(&api, &phone).await;
     users::authenticated_ago(&api, &ada, 0).await;
     let mut signals = api.database().signals().await;
     let ended = end(&api, &ada, &phone.session_id).await;
@@ -323,8 +345,8 @@ async fn auth_044_ending_another_session_needs_a_recent_proof_then_ends_it_and_i
     assert_eq!(ended.status, 204);
     assert!(ended.body.is_empty());
     assert!(ended.headers("set-cookie").is_empty());
-    assert!(!signed_in(&api, &phone).await);
-    assert!(signed_in(&api, &ada).await);
+    assert!(!users::authenticates(&api, &phone).await);
+    assert!(users::authenticates(&api, &ada).await);
     assert_eq!(ended_entries(&api, &ada).await, [phone.session_id.as_str()]);
     let received: Vec<Value> = signals.received().await;
     assert_eq!(received.len(), 1);
@@ -396,8 +418,8 @@ async fn auth_044_an_id_that_names_none_of_the_caller_s_sessions_answers_404_onc
     // An ID that isn't a UUID answers as one that names no session does, after the proof.
     assert_eq!(unproved.status, 403);
     assert_eq!(unproved.json()["code"], "request.reauthentication_required");
-    assert!(signed_in(&api, &grace).await);
-    assert!(signed_in(&api, &ada).await);
+    assert!(users::authenticates(&api, &grace).await);
+    assert!(users::authenticates(&api, &ada).await);
     assert!(ended_entries(&api, &ada).await.is_empty());
 }
 
@@ -446,7 +468,7 @@ async fn auth_045_ending_the_other_sessions_needs_a_recent_proof_and_keeps_the_c
     users::authenticated_ago(&api, &ada, 10).await;
 
     let refused = end_others(&api, &ada).await;
-    let still = signed_in(&api, &phone).await;
+    let still = users::authenticates(&api, &phone).await;
     users::authenticated_ago(&api, &ada, 0).await;
     let mut signals = api.database().signals().await;
     let ended = end_others(&api, &ada).await;
@@ -457,9 +479,9 @@ async fn auth_045_ending_the_other_sessions_needs_a_recent_proof_and_keeps_the_c
     assert!(still);
     assert_eq!(ended.status, 204);
     assert_eq!(again.status, 204);
-    assert!(!signed_in(&api, &phone).await);
-    assert!(signed_in(&api, &ada).await);
-    assert!(signed_in(&api, &grace).await);
+    assert!(!users::authenticates(&api, &phone).await);
+    assert!(users::authenticates(&api, &ada).await);
+    assert!(users::authenticates(&api, &grace).await);
     let mut gone = vec![phone.session_id.clone(), expired.session_id.clone()];
     gone.sort();
     assert_eq!(ended_entries(&api, &ada).await, gone);
@@ -620,7 +642,7 @@ async fn data_20_a_change_of_the_password_and_a_sign_in_on_its_device_never_dead
             .status,
         201
     );
-    assert!(signed_in(&api, &ada).await);
+    assert!(users::authenticates(&api, &ada).await);
 }
 
 #[tokio::test]
@@ -631,11 +653,7 @@ async fn auth_046_a_session_s_start_and_end_reach_the_user_s_other_streams() {
 
     let phone = users::new_session(&api, "ada@example.com").await;
     let started = stream.event().await;
-    let signed_out = api
-        .request(http::Method::DELETE, "/v1/users/me/sessions/current")
-        .bearer(&phone.access)
-        .send()
-        .await;
+    let signed_out = users::sign_out(&api).bearer(&phone.access).send().await;
     let ended = stream.event().await;
 
     assert_eq!(signed_out.status, 204);

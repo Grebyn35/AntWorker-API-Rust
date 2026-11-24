@@ -158,10 +158,7 @@ async fn files_022_a_signed_url_stops_working_once_its_session_ends() {
     let (workspace, ada, _) = acme(&api, "member").await;
     let file = uploaded(&api, &ada, &workspace, "").await;
 
-    api.request(http::Method::DELETE, "/v1/users/me/sessions/current")
-        .bearer(&ada.access)
-        .send()
-        .await;
+    users::sign_out(&api).bearer(&ada.access).send().await;
     let response = api.get(file["content_url"].as_str().unwrap()).send().await;
 
     assert_eq!(response.status, 401);

@@ -138,7 +138,7 @@ impl PartialSchema for VerificationCode {
                 "^[{SPACE_CLASS}]*[0-9]{{6}}[{SPACE_CLASS}]*$"
             )))
             .description(Some(
-                "The 6 digits of the code, which spaces around them may surround.",
+                "The 6 digits of the code, which whitespace may surround.",
             ))
             .into()
     }
@@ -184,7 +184,7 @@ impl LongKind for ForReset {
     const CHARS: usize = 16;
     const SCHEMA: &'static str = "ResetCode";
     const REFUSAL: &'static str =
-        "A reset code is 16 letters and digits, which hyphens and spaces may separate.";
+        "A reset code is 16 letters and digits, which hyphens and whitespace may separate.";
 }
 
 impl LongPurpose for ForReset {
@@ -199,7 +199,7 @@ impl LongKind for ForChange {
     const CHARS: usize = 16;
     const SCHEMA: &'static str = "ChangeCode";
     const REFUSAL: &'static str =
-        "A change code is 16 letters and digits, which hyphens and spaces may separate.";
+        "A change code is 16 letters and digits, which hyphens and whitespace may separate.";
 }
 
 impl LongPurpose for ForChange {
@@ -214,7 +214,7 @@ impl LongKind for ForRecovery {
     const CHARS: usize = 24;
     const SCHEMA: &'static str = "RecoveryCode";
     const REFUSAL: &'static str =
-        "A recovery code is 24 letters and digits, which hyphens and spaces may separate.";
+        "A recovery code is 24 letters and digits, which hyphens and whitespace may separate.";
 }
 
 /// A code of Crockford's base32 alphabet, as long as `P` says, 5 random bits to a character, as
@@ -303,7 +303,7 @@ impl<P: LongKind> PartialSchema for LongCode<P> {
             )))
             .description(Some(format!(
                 "The {} characters of the code, of Crockford's base32 alphabet, without regard to \
-                 case, which hyphens and spaces may separate.",
+                 case, which hyphens and whitespace may separate.",
                 P::CHARS
             )))
             .into()

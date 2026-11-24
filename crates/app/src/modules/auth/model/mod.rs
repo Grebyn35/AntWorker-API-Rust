@@ -221,7 +221,7 @@ impl DeviceId {
         } else {
             Err(Invalid::new(
                 "invalid_device_id",
-                "A device ID has 1 to 64 letters, digits, underscores and hyphens.",
+                "A device ID has 1 to 64 ASCII letters, digits, underscores and hyphens.",
             ))
         }
     }

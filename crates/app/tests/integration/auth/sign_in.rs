@@ -1,7 +1,6 @@
 //! Registration and sign-in (AUTH-001 to AUTH-008, AUTH-014).
 
 use argon2::{Algorithm, Argon2, Params, PasswordHasher, Version};
-use opentelemetry_proto::tonic::trace::v1::{Span, span::SpanKind};
 use platform::telemetry::testing::collector::Collector;
 use serde_json::json;
 
@@ -286,35 +285,11 @@ async fn auth_005_an_unknown_email_and_an_account_without_a_password_verify_a_ha
     for answer in &answers {
         assert!(answer.starts_with("HTTP/1.1 401"), "{answer}");
     }
-    let in_trace =
-        |span: &Span, trace: &str| -> bool { crate::support::hex(&span.trace_id) == trace };
-    // A request's span ends after the spans inside it, so its export follows theirs.
-    let received = collector
-        .wait_for(|received| {
-            attempts.iter().all(|(_, _, trace)| {
-                received.spans().iter().any(|(_, span)| {
-                    in_trace(span, trace) && span.kind == i32::from(SpanKind::Server)
-                })
-            })
-        })
-        .await;
-    for (email, _, trace) in attempts {
-        let hashes = received
-            .spans()
-            .into_iter()
-            .filter(|(_, span)| in_trace(span, trace) && span.name == "verify_password")
-            .count();
-        assert_eq!(hashes, 1, "{email}");
-    }
-}
-
-/// The statement that holds the row of `user`'s password identity, as a sign-in whose password
-/// matched holds it until it commits.
-fn identity_row(user: &users::SignedIn) -> String {
-    format!(
-        "SELECT 1 FROM identities WHERE user_id = '{}' FOR UPDATE",
-        user.user_id
-    )
+    let traces: Vec<&str> = attempts.iter().map(|(_, _, trace)| *trace).collect();
+    assert_eq!(
+        users::password_verifications(&collector, &traces).await,
+        [1, 1, 1]
+    );
 }
 
 /// The `sign_in.failed` entries of `user`'s log.
@@ -333,7 +308,7 @@ async fn sec_05_a_wrong_password_answers_401_while_another_transaction_holds_the
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     let db = api.database();
-    let mut held = db.holding(&identity_row(&ada)).await;
+    let mut held = users::holding_identities(db, &ada).await;
 
     let answer = answer_before_a_lock_wait(
         db,
@@ -362,7 +337,7 @@ async fn auth_005_a_password_that_a_change_replaced_once_the_sign_in_read_its_ha
         .unwrap()
         .to_string();
     // A change of the password, which holds the identity as it sets the hash.
-    let mut changing = db.holding(&identity_row(&ada)).await;
+    let mut changing = users::holding_identities(db, &ada).await;
 
     let signed_in = signing_in(&api, "ada@example.com");
     // The sign-in read the hash, which its password matched, and waits for the identity's lock.
@@ -394,7 +369,7 @@ async fn auth_005_a_password_identity_that_went_once_the_sign_in_read_its_hash_a
     let db = api.database();
     let sessions = db.owner_reads("SELECT id::text FROM sessions").await;
     // A removal of the password, which holds the identity as it deletes it.
-    let mut removing = db.holding(&identity_row(&ada)).await;
+    let mut removing = users::holding_identities(db, &ada).await;
 
     let signed_in = signing_in(&api, "ada@example.com");
     // The sign-in read the hash, which its password matched, and waits for the identity's lock.
@@ -847,7 +822,7 @@ async fn auth_014_a_sign_in_rehashes_a_password_stored_with_other_parameters() {
 }
 
 #[tokio::test]
-async fn auth_017_a_device_id_is_1_to_64_letters_digits_underscores_and_hyphens() {
+async fn auth_017_a_device_id_is_1_to_64_ascii_letters_digits_underscores_and_hyphens() {
     let api = Api::new().await;
     users::register(&api, "ada@example.com").await;
     let (longest, too_long) = ("x".repeat(64), "x".repeat(65));
@@ -872,7 +847,7 @@ async fn auth_017_a_device_id_is_1_to_64_letters_digits_underscores_and_hyphens(
             json!([{
                 "field": "/device_id",
                 "code": "invalid_device_id",
-                "message": "A device ID has 1 to 64 letters, digits, underscores and hyphens.",
+                "message": "A device ID has 1 to 64 ASCII letters, digits, underscores and hyphens.",
             }])
         );
     }

@@ -87,11 +87,7 @@ async fn auth_070_an_account_without_an_app_is_refused_but_where_setting_one_up_
         users::current(&api, &ada.access).await.json()["second_factor_setup_required"],
         false
     );
-    let signed_out = api
-        .request(http::Method::DELETE, "/v1/users/me/sessions/current")
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let signed_out = users::sign_out(&api).bearer(&ada.access).send().await;
     assert_eq!(signed_out.status, 204);
 }
 
@@ -100,11 +96,7 @@ async fn auth_070_an_account_without_an_app_signs_out() {
     let api = second_factors::requiring().await;
     let ada = users::register(&api, "ada@example.com").await;
 
-    let signed_out = api
-        .request(http::Method::DELETE, "/v1/users/me/sessions/current")
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let signed_out = users::sign_out(&api).bearer(&ada.access).send().await;
 
     assert_eq!(signed_out.status, 204);
     assert!(
@@ -346,20 +338,6 @@ async fn auth_071_with_the_setting_on_removing_the_app_answers_422_and_changes_n
     assert_ne!(after, before);
 }
 
-/// The log, actor, resource type and resource ID of each entry of `action`, the actor `-` when
-/// there is none.
-async fn entries(api: &Api, action: &str) -> Vec<String> {
-    reads(
-        api,
-        &format!(
-            "SELECT user_id || ' ' || coalesce(actor_user_id::text, '-') || ' ' || resource_type \
-             || ' ' || coalesce(resource_id::text, '-') FROM audit_entries \
-             WHERE action = '{action}' ORDER BY created_at"
-        ),
-    )
-    .await
-}
-
 #[tokio::test]
 async fn auth_072_the_subcommand_removes_the_app_and_the_codes_and_ends_every_session() {
     let api = Api::new().await;
@@ -398,10 +376,10 @@ async fn auth_072_the_subcommand_removes_the_app_and_the_codes_and_ends_every_se
     }
     let ada_id = &ada.user_id;
     assert_eq!(
-        entries(&api, "second_factor.removed").await,
+        audit::entries(api.database(), "second_factor.removed").await,
         [format!("{ada_id} - second_factor {app}")]
     );
-    let mut ended = entries(&api, "session.ended").await;
+    let mut ended = audit::entries(api.database(), "session.ended").await;
     ended.sort();
     let mut expected: Vec<String> = sessions
         .iter()

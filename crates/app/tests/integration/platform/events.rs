@@ -172,11 +172,7 @@ async fn platform_031_a_signal_closes_its_streams_before_any_event_that_commits_
         workspaces::arrange(api.database(), "Analytical", &[(&ada.user_id, "owner")]).await;
     let mut ended = streams::opened(&api, &ada).await;
 
-    let signed_out = api
-        .request(http::Method::DELETE, "/v1/users/me/sessions/current")
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let signed_out = users::sign_out(&api).bearer(&ada.access).send().await;
     announcements::announce_in(&api, &other, &workspace, 1, false).await;
     announcements::announce(&api, &other, 1).await;
     let (before, reason) = ended.closed().await;

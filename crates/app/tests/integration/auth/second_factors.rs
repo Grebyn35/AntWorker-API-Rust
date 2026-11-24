@@ -8,7 +8,7 @@ use crate::support::{
     Api,
     api::Response,
     api::reads,
-    mailbox, password_reset,
+    audit, mailbox, password_reset,
     providers::{self, gives, identity},
     second_factors::{
         self, App, add_app, code, confirm, forget_steps, new_codes, other_code, read, remove,
@@ -18,17 +18,6 @@ use crate::support::{
     users::{self, PASSWORD, SignedIn},
     with_fields,
 };
-
-/// Each entry of `action`, as its log's user, its actor and its resource's type and ID.
-async fn entries(api: &Api, action: &str) -> Vec<String> {
-    api.database()
-        .owner_reads(&format!(
-            "SELECT user_id || ' ' || coalesce(actor_user_id::text, '-') || ' ' || resource_type \
-             || ' ' || coalesce(resource_id::text, '-') FROM audit_entries \
-             WHERE action = '{action}' ORDER BY created_at"
-        ))
-        .await
-}
 
 /// Re-authenticates `user` with `body`.
 async fn reauthenticate(api: &Api, user: &SignedIn, body: &Value) -> Response {
@@ -140,7 +129,7 @@ async fn auth_055_a_setup_needs_a_recent_proof_and_answers_the_secret_once() {
         .remove(0);
     let ada_id = &ada.user_id;
     assert_eq!(
-        entries(&api, "second_factor.setup_started").await,
+        audit::entries(api.database(), "second_factor.setup_started").await,
         [format!("{ada_id} {ada_id} second_factor {id}")]
     );
 
@@ -184,7 +173,7 @@ async fn auth_056_confirming_a_setup_enables_the_app_with_ten_recovery_codes() {
     );
     let ada_id = &ada.user_id;
     assert_eq!(
-        entries(&api, "second_factor.enabled").await,
+        audit::entries(api.database(), "second_factor.enabled").await,
         [format!("{ada_id} {ada_id} second_factor {app}")]
     );
 
@@ -223,7 +212,7 @@ async fn auth_056_a_wrong_code_records_it_and_leaves_the_setup_and_none_answers_
     assert_eq!(wrong.json()["code"], "auth.wrong_code");
     let ada_id = &ada.user_id;
     assert_eq!(
-        entries(&api, "second_factor.check_failed").await,
+        audit::entries(api.database(), "second_factor.check_failed").await,
         [format!("{ada_id} {ada_id} user {ada_id}")]
     );
     assert_eq!(
@@ -377,7 +366,7 @@ async fn auth_062_a_recovery_code_works_once_in_place_of_the_app_s_and_only_its_
     assert_eq!(used.len(), 1);
     let ada_id = &ada.user_id;
     assert_eq!(
-        entries(&api, "recovery_code.used").await,
+        audit::entries(api.database(), "recovery_code.used").await,
         [format!("{ada_id} {ada_id} recovery_code {}", used[0])]
     );
 
@@ -426,7 +415,7 @@ async fn auth_063_new_recovery_codes_need_a_recent_proof_and_an_app_and_replace_
     assert!(!codes.contains(&json!(app.recovery_codes[0])));
     let ada_id = &ada.user_id;
     assert_eq!(
-        entries(&api, "recovery_codes.issued").await,
+        audit::entries(api.database(), "recovery_codes.issued").await,
         [format!("{ada_id} {ada_id} user {ada_id}")]
     );
     let old = reauthenticate(
@@ -451,7 +440,11 @@ async fn auth_064_removing_the_app_deletes_it_with_its_codes_and_challenges_once
     let ada = users::register(&api, "ada@example.com").await;
     let nothing = remove(&api, &ada).await;
     assert_eq!(nothing.status, 204);
-    assert!(entries(&api, "second_factor.removed").await.is_empty());
+    assert!(
+        audit::entries(api.database(), "second_factor.removed")
+            .await
+            .is_empty()
+    );
     assert!(
         reads(
             &api,
@@ -485,7 +478,7 @@ async fn auth_064_removing_the_app_deletes_it_with_its_codes_and_challenges_once
     }
     let ada_id = &ada.user_id;
     assert_eq!(
-        entries(&api, "second_factor.removed").await,
+        audit::entries(api.database(), "second_factor.removed").await,
         [format!("{ada_id} {ada_id} second_factor {app}")]
     );
     // Her session stays, and a sign-in needs the password alone.
@@ -578,7 +571,7 @@ async fn auth_065_with_an_app_re_authenticating_needs_its_code_beside_the_passwo
     assert_eq!(wrong.json()["code"], "auth.wrong_second_factor");
     let ada_id = &ada.user_id;
     assert_eq!(
-        entries(&api, "second_factor.check_failed").await,
+        audit::entries(api.database(), "second_factor.check_failed").await,
         [format!("{ada_id} {ada_id} user {ada_id}")]
     );
 

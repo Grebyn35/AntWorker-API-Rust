@@ -15,17 +15,6 @@ use crate::support::{
     users::{self, PASSWORD, SignedIn, WEB},
 };
 
-/// Changes `user`'s password from [`PASSWORD`] to `new`.
-async fn change_password(api: &Api, user: &SignedIn, new: &str) -> Response {
-    api.post(
-        "/v1/users/me/password/change",
-        &json!({ "current_password": PASSWORD, "password": new }),
-    )
-    .bearer(&user.access)
-    .send()
-    .await
-}
-
 /// Asserts that `response` answers `user`'s session with a new pair of tokens, that the pair it
 /// had stops working, and that the new pair works; returns the session with the new pair.
 async fn renewed(api: &Api, user: &SignedIn, response: &Response) -> SignedIn {
@@ -100,7 +89,7 @@ async fn auth_095_a_change_of_the_password_gives_the_caller_s_session_new_tokens
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
 
-    let response = change_password(&api, &ada, "walnut-harbor-77-brisk").await;
+    let response = users::change_password(&api, &ada, PASSWORD, "walnut-harbor-77-brisk").await;
 
     let after = renewed(&api, &ada, &response).await;
     let session = response.json();
@@ -190,24 +179,19 @@ async fn auth_095_of_two_proofs_sent_at_once_the_pair_that_the_second_answers_ho
         )
     };
 
-    let (first, second) = (proof(), proof());
+    // The second is sent once the first waits, so it waits behind it and takes its turn second.
+    let first = proof();
+    queries_wait_on_locks(db, 1).await;
+    let second = proof();
     queries_wait_on_locks(db, 2).await;
     execute_on(&mut held, "COMMIT").await;
     let (first, second) = (first.await.unwrap(), second.await.unwrap());
 
     assert_eq!(first.0, 200, "{}", first.1);
     assert_eq!(second.0, 200, "{}", second.1);
-    let mut works = Vec::new();
-    for answer in [&first.1, &second.1] {
-        works.push(
-            users::current(&api, answer["access_token"].as_str().unwrap())
-                .await
-                .status
-                .as_u16(),
-        );
-    }
-    works.sort_unstable();
-    assert_eq!(works, [200, 401]);
+    let access = |answer: &serde_json::Value| answer["access_token"].as_str().unwrap().to_owned();
+    assert_eq!(users::current(&api, &access(&second.1)).await.status, 200);
+    assert_eq!(users::current(&api, &access(&first.1)).await.status, 401);
 }
 
 #[tokio::test]
@@ -219,17 +203,13 @@ async fn auth_095_a_proof_that_fails_leaves_the_session_its_tokens() {
     let before = reads(&api, hashes).await;
 
     let wrong = users::reauthenticate(&api, &ada, "not-the-password-at-all").await;
-    let wrong_change = api
-        .post(
-            "/v1/users/me/password/change",
-            &json!({
-                "current_password": "not-the-password-at-all",
-                "password": "walnut-harbor-77-brisk"
-            }),
-        )
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let wrong_change = users::change_password(
+        &api,
+        &ada,
+        "not-the-password-at-all",
+        "walnut-harbor-77-brisk",
+    )
+    .await;
 
     assert_eq!(wrong.status, 403, "{}", wrong.json());
     assert_eq!(wrong_change.status, 403, "{}", wrong_change.json());

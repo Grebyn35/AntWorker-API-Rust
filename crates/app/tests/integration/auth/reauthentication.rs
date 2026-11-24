@@ -90,12 +90,7 @@ async fn auth_021_an_account_without_a_password_answers_403_as_a_wrong_password_
     let ada = users::register(&api, "ada@example.com").await;
     // An account whose password identity is gone, as one that signs in through a provider has
     // none, with a session still open.
-    api.database()
-        .owner_executes(&format!(
-            "DELETE FROM identities WHERE user_id = '{}'",
-            ada.user_id
-        ))
-        .await;
+    users::without_its_password(api.database(), &ada.user_id).await;
 
     let response = users::reauthenticate(&api, &ada, PASSWORD).await;
 
@@ -109,6 +104,22 @@ async fn auth_021_an_account_without_a_password_answers_403_as_a_wrong_password_
             .await,
         ["1"]
     );
+}
+
+#[tokio::test]
+async fn auth_021_an_account_without_a_password_verifies_a_hash_as_a_wrong_password_does() {
+    let answers = users::checks_without_a_password(
+        "/v1/users/me/sessions/current/reauthenticate",
+        |password| json!({ "password": password }),
+    )
+    .await;
+
+    // A wrong password's, then a missing one's.
+    for (status, code, verified) in answers {
+        assert_eq!(status, 403);
+        assert_eq!(code, "auth.wrong_password");
+        assert_eq!(verified, 1);
+    }
 }
 
 #[tokio::test]
@@ -252,14 +263,7 @@ async fn auth_023_a_session_that_changed_its_password_within_5_minutes_may_delet
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     users::authenticated_ago(&api, &ada, 6).await;
-    let changed = api
-        .post(
-            "/v1/users/me/password/change",
-            &json!({ "current_password": PASSWORD, "password": "lantern-orchard-58-brisk" }),
-        )
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let changed = users::change_password(&api, &ada, PASSWORD, "lantern-orchard-58-brisk").await;
     assert_eq!(changed.status, 200);
 
     // With the tokens that the change gave the session (AUTH-095).

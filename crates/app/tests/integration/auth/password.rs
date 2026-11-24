@@ -27,17 +27,6 @@ async fn confirm(api: &Api, email: &str, code: &str) -> Response {
     .await
 }
 
-/// Changes `user`'s password from `current` to [`NEW_PASSWORD`].
-async fn change(api: &Api, user: &SignedIn, current: &str) -> Response {
-    api.post(
-        "/v1/users/me/password/change",
-        &json!({ "current_password": current, "password": NEW_PASSWORD }),
-    )
-    .bearer(&user.access)
-    .send()
-    .await
-}
-
 /// The entries of `user_id`'s log, the oldest first: each one's action, actor, resource type,
 /// resource ID and details, which SEC-18's check asks each action's test to assert.
 async fn log(api: &Api, user_id: &str) -> Vec<String> {
@@ -911,7 +900,7 @@ async fn auth_040_changing_sets_the_password_ends_the_other_sessions_and_keeps_t
     let before = users::current(&api, &ada.access).await.json()["authenticated_at"].clone();
     let mut signals = api.database().signals().await;
 
-    let changed = change(&api, &ada, users::PASSWORD).await;
+    let changed = users::change_password(&api, &ada, users::PASSWORD, NEW_PASSWORD).await;
 
     assert_eq!(changed.status, 200);
     // It answers the caller's session, with the new tokens that the proof gave it (AUTH-095).
@@ -961,7 +950,7 @@ async fn auth_046_a_change_and_a_reset_publish_the_end_of_each_session_they_end(
     let ada = users::register(&api, &address).await;
     let other = users::new_session(&api, &address).await;
 
-    let changed = change(&api, &ada, users::PASSWORD).await;
+    let changed = users::change_password(&api, &ada, users::PASSWORD, NEW_PASSWORD).await;
     let after_change = users::session_events(&api, "session.ended").await;
     let again = users::sign_in(&api, &address, NEW_PASSWORD).await;
     let again = SignedIn::from(&again);
@@ -992,7 +981,7 @@ async fn auth_040_a_wrong_current_password_answers_403_and_changes_nothing_else(
     let ada = users::register(&api, &address).await;
     let other = users::new_session(&api, &address).await;
 
-    let refused = change(&api, &ada, "not-the-password-77").await;
+    let refused = users::change_password(&api, &ada, "not-the-password-77", NEW_PASSWORD).await;
 
     assert_eq!(refused.status, 403);
     assert_eq!(refused.json()["code"], "auth.wrong_password");
@@ -1012,11 +1001,9 @@ async fn auth_040_a_wrong_current_password_answers_403_and_changes_nothing_else(
 async fn auth_040_an_account_without_a_password_answers_403() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
-    api.database()
-        .owner_executes("DELETE FROM identities")
-        .await;
+    users::without_its_password(api.database(), &ada.user_id).await;
 
-    let refused = change(&api, &ada, users::PASSWORD).await;
+    let refused = users::change_password(&api, &ada, users::PASSWORD, NEW_PASSWORD).await;
 
     assert_eq!(refused.status, 403);
     assert_eq!(refused.json()["code"], "auth.wrong_password");
@@ -1026,6 +1013,22 @@ async fn auth_040_an_account_without_a_password_answers_403() {
             .await
             .is_empty()
     );
+}
+
+#[tokio::test]
+async fn auth_040_an_account_without_a_password_verifies_a_hash_as_a_wrong_password_does() {
+    let answers = users::checks_without_a_password(
+        "/v1/users/me/password/change",
+        |password| json!({ "current_password": password, "password": NEW_PASSWORD }),
+    )
+    .await;
+
+    // A wrong password's, then a missing one's.
+    for (status, code, verified) in answers {
+        assert_eq!(status, 403);
+        assert_eq!(code, "auth.wrong_password");
+        assert_eq!(verified, 1);
+    }
 }
 
 #[tokio::test]
@@ -1068,7 +1071,7 @@ async fn auth_022_a_change_counts_in_the_bucket_of_the_user_s_password_checks() 
         assert_eq!(reauthenticated.status, 403);
     }
 
-    let refused = change(&api, &ada, users::PASSWORD).await;
+    let refused = users::change_password(&api, &ada, users::PASSWORD, NEW_PASSWORD).await;
 
     assert_eq!(refused.status, 429);
     assert!(
@@ -1089,14 +1092,8 @@ async fn auth_041_a_reset_and_a_change_each_tell_the_address() {
     api.run_jobs().await;
     let signed_in = SignedIn::from(&users::sign_in(&api, &address, NEW_PASSWORD).await);
 
-    let changed = api
-        .post(
-            "/v1/users/me/password/change",
-            &json!({ "current_password": NEW_PASSWORD, "password": "quiet-harbor-73-amber" }),
-        )
-        .bearer(&signed_in.access)
-        .send()
-        .await;
+    let changed =
+        users::change_password(&api, &signed_in, NEW_PASSWORD, "quiet-harbor-73-amber").await;
     assert_eq!(changed.status, 200);
     api.run_jobs().await;
 
@@ -1120,7 +1117,12 @@ async fn auth_041_with_email_off_a_change_enqueues_no_email() {
     let api = Api::without_email().await;
     let ada = users::register(&api, "ada@example.com").await;
 
-    assert_eq!(change(&api, &ada, users::PASSWORD).await.status, 200);
+    assert_eq!(
+        users::change_password(&api, &ada, users::PASSWORD, NEW_PASSWORD)
+            .await
+            .status,
+        200
+    );
 
     assert!(
         api.database()

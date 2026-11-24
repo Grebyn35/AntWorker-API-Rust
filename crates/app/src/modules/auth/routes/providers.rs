@@ -193,8 +193,8 @@ fn grant(
         is_key(provider).then_some(()).ok_or_else(|| {
             Invalid::new(
                 "invalid_provider",
-                "A provider's key is 1 to 64 lowercase letters, digits and underscores, the \
-                 first a letter.",
+                "A provider's key is 1 to 64 lowercase ASCII letters, digits and underscores, \
+                 the first a letter.",
             )
         }),
     );
@@ -219,8 +219,8 @@ fn grant(
         verifier_valid.then_some(verifier).ok_or_else(|| {
             Invalid::new(
                 "invalid_code_verifier",
-                "The verifier must be 43 to 128 letters, digits, hyphens, periods, underscores \
-                 and tildes (RFC 7636).",
+                "The verifier must be 43 to 128 ASCII letters, digits, hyphens, periods, \
+                 underscores and tildes (RFC 7636).",
             )
         }),
     );

@@ -1452,7 +1452,7 @@ async fn auth_073_a_device_token_of_the_account_s_email_ends_and_one_of_another_
 }
 
 #[tokio::test]
-async fn auth_017_a_sign_in_through_a_provider_takes_a_device_id_of_1_to_64_letters_digits_underscores_and_hyphens()
+async fn auth_017_a_sign_in_through_a_provider_takes_a_device_id_of_1_to_64_ascii_letters_digits_underscores_and_hyphens()
  {
     let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
@@ -1478,7 +1478,7 @@ async fn auth_017_a_sign_in_through_a_provider_takes_a_device_id_of_1_to_64_lett
             json!([{
                 "field": "/device_id",
                 "code": "invalid_device_id",
-                "message": "A device ID has 1 to 64 letters, digits, underscores and hyphens.",
+                "message": "A device ID has 1 to 64 ASCII letters, digits, underscores and hyphens.",
             }])
         );
     }

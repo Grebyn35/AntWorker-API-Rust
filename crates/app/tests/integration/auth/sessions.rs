@@ -798,3 +798,28 @@ async fn auth_016_the_current_session_is_readable_without_its_tokens() {
     // A sign-in proves the password, so the session starts as authenticated then.
     assert_eq!(session["authenticated_at"], session["created_at"]);
 }
+
+#[tokio::test]
+async fn auth_016_the_current_session_gives_the_times_it_holds() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    // A proof after the session started moves `authenticated_at` past its creation, and the
+    // tokens' expiries with it (AUTH-095), so no two of its five times are the same.
+    let proved = users::reauthenticate(&api, &ada, PASSWORD).await;
+    assert_eq!(proved.status, 200, "{}", proved.json());
+    let access = proved.json()["access_token"].as_str().unwrap().to_owned();
+
+    let response = users::current(&api, &access).await;
+
+    assert_eq!(response.status, 200);
+    let session = response.json();
+    let times: Vec<Value> = users::SESSION_TIMES
+        .iter()
+        .map(|field| session[*field].clone())
+        .collect();
+    let mut stored = users::session_times(&api, &ada.session_id).await;
+    assert_eq!(times, stored);
+    stored.sort();
+    stored.dedup();
+    assert_eq!(stored.len(), 5, "{stored:?}");
+}

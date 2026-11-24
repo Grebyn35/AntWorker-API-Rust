@@ -221,18 +221,13 @@ async fn platform_059_a_change_a_cookie_authenticates_needs_a_listed_origin() {
     let api = browsers_api().await;
     let cookie = cookies(&browser_sign_in(&api).await);
 
-    let without = api
-        .request(Method::DELETE, "/v1/users/me/sessions/current")
-        .header("cookie", &cookie)
-        .send()
-        .await;
+    let without = users::sign_out(&api).header("cookie", &cookie).send().await;
     let refresh = api
         .post("/v1/sessions/refresh", &json!({}))
         .header("cookie", &cookie)
         .send()
         .await;
-    let listed = api
-        .request(Method::DELETE, "/v1/users/me/sessions/current")
+    let listed = users::sign_out(&api)
         .header("cookie", &cookie)
         .header("origin", WEB)
         .send()

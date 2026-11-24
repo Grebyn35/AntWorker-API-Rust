@@ -487,11 +487,7 @@ async fn realtime_005_signing_out_closes_that_session_s_streams_and_a_reconnect_
     let mut kept = streams::connect(&api, &other.access, None).await;
     kept.opened().await;
 
-    let response = api
-        .request(http::Method::DELETE, "/v1/users/me/sessions/current")
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let response = users::sign_out(&api).bearer(&ada.access).send().await;
     let (_, reason) = signed_out.closed().await;
     // The end of the session reaches the stream that stays (AUTH-046).
     let ended = kept.event().await;

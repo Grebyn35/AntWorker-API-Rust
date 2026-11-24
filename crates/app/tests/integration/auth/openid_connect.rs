@@ -211,6 +211,21 @@ async fn auth_084_it_is_listed_by_its_key_with_the_name_and_the_address_of_its_s
 }
 
 #[tokio::test]
+async fn auth_084_its_name_is_listed_normalized_as_a_user_s_name_is() {
+    // White space around it and a run of it inside it, and an `e` with a combining accent,
+    // which NFC writes as one character.
+    let set = "  Cafe\u{301}   login ";
+    let api = Api::with(settings(Options::default(), ISSUER).set("OPENID_CONNECT_NAME", set)).await;
+
+    let capabilities = api.get("/v1/capabilities").send().await.json();
+
+    assert_eq!(
+        capabilities["sign_in_providers"][0]["name"],
+        "Caf\u{e9} login"
+    );
+}
+
+#[tokio::test]
 async fn auth_084_its_five_settings_are_set_with_its_client_and_only_with_it() {
     let alone = Options::default().set("OPENID_CONNECT_NAME", "Example login");
     assert_eq!(api::refusal(&alone), "OPENID_CONNECT_CLIENT_ID is required");

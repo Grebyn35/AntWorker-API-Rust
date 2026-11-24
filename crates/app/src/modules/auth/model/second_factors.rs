@@ -155,8 +155,7 @@ impl PartialSchema for AppCode {
                 "^[{SPACE_CLASS}]*[0-9]{{6}}[{SPACE_CLASS}]*$"
             )))
             .description(Some(
-                "The 6 digits that the authenticator app shows, which spaces around them may \
-                 surround.",
+                "The 6 digits that the authenticator app shows, which whitespace may surround.",
             ))
             .into()
     }

@@ -3,7 +3,13 @@
 use serde_json::{Value, json};
 use sqlx::PgConnection;
 
-use super::{Api, Options, TestDatabase, api::Response, execute_on, queries_wait_on_locks};
+use platform::telemetry::testing::collector::Collector;
+
+use super::{
+    Api, Options, TestDatabase,
+    api::{Call, Response},
+    execute_on, queries_wait_on_locks,
+};
 
 /// A password that AUTH-003 allows.
 pub const PASSWORD: &str = "plum-tractor-41-quiet";
@@ -84,6 +90,16 @@ pub async fn without_password(db: &TestDatabase, email: &str) -> String {
     .remove(0)
 }
 
+/// Deletes the password identity of the account of `user_id`, through the `owner` connection, so
+/// it holds no password, as an account that signs in through a provider holds none, while its
+/// sessions stay open.
+pub async fn without_its_password(db: &TestDatabase, user_id: &str) {
+    db.owner_executes(&format!(
+        "DELETE FROM identities WHERE user_id = '{user_id}'"
+    ))
+    .await;
+}
+
 /// Creates 1,001 accounts, `user1@example.com` and on, that hold no password, each with a
 /// session that lasts, through the `owner` connection, in one statement, so a test has more of
 /// them than a batch of the code takes; returns their IDs.
@@ -139,6 +155,56 @@ pub async fn current(api: &Api, access: &str) -> Response {
         .await
 }
 
+/// The times of a session that AUTH-016 and AUTH-043 show, by the names of their fields, which
+/// are those of their columns, in the order that [`session_times`] gives them.
+pub const SESSION_TIMES: [&str; 5] = [
+    "created_at",
+    "access_token_expires_at",
+    "refresh_token_expires_at",
+    "expires_at",
+    "authenticated_at",
+];
+
+/// The times of the session `id` that [`SESSION_TIMES`] names, in its order, from its row, each
+/// written as the API writes a time.
+pub async fn session_times(api: &Api, id: &str) -> Vec<String> {
+    let columns: Vec<String> = SESSION_TIMES
+        .iter()
+        .map(|column| {
+            format!("to_char({column} AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"')")
+        })
+        .collect();
+    api.database()
+        .owner_reads(&format!(
+            "SELECT concat_ws(' ', {}) FROM sessions WHERE id = '{id}'",
+            columns.join(", ")
+        ))
+        .await
+        .remove(0)
+        .split(' ')
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Whether `user`'s access token still authenticates a request: whether `GET /v1/users/me`
+/// answers 200 with it, where it asserts that the answer is 200 or 401.
+pub async fn authenticates(api: &Api, user: &SignedIn) -> bool {
+    let response = api.get("/v1/users/me").bearer(&user.access).send().await;
+    assert!(
+        matches!(response.status.as_u16(), 200 | 401),
+        "{}",
+        response.status
+    );
+    response.status == 200
+}
+
+/// The sign-out of the session that authenticates it, `DELETE /v1/users/me/sessions/current`
+/// (AUTH-013), for the test to authenticate, with an access token or a browser's cookies, and
+/// send.
+pub fn sign_out(api: &Api) -> Call<'_> {
+    api.request(http::Method::DELETE, "/v1/users/me/sessions/current")
+}
+
 /// The record's `ETag` that `user` reads.
 pub async fn etag(api: &Api, user: &SignedIn) -> String {
     api.get("/v1/users/me")
@@ -183,6 +249,17 @@ pub async fn sign_in(api: &Api, email: &str, password: &str) -> Response {
 pub fn signing_in(api: &Api, email: &'static str) -> tokio::task::JoinHandle<Response> {
     let api = api.clone();
     tokio::spawn(async move { sign_in(&api, email, PASSWORD).await })
+}
+
+/// Changes `user`'s password from `current` to `new`, with their access token.
+pub async fn change_password(api: &Api, user: &SignedIn, current: &str, new: &str) -> Response {
+    api.post(
+        "/v1/users/me/password/change",
+        &json!({ "current_password": current, "password": new }),
+    )
+    .bearer(&user.access)
+    .send()
+    .await
 }
 
 /// A change of `user`'s password with `body`, in a task of its own, which a test holds at a lock
@@ -382,6 +459,99 @@ pub async fn holding_identities(db: &TestDatabase, user: &SignedIn) -> PgConnect
         user.user_id
     ))
     .await
+}
+
+/// How many passwords the request of each of `traces` verified, by the `verify_password` spans of
+/// its trace, once `collector` holds each request's own span, which ends after the spans inside
+/// it, so its export follows theirs.
+pub async fn password_verifications(collector: &Collector, traces: &[&str]) -> Vec<usize> {
+    let received = collector
+        .wait_for(|received| {
+            traces.iter().all(|trace| {
+                received
+                    .spans()
+                    .iter()
+                    .any(|(_, span)| super::is_the_request_s(span, trace))
+            })
+        })
+        .await;
+    traces
+        .iter()
+        .map(|trace| {
+            received
+                .spans()
+                .into_iter()
+                .filter(|(_, span)| {
+                    super::hex(&span.trace_id) == *trace && span.name == "verify_password"
+                })
+                .count()
+        })
+        .collect()
+}
+
+/// What a check of a signed-in user's password, a `POST` to `path` with the body that `body` makes
+/// of a password, answers on a server that exports its spans, with email off: for a wrong
+/// password of an account that has one, then for [`PASSWORD`] of an account whose password
+/// identity is gone, as one that signs in through a provider has none, with its session still
+/// open, each answer's status, its `code`, and how many passwords it verified, as
+/// [`password_verifications`] counts them (AUTH-021, AUTH-040).
+pub async fn checks_without_a_password(
+    path: &str,
+    body: fn(&str) -> Value,
+) -> Vec<(u16, Value, usize)> {
+    let collector = Collector::start().await.unwrap();
+    let database = TestDatabase::migrated().await;
+    let server = database.exporting_to(&collector, &[("EMAIL", "off")]).await;
+    let mut sessions = Vec::new();
+    for email in ["ada@example.com", "bob@example.com"] {
+        let registration = registration(email).to_string();
+        let (status, registered) = server
+            .send(
+                "POST",
+                "/v1/users",
+                &[("content-type", "application/json")],
+                registration.as_bytes(),
+            )
+            .await;
+        assert_eq!(status, 201, "{registered}");
+        sessions.push((
+            text(&registered["user_id"]),
+            text(&registered["access_token"]),
+        ));
+    }
+    without_its_password(&database, &sessions[1].0).await;
+    let traces = [
+        "5bf1a8b1a1e04e7a8c0f1d2e3a4b5c21",
+        "5bf1a8b1a1e04e7a8c0f1d2e3a4b5c22",
+    ];
+    let mut answers = Vec::new();
+    for ((_, access), (password, trace)) in sessions
+        .iter()
+        .zip([("wrong-password-123", traces[0]), (PASSWORD, traces[1])])
+    {
+        let bearer = format!("Bearer {access}");
+        let parent = format!("00-{trace}-b7ad6b7169203331-01");
+        let sent = body(password).to_string();
+        let (status, answer) = server
+            .send(
+                "POST",
+                path,
+                &[
+                    ("authorization", &bearer),
+                    ("traceparent", &parent),
+                    ("content-type", "application/json"),
+                ],
+                sent.as_bytes(),
+            )
+            .await;
+        answers.push((status, answer["code"].clone()));
+    }
+    let verified = password_verifications(&collector, &traces).await;
+    answers
+        .into_iter()
+        .zip(verified)
+        .map(|((status, code), verified)| (status, code, verified))
+        .collect()
 }
 
 /// What `user`'s request answers, a `request.0` of `request.1` with `body` when it has one, when

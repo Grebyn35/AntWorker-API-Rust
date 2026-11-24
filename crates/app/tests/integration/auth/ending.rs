@@ -106,11 +106,7 @@ async fn auth_094_with_all_the_subcommand_ends_every_session_of_every_account() 
     let bob = users::register(&api, "bob@example.com").await;
     // Carol holds no session.
     let carol = users::register(&api, "carol@example.com").await;
-    let signed_out = api
-        .request(http::Method::DELETE, "/v1/users/me/sessions/current")
-        .bearer(&carol.access)
-        .send()
-        .await;
+    let signed_out = users::sign_out(&api).bearer(&carol.access).send().await;
     assert_eq!(signed_out.status, 204);
     let before = ended_entries(&api).await;
     let mut signals = api.database().signals().await;
@@ -217,11 +213,7 @@ async fn auth_094_an_unknown_address_or_no_session_to_end_changes_nothing_and_ex
     let api = Api::new().await;
     let address = mailbox::address("ada");
     let ada = users::register(&api, &address).await;
-    let signed_out = api
-        .request(http::Method::DELETE, "/v1/users/me/sessions/current")
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let signed_out = users::sign_out(&api).bearer(&ada.access).send().await;
     assert_eq!(signed_out.status, 204);
     let nobody = mailbox::address("nobody");
     let before = reads(&api, "SELECT id::text FROM audit_entries ORDER BY id").await;

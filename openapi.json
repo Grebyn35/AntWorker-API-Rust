@@ -160,7 +160,7 @@
         "type": "object"
       },
       "AppCode": {
-        "description": "The 6 digits that the authenticator app shows, which spaces around them may surround.",
+        "description": "The 6 digits that the authenticator app shows, which whitespace may surround.",
         "maxLength": 32,
         "minLength": 6,
         "pattern": "^[\\s\\u0085]*[0-9]{6}[\\s\\u0085]*$",
@@ -515,7 +515,7 @@
         "type": "object"
       },
       "ChangeCode": {
-        "description": "The 16 characters of the code, of Crockford's base32 alphabet, without regard to case, which hyphens and spaces may separate.",
+        "description": "The 16 characters of the code, of Crockford's base32 alphabet, without regard to case, which hyphens and whitespace may separate.",
         "maxLength": 64,
         "minLength": 16,
         "pattern": "^[\\s\\u0085-]*(?:[0-9A-TV-Za-tv-z][\\s\\u0085-]*){16}$",
@@ -4606,7 +4606,7 @@
         "type": "object"
       },
       "RecoveryCode": {
-        "description": "The 24 characters of the code, of Crockford's base32 alphabet, without regard to case, which hyphens and spaces may separate.",
+        "description": "The 24 characters of the code, of Crockford's base32 alphabet, without regard to case, which hyphens and whitespace may separate.",
         "maxLength": 64,
         "minLength": 24,
         "pattern": "^[\\s\\u0085-]*(?:[0-9A-TV-Za-tv-z][\\s\\u0085-]*){24}$",
@@ -4765,7 +4765,7 @@
         "type": "object"
       },
       "ResetCode": {
-        "description": "The 16 characters of the code, of Crockford's base32 alphabet, without regard to case, which hyphens and spaces may separate.",
+        "description": "The 16 characters of the code, of Crockford's base32 alphabet, without regard to case, which hyphens and whitespace may separate.",
         "maxLength": 64,
         "minLength": 16,
         "pattern": "^[\\s\\u0085-]*(?:[0-9A-TV-Za-tv-z][\\s\\u0085-]*){16}$",
@@ -6491,7 +6491,7 @@
         "x-event": "user.updated"
       },
       "VerificationCode": {
-        "description": "The 6 digits of the code, which spaces around them may surround.",
+        "description": "The 6 digits of the code, which whitespace may surround.",
         "maxLength": 32,
         "minLength": 6,
         "pattern": "^[\\s\\u0085]*[0-9]{6}[\\s\\u0085]*$",

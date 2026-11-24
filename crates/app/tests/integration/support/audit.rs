@@ -1,5 +1,5 @@
 //! Builders of audit entries, through the `owner` connection, for the tests of what reads a log,
-//! such as an export (TEST-09).
+//! such as an export, and readers of the entries that the code under test records (TEST-09).
 
 use super::TestDatabase;
 
@@ -135,6 +135,17 @@ pub async fn noise(db: &TestDatabase, user: &str) {
          FROM generate_series(1, 6000) AS r (n)"
     ))
     .await;
+}
+
+/// Each entry of `action`, the oldest first, as its log's user, its actor, or `-` when there is
+/// none, and its resource's type and ID, or `-` when it has none.
+pub async fn entries(db: &TestDatabase, action: &str) -> Vec<String> {
+    db.owner_reads(&format!(
+        "SELECT user_id || ' ' || coalesce(actor_user_id::text, '-') || ' ' || resource_type \
+         || ' ' || coalesce(resource_id::text, '-') FROM audit_entries \
+         WHERE action = '{action}' ORDER BY created_at"
+    ))
+    .await
 }
 
 /// How many entries of `action` record a client with an IP address or a user agent, which no

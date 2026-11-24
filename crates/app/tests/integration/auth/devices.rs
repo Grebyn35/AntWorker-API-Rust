@@ -324,8 +324,7 @@ async fn auth_019_a_browser_s_sign_in_reads_its_device_token_from_its_cookie_whi
     let token = users::cookie(&registered, &name);
     let cookies = users::cookies(&registered);
 
-    let signed_out = api
-        .request(http::Method::DELETE, "/v1/users/me/sessions/current")
+    let signed_out = users::sign_out(&api)
         .header("origin", WEB)
         .header("cookie", &cookies)
         .send()

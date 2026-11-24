@@ -54,11 +54,7 @@ async fn auth_025_an_account_that_must_verify_is_refused_but_where_verifying_nee
     let me = api.get("/v1/users/me").bearer(&ada.access).send().await;
     assert_eq!(me.status, 200);
     assert_eq!(me.json()["email_verified"], true);
-    let signed_out = api
-        .request(http::Method::DELETE, "/v1/users/me/sessions/current")
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let signed_out = users::sign_out(&api).bearer(&ada.access).send().await;
     assert_eq!(signed_out.status, 204);
 }
 
@@ -151,11 +147,7 @@ async fn auth_025_an_account_that_must_verify_signs_out() {
     let api = Api::new().await;
     let ada = users::register_unverified(&api, &mailbox::address("ada")).await;
 
-    let signed_out = api
-        .request(http::Method::DELETE, "/v1/users/me/sessions/current")
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let signed_out = users::sign_out(&api).bearer(&ada.access).send().await;
 
     assert_eq!(signed_out.status, 204);
 }
@@ -270,18 +262,10 @@ async fn auth_026_a_change_of_the_password_says_whether_the_account_must_prove_i
     let ada = users::register(&on, &mailbox::address("ada")).await;
     let off = Api::without_email().await;
     let grace = users::register_unverified(&off, "grace@example.com").await;
-    let body = json!({ "current_password": users::PASSWORD, "password": "walnut-harbor-77-brisk" });
+    let new = "walnut-harbor-77-brisk";
 
-    let proved = on
-        .post("/v1/users/me/password/change", &body)
-        .bearer(&ada.access)
-        .send()
-        .await;
-    let email_off = off
-        .post("/v1/users/me/password/change", &body)
-        .bearer(&grace.access)
-        .send()
-        .await;
+    let proved = users::change_password(&on, &ada, users::PASSWORD, new).await;
+    let email_off = users::change_password(&off, &grace, users::PASSWORD, new).await;
 
     for (response, what) in [
         (&proved, "with email on, proved"),
