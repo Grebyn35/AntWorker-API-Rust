@@ -154,8 +154,8 @@ impl ToSchema for VerificationCode {
 /// L, O and U (AUTH-036).
 const CROCKFORD: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
-/// The most characters a typed code of Crockford's base32 alphabet has, its hyphens and spaces
-/// among them.
+/// The most characters a typed code of Crockford's base32 alphabet has, its hyphens and white
+/// space among them.
 const LONG_CODE_MAX_INPUT: usize = 64;
 
 /// What a code of Crockford's base32 alphabet is: how many characters it has, 5 bits to a
@@ -238,8 +238,8 @@ impl<P: LongKind> LongCode<P> {
         self.0.expose()
     }
 
-    /// The code the user typed, read without regard to case, without its hyphens and spaces, and
-    /// with I and L read as 1 and O as 0, or why it isn't one (AUTH-038, AUTH-052, AUTH-062).
+    /// The code the user typed, read without regard to case, without its hyphens and white space,
+    /// and with I and L read as 1 and O as 0, or why it isn't one (AUTH-038, AUTH-052, AUTH-062).
     pub(crate) fn parse(value: &str) -> Result<Self, Invalid> {
         let refused = || Invalid::new("invalid_code", P::REFUSAL);
         if value.chars().count() > LONG_CODE_MAX_INPUT {

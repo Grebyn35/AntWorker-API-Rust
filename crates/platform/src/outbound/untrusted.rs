@@ -40,9 +40,9 @@ pub struct Untrusted {
 #[derive(Debug, thiserror::Error)]
 pub enum FetchError {
     /// The client never fetches the URL, or never takes its answer, so every attempt would end
-    /// the same: a URL that isn't HTTPS, or names a port, a host that isn't one of the client's,
-    /// an address that isn't public, too many redirects, an answer over the size the fetch
-    /// allows, or a status that says the URL gives nothing.
+    /// the same: a URL that isn't HTTPS, or names a port but HTTPS's own, a host that isn't one of
+    /// the client's, an address that isn't public, too many redirects, an answer over the size the
+    /// fetch allows, or a status that says the URL gives nothing.
     #[error("{0}")]
     Refused(String),
     /// No answer came in time, or the server failed: another attempt may get one.
@@ -174,8 +174,8 @@ impl Untrusted {
     }
 }
 
-/// Whether the client fetches `url`: an `https` URL without credentials and without a port, so
-/// at HTTPS's own, whose host is one of `hosts`, by its name, so none that is an IP address. The
+/// Whether the client fetches `url`: an `https` URL without credentials, at HTTPS's own port,
+/// named or not, whose host is one of `hosts`, by its name, so none that is an IP address. The
 /// name's addresses are checked once it resolves ([`PublicAddresses`]). The one other URL it
 /// fetches is one of `test_origin`, the tests' loopback origin.
 fn permitted(

@@ -99,7 +99,8 @@ pub struct TelemetryConfig {
 }
 
 /// The drain's default deadline, and its least, in seconds, as the request pipeline gives it, so
-/// a deploy cuts short no request that its route would let finish (OPS-06).
+/// a deploy cuts short no request that its route would let finish, but a download, whose bytes
+/// stream for as long as its client reads them (OPS-06).
 const DRAIN: u32 = crate::http::DRAIN_SECONDS;
 
 /// The settings `serve` reads.

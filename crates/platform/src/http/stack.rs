@@ -66,9 +66,10 @@ pub(crate) const DATABASE_WAIT: Duration = ACQUIRE_TIMEOUT;
 
 /// The drain's least deadline, and its default, in seconds: the longest timeout that a route may
 /// have, plus [`DATABASE_WAIT`] for each of the two waits for the database that a request makes
-/// outside that timeout, so a deploy cuts short no request that its route would let finish
-/// (OPS-06). The other layers above a route's wait for nothing: load shedding refuses a request
-/// that the concurrency limit has no room for.
+/// outside that timeout, so a deploy cuts short no request that its route would let finish, but
+/// a download, whose bytes stream for as long as its client reads them (OPS-06). The other layers
+/// above a route's wait for nothing: load shedding refuses a request that the concurrency limit
+/// has no room for.
 #[expect(
     clippy::cast_possible_truncation,
     reason = "a few minutes in seconds, far below u32::MAX"
