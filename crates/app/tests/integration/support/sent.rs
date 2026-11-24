@@ -8,8 +8,10 @@
 //! when it runs them on one. A request that matches no route is recorded nowhere.
 //!
 //! A request that a test sends to a server of its own, the binary's `serve`, passes no router of
-//! the test's process: `Server::send` records it, as the path of `openapi.json` that the
-//! request's path matches, a parameter standing for any one segment.
+//! the test's process: one that `Server::send` sends is recorded as the path of `openapi.json`
+//! that the request's path matches, a parameter standing for any one segment, and one that
+//! `Server::request`, `Server::post_in_trace`, `http_request` or `http_exchange` sends is recorded
+//! nowhere.
 //!
 //! The lines go to the file that `SENT_ROUTES` names, which the first request of the process
 //! empties. A run without the variable, such as `cargo test` by hand, records nothing.

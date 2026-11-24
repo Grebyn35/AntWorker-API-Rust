@@ -55,6 +55,32 @@ async fn naming(api: &Api, user: &str) -> Vec<String> {
     naming
 }
 
+/// Each table of the schema with a row whose text, as Postgres writes a whole row, holds `text`,
+/// with how many of its rows do (ACCOUNTS-013).
+async fn tables_holding(api: &Api, text: &str) -> Vec<String> {
+    let db = api.database();
+    let tables = db
+        .owner_reads(
+            "SELECT format('%I.%I', schemaname, tablename) FROM pg_tables \
+             WHERE schemaname NOT IN ('pg_catalog', 'information_schema') ORDER BY 1",
+        )
+        .await;
+    assert!(tables.len() >= 10, "{tables:?}");
+    let mut found = Vec::new();
+    for table in tables {
+        let count = db
+            .owner_reads(&format!(
+                "SELECT count(*)::text FROM {table} AS row_of WHERE row_of::text LIKE '%{text}%'"
+            ))
+            .await
+            .remove(0);
+        if count != "0" {
+            found.push(format!("{table} {count}"));
+        }
+    }
+    found
+}
+
 #[tokio::test]
 async fn accounts_012_a_deletion_is_refused_while_the_user_owns_a_workspace_with_another_member() {
     let api = Api::new().await;
@@ -163,6 +189,9 @@ async fn owned_alone(api: &Api, user: &SignedIn) -> String {
 async fn accounts_013_a_deletion_erases_the_account_and_the_workspaces_only_it_belongs_to() {
     let api = Api::with(Options::routes(fixtures::routes(Arc::default()))).await;
     let ada = users::register(&api, "ada@example.com").await;
+    // A name that no other user holds: a registration names every user alike, Bob too.
+    let renamed = users::rename(&api, &ada, "Augusta King", None).await;
+    assert_eq!(renamed.status, 200);
     let other_device = users::new_session(&api, "ada@example.com").await;
     let bob = users::register(&api, "bob@example.com").await;
     let db = api.database();
@@ -199,6 +228,15 @@ async fn accounts_013_a_deletion_erases_the_account_and_the_workspaces_only_it_b
     );
     let ada_id = &ada.user_id;
     assert!(naming(&api, ada_id).await.is_empty());
+    // No row holds her name, while Bob's stays in his.
+    assert_eq!(
+        tables_holding(&api, "Augusta King").await,
+        Vec::<String>::new()
+    );
+    assert_eq!(
+        tables_holding(&api, "Ada Lovelace").await,
+        ["public.users 1"]
+    );
     assert_eq!(
         one(
             &api,

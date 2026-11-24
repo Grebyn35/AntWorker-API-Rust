@@ -57,7 +57,7 @@ async fn access_001_no_change_of_a_membership_leaves_a_workspace_without_its_own
     let ada_in_acme = (workspace.as_str(), ada.user_id.as_str());
 
     // Each way that a membership changes, short of a transfer, keeps Ada the owner.
-    let left = call(&api, Method::POST, &format!("{path}/leave"), &ada).await;
+    let left = workspaces::leave(&api, &ada, &workspace).await;
     let removed = call(&api, Method::DELETE, &ada_member, &grace).await;
     let removed_by_herself = call(&api, Method::DELETE, &ada_member, &ada).await;
     let demoted_by_admin = workspaces::change_role(&api, &grace, ada_in_acme, "member", None).await;
@@ -353,8 +353,7 @@ async fn access_004_a_transfer_leaving_and_a_deletion_are_the_three_exceptions_t
     // and changes the caller's own role; leaving ends the caller's own membership; and a
     // deletion ends every membership, the owner's own among them.
     let transferred = workspaces::transfer(&api, &owner, &acme, &admin.user_id).await;
-    let path = format!("/v1/workspaces/{acme}/leave");
-    let left = call(&api, Method::POST, &path, &member).await;
+    let left = workspaces::leave(&api, &member, &acme).await;
     let path = format!("/v1/workspaces/{other}");
     let deleted = call(&api, Method::DELETE, &path, &owner).await;
 
@@ -1048,6 +1047,43 @@ async fn access_008_erasable_refuses_while_a_workspace_the_user_owns_has_another
 
     assert_eq!(refused.status, StatusCode::CONFLICT);
 }
+
+// part: invitations
+#[tokio::test]
+async fn access_008_erasable_waits_for_a_join_that_holds_the_owner_s_membership_and_counts_it() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let bob = users::register(&api, "bob@example.com").await;
+    let db = api.database();
+    let workspace = workspaces::arrange(db, "Acme", &[(&ada.user_id, "owner")]).await;
+    let invited =
+        crate::support::invitations::invite(&api, &ada, &workspace, "bob@example.com", "member")
+            .await;
+    let id = invited.json()["id"].as_str().unwrap().to_owned();
+    // Bob's acceptance locks Ada's membership `FOR KEY SHARE`, then waits at the invitation.
+    let mut invitation = db
+        .holding(&format!(
+            "SELECT 1 FROM invitations WHERE id = '{id}' FOR UPDATE"
+        ))
+        .await;
+    let path = format!("/v1/users/me/invitations/{id}/accept");
+    let accepted = api.spawn(Method::POST, &path, &bob.access, None);
+    queries_wait_on_locks(db, 1).await;
+
+    // The deletion's `erasable` waits for the acceptance at Ada's membership, before it counts
+    // the workspace's members.
+    let deleted = api.spawn(Method::DELETE, "/v1/users/me", &ada.access, None);
+    queries_wait_on_locks(db, 2).await;
+    execute_on(&mut invitation, "ROLLBACK").await;
+    let (accepted, _) = accepted.await.unwrap();
+    let (deleted, problem) = deleted.await.unwrap();
+
+    assert_eq!(accepted, StatusCode::OK);
+    assert_eq!(deleted, StatusCode::CONFLICT);
+    assert_eq!(problem["code"], "auth.owns_shared_workspace");
+    assert_eq!(joined(&api, &bob, &workspace).await, ["member"]);
+}
+// end part: invitations
 
 /// The statement that locks `user`'s membership in `workspace` `FOR SHARE`, as a request of
 /// theirs in the workspace holds it until it ends (PLATFORM-009).

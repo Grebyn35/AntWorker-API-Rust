@@ -1506,13 +1506,7 @@ async fn workspaces_014_leaving_ends_the_membership_records_it_publishes_it_and_
     db.owner_executes("DELETE FROM events").await;
     let mut signals = db.signals().await;
 
-    let left = call(
-        &api,
-        http::Method::POST,
-        &format!("/v1/workspaces/{workspace}/leave"),
-        &grace,
-    )
-    .await;
+    let left = workspaces::leave(&api, &grace, &workspace).await;
 
     assert_eq!(left.status, 204);
     assert_eq!(
@@ -1556,13 +1550,7 @@ async fn workspaces_014_leaving_closes_the_leaver_s_streams() {
     .await;
     let mut stream = streams::opened(&api, &grace).await;
 
-    let left = call(
-        &api,
-        http::Method::POST,
-        &format!("/v1/workspaces/{workspace}/leave"),
-        &grace,
-    )
-    .await;
+    let left = workspaces::leave(&api, &grace, &workspace).await;
     let (_, reason) = stream.closed().await;
 
     assert_eq!(left.status, 204);
@@ -1580,10 +1568,9 @@ async fn workspaces_014_the_owner_may_not_leave_and_an_admin_may() {
         &[(&owner.user_id, "owner"), (&admin.user_id, "admin")],
     )
     .await;
-    let path = format!("/v1/workspaces/{workspace}/leave");
 
-    let refused = call(&api, http::Method::POST, &path, &owner).await;
-    let left = call(&api, http::Method::POST, &path, &admin).await;
+    let refused = workspaces::leave(&api, &owner, &workspace).await;
+    let left = workspaces::leave(&api, &admin, &workspace).await;
 
     assert_eq!(refused.status, 403);
     assert_eq!(refused.json()["code"], "request.permission_denied");

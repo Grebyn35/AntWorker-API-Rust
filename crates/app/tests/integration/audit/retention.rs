@@ -127,19 +127,21 @@ async fn audit_011_the_hourly_job_deletes_each_log_s_entries_older_than_the_rete
         let renamed = workspaces::rename(&api, &ada, &workspace, name, &[]).await;
         assert_eq!(renamed.status, 200);
     }
-    // Ada's own log, and the workspace's first rename, are older than the retention; the
-    // workspace's second rename isn't. Each was recorded in a request, with its client.
+    // Ada's own log, and the workspace's first rename, are a second older than the retention;
+    // the workspace's second rename is an hour short of it, as it still is when the run comes, a
+    // moment later. Each was recorded in a request, with its client.
     db.owner_executes(
-        "UPDATE audit_entries SET created_at = now() - interval '101 days' WHERE scope = 'user'",
+        "UPDATE audit_entries SET created_at = now() - interval '100 days 1 second' \
+         WHERE scope = 'user'",
     )
     .await;
     db.owner_executes(
-        "UPDATE audit_entries SET created_at = now() - interval '101 days' WHERE id = ( \
+        "UPDATE audit_entries SET created_at = now() - interval '100 days 1 second' WHERE id = ( \
          SELECT id FROM audit_entries WHERE scope = 'workspace' ORDER BY created_at, id LIMIT 1)",
     )
     .await;
     db.owner_executes(
-        "UPDATE audit_entries SET created_at = now() - interval '99 days' \
+        "UPDATE audit_entries SET created_at = now() - interval '99 days 23 hours' \
          WHERE scope = 'workspace' AND created_at > now() - interval '1 day'",
     )
     .await;
@@ -177,9 +179,10 @@ async fn audit_011_the_hourly_job_deletes_each_log_s_entries_older_than_the_rete
 async fn audit_011_by_default_a_log_keeps_an_entry_365_days_and_a_run_deletes_every_batch() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
-    // More than two batches of 1,000 past the retention, and one entry short of it.
-    arrange(&api, &ada.user_id, "366 days", 2_500).await;
-    arrange(&api, &ada.user_id, "364 days", 1).await;
+    // More than two batches of 1,000 a second past the retention, and one entry an hour short of
+    // it, as it still is when the run comes, a moment later.
+    arrange(&api, &ada.user_id, "365 days 1 second", 2_500).await;
+    arrange(&api, &ada.user_id, "364 days 23 hours", 1).await;
 
     api.run_periodic(JOB).await;
 

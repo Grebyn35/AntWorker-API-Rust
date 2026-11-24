@@ -4,8 +4,8 @@
 //! So the other tests pass in a fork that leaves such a part out.
 // end part: removal
 //!
-//! It also sends a workspace's rename, its read, its transfer and a change of a member's role,
-//! requests that more than one test file sends (TEST-09).
+//! It also sends a workspace's rename, its read, its transfer, a member's leaving and a change of
+//! a member's role, requests that more than one test file sends (TEST-09).
 
 use serde_json::{Value, json};
 
@@ -52,6 +52,17 @@ pub async fn transfer(api: &Api, caller: &SignedIn, workspace: &str, user: &str)
         &json!({ "user_id": user }),
     )
     .bearer(&caller.access)
+    .send()
+    .await
+}
+
+/// Has `user` leave `workspace`.
+pub async fn leave(api: &Api, user: &SignedIn, workspace: &str) -> Response {
+    api.request(
+        http::Method::POST,
+        &format!("/v1/workspaces/{workspace}/leave"),
+    )
+    .bearer(&user.access)
     .send()
     .await
 }

@@ -58,7 +58,13 @@ impl Received {
 }
 
 /// What a route answers: a status with a JSON body, at once or once the test releases it, or
-/// with bytes, or nothing, ever.
+/// nothing, ever.
+// part: files
+/// It may also answer a status with bytes.
+// end part: files
+// part: client_telemetry
+/// It may also answer a redirect: 307, with a `Location`.
+// end part: client_telemetry
 enum Answer {
     Json(u16, Value),
     Held(Arc<Notify>, u16, Value),

@@ -57,6 +57,8 @@ mimalloc.workspace = true
 [dev-dependencies]
 app = { path = ".", features = ["test-support"] }
 platform = { workspace = true, features = ["test-support"] }
+# The test support records the route that each request of a test matched (TEST-01).
+axum = { workspace = true, features = ["matched-path"] }
 dotenvy.workspace = true
 # The tests of an export's documents inflate them (PLATFORM-084).
 flate2.workspace = true
@@ -73,6 +75,8 @@ rustls.workspace = true
 # A test of the settings reads the reference deployment's Compose file (OPS-02).
 serde-saphyr.workspace = true
 serde_json.workspace = true
+# The tests read times written in RFC 3339, such as a log line's.
+time = { workspace = true, features = ["parsing"] }
 # The test support shares the template database through tokio::sync::OnceCell, its stand-in
 # servers read and write their sockets, the tests of timeouts pause tokio's time, and a test of
 # the development settings reads their files.

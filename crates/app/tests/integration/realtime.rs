@@ -9,24 +9,11 @@ use serde_json::json;
 use crate::support::{
     Api, CHECK_INTERVAL, Options,
     announcements::{self, Note, published::NOTED},
-    streams,
-    users::{self, SignedIn},
-    workspaces,
+    streams, users, workspaces,
 };
 
 /// How often a stream sends its heartbeat, by default (REALTIME-003).
 const HEARTBEAT: Duration = Duration::from_secs(15);
-
-/// Has `user` leave `workspace`, which changes their access.
-async fn leave(api: &Api, user: &SignedIn, workspace: &str) -> crate::support::api::Response {
-    api.request(
-        http::Method::POST,
-        &format!("/v1/workspaces/{workspace}/leave"),
-    )
-    .bearer(&user.access)
-    .send()
-    .await
-}
 
 /// The `n` of each frame's payload, with its type.
 fn numbered(frames: &[streams::Frame]) -> Vec<(String, u64)> {
@@ -458,7 +445,7 @@ async fn realtime_004_a_stream_that_closes_before_its_first_event_resumes_where_
     let opened = stream.opened().await;
 
     // Leaving a workspace changes her memberships, which closes the stream before any event.
-    let left = leave(&api, &ada, &workspace).await;
+    let left = workspaces::leave(&api, &ada, &workspace).await;
     let (before, reason) = stream.closed().await;
     announcements::announce(&api, &ada, 1).await;
     let mut again = streams::connect(&api, &ada.access, opened.id.as_deref()).await;
@@ -666,7 +653,7 @@ async fn realtime_005_an_access_change_closes_the_stream_with_access_changed() {
     let mut stream = streams::connect(&api, &ada.access, None).await;
     stream.opened().await;
 
-    let left = leave(&api, &ada, &workspace).await;
+    let left = workspaces::leave(&api, &ada, &workspace).await;
     let (_, reason) = stream.closed().await;
 
     assert_eq!(left.status, StatusCode::NO_CONTENT);
