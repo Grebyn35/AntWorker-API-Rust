@@ -1427,7 +1427,7 @@ async fn files_012_each_call_that_the_bucket_doesn_t_answer_counts_once_as_unava
     let api = Api::new().await;
     let (workspace, ada, _) = acme(&api, "member").await;
     let id = files::arrange_row(api.database(), &workspace, "Blue").await;
-    jobs::not_due(api.database(), &files::BUCKET_JOBS).await;
+    jobs::not_due(api.database()).await;
     let collector = Collector::start().await.unwrap();
     // Nothing listens on port 9 of the loopback address.
     let env = [("S3_ENDPOINT", "http://127.0.0.1:9")];
@@ -1457,11 +1457,11 @@ async fn files_012_a_read_whose_answer_names_no_size_it_reads_counts_once_as_fai
     let api = Api::new().await;
     let (workspace, ada, _) = acme(&api, "member").await;
     let id = files::arrange_row(api.database(), &workspace, "Blue").await;
-    jobs::not_due(api.database(), &files::BUCKET_JOBS).await;
+    jobs::not_due(api.database()).await;
     let collector = Collector::start().await.unwrap();
     // It answers a read of a range with the whole object, which names no size of the whole
     // that the client reads (PLATFORM-094).
-    let bucket = bucket::giving("hello").await;
+    let bucket = bucket::giving().await;
     let env = [("S3_ENDPOINT", bucket.endpoint.as_str())];
     let server = files::serving(api.database(), &collector, &env).await;
     let bearer = format!("Bearer {}", ada.access);
@@ -1518,7 +1518,7 @@ async fn platform_094_a_call_reaches_the_bucket_once_whatever_answers_it() {
 
 #[tokio::test]
 async fn sec_10_the_bucket_s_client_follows_no_redirect() {
-    let bucket = bucket::redirecting("/elsewhere").await;
+    let bucket = bucket::redirecting().await;
     let api = Api::with(Options::default().set("S3_ENDPOINT", &bucket.endpoint)).await;
     let (workspace, ada, _) = acme(&api, "member").await;
     let id = files::arrange_row(api.database(), &workspace, "Blue").await;
@@ -1723,7 +1723,7 @@ async fn sec_19_file_events_reach_the_members_and_no_replay_from_before_joining(
     let db = api.database();
     // An event to Alan alone gives his stream one to resume after.
     db.owner_executes(&events::statement(
-        &[Event::to_user(&alan.user_id, "note.made", "{}")],
+        &[Event::to_user(&alan.user_id, "{}")],
         true,
     ))
     .await;

@@ -875,12 +875,32 @@ async fn platform_013_a_run_of_scheduled_maintenance_runs_for_no_one() {
     assert_eq!(context.scope().workspace(), None);
 }
 
-/// A job that only the test of the runs' metric enqueues.
+/// A job that only the test of the queued runs' count enqueues.
 #[derive(Serialize, Deserialize)]
 struct Counted;
 
 impl Job for Counted {
     const KIND: &'static str = "tests.counted";
+}
+
+/// A job that only the test of the runs released at shutdown enqueues.
+#[derive(Serialize, Deserialize)]
+struct Released;
+
+impl Job for Released {
+    const KIND: &'static str = "tests.counted_released";
+}
+
+/// The runs of `kind` that `platform.job_runs` has counted, as each outcome and its count, such
+/// as `succeeded 1`, in the order of those texts.
+fn counted(kind: &str) -> Vec<String> {
+    let mut runs: Vec<String> = testing::recorded("platform.job_runs")
+        .into_iter()
+        .filter(|point| point.labels.get(names::JOB_KIND).map(String::as_str) == Some(kind))
+        .map(|point| format!("{} {}", point.labels[names::JOB_OUTCOME], point.value))
+        .collect();
+    runs.sort();
+    runs
 }
 
 #[tokio::test]
@@ -893,23 +913,98 @@ async fn platform_020_each_run_is_counted_by_its_kind_and_outcome() {
     let db = TestDatabase::migrated().await;
     let database = db.app().await;
     let mut jobs = Jobs::new(&database, Duration::from_secs(86_400));
-    jobs.queued(|_, Counted| async { Ok(()) }).unwrap();
-    enqueue(&database, JobScope::for_tests(), &Counted).await;
+    // A run that fails, and runs again later; one that fails for good; and one that succeeds.
+    let results = Mutex::new(VecDeque::from([
+        Err(JobFailure::Transient(Internal::new("the run failed"))),
+        Err(JobFailure::Permanent(Internal::new(
+            "the run failed for good",
+        ))),
+        Ok(()),
+    ]));
+    jobs.queued(move |_, Counted| {
+        let result = results.lock().unwrap().pop_front().unwrap();
+        async move { result }
+    })
+    .unwrap();
+    for _ in 0..3 {
+        enqueue(&database, JobScope::for_tests(), &Counted).await;
+    }
 
     let clock: SharedClock = Arc::new(TestClock::default());
     jobs.run_pending(&database, &clock).await;
 
-    let counted: Vec<f64> = testing::recorded("platform.job_runs")
-        .into_iter()
-        .filter(|point| {
-            point.labels.get(names::JOB_KIND).map(String::as_str) == Some("tests.counted")
-        })
-        .map(|point| {
-            assert_eq!(point.labels[names::JOB_OUTCOME], "succeeded");
-            point.value
-        })
-        .collect();
-    assert_eq!(counted, [1.0]);
+    assert_eq!(
+        counted(Counted::KIND),
+        ["dead_lettered 1", "retried 1", "succeeded 1"]
+    );
+}
+
+#[tokio::test]
+async fn platform_020_a_periodic_run_that_fails_is_counted_as_failed() {
+    testing::install(Service {
+        name: "api",
+        version: "0.0.0",
+    })
+    .unwrap();
+    let db = TestDatabase::migrated().await;
+    let database = db.app().await;
+    let mut jobs = Jobs::new(&database, Duration::from_secs(86_400));
+    let (started, mut starts) = mpsc::unbounded_channel();
+    let hour = Duration::from_secs(3_600);
+    jobs.periodic("tests.counted_failing", hour, hour, move |_| {
+        let started = started.clone();
+        async move {
+            started.send(()).unwrap();
+            Err(Internal::new("the periodic job failed"))
+        }
+    })
+    .unwrap();
+
+    let (stop, running) = start(jobs, &database, &Arc::new(TestClock::default()));
+    starts.recv().await.unwrap();
+    stop.send_replace(true);
+    running.await.unwrap();
+
+    assert_eq!(counted("tests.counted_failing"), ["failed 1"]);
+}
+
+#[tokio::test]
+async fn platform_020_a_run_still_going_at_the_shutdown_s_deadline_is_counted_as_released() {
+    testing::install(Service {
+        name: "api",
+        version: "0.0.0",
+    })
+    .unwrap();
+    let db = TestDatabase::migrated().await;
+    let database = db.app().await;
+    let mut jobs = Jobs::new(&database, Duration::from_secs(86_400));
+    let (started, mut starts) = mpsc::unbounded_channel();
+    // A queued run and a periodic one, neither of which ends on its own.
+    let queued = started.clone();
+    jobs.queued(move |_, Released| {
+        queued.send(()).unwrap();
+        std::future::pending()
+    })
+    .unwrap();
+    held(
+        &mut jobs,
+        "tests.counted_held",
+        started,
+        &Arc::new(Semaphore::new(0)),
+    );
+    enqueue(&database, JobScope::for_tests(), &Released).await;
+    let clock = Arc::new(TestClock::default());
+    let (stop, running) = start(jobs, &database, &clock);
+    starts.recv().await.unwrap();
+    starts.recv().await.unwrap();
+
+    stop.send_replace(true);
+    clock.sleeping(GRACE).await;
+    clock.advance(GRACE);
+    running.await.unwrap();
+
+    assert_eq!(counted(Released::KIND), ["released 1"]);
+    assert_eq!(counted("tests.counted_held"), ["released 1"]);
 }
 
 #[tokio::test]
@@ -929,7 +1024,6 @@ async fn platform_020_a_runs_span_links_to_the_trace_that_enqueued_it() {
     });
     support::jobs::enqueued(
         &database,
-        "platform.send_email",
         &payload,
         &format!("00-{trace}-00f067aa0ba902b7-01"),
     )

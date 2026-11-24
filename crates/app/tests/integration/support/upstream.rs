@@ -122,10 +122,10 @@ impl Upstream {
     }
 
     // part: files
-    /// Makes `method` of `path` answer `status`, with `body` as its bytes, such as a picture's.
-    pub fn set_bytes(&self, method: &str, path: &str, status: u16, body: &[u8]) {
+    /// Makes `GET` of `path` answer `status`, with `body` as its bytes, such as a picture's.
+    pub fn set_bytes(&self, path: &str, status: u16, body: &[u8]) {
         self.lock().by_route.insert(
-            (method.to_owned(), path.to_owned()),
+            ("GET".to_owned(), path.to_owned()),
             Answer::Bytes(status, body.to_vec()),
         );
     }

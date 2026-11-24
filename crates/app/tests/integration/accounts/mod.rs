@@ -270,7 +270,7 @@ async fn sec_19_member_updated_reaches_the_members_and_no_replay_from_before_joi
     .await;
     // An event to Alan alone gives his stream one to resume after.
     db.owner_executes(&events::statement(
-        &[Event::to_user(&alan.user_id, "note.made", "{}")],
+        &[Event::to_user(&alan.user_id, "{}")],
         true,
     ))
     .await;

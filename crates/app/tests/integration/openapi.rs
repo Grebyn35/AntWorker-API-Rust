@@ -1,11 +1,16 @@
-//! The OpenAPI document (API-17).
+//! The OpenAPI document (API-17), and the test support's checks of what the API answers against
+//! it, and of a 500's body (ERR-08).
 
-use std::collections::BTreeSet;
+use std::{
+    collections::BTreeSet,
+    panic::{self, AssertUnwindSafe},
+    sync::Arc,
+};
 
-use http::{Method, StatusCode};
+use http::{HeaderMap, HeaderValue, Method, StatusCode, header};
 use serde_json::Value;
 
-use crate::support::{Api, run_binary, streams, users, workspaces};
+use crate::support::{Api, Options, fixtures, run_binary, streams, users, with_fields, workspaces};
 
 /// The document as committed at the repository's root.
 const COMMITTED: &str = include_str!("../../../../openapi.json");
@@ -633,4 +638,99 @@ async fn api_17_a_typed_request_whose_body_breaks_the_document_fails() {
     )
     .send()
     .await;
+}
+
+/// The message of `panic`: an assertion's, which is a `String`, or a literal's, or none.
+fn message(panic: Box<dyn std::any::Any + Send>) -> String {
+    panic.downcast::<String>().map_or_else(
+        |panic| {
+            panic
+                .downcast::<&str>()
+                .map(|text| (*text).to_owned())
+                .unwrap_or_default()
+        },
+        |message| *message,
+    )
+}
+
+#[tokio::test]
+async fn api_17_a_response_that_breaks_the_document_fails_the_test() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let me = api.get("/v1/users/me").bearer(&ada.access).send().await;
+    let contract = api.contract();
+    // What the check panics with, given an answer of `method` and `path`, or none if it passes.
+    let refusal = |method: Method, path: &str, status, headers: &HeaderMap, body: &[u8]| {
+        let (contract, path) = (contract.clone(), path.to_owned());
+        let (headers, body) = (headers.clone(), body.to_vec());
+        panic::catch_unwind(move || contract.check(&method, &path, status, &headers, &body))
+            .err()
+            .map(message)
+    };
+    let coloured = with_fields(me.json(), serde_json::json!({ "colour": "red" })).to_string();
+    let mut text = me.headers.clone();
+    text.insert(header::CONTENT_TYPE, HeaderValue::from_static("text/plain"));
+    let mut untagged = me.headers.clone();
+    untagged.remove(header::ETAG);
+    let (get, ok, path) = (Method::GET, StatusCode::OK, "/v1/users/me");
+
+    let matching = refusal(get.clone(), path, ok, &me.headers, &me.body);
+    let teapot = StatusCode::IM_A_TEAPOT;
+    let refused = [
+        refusal(get.clone(), path, teapot, &me.headers, &me.body),
+        refusal(get.clone(), path, ok, &me.headers, coloured.as_bytes()),
+        refusal(get.clone(), path, ok, &text, &me.body),
+        refusal(get.clone(), path, ok, &untagged, &me.body),
+        refusal(Method::PUT, path, ok, &me.headers, &me.body),
+        refusal(get, "/v1/nowhere", ok, &me.headers, &me.body),
+    ];
+
+    assert_eq!(matching, None);
+    let expected = [
+        "which its documentation doesn't list",
+        "'colour' was unexpected",
+        "the content type",
+        "the documented header etag is missing",
+        "isn't documented, so it must answer 405",
+        "so it must answer 404",
+    ];
+    for (refusal, expected) in refused.into_iter().zip(expected) {
+        let refusal = refusal.unwrap_or_default();
+        assert!(refusal.contains(expected), "{expected:?} in {refusal:?}");
+    }
+}
+
+#[tokio::test]
+async fn err_08_a_500_whose_body_isn_t_the_fixed_one_fails_the_test() {
+    let api = Api::with(Options::routes(fixtures::routes(Arc::default()))).await;
+    let internal = api.get("/v1/panic").send().await;
+    let fixed = internal.json();
+    let check = |body: &Value| {
+        let status = StatusCode::INTERNAL_SERVER_ERROR;
+        let body = body.to_string();
+        panic::catch_unwind(AssertUnwindSafe(|| {
+            api.check(
+                &Method::GET,
+                "/v1/panic",
+                status,
+                &internal.headers,
+                body.as_bytes(),
+            );
+        }))
+        .map_err(message)
+    };
+    let detailed = with_fields(
+        fixed.clone(),
+        serde_json::json!({ "detail": "the disk is gone" }),
+    );
+    let retitled = with_fields(fixed.clone(), serde_json::json!({ "title": "Disk error" }));
+
+    let passed = check(&fixed);
+    let refused = [check(&detailed), check(&retitled)];
+
+    assert!(passed.is_ok());
+    for refusal in refused {
+        let refusal = refusal.expect_err("a 500 with another body passed");
+        assert!(refusal.contains("(ERR-08)"), "{refusal}");
+    }
 }

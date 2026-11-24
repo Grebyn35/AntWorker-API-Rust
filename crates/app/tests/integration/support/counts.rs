@@ -22,15 +22,15 @@ pub fn of(received: &Received, name: &str, label: &str) -> Vec<String> {
         .collect()
 }
 
-/// The histogram `name` in the last export of `received` that holds it, as each data point's
-/// attributes, each `key=value` in the keys' order, then how many recordings it holds, such as
-/// `http.request.method=GET http.response.status_code=404 1`, in the order of those texts: none
-/// when no export holds it.
-pub fn recordings(received: &Received, name: &str) -> Vec<String> {
+/// The histogram `http.server.request.duration` in the last export of `received` that holds it,
+/// as each data point's attributes, each `key=value` in the keys' order, then how many recordings
+/// it holds, such as `http.request.method=GET http.response.status_code=404 1`, in the order of
+/// those texts: none when no export holds it.
+pub fn recordings(received: &Received) -> Vec<String> {
     let points = received
         .metrics()
         .into_iter()
-        .find(|(_, metric)| metric.name == name)
+        .find(|(_, metric)| metric.name == "http.server.request.duration")
         .and_then(|(_, metric)| match &metric.data {
             Some(metric::Data::Histogram(histogram)) => Some(histogram.data_points.clone()),
             _ => None,

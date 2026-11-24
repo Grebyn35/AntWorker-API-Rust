@@ -481,16 +481,9 @@ async fn arranged(api: &Api) -> (SignedIn, SignedIn, String, String) {
         ip: "192.0.2.7",
         agent: "Grace's browser",
     };
-    audit::in_own_log(
-        db,
-        &ada.user_id,
-        &grace.user_id,
-        "member.removed",
-        Some(client),
-    )
-    .await;
+    audit::in_own_log(db, &ada.user_id, &grace.user_id, client).await;
     for workspace in [&own, &shared] {
-        audit::in_workspace_log(db, workspace, &ada.user_id, "workspace.renamed").await;
+        audit::in_workspace_log(db, workspace, &ada.user_id).await;
     }
     // part: invitations
     // An invitation of each workspace.

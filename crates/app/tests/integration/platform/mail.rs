@@ -481,7 +481,6 @@ async fn enqueue(db: &TestDatabase, to: &str) {
     });
     support::jobs::enqueued(
         db,
-        "platform.send_email",
         &payload,
         "00-6f2d0c4e8a1b3c5d7e9f0a2b4c6d8e0f-00f067aa0ba902b7-01",
     )

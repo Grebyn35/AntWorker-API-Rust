@@ -23,7 +23,7 @@ use axum::{
 use futures_util::StreamExt;
 use platform::{
     authn::Principal,
-    authz::{self, Authorize, Authorizer, Permission},
+    authz::{self, Authorize, Authorizer},
     errors::{Internal, PlatformError, Problem},
     events::UserEvent,
     http::{Idempotent, Json as Body, Routes},
@@ -37,7 +37,7 @@ use tokio::sync::Notify;
 use utoipa::ToSchema;
 use utoipa_axum::routes;
 
-use super::{Api, Options, users::SignedIn};
+use super::{Api, Options, announcements::Reading, users::SignedIn};
 
 /// Holds `GET /v1/gate` until the test releases it.
 #[derive(Default)]
@@ -270,14 +270,6 @@ async fn send(
         .map_err(PlatformError::from)?;
     uow.commit().await.map_err(PlatformError::from)?;
     Ok(StatusCode::NO_CONTENT)
-}
-
-/// What the workspace route of the fixtures requires: reading the workspace, which every role
-/// holds, as `access`'s matrix names it.
-struct Reading;
-
-impl Permission for Reading {
-    const NAME: &'static str = "workspace.read";
 }
 
 /// Sends an email of the tests' own to `to`, as a workspace's operation sends one: in the unit of

@@ -165,10 +165,7 @@ async fn platform_104_a_transaction_outside_every_span_opens_no_span() {
     // one, would end before the span of the run or of the delivery that follows it begins, so
     // its export would come no later than theirs.
     database
-        .owner_executes(&events::statement(
-            &[Event::to_user(&user, "note.made", "{}")],
-            true,
-        ))
+        .owner_executes(&events::statement(&[Event::to_user(&user, "{}")], true))
         .await;
     let received = collector
         .wait_for(|received| {

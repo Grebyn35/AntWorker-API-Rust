@@ -117,8 +117,8 @@ async fn platform_100_a_download_that_the_bucket_cuts_short_counts_once_as_ignor
     let db = api.database();
     let workspace = workspaces::arrange(db, "Acme", &[(&ada.user_id, "owner")]).await;
     let id = files::arrange_row(db, &workspace, "Blue").await;
-    jobs::not_due(db, &files::BUCKET_JOBS).await;
-    let stand_in = bucket::cutting(std::str::from_utf8(files::BYTES).unwrap()).await;
+    jobs::not_due(db).await;
+    let stand_in = bucket::cutting().await;
     let collector = Collector::start().await.unwrap();
     let env = [("S3_ENDPOINT", stand_in.endpoint.as_str())];
     let server = files::serving(db, &collector, &env).await;

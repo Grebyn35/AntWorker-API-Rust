@@ -20,7 +20,7 @@ use utoipa_axum::routes;
 use super::{Api, Options, users::SignedIn};
 
 /// Reading the workspace, which every role holds, as `access`'s matrix names it.
-struct Reading;
+pub struct Reading;
 
 impl Permission for Reading {
     const NAME: &'static str = "workspace.read";

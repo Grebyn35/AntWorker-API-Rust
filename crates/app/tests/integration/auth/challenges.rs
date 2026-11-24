@@ -647,7 +647,7 @@ async fn auth_066_an_app_s_secret_is_stored_encrypted_and_moves_to_the_current_k
 async fn auth_066_a_run_of_the_job_moves_the_secrets_of_more_apps_than_one_batch_holds() {
     let database = TestDatabase::migrated().await;
     // 1,001 apps whose secret the old key holds, one more than a batch of 1,000.
-    let users = users::many_with_a_session(&database, 1001).await;
+    let users = users::many_with_a_session(&database).await;
     crate::support::second_factors::apps_sealed_by(&database, &users, &format!("1:{}", key(1)))
         .await;
     let api = Api::on(

@@ -84,21 +84,21 @@ pub async fn without_password(db: &TestDatabase, email: &str) -> String {
     .remove(0)
 }
 
-/// Creates `count` accounts, `user1@example.com` and on, that hold no password, each with a
+/// Creates 1,001 accounts, `user1@example.com` and on, that hold no password, each with a
 /// session that lasts, through the `owner` connection, in one statement, so a test has more of
 /// them than a batch of the code takes; returns their IDs.
-pub async fn many_with_a_session(db: &TestDatabase, count: u32) -> Vec<String> {
-    db.owner_reads(&format!(
+pub async fn many_with_a_session(db: &TestDatabase) -> Vec<String> {
+    db.owner_reads(
         "WITH added AS (INSERT INTO users (email, name) \
-         SELECT 'user' || n || '@example.com', 'User ' || n FROM generate_series(1, {count}) AS n \
+         SELECT 'user' || n || '@example.com', 'User ' || n FROM generate_series(1, 1001) AS n \
          RETURNING id), \
          started AS (INSERT INTO sessions (user_id, access_token_hash, refresh_token_hash, \
          access_token_expires_at, refresh_token_expires_at, expires_at) \
          SELECT id, sha256(('access ' || id)::bytea), sha256(('refresh ' || id)::bytea), \
          now() + interval '1 hour', now() + interval '1 day', now() + interval '2 days' \
          FROM added) \
-         SELECT id::text FROM added"
-    ))
+         SELECT id::text FROM added",
+    )
     .await
 }
 

@@ -363,6 +363,30 @@ async fn realtime_004_more_than_1000_waiting_events_truncate_the_replay() {
 }
 
 #[tokio::test]
+async fn realtime_004_exactly_1000_waiting_events_replay_whole() {
+    let api = announcements::api().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let mut first = streams::connect(&api, &ada.access, None).await;
+    first.opened().await;
+    announcements::announce(&api, &ada, 1).await;
+    first.event().await;
+    let last = first.last_event_id.clone();
+    drop(first);
+
+    announcements::announce(&api, &ada, 1_000).await;
+    let mut again = streams::connect(&api, &ada.access, last.as_deref()).await;
+    let opened = again.opened().await;
+
+    assert_eq!(opened.payload()["truncated"], false);
+    // Read once the opening says that the replay comes: a truncated replay sends no event, so
+    // a wait for one would never end.
+    let expected: Vec<(String, u64)> = (1..=1_000)
+        .map(|n| ("announcement.made".to_owned(), n))
+        .collect();
+    assert_eq!(numbered(&again.events(1_000).await), expected);
+}
+
+#[tokio::test]
 async fn realtime_004_an_id_the_api_doesn_t_hold_truncates_the_replay() {
     let api = announcements::api().await;
     let ada = users::register(&api, "ada@example.com").await;
@@ -375,7 +399,7 @@ async fn realtime_004_an_id_the_api_doesn_t_hold_truncates_the_replay() {
         truncated.push(stream.opened().await);
     }
     // A header that isn't text at all names no event either.
-    let mut unreadable = streams::open_with_bytes(&api, &ada.access, "last-event-id", b"\xff\xfe")
+    let mut unreadable = streams::open_with_bytes(&api, &ada.access)
         .await
         .stream()
         .expect("the stream opened");

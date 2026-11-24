@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
+    task::JoinHandle,
 };
 
 use crate::support::{
@@ -539,16 +540,15 @@ async fn err_12_a_panic_answers_the_internal_problem() {
     assert!(!String::from_utf8_lossy(&response.body).contains("fixture"));
 }
 
-#[tokio::test]
-async fn err_12_a_panic_while_a_body_is_read_ends_the_connection_and_is_logged() {
-    let gate = Arc::new(Gate::default());
-    let (_database, address) = api::served(Options::routes(fixtures::routes(gate.clone()))).await;
+/// Sends `GET /v1/panicking-body` to the API at `address` and reads the status, the headers and
+/// the body's first part, then releases `gate`, after which the body's next part panics, and
+/// returns what the client read, with how its read of the rest ended.
+async fn read_a_panicking_body(address: SocketAddr, gate: &Gate) -> (String, io::Result<usize>) {
     let mut client = TcpStream::connect(address).await.unwrap();
     client
         .write_all(b"GET /v1/panicking-body HTTP/1.1\r\nHost: api\r\nConnection: close\r\n\r\n")
         .await
         .unwrap();
-    // The status, the headers and the body's first part.
     let mut received = Vec::new();
     let mut buffer = [0; 1024];
     while !String::from_utf8_lossy(&received).contains("the first part") {
@@ -556,11 +556,18 @@ async fn err_12_a_panic_while_a_body_is_read_ends_the_connection_and_is_logged()
         assert!(read > 0, "{}", String::from_utf8_lossy(&received));
         received.extend_from_slice(&buffer[..read]);
     }
-
     gate.release.notify_one();
     let ended = client.read_to_end(&mut received).await;
+    (String::from_utf8_lossy(&received).into_owned(), ended)
+}
 
-    let received = String::from_utf8_lossy(&received);
+#[tokio::test]
+async fn err_12_a_panic_while_a_body_is_read_ends_the_connection_and_is_logged() {
+    let gate = Arc::new(Gate::default());
+    let (_database, address) = api::served(Options::routes(fixtures::routes(gate.clone()))).await;
+
+    let (received, ended) = read_a_panicking_body(address, &gate).await;
+
     assert!(received.starts_with("HTTP/1.1 200"), "{received}");
     // The connection ends without the chunk of no bytes that ends a chunked body.
     assert!(
@@ -586,6 +593,25 @@ async fn err_12_a_panic_while_a_body_is_read_ends_the_connection_and_is_logged()
         .collect();
     assert_eq!(completed.len(), 1, "{lines:#?}");
     assert_eq!(completed[0]["http.response.status_code"], 200);
+}
+
+#[tokio::test]
+async fn err_12_a_panic_while_a_body_is_read_leaves_the_request_s_span_its_status() {
+    let spans = EndedSpans::default();
+    let gate = Arc::new(Gate::default());
+    let (_database, address) = api::served(Options::routes(fixtures::routes(gate.clone()))).await;
+    // The spans that the test's runtime opens while the client reads, the server's tasks' among
+    // them.
+    let on_this_thread = tracing::dispatcher::set_default(&spans.dispatch());
+
+    let (received, _) = read_a_panicking_body(address, &gate).await;
+    drop(on_this_thread);
+
+    assert!(received.starts_with("HTTP/1.1 200"), "{received}");
+    assert_eq!(
+        spans.attributes("GET /v1/panicking-body", "http.response.status_code"),
+        [Some("200".to_owned())]
+    );
 }
 
 #[tokio::test]
@@ -876,10 +902,13 @@ fn ignored_rechecks() -> f64 {
         .sum()
 }
 
-#[tokio::test]
-async fn platform_097_a_check_of_the_session_that_outlasts_its_bound_leaves_the_internal_error() {
-    let api = Api::with(Options::routes(fixtures::routes(Arc::default()))).await;
-    let ada = users::register(&api, "ada@example.com").await;
+/// Sends `POST /v1/orphan` with `access`, and returns the request once the check of the session
+/// that follows its insert's failure waits for the sessions, which the test holds until it calls
+/// what this returns beside the request.
+async fn orphan_checked_while_the_sessions_are_held(
+    api: &Api,
+    access: &str,
+) -> (JoinHandle<Response>, impl AsyncFnOnce()) {
     let db = api.database();
     // The orphan's insert waits for the events that the test holds, so that the test holds the
     // sessions too before the insert fails, and the check of the session waits for them.
@@ -887,7 +916,7 @@ async fn platform_097_a_check_of_the_session_that_outlasts_its_bound_leaves_the_
         .holding("LOCK TABLE events IN ACCESS EXCLUSIVE MODE")
         .await;
     let orphan = tokio::spawn({
-        let (api, access) = (api.clone(), ada.access.clone());
+        let (api, access) = (api.clone(), access.to_owned());
         async move {
             api.request(Method::POST, "/v1/orphan")
                 .bearer(&access)
@@ -901,36 +930,72 @@ async fn platform_097_a_check_of_the_session_that_outlasts_its_bound_leaves_the_
         .await;
     execute_on(&mut events, "ROLLBACK").await;
     query_waits_on_a_lock(db, "FROM sessions").await;
-    let before = ignored_rechecks();
+    (orphan, async move || {
+        execute_on(&mut sessions, "ROLLBACK").await
+    })
+}
 
-    // The bound is 5 seconds: short of it, the check still waits. Past it, the test frees the
-    // sessions, which lets the check answer, too late.
-    api.clock().advance(Duration::from_millis(4_999));
-    tokio::task::yield_now().await;
-    let waited = !orphan.is_finished();
-    api.clock().advance(Duration::from_millis(1));
-    execute_on(&mut sessions, "ROLLBACK").await;
-    let response = orphan.await.unwrap();
-
-    assert!(
-        waited,
-        "the request answered before its check's bound passed"
-    );
+/// The `exception.message` of the failed check that `response` wrote, once it asserts that the
+/// response is the internal error, whose lines are the check's `WARN` line, then its own `ERROR`
+/// line and its completion line.
+fn failed_check(response: &Response) -> String {
     problem(
-        &response,
+        response,
         StatusCode::INTERNAL_SERVER_ERROR,
         "request.internal_error",
     );
-    let (trace, _, _) = trace_context(&response);
+    let (trace, _, _) = trace_context(response);
     let lines = testing::logged(&trace);
     let levels: Vec<&Value> = lines.iter().map(|line| &line["level"]).collect();
     assert_eq!(levels, ["WARN", "ERROR", "INFO"], "{lines:#?}");
     assert_eq!(lines[0]["error.type"], "session_recheck_failed");
+    lines[0]["exception.message"].as_str().unwrap().to_owned()
+}
+
+#[tokio::test]
+async fn platform_097_a_check_of_the_session_that_fails_or_outlasts_its_bound_leaves_the_internal_error()
+ {
+    let api = Api::with(Options::routes(fixtures::routes(Arc::default()))).await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    // Both cases are one test's, so that only this test's own code records the label of their
+    // count, `session_recheck_failed` (TEST-07).
+    let before = ignored_rechecks();
+
+    // The check's query fails: the administrator cancels it while it waits, within its bound.
+    let (failing, release) = orphan_checked_while_the_sessions_are_held(&api, &ada.access).await;
+    db.admin_executes(&format!(
+        "SELECT pg_cancel_backend(pid) FROM pg_stat_activity WHERE datname = '{}' \
+         AND wait_event_type = 'Lock' AND query LIKE '%FROM sessions%'",
+        db.name()
+    ))
+    .await;
+    let failed = failing.await.unwrap();
+    release().await;
+    // The bound is 5 seconds: short of it, the check still waits. Past it, the test frees the
+    // sessions, which lets the check answer, too late.
+    let (late, release) = orphan_checked_while_the_sessions_are_held(&api, &ada.access).await;
+    api.clock().advance(Duration::from_millis(4_999));
+    tokio::task::yield_now().await;
+    let waited = !late.is_finished();
+    api.clock().advance(Duration::from_millis(1));
+    release().await;
+    let outlasted = late.await.unwrap();
+
+    let cancelled = failed_check(&failed);
+    assert!(
+        cancelled.contains("canceling statement due to user request"),
+        "{cancelled}"
+    );
+    assert!(
+        waited,
+        "the request answered before its check's bound passed"
+    );
     assert_eq!(
-        lines[0]["exception.message"],
+        failed_check(&outlasted),
         "internal error: the check of the session wasn't answered within 5 seconds"
     );
-    assert_eq!(ignored_rechecks(), before + 1.0);
+    assert_eq!(ignored_rechecks(), before + 2.0);
 }
 
 #[tokio::test]

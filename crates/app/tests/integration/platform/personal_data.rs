@@ -80,7 +80,7 @@ async fn platform_084_a_document_is_a_json_array_a_record_to_a_line_deflated_in_
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     // Entries of Ada's own log, random enough that the log's deflated bytes pass 2 MiB.
-    audit::noise(api.database(), &ada.user_id, "tests.noise", 6_000).await;
+    audit::noise(api.database(), &ada.user_id).await;
 
     built(&api, &ada).await;
 

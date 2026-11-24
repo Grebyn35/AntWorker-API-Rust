@@ -30,7 +30,7 @@ Each permission is tested twice: a role that has it succeeds, and a role without
 - Check: `review`.
 
 ### TEST-04 No mocks of our own code
-Tests use the real database, the real routes and the real services. Fakes exist only for systems outside the codebase, and for a task of the deployment's that runs while a test starts another:
+Tests use the real database, the real routes and the real services. Fakes exist only for systems outside the codebase, for a task of the deployment's that runs while a test starts another, and for the store of an export's archive:
 - the mail server, reached over the Simple Mail Transfer Protocol (SMTP), which Mailpit, the mail catcher that `just services` starts, or a scripted mail server of a test's own replaces
 - OAuth providers, and the addresses that a third party gives (a local fake server, reached through the two clients in SEC-10, the configured one and the untrusted one)
 - the clock (a test clock)
@@ -46,6 +46,7 @@ Tests use the real database, the real routes and the real services. Fakes exist 
 - the container of a service that the settings don't choose, which a deploy stops once its replicas serve, and which a container of Caddy's image under the managed collector's labels replaces, whose process ignores the signal to stop, so that it takes the minute that the deploy gives it (OPS-14)
 - a deploy, a backup, a restore or an operator's subcommand that runs on the end-to-end tests' server while a test starts another, which a process there that holds the locks that the running one holds replaces (OPS-14, OPS-18)
 - a restore's planning, `deploy.sh restore-inputs`, which reads the backup bucket from a one-off container of the Postgres service and takes no lock, and which such a container whose process sleeps replaces (OPS-15)
+- the store of an export's archive, which `accounts` implements, out of the reach of the tests of `platform`, and which a test of `ExportArchive` replaces with one that keeps what the archive hands it, in its order (PLATFORM-084)
 
 The files bucket is replaced too, by the same SeaweedFS, which also serves the integration tests from `just services`, as does, for them, a scripted bucket of the test support that answers every request alike: with one status, or never (FILES-012), with an object's bytes, or half of them before it closes the connection, with a redirect, or with a listing of objects; and one that keeps the versions it is given, with the times a test gives them, which lists them, serves their bytes and records each write (FILES-028). <!-- part: files -->
 So is the malware scanner, which ClamAV's daemon is, with one signature of the repository's own, for the test file of the European Institute for Computer Antivirus Research (EICAR), in place of ClamAV's, from `just services` and on the end-to-end tests' server, as does, for the integration tests, a scripted scanner of the test support that answers each scan with one line, never, or by closing the connection (PLATFORM-079). <!-- part: files -->

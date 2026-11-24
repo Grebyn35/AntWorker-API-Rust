@@ -86,15 +86,18 @@ pub async fn open(api: &Api, headers: &[(&str, &str)]) -> Opened {
     answer(api, api.router(), request).await
 }
 
-/// Opens a stream as the caller whose access token is `token`, with the header `name` set to
-/// `value`, bytes that need not be text, and returns it, or the response when it isn't 200, as
+/// Opens a stream as the caller whose access token is `token`, with a `Last-Event-ID` of the
+/// bytes `FF FE`, which are no text, and returns it, or the response when it isn't 200, as
 /// [`open`] does.
-pub async fn open_with_bytes(api: &Api, token: &str, name: &str, value: &[u8]) -> Opened {
+pub async fn open_with_bytes(api: &Api, token: &str) -> Opened {
     let request = Request::builder()
         .method(Method::GET)
         .uri(PATH)
         .header("authorization", format!("Bearer {token}"))
-        .header(name, http::HeaderValue::from_bytes(value).unwrap())
+        .header(
+            "last-event-id",
+            http::HeaderValue::from_bytes(b"\xff\xfe").unwrap(),
+        )
         .body(Body::empty())
         .unwrap();
     answer(api, api.router(), request).await

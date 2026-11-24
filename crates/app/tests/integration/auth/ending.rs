@@ -175,7 +175,7 @@ async fn auth_046_the_operator_s_end_publishes_session_ended_for_each_session_it
 async fn auth_094_with_all_the_subcommand_ends_the_sessions_of_more_users_than_one_read_takes() {
     let api = Api::new().await;
     // 1,001 users with a session each, one more than a read of the users takes.
-    users::many_with_a_session(api.database(), 1001).await;
+    users::many_with_a_session(api.database()).await;
 
     let ended = end(&api, &["--all"]).await;
 

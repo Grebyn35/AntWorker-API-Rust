@@ -34,7 +34,7 @@ use crate::support::{
 /// The requests whose durations `collector` received, from a `serve` that has stopped, each as
 /// its labels and how many it recorded, as [`counts::recordings`] gives them (TEST-07).
 fn requests_counted(collector: &Collector) -> Vec<String> {
-    counts::recordings(&collector.received(), "http.server.request.duration")
+    counts::recordings(&collector.received())
 }
 
 /// The seconds that `points` recorded with exactly `labels`, all requests together.
@@ -100,7 +100,6 @@ async fn an_email_s_spans(collector: &Collector) -> Received {
     });
     jobs::enqueued(
         &database,
-        "platform.send_email",
         &payload,
         "00-8a3c60f7d188f8fa79d48a391a778fa6-00f067aa0ba902b7-01",
     )

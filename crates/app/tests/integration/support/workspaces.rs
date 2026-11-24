@@ -107,17 +107,9 @@ pub async fn join(db: &TestDatabase, workspace: &str, user: &str, role: &str) {
 /// Gives `workspace` what a deletion of it must take with it: an entry in its log, acted by
 /// `actor`, an event, and a job enqueued for it and for `actor`.
 pub async fn fill(db: &TestDatabase, workspace: &str, actor: &str) {
-    audit::in_workspace_log(db, workspace, actor, "workspace.renamed").await;
-    db.owner_executes(&events::statement(
-        &[Event::to_workspace(
-            workspace,
-            "workspace.read",
-            "note.made",
-            "{}",
-        )],
-        false,
-    ))
-    .await;
+    audit::in_workspace_log(db, workspace, actor).await;
+    db.owner_executes(&events::statement(&[Event::to_workspace(workspace)], false))
+        .await;
     db.owner_executes(&format!(
         "INSERT INTO jobs (kind, payload, user_id, workspace_id) \
          VALUES ('tests.kept', '{{}}', '{actor}', '{workspace}')"

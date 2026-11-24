@@ -528,11 +528,7 @@ async fn platform_033_after_a_lost_connection_every_stream_closes_and_replays_wh
     let unavailable = lose_the_connection(
         &api,
         &events::statement(
-            &[Event::to_user(
-                &ada.user_id,
-                "note.made",
-                r#"{"label": "away"}"#,
-            )],
+            &[Event::to_user(&ada.user_id, r#"{"label": "away"}"#)],
             false,
         ),
     )
@@ -573,24 +569,8 @@ async fn platform_033_after_a_lost_connection_a_reconnect_leaves_out_what_access
         &api,
         &format!(
             "{}; DELETE FROM workspace_memberships WHERE workspace_id = '{workspace}'; {}",
-            events::statement(
-                &[Event::to_workspace(
-                    &workspace,
-                    "workspace.read",
-                    "note.made",
-                    "{}"
-                )],
-                false
-            ),
-            events::statement(
-                &[Event::to_workspace(
-                    &workspace,
-                    "workspace.read",
-                    "note.made",
-                    "{}"
-                )],
-                false
-            ),
+            events::statement(&[Event::to_workspace(&workspace)], false),
+            events::statement(&[Event::to_workspace(&workspace)], false),
         ),
     )
     .await;
@@ -732,7 +712,7 @@ async fn platform_034_the_lag_is_the_seconds_from_an_event_s_commit_to_its_deliv
     db.owner_executes(&events::statement(
         &[Event {
             committed_before: Some("1 minute"),
-            ..Event::to_user(&ada.user_id, "note.made", "{}")
+            ..Event::to_user(&ada.user_id, "{}")
         }],
         true,
     ))
@@ -1033,7 +1013,7 @@ async fn obs_07_an_event_s_delivery_links_to_the_trace_that_published_it() {
         .owner_executes(&events::statement(
             &[Event {
                 traceparent: Some(&format!("00-{trace}-00f067aa0ba902b7-01")),
-                ..Event::to_user(&user, "note.made", "{}")
+                ..Event::to_user(&user, "{}")
             }],
             true,
         ))
@@ -1115,11 +1095,7 @@ async fn platform_033_a_load_that_fails_is_tried_again_at_the_next_check() {
     let held = api.every_connection().await;
     api.database()
         .owner_executes(&events::statement(
-            &[Event::to_user(
-                &ada.user_id,
-                "note.made",
-                r#"{"label": "loaded"}"#,
-            )],
+            &[Event::to_user(&ada.user_id, r#"{"label": "loaded"}"#)],
             true,
         ))
         .await;
@@ -1147,7 +1123,7 @@ async fn platform_033_a_load_that_fails_is_tried_again_after_a_reconnect_that_ca
     let held = api.every_connection().await;
     api.database()
         .owner_executes(&events::statement(
-            &[Event::to_user(&ada.user_id, "note.made", "{}")],
+            &[Event::to_user(&ada.user_id, "{}")],
             true,
         ))
         .await;
@@ -1191,7 +1167,7 @@ async fn platform_035_the_hub_records_the_events_it_owes_while_its_loads_fail() 
     let held = api.every_connection().await;
     api.database()
         .owner_executes(&events::statement(
-            &[Event::to_user(&ada.user_id, "note.made", "{}")],
+            &[Event::to_user(&ada.user_id, "{}")],
             true,
         ))
         .await;

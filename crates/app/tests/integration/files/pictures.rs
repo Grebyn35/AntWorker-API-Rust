@@ -57,7 +57,7 @@ fn pictured(upstream: &Upstream, picture: &str) {
 
 /// Registers Ada through the stand-in, which serves [`files::PNG`] as her picture.
 async fn registered(upstream: &Upstream, api: &Api) -> SignedIn {
-    upstream.set_bytes("GET", PICTURE, 200, files::PNG);
+    upstream.set_bytes(PICTURE, 200, files::PNG);
     pictured(upstream, &upstream.url(PICTURE));
     signed_in(api).await
 }
@@ -314,7 +314,7 @@ async fn accounts_029_a_picture_that_is_no_avatar_leaves_the_account_without_one
     let large = [files::PNG, &vec![0; 1_048_576]].concat();
     for (status, bytes) in [(200, b"hello".as_slice()), (200, &large), (404, b"")] {
         let (upstream, api) = standing(Options::default()).await;
-        upstream.set_bytes("GET", PICTURE, status, bytes);
+        upstream.set_bytes(PICTURE, status, bytes);
         pictured(&upstream, &upstream.url(PICTURE));
         let ada = signed_in(&api).await;
         let collector = Collector::start().await.unwrap();
@@ -367,7 +367,7 @@ async fn accounts_029_an_address_that_the_untrusted_client_refuses_is_never_fetc
         "https://elsewhere.example.com/ada.png",
     ] {
         let (upstream, api) = standing(Options::default()).await;
-        upstream.set_bytes("GET", PICTURE, 200, files::PNG);
+        upstream.set_bytes(PICTURE, 200, files::PNG);
         pictured(&upstream, picture);
         let ada = signed_in(&api).await;
         let ignored = not_copied();
@@ -389,7 +389,7 @@ async fn accounts_029_an_address_that_the_untrusted_client_refuses_is_never_fetc
 #[tokio::test]
 async fn accounts_029_a_fetch_that_fails_is_tried_again_and_the_fifth_leaves_no_dead_letter() {
     let (upstream, api) = standing(Options::default()).await;
-    upstream.set_bytes("GET", PICTURE, 503, b"");
+    upstream.set_bytes(PICTURE, 503, b"");
     pictured(&upstream, &upstream.url(PICTURE));
     let ada = signed_in(&api).await;
 

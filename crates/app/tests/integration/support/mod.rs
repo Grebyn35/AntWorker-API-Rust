@@ -668,10 +668,10 @@ impl Server {
             .expect("the line it wrote when it started listening")
     }
 
-    /// The first line for which `matches` holds among those the server wrote up to the one it
-    /// wrote when it started listening.
-    pub fn started(&self, matches: impl Fn(&Value) -> bool) -> Option<&Value> {
-        self.started.iter().find(|line| matches(line))
+    /// Each line for which `matches` holds among those the server wrote up to the one it wrote
+    /// when it started listening, in order.
+    pub fn started(&self, matches: impl Fn(&Value) -> bool) -> Vec<&Value> {
+        self.started.iter().filter(|line| matches(line)).collect()
     }
 
     /// The next line the server writes for which `matches` holds, as JSON. Panics if the

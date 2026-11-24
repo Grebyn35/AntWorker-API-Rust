@@ -960,7 +960,7 @@ async fn sec_19_workspace_updated_reaches_every_member_s_every_device_and_no_rep
     .await;
     // An event to Alan alone gives his stream one to resume after.
     db.owner_executes(&events::statement(
-        &[Event::to_user(&alan.user_id, "note.made", "{}")],
+        &[Event::to_user(&alan.user_id, "{}")],
         true,
     ))
     .await;
@@ -1404,7 +1404,7 @@ async fn sec_19_member_role_changed_reaches_the_members_and_no_replay_from_befor
     .await;
     // An event to Alan alone gives his stream one to resume after.
     db.owner_executes(&events::statement(
-        &[Event::to_user(&alan.user_id, "note.made", "{}")],
+        &[Event::to_user(&alan.user_id, "{}")],
         true,
     ))
     .await;
@@ -1727,7 +1727,7 @@ async fn sec_19_workspace_transferred_reaches_the_members_and_no_replay_from_bef
     .await;
     // An event to Alan alone gives his stream one to resume after.
     db.owner_executes(&events::statement(
-        &[Event::to_user(&alan.user_id, "note.made", "{}")],
+        &[Event::to_user(&alan.user_id, "{}")],
         true,
     ))
     .await;

@@ -505,11 +505,11 @@ async fn system_003_the_subcommand_prints_the_accounts_their_password_and_the_wo
         ),
         "{stdout}"
     );
+    // A line that gives `name`, then `value` and nothing else.
     let printed = |name: &str, value: &str| {
-        stdout.lines().any(|line| {
-            let mut words = line.split_whitespace();
-            words.next() == Some(name) && line.trim_end().ends_with(value)
-        })
+        stdout
+            .lines()
+            .any(|line| line.trim().strip_prefix(name).map(str::trim_start) == Some(value))
     };
     // Every account the seed registered, with or without the parts it keeps.
     let accounts = database
@@ -525,8 +525,7 @@ async fn system_003_the_subcommand_prints_the_accounts_their_password_and_the_wo
         .await
     {
         let (name, id) = workspace.split_once('|').unwrap();
-        let first = name.split_whitespace().next().unwrap();
-        assert!(printed(first, id), "{name} in {stdout}");
+        assert!(printed(name, id), "{name} in {stdout}");
     }
 }
 

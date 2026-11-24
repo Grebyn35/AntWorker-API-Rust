@@ -140,7 +140,7 @@ async fn files_009_if_none_match_of_its_tag_answers_304_with_no_body() {
 
 #[tokio::test]
 async fn files_009_a_request_that_if_none_match_answers_304_asks_the_bucket_nothing() {
-    let bucket = bucket::giving("hello").await;
+    let bucket = bucket::giving().await;
     let api = Api::with(Options::default().set("S3_ENDPOINT", &bucket.endpoint)).await;
     let (workspace, ada, _) = acme(&api, "member").await;
     let id = files::arrange_row(api.database(), &workspace, "Blue").await;
@@ -202,7 +202,7 @@ async fn files_009_head_answers_as_get_does_without_the_bytes() {
 
 #[tokio::test]
 async fn files_009_head_asks_the_bucket_for_the_object_s_size_alone() {
-    let bucket = bucket::giving("hello").await;
+    let bucket = bucket::giving().await;
     let api = Api::with(Options::default().set("S3_ENDPOINT", &bucket.endpoint)).await;
     let (workspace, ada, _) = acme(&api, "member").await;
     let id = files::arrange_row(api.database(), &workspace, "Blue").await;

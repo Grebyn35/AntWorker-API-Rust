@@ -22,6 +22,8 @@ use tokio::{
     task::JoinHandle,
 };
 
+use super::files;
+
 /// The address of the SeaweedFS that `just services` starts.
 const ADDRESS: SocketAddr =
     SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), 8333);
@@ -503,28 +505,28 @@ pub async fn scripted(status: Option<u16>) -> Scripted {
     serve(status.map(|status| Answer::of(status, String::new()))).await
 }
 
-/// A bucket that answers every request with `object` as an object's bytes, and a `HEAD` with
+/// A bucket that answers every request with `hello` as an object's bytes, and a `HEAD` with
 /// their length and none of them.
-pub async fn giving(object: &str) -> Scripted {
-    serve(Some(Answer::of(200, object.to_owned()))).await
+pub async fn giving() -> Scripted {
+    serve(Some(Answer::of(200, "hello".to_owned()))).await
 }
 
-/// A bucket that answers every request with `object` as an object's bytes, as [`giving`] does,
-/// but sends only the first half of them, and then closes the connection, as a bucket that stops
-/// midway does.
-pub async fn cutting(object: &str) -> Scripted {
+/// A bucket that answers every request as [`giving`] does, with [`files::BYTES`] as the object's
+/// bytes, but sends only the first half of them, and then closes the connection, as a bucket that
+/// stops midway does.
+pub async fn cutting() -> Scripted {
     serve(Some(Answer {
         cut: true,
-        ..Answer::of(200, object.to_owned())
+        ..Answer::of(200, String::from_utf8_lossy(files::BYTES).into_owned())
     }))
     .await
 }
 
-/// A bucket that answers every request with a redirect to `location`, a path of its own.
-pub async fn redirecting(location: &'static str) -> Scripted {
+/// A bucket that answers every request with a redirect to `/elsewhere`, a path of its own.
+pub async fn redirecting() -> Scripted {
     serve(Some(Answer {
         status: 307,
-        location: Some(location),
+        location: Some("/elsewhere"),
         body: String::new(),
         cut: false,
     }))

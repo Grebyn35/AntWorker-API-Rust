@@ -104,11 +104,10 @@ async fn platform_007_serve_logs_the_most_connections_the_instance_opens() {
         ])
         .await;
 
-    let connected = server
-        .started(|line| line["message"] == "connected to the database")
-        .expect("the line that gives the connections");
-    assert_eq!(connected["level"], "INFO", "{connected}");
-    assert_eq!(connected["database.connections"], 8, "{connected}");
+    let connected = server.started(|line| line["message"] == "connected to the database");
+    assert_eq!(connected.len(), 1, "{connected:#?}");
+    assert_eq!(connected[0]["level"], "INFO", "{}", connected[0]);
+    assert_eq!(connected[0]["database.connections"], 8, "{}", connected[0]);
 }
 
 #[tokio::test]
