@@ -19,6 +19,7 @@ use crate::{
     },
     docker::{curl_image, lossy},
     server::DEPLOYMENT,
+    streams::next_from_the_client,
     support,
 };
 
@@ -37,8 +38,9 @@ const PERSONAL: [&str; 9] = [
     "\"headers\"",
 ];
 
-/// The `User-Agent` of the request that no replica answers, a value of the tests' own, which the
-/// proxy's spans and log lines hold under no name (OBS-04).
+/// The `User-Agent` of the request that no replica answers, and of the stream that a replica ends
+/// short, a value of the tests' own, which the proxy's spans and log lines hold under no name
+/// (OBS-04).
 const AGENT: &str = "the-e2e-tests-own-agent/7.1";
 
 /// The lines of the stand-in backend's file that hold `trace`, once a line of spans and one of
@@ -97,7 +99,9 @@ async fn assert_a_deploy_takes_only_the_operator_s_administrator(deployment: &De
         assert!(lossy(&named).contains(refusal), "{name}: {}", lossy(&named));
     }
     deployment.set(&[("TELEMETRY", "self-hosted")]);
-    deployment.server.write(&secret, "too short");
+    // The setup's password but its first character: 14 characters, one fewer than it holds.
+    let fewer: String = GRAFANA_ADMIN_PASSWORD.chars().skip(1).collect();
+    deployment.server.write(&secret, &fewer);
     let short = deployment
         .apply(&deployment.api, &["--allow-restart"])
         .await;
@@ -268,7 +272,8 @@ async fn sec_14_a_server_publishes_only_the_proxy_and_grafana_signs_every_viewer
     let without = deployment.apply(&deployment.api, &[]).await;
     assert!(without.status.success(), "{}", lossy(&without));
     assert_a_deploy_takes_only_the_operator_s_administrator(&deployment).await;
-    // TELEMETRY from off, which Caddy reads, so it restarts.
+    // TELEMETRY from off, which Caddy reads, so it restarts; the setup's password, of 15
+    // characters, is taken.
     let deployed = deployment
         .apply(&deployment.api, &["--allow-restart"])
         .await;
@@ -1303,13 +1308,18 @@ async fn obs_04_the_proxy_s_own_line_of_a_response_that_a_replica_ends_short_hol
         }
         lines.for_each(drop);
     });
-    assert_eq!(opened.recv(), Ok(true), "the stream's opening");
+    let open = next_from_the_client(&opened);
+    assert_eq!(open, Ok(Some(true)), "the stream's opening");
 
     deployment.server.shell_ok(
         "for service in api-blue api-green; do \
          docker ps --quiet --filter label=com.docker.compose.service=$service; \
          done | xargs -r docker kill > /dev/null",
     );
+    // The reader drops its sender as it ends, once the stream has ended, so the join after it
+    // waits only for its thread to exit.
+    let end = next_from_the_client(&opened);
+    assert_eq!(end, Ok(None), "the stream's end");
     reader.join().expect("the stream's reader");
     let own = lossy(&deployment.server.shell(
         "timeout 60 sh -c 'until docker logs deployment-caddy-1 2>&1 \

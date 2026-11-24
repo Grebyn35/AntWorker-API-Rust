@@ -150,6 +150,35 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "tests may block, each on a runtime of its own (CODE-05)"
+    )]
+    fn ops_21_a_run_that_finds_the_machine_held_fails_at_once_saying_so() {
+        // A lock and a label of this test's own, which no other run holds and no container
+        // carries, so the holds change nothing of the run's, and a file that the test removes,
+        // so that no run leaves one.
+        let lock =
+            std::env::temp_dir().join(format!("image-tests-{}-held.lock", std::process::id()));
+        let label = "image-test-container-held";
+        let _another = hold(&lock, label);
+
+        let refused = std::panic::catch_unwind(|| hold(&lock, label));
+        let removed = std::fs::remove_file(&lock);
+
+        let refusal = refused
+            .err()
+            .and_then(|panicked| panicked.downcast::<String>().ok());
+        assert!(
+            refusal
+                .as_deref()
+                .is_some_and(|message| message.contains("holds this machine")),
+            "{refusal:?}"
+        );
+        assert!(removed.is_ok(), "{removed:?}");
+    }
+
+    #[test]
     fn ops_21_a_run_removes_the_containers_that_an_earlier_one_left() {
         // Once this run holds the machine, a hold such as `claim` takes, through a lock and a
         // label of this test's own, so it leaves the containers of the tests that run beside it,

@@ -219,22 +219,8 @@ async fn obs_08_the_trace_id_of_a_5xx_response_leads_to_its_logs_and_its_trace()
 
 #[tokio::test]
 async fn platform_070_serve_exports_its_resident_memory() {
-    start_the_stack();
-    let image = Image::pushed();
     let database = TestDatabase::empty().await;
-    let network = postgres_network();
-    let mut settings = settings(&database);
-    settings.push("OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318".to_owned());
-    let bootstrap = database
-        .with_roles_locked(async {
-            image.run(&network, &on_the_tests_server(&settings), "bootstrap")
-        })
-        .await;
-    assert!(bootstrap.status.success(), "{}", lossy(&bootstrap));
-    let migrate = image.run(&network, &settings, "migrate");
-    assert!(migrate.status.success(), "{}", lossy(&migrate));
-    let server = image.serve(&network, &settings);
-    assert_eq!(server.health(), "healthy", "{}", server.logs());
+    let server = serve_with_the_stack(&database, &[]).await;
 
     // The SDK exports the metrics every 15 seconds.
     let series = fetch_once_it_holds(

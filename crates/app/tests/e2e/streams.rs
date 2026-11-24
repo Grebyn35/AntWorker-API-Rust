@@ -29,8 +29,8 @@ const AHEAD: usize = 50;
 /// How many times the client opens its stream before it gives up.
 const CONNECTIONS: usize = 30;
 
-/// How long the test waits for the next of what the client sends it: a wait that runs past it
-/// fails the test (TEST-06).
+/// How long a test waits for the next of what its client of the stream sends it: a wait that runs
+/// past it fails the test (TEST-06).
 const DELIVERY: Duration = Duration::from_secs(60);
 
 /// What the client of the stream saw.
@@ -162,9 +162,11 @@ impl StreamClient {
 #[expect(
     clippy::disallowed_methods,
     reason = "the test of a deploy with an open stream waits at most a minute for each frame \
-              that it awaits from its client, as CODE-06 admits"
+              that it awaits from its client, and the test of the proxy's own line of a response \
+              that a replica ends short for its stream's opening and for its reader's end, as \
+              CODE-06 admits"
 )]
-fn next_from_the_client<T>(channel: &mpsc::Receiver<T>) -> Result<Option<T>, String> {
+pub fn next_from_the_client<T>(channel: &mpsc::Receiver<T>) -> Result<Option<T>, String> {
     match channel.recv_timeout(DELIVERY) {
         Ok(sent) => Ok(Some(sent)),
         Err(mpsc::RecvTimeoutError::Disconnected) => Ok(None),

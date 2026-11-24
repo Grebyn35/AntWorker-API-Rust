@@ -53,7 +53,7 @@ if (route === "sign-ins") {
 }
 
 // Thresholds that always pass make k6 report the metrics of each scenario's own requests apart
-// from the setup's and the two that read the collector.
+// from the setup's and those that read the collector.
 const thresholds = {};
 for (const scenario of Object.keys(scenarios)) {
   thresholds[`http_reqs{scenario:${scenario}}`] = ["count>=0"];

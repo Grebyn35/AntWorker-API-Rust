@@ -36,8 +36,8 @@ pub const GRAFANA_ADDRESS: &str = "grafana.localhost";
 pub const GRAFANA_ADMIN_USER: &str = "operator";
 
 /// The password that the deployments' Grafana's administrator signs in with, which the operator
-/// chooses at the setup.
-pub const GRAFANA_ADMIN_PASSWORD: &str = "the password of the e2e tests' Grafana";
+/// chooses at the setup: of 15 characters, the fewest that a deploy takes (SEC-14).
+pub const GRAFANA_ADMIN_PASSWORD: &str = "the e2e Grafana";
 
 /// The line a restore writes once its first check has passed and it has marked its full backup,
 /// before the replicas stop and its transaction commits.
