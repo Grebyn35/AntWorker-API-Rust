@@ -335,4 +335,13 @@ mod tests {
             format!("{} {}", "a".repeat(125), "b".repeat(126))
         );
     }
+
+    #[test]
+    fn obs_04_a_file_s_name_never_prints_through_debug() {
+        let name = FileName::parse("Ada's notes.pdf").unwrap();
+
+        let printed = format!("{name:?}");
+
+        assert!(!printed.contains("notes"), "{printed}");
+    }
 }

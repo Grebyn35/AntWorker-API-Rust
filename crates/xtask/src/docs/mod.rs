@@ -1,7 +1,7 @@
 //! `check-docs`: links to the repository's files, IDs and the CI checks the rules name all
-//! resolve, and the row of such a check lists each rule that names it (DOC-12, in `enforced`);
-//! prose and comments hold no history markers (DOC-01) and no unfinished-work markers (DOC-04);
-//! every document belongs to the documentation set (DOC-05); documents spell
+//! resolve, and the row of such a check lists each rule whose `Check` names it (DOC-12, in
+//! `enforced`); prose and comments hold no history markers (DOC-01) and no unfinished-work
+//! markers (DOC-04); every document belongs to the documentation set (DOC-05); documents spell
 //! out acronyms where they first use them (DOC-06, in `acronyms`), and hold no sentence,
 //! paragraph or cell of more words than its bound (DOC-15, in `words`); specs, rules, tables and
 //! the tracker keep their formats (DOC-08 and DOC-14, in `formats`); each spec's Routes table

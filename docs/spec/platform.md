@@ -600,7 +600,7 @@ The metrics `platform` records are in the catalog, each with the file that decla
 
 ### Clock
 
-`Clock` is a trait with two implementations (ARCH-13): the system clock, and the test clock, which only the `test-support` feature compiles. `now` reads the time, and `sleep` waits. A test clock's `sleep` completes when the test advances the clock to its deadline (TEST-06). Every wait for a time to pass that the workspace's Rust makes goes through it, the readiness checks and the shutdown delay included, but for the two waits on the real time that CODE-06 names.
+`Clock` is a trait with two implementations (ARCH-13): the system clock, and the test clock, which only the `test-support` feature compiles. `now` reads the time, and `sleep` waits. A test clock's `sleep` completes when the test advances the clock to its deadline (TEST-06). Every wait for a time to pass that the workspace's Rust makes goes through it, the readiness checks and the shutdown delay included, but for the waits on the real time that CODE-06 names.
 
 ### Workers
 

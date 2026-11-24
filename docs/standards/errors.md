@@ -45,7 +45,7 @@ An error that only a subcommand reports, such as `seed`'s, implements no `ErrorC
 ### ERR-04 Infrastructure errors stay in their adapter
 The errors of the libraries that reach other systems, such as the database driver and the clients for email and HTTP, never appear in a service or route signature. The repository or adapter turns each one into either a domain outcome or a `platform::errors::Internal` value. That value keeps the cause for logs only.
 - Why: a database error must never decide a response or reach a client (D17).
-- Check: `ci: check-layers` (no infrastructure error types in `service.rs` or `routes.rs`), plus `compiler`.
+- Check: `ci: check-layers` (no signature in a module's service or routes names an infrastructure error type), plus `compiler`.
 
 ### ERR-05 Constraint violations are mapped explicitly
 A repository maps each unique, foreign-key or check constraint it relies on to a named domain outcome. A violation it doesn't map becomes `Internal`. Each mapped constraint has a test. A statement whose `ON CONFLICT` says what a conflict does raises no violation to map. One kind of violation the pipeline answers for every route, in the internal error's place: a foreign key's refusal of a row in a request whose caller's session lasts no more, as once a deletion took their account and the row that the request's insert names, answers 401 (PLATFORM-097).

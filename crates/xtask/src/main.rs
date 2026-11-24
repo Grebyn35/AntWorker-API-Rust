@@ -254,7 +254,7 @@ enum Command {
     /// Sets the app's version to `version` on `main`, commits it and pushes it, after it checks
     /// that `version` can be released from `main` as it is. The run on `main` that passes with
     /// the version releases it (OPS-12). Without a version, it shows the versions that can come
-    /// next, and changes nothing.
+    /// next, and changes nothing but the `origin/main` and tags that it first fetches.
     Release {
         /// The version, such as 1.4.0, or 1.4.0-rc.1 for a prerelease; without one, the task
         /// shows the versions that can come next.

@@ -198,7 +198,8 @@ pub fn set_version(path: &str, text: &str, old: Version, new: Version) -> Result
 }
 
 /// Releases `requested`: checks that it can, sets the version, commits, and pushes `main`.
-/// Without a version, it shows what [`overview`] says, and changes nothing.
+/// Without a version, it shows what [`overview`] says, and changes nothing but the `origin/main`
+/// and the tags that it first fetches.
 pub fn run(requested: Option<&str>) -> ExitCode {
     let requested = match requested {
         None => None,

@@ -47,7 +47,7 @@ Then, for a final release, write its notes: its section of [CHANGELOG.md](../../
 
 ## How to release
 
-On your machine, with `main` checked out, `just release` alone shows the latest release, how many commits `main` has since, and the versions that can come next, with what each is for, and changes nothing. While `main` asks for a version that no run has released yet, it shows that version, and the versions that can follow it. To release one, run:
+On your machine, with `main` checked out, `just release` alone shows the latest release, how many commits `main` has since, and the versions that can come next, with what each is for, and changes nothing but what it first fetches from GitHub: `origin/main`, and the tags that the checkout lacks. While `main` asks for a version that no run has released yet, it shows that version, and the versions that can follow it. To release one, run:
 
 ```
 just release 1.4.0

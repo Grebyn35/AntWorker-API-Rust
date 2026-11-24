@@ -20,6 +20,7 @@ No header selects a workspace.
 ### API-03 Methods carry their HTTP meaning
 - `GET` reads, and is safe and idempotent.
 - `POST` creates a resource, or runs an action on a named sub-resource (`/transfer`, `/accept`). Adding a way to sign in to one's account, a password or a provider's identity (`/identities/password`, `/identities/provider`), is such an action, which answers 200 with the account's identities (AUTH-086, AUTH-087): no route reads one identity, so a create would have no resource of its own to answer, nor a `Location` for one (API-04).
+  A `POST` to a workspace's invitations creates one, or refreshes in place the one that the address it names holds there already, an update that answers 200 with it (INVITATIONS-003). <!-- part: invitations -->
 - `PATCH` updates part of a resource using JSON Merge Patch (RFC 7396).
 - `PUT` replaces a whole resource, and is used only where a resource is always written whole.
 - `DELETE` removes.

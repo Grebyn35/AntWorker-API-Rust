@@ -605,6 +605,27 @@ mod tests {
     }
 
     #[test]
+    fn ops_11_a_later_stage_a_stage_of_one_platform_and_a_number_after_from_are_images() {
+        let dockerfile = format!(
+            "# syntax=docker/dockerfile:1.27.1@sha256:{DIGEST}\n\
+             COPY --from=later /a /a\nFROM alpine:3.24.3@sha256:{DIGEST} AS later\n\
+             FROM alpine:3.24.3@sha256:{DIGEST} AS zig-amd64\nCOPY --from=zig-$BUILDARCH /b /b\n\
+             FROM 0\n"
+        );
+
+        let findings = findings_with(DOCKERFILE, &dockerfile);
+
+        assert_eq!(
+            findings,
+            [
+                "Dockerfile:2: the image later is pinned by digest (OPS-11)",
+                "Dockerfile:5: the image zig-$BUILDARCH is pinned by digest (OPS-11)",
+                "Dockerfile:6: the image 0 is pinned by digest (OPS-11)",
+            ]
+        );
+    }
+
+    #[test]
     fn ops_11_a_compose_image_from_a_required_variable_passes_and_one_with_a_default_fails() {
         let findings = findings_with(
             "deploy/compose.yaml",

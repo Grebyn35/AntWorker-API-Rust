@@ -127,6 +127,8 @@ The conversion of a request may read what the handler's state holds of the confi
 ### ARCH-09 Services contain no HTTP types
 `service.rs` doesn't use `axum`, `http`, or request and response types. A domain type that a handler reads from its request isn't one: a job or a test builds it without a request.
 `ranges::Wanted` is such a type: it holds what a download asks of the bytes it serves.
+A service may take `Authorize<P>`, which only a request builds, where the handler hands it over (architecture §6): on a workspace route with a per-action limit, which counts before the service opens the unit of work.
+And on a workspace's upload route, whose service opens the unit of work once the bytes are stored (PLATFORM-073). <!-- part: files -->
 - Why: business rules can be called from jobs and tests without HTTP.
 - Check: `ci: check-layers`.
 
@@ -146,10 +148,11 @@ The job that deletes the objects that no row names opens two for each batch, one
 The job that copies a provider's picture opens two: before its outbound request, a short transaction that writes nothing, which reads whether the account has an avatar, and so whether the job fetches the picture, and then its unit of work, which records the picture once the job has fetched and stored it (ACCOUNTS-030, DATA-21). <!-- part: files -->
 A download that streams bytes it stored, such as an export's documents, after its unit of work commits reads them in short transactions of their own that write nothing, since those bytes never change and the response reports what it committed already (ACCOUNTS-026).
 
-Three records are written outside it, each so that what happens to the operation can't undo it:
+These records are written outside it, each so that what happens to the operation can't undo it:
 - a rate limit's count, which commits before the unit of work opens, so a request refused afterwards still counts (PLATFORM-011)
 - a refused authorization, which the `SecurityEventSink` records in a short transaction of its own, once the operation's has rolled back, and in a second where the first finds that the workspace's log went while the refused request ran (AUDIT-004), so nothing of the refused operation commits while its refusal does (PLATFORM-010)
 - a job's last attempt that failed, which its job records in a unit of work of its own once the attempt's has rolled back, as an export's job makes its export failed (ACCOUNTS-023)
+- the job queue's claim of a job, or of a periodic job's run, the renewal of its lease, its release, and the run's outcome, each one statement that commits at once, outside any transaction, so that a run that its replica stops still counts its attempt, and a run's failure outlives the rollback of its unit of work ([the platform spec](../spec/platform.md#the-job-queue))
 
 Once the unit of work commits, the response reports what it recorded. A unit of work that recorded a security failure (PLATFORM-008) answers with that failure, such as 401 for a failed sign-in, and any other commit answers with success. Work after the commit happens only through jobs and events, so it can't turn a committed change into an error, but for two kinds: a download's reads of the bytes it stored, and the send of an email that holds a secret its job made, which the job sends once it has committed the secret's hash-based message authentication code (HMAC), so no email carries a secret that no row proves, and whose failure fails the attempt, whose retry makes a new secret, in place of the committed one or beside it, as the module's spec says (D128, AUTH-030, AUTH-036, AUTH-050).
 - Why: the whole operation commits or none of it does, and the response always matches what was committed (D1, D36).

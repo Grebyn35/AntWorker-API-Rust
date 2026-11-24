@@ -36,7 +36,8 @@ publish repository commit:
 # release it, sets the app's version to it, commits, and pushes main, with its commits that
 # GitHub's lacks. The run on main that passes with that version releases it. Without a version,
 # it shows the latest release, what has changed since, and the versions that can come next, and
-# changes nothing. docs/operations/release.md describes a release.
+# changes nothing but what it first fetches from GitHub: origin/main, and the tags that the
+# checkout lacks. docs/operations/release.md describes a release.
 [doc("Releases main as a version; without one, shows the next versions")]
 [group('release')]
 release version="":
