@@ -1,5 +1,6 @@
 //! The tests' stand-in provider: the settings of an API that signs in through it, what it gives,
-//! and the requests that sign in through it (the auth spec's "Signing in through a provider").
+//! and the requests that sign in and re-authenticate through it (the auth spec's "Signing in
+//! through a provider").
 
 use platform::telemetry::testing;
 use serde_json::{Value, json};
@@ -9,6 +10,7 @@ use super::{
     api::{Options, Response},
     upstream::Upstream,
     users::SignedIn,
+    with_fields,
 };
 
 /// A verifier of a PKCE challenge, of the 43 characters that RFC 7636 asks at least.
@@ -81,6 +83,17 @@ pub async fn signed_in(api: &Api) -> SignedIn {
     let response = sign_in(api, &grant()).await;
     assert_eq!(response.status, 201, "{}", response.json());
     SignedIn::from(&response)
+}
+
+/// Re-authenticates `user` through the stand-in, with `extra` in the body.
+pub async fn reauthenticate(api: &Api, user: &SignedIn, extra: Value) -> Response {
+    api.post(
+        "/v1/users/me/sessions/current/reauthenticate/provider",
+        &with_fields(grant(), extra),
+    )
+    .bearer(&user.access)
+    .send()
+    .await
 }
 
 /// Whether the request whose answer `response` is logged that it ignored a token's deletion

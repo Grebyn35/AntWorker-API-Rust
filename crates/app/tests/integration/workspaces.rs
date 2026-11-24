@@ -7,6 +7,7 @@ use crate::support::{
     Api,
     api::call,
     events::{self, Event},
+    lengthened,
     lists::{field, pages},
     streams,
     users::{self, SignedIn},
@@ -204,15 +205,16 @@ async fn platform_047_a_search_that_holds_a_control_character_answers_400() {
 async fn platform_047_a_search_is_counted_once_normalized_too() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
-    // U+0958, which NFC writes as two characters, U+0915 U+093C, percent-encoded: 50 of them make
-    // a search of 100 characters once normalized, and 51 one of 102, each within the 100 as given.
-    let search = async |count: usize| {
-        let path = format!("/v1/workspaces?search={}", "%E0%A5%98".repeat(count));
+    // Searches of 100 and 101 characters once normalized, each within the 100 as given.
+    let search = async |chars: usize| {
+        let text: String =
+            url::form_urlencoded::byte_serialize(lengthened(chars).given.as_bytes()).collect();
+        let path = format!("/v1/workspaces?search={text}");
         api.get(&path).bearer(&ada.access).send().await
     };
 
-    let longest = search(50).await;
-    let too_long = search(51).await;
+    let longest = search(100).await;
+    let too_long = search(101).await;
 
     assert_eq!(longest.status, 200, "{}", longest.json());
     assert_eq!(too_long.status, 400, "{}", too_long.json());

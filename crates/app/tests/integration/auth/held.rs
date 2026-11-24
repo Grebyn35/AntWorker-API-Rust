@@ -26,7 +26,7 @@ async fn from_browser(api: &Api, path: &str, body: &Value, cookies: &str) -> Res
 
 /// Signs `email` in with [`PASSWORD`] from a browser at [`WEB`] that holds the cookies
 /// `cookies`.
-async fn sign_in(api: &Api, email: &str, cookies: &str) -> Response {
+pub(super) async fn sign_in(api: &Api, email: &str, cookies: &str) -> Response {
     from_browser(
         api,
         "/v1/sessions",

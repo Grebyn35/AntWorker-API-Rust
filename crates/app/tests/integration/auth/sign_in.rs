@@ -6,7 +6,7 @@ use serde_json::json;
 
 use crate::support::{
     Api, Options, TestDatabase, answer_before_a_lock_wait, execute_on, query_waits_on_a_lock,
-    users::{self, PASSWORD, signing_in},
+    users::{self, PASSWORD, sign_in_from, signing_in},
 };
 
 #[tokio::test]
@@ -424,32 +424,49 @@ async fn auth_005_a_wrong_password_whose_account_a_deletion_takes_before_its_rec
     assert_eq!(answer.json()["code"], "auth.invalid_credentials");
 }
 
-/// Signs `email` in with [`PASSWORD`] from the client address `peer`.
-async fn sign_in_from(api: &Api, peer: &str, email: &str) -> crate::support::api::Response {
-    api.post(
-        "/v1/sessions",
-        &json!({ "email": email, "password": PASSWORD }),
-    )
-    .from(peer)
-    .send()
-    .await
-}
-
 #[tokio::test]
 async fn auth_006_each_email_allows_its_attempts_from_each_address_then_answers_429_before_any_lookup()
  {
     let api = Api::with(Options::default().set("SIGN_IN_ATTEMPTS", 2)).await;
 
-    let first = sign_in_from(&api, "[2001:db8:1:2::1]:50000", "nobody@example.com").await;
-    let second = sign_in_from(&api, "[2001:db8:1:2::2]:50000", "NOBODY@example.com").await;
+    let first = sign_in_from(
+        &api,
+        "[2001:db8:1:2::1]:50000",
+        "nobody@example.com",
+        PASSWORD,
+        None,
+    )
+    .await;
+    let second = sign_in_from(
+        &api,
+        "[2001:db8:1:2::2]:50000",
+        "NOBODY@example.com",
+        PASSWORD,
+        None,
+    )
+    .await;
     let padded = json!({ "email": " nobody@example.com", "password": PASSWORD });
     let third = api
         .post_raw("/v1/sessions", &padded)
         .from("[2001:db8:1:2:ffff::9]:50000")
         .send()
         .await;
-    let other_email = sign_in_from(&api, "[2001:db8:1:2::1]:50000", "someone@example.com").await;
-    let other_address = sign_in_from(&api, "[2001:db8:1:3::1]:50000", "nobody@example.com").await;
+    let other_email = sign_in_from(
+        &api,
+        "[2001:db8:1:2::1]:50000",
+        "someone@example.com",
+        PASSWORD,
+        None,
+    )
+    .await;
+    let other_address = sign_in_from(
+        &api,
+        "[2001:db8:1:3::1]:50000",
+        "nobody@example.com",
+        PASSWORD,
+        None,
+    )
+    .await;
 
     assert_eq!(first.status, 401);
     assert_eq!(second.status, 401);
@@ -477,14 +494,15 @@ async fn auth_006_an_email_allows_its_attempts_from_every_address_together_count
     let mut one = Vec::new();
     for _ in 0..2 {
         one.push(
-            sign_in_from(&api, "192.0.2.1:50000", "ada@example.com")
+            sign_in_from(&api, "192.0.2.1:50000", "ada@example.com", PASSWORD, None)
                 .await
                 .status,
         );
     }
-    let another = sign_in_from(&api, "192.0.2.2:50000", "ada@example.com").await;
-    let third = sign_in_from(&api, "192.0.2.3:50000", "ada@example.com").await;
-    let other_email = sign_in_from(&api, "192.0.2.3:50000", "grace@example.com").await;
+    let another = sign_in_from(&api, "192.0.2.2:50000", "ada@example.com", PASSWORD, None).await;
+    let third = sign_in_from(&api, "192.0.2.3:50000", "ada@example.com", PASSWORD, None).await;
+    let other_email =
+        sign_in_from(&api, "192.0.2.3:50000", "grace@example.com", PASSWORD, None).await;
 
     assert_eq!(one, [201, 429]);
     assert_eq!(another.status, 201);
@@ -511,7 +529,14 @@ async fn auth_006_by_default_an_email_allows_5_attempts_from_an_address_and_50_f
     )
     .await;
 
-    let from_address = sign_in_from(&address, "192.0.2.1:50000", "nobody@example.com").await;
+    let from_address = sign_in_from(
+        &address,
+        "192.0.2.1:50000",
+        "nobody@example.com",
+        PASSWORD,
+        None,
+    )
+    .await;
     // After an attempt from each of 26 addresses, one from a 27th leaves the count of every
     // address 23 attempts, fewer than the 24 that the count of its address leaves.
     for host in 1..=26 {
@@ -519,10 +544,19 @@ async fn auth_006_by_default_an_email_allows_5_attempts_from_an_address_and_50_f
             &every,
             &format!("192.0.2.{host}:50000"),
             "nobody@example.com",
+            PASSWORD,
+            None,
         )
         .await;
     }
-    let from_every = sign_in_from(&every, "192.0.2.27:50000", "nobody@example.com").await;
+    let from_every = sign_in_from(
+        &every,
+        "192.0.2.27:50000",
+        "nobody@example.com",
+        PASSWORD,
+        None,
+    )
+    .await;
 
     // Each answer names the bucket with the fewest attempts left (PLATFORM-056).
     assert_eq!(from_address.status, 401);
@@ -569,7 +603,7 @@ async fn auth_006_an_existing_email_s_attempts_count_too_in_a_window_that_is_a_s
 async fn auth_006_a_sign_in_beyond_its_limit_answers_429_before_it_reads_the_account() {
     let api = Api::with(Options::default().set("SIGN_IN_ATTEMPTS", 1)).await;
     users::register(&api, "ada@example.com").await;
-    let first = sign_in_from(&api, "192.0.2.1:50000", "ada@example.com").await;
+    let first = sign_in_from(&api, "192.0.2.1:50000", "ada@example.com", PASSWORD, None).await;
     assert_eq!(first.status, 201, "{}", first.json());
     let db = api.database();
     // Held against every read of an account.
@@ -577,9 +611,11 @@ async fn auth_006_a_sign_in_beyond_its_limit_answers_429_before_it_reads_the_acc
         .holding("LOCK TABLE users IN ACCESS EXCLUSIVE MODE")
         .await;
 
-    let refused =
-        answer_before_a_lock_wait(db, sign_in_from(&api, "192.0.2.1:50000", "ada@example.com"))
-            .await;
+    let refused = answer_before_a_lock_wait(
+        db,
+        sign_in_from(&api, "192.0.2.1:50000", "ada@example.com", PASSWORD, None),
+    )
+    .await;
 
     execute_on(&mut held, "COMMIT").await;
     assert!(refused.is_some(), "the sign-in waited to read the account");

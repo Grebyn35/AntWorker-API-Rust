@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 use crate::support::{
     Api,
     api::Response,
-    execute_on, lists, queries_wait_on_locks, streams,
+    execute_on, lengthened, lists, queries_wait_on_locks, streams,
     users::{self, PASSWORD, SignedIn, browser_sign_in, browsers_api, cookie, end_others},
     with_fields,
 };
@@ -26,7 +26,7 @@ async fn sign_in_with(api: &Api, fields: Value) -> SignedIn {
 }
 
 /// Ends `user`'s session `id`.
-async fn end(api: &Api, user: &SignedIn, id: &str) -> Response {
+pub(super) async fn end(api: &Api, user: &SignedIn, id: &str) -> Response {
     api.request(http::Method::DELETE, &format!("/v1/users/me/sessions/{id}"))
         .bearer(&user.access)
         .send()
@@ -179,9 +179,8 @@ async fn auth_042_a_device_name_that_the_rule_refuses_answers_400() {
 async fn auth_042_a_device_name_is_counted_once_normalized_too() {
     let api = Api::new().await;
     users::register(&api, "ada@example.com").await;
-    // U+0958, which NFC writes as two characters, U+0915 U+093C: 50 of them make a name of 100
-    // characters once normalized, and 51 one of 102, each within the 100 as given.
-    let (longest, too_long) = ("\u{958}".repeat(50), "\u{958}".repeat(51));
+    // Names of 100 and 101 characters once normalized, each within the 100 as given.
+    let (longest, too_long) = (lengthened(100), lengthened(101));
     let signs_in_as = |device_name: &str| {
         api.post(
             "/v1/sessions",
@@ -190,11 +189,11 @@ async fn auth_042_a_device_name_is_counted_once_normalized_too() {
         .send()
     };
 
-    let kept = signs_in_as(&longest).await;
-    let refused = signs_in_as(&too_long).await;
+    let kept = signs_in_as(&longest.given).await;
+    let refused = signs_in_as(&too_long.given).await;
 
     assert_eq!(kept.status, 201, "{}", kept.json());
-    assert_eq!(kept.json()["device_name"], "\u{915}\u{93c}".repeat(50));
+    assert_eq!(kept.json()["device_name"], longest.normalized.as_str());
     assert_eq!(refused.status, 400, "{}", refused.json());
     assert_eq!(refused.json()["code"], "request.invalid_fields");
     assert_eq!(refused.json()["errors"][0]["field"], "/device_name");
@@ -485,8 +484,7 @@ async fn auth_045_ending_the_other_sessions_needs_a_recent_proof_and_keeps_the_c
     let mut gone = vec![phone.session_id.clone(), expired.session_id.clone()];
     gone.sort();
     assert_eq!(ended_entries(&api, &ada).await, gone);
-    let received: Vec<Value> = signals.received().await;
-    assert_eq!(received.len(), 2);
+    assert_eq!(signals.ended_sessions().await, gone);
     let left = api
         .database()
         .owner_reads(&format!(
@@ -710,15 +708,27 @@ async fn auth_046_a_deletion_of_the_account_publishes_no_session_s_end() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     users::new_session(&api, "ada@example.com").await;
+    // An event of the user's goes with their row, which the deletion deletes in the unit of work
+    // that would publish it (ACCOUNTS-013), so a trigger copies the name of each event published
+    // from now on into a table that nothing deletes from.
+    api.database()
+        .owner_executes(
+            "CREATE TABLE published (name text NOT NULL); \
+             CREATE FUNCTION copy_published() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER \
+             AS $$ BEGIN INSERT INTO published VALUES (NEW.name); RETURN NEW; END $$; \
+             CREATE TRIGGER copy_published AFTER INSERT ON events FOR EACH ROW \
+             EXECUTE FUNCTION copy_published()",
+        )
+        .await;
 
     let deleted = users::delete(&api, &ada).await;
 
     assert_eq!(deleted.status, 204);
-    let events = api
+    let published = api
         .database()
-        .owner_reads("SELECT name FROM events WHERE name LIKE 'session.%'")
+        .owner_reads("SELECT name FROM published WHERE name LIKE 'session.%'")
         .await;
-    assert!(events.is_empty(), "{events:?}");
+    assert!(published.is_empty(), "{published:?}");
 }
 
 #[tokio::test]

@@ -950,15 +950,7 @@ impl Prover {
                     .send()
                     .await
             }
-            Proof::Provider => {
-                api.post(
-                    "/v1/users/me/sessions/current/reauthenticate/provider",
-                    &with_fields(providers::grant(), factor),
-                )
-                .bearer(&self.user.access)
-                .send()
-                .await
-            }
+            Proof::Provider => providers::reauthenticate(api, &self.user, factor).await,
             Proof::Change => {
                 let body = json!({ "current_password": PASSWORD, "password": PASSWORD });
                 api.post("/v1/users/me/password/change", &with_fields(body, factor))

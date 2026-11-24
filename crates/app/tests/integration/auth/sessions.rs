@@ -3,12 +3,13 @@
 
 use serde_json::{Value, json};
 
+use super::listed;
 use crate::support::{
     Api,
     api::Response,
     execute_on,
     providers::{self, gives, grant, identity},
-    queries_wait_on_locks, queries_waiting_on_locks, second_factors,
+    queries_wait_on_locks, queries_waiting_on_locks, second_factors, streams,
     upstream::Upstream,
     users::{self, PASSWORD, WEB, browser_sign_in, browsers_api, cookie, expires},
     workspaces,
@@ -101,14 +102,7 @@ async fn auth_009_a_request_whose_session_ended_while_it_waited_for_a_lock_compl
         Some(json!({ "name": "Engines" })),
     );
     queries_wait_on_locks(db, 1).await;
-    let ended = api
-        .request(
-            http::Method::DELETE,
-            &format!("/v1/users/me/sessions/{}", ada.session_id),
-        )
-        .bearer(&phone.access)
-        .send()
-        .await;
+    let ended = listed::end(&api, &phone, &ada.session_id).await;
     execute_on(&mut held, "ROLLBACK").await;
     let (renamed, body) = rename.await.unwrap();
     let next = api.get("/v1/users/me").bearer(&ada.access).send().await;
@@ -365,46 +359,42 @@ async fn auth_012_a_refresh_without_a_token_answers_the_same_401() {
 }
 
 #[tokio::test]
-async fn auth_013_signing_out_ends_the_session_and_clears_its_cookies() {
+async fn auth_013_signing_out_ends_the_session_and_its_streams_and_clears_its_cookies() {
     // Ending the session that authenticated the request by its ID signs out too (AUTH-044).
     for by_id in [false, true] {
         let api = Api::new().await;
         let ada = users::register(&api, "ada@example.com").await;
+        let phone = users::new_session(&api, "ada@example.com").await;
+        let mut stream = streams::opened(&api, &ada).await;
         let mut signals = api.database().signals().await;
-        let path = if by_id {
-            format!("/v1/users/me/sessions/{}", ada.session_id)
+        let how = if by_id { "by its ID" } else { "current" };
+
+        let response = if by_id {
+            listed::end(&api, &ada, &ada.session_id).await
         } else {
-            "/v1/users/me/sessions/current".to_owned()
+            users::sign_out(&api).bearer(&ada.access).send().await
         };
 
-        let response = api
-            .request(http::Method::DELETE, &path)
-            .bearer(&ada.access)
-            .send()
-            .await;
-
-        assert_eq!(response.status, 204, "{path}");
+        assert_eq!(response.status, 204, "{how}");
         let cleared = response.headers("set-cookie");
         assert!(
             cleared.contains(
                 &"__Host-access_token=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Strict"
             ),
-            "{path}"
+            "{how}"
         );
         assert!(
             cleared.contains(
                 &"__Host-refresh_token=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Strict"
             ),
-            "{path}"
+            "{how}"
         );
         let after = api.get("/v1/users/me").bearer(&ada.access).send().await;
-        assert_eq!(after.status, 401, "{path}");
+        assert_eq!(after.status, 401, "{how}");
         assert_eq!(
-            api.database()
-                .owner_reads("SELECT count(*)::text FROM sessions")
-                .await,
-            ["0"],
-            "{path}: the session is deleted"
+            users::sessions(&api).await,
+            [phone.session_id.as_str()],
+            "{how}: the session is deleted"
         );
         assert_eq!(
             api.database()
@@ -413,12 +403,15 @@ async fn auth_013_signing_out_ends_the_session_and_clears_its_cookies() {
                 )
                 .await,
             std::slice::from_ref(&ada.session_id),
-            "{path}"
+            "{how}"
         );
         let received: Vec<Value> = signals.received().await;
-        assert_eq!(received.len(), 1, "{path}");
-        assert_eq!(received[0]["kind"], "session_ended", "{path}");
-        assert_eq!(received[0]["user_id"], ada.user_id.as_str(), "{path}");
+        assert_eq!(received.len(), 1, "{how}");
+        assert_eq!(received[0]["kind"], "session_ended", "{how}");
+        assert_eq!(received[0]["user_id"], ada.user_id.as_str(), "{how}");
+        assert_eq!(received[0]["session_id"], ada.session_id.as_str(), "{how}");
+        let (_, reason) = stream.closed().await;
+        assert_eq!(reason, "session_ended", "{how}");
     }
 }
 

@@ -8,7 +8,10 @@ use crate::support::{
     Api, TestDatabase,
     api::{self, Options, Response},
     counts,
-    providers::{self, VERIFIER, gives, grant, identity, kept_token_logged, sign_in, signed_in},
+    providers::{
+        self, VERIFIER, gives, grant, identity, kept_token_logged, reauthenticate, sign_in,
+        signed_in,
+    },
     second_factors,
     upstream::Upstream,
     users::{self, SignedIn},
@@ -791,17 +794,6 @@ async fn auth_079_the_provider_s_token_reaches_no_row_and_no_answer() {
         )
         .await;
     assert_eq!(found, ["0"]);
-}
-
-/// Re-authenticates `user` through the stand-in, with `extra` in the body.
-async fn reauthenticate(api: &Api, user: &SignedIn, extra: Value) -> Response {
-    api.post(
-        "/v1/users/me/sessions/current/reauthenticate/provider",
-        &with_fields(grant(), extra),
-    )
-    .bearer(&user.access)
-    .send()
-    .await
 }
 
 #[tokio::test]

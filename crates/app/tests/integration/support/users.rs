@@ -255,6 +255,22 @@ pub async fn sign_in(api: &Api, email: &str, password: &str) -> Response {
     .await
 }
 
+/// Signs `email` in with `password` from the client address `peer`, with `device_token` in the
+/// body when given.
+pub async fn sign_in_from(
+    api: &Api,
+    peer: &str,
+    email: &str,
+    password: &str,
+    device_token: Option<&str>,
+) -> Response {
+    let mut body = json!({ "email": email, "password": password });
+    if let Some(token) = device_token {
+        body["device_token"] = json!(token);
+    }
+    api.post("/v1/sessions", &body).from(peer).send().await
+}
+
 /// A sign-in of `email` with [`PASSWORD`] in a task of its own, which a test holds at a lock or
 /// at its turn at hashing.
 pub fn signing_in(api: &Api, email: &'static str) -> tokio::task::JoinHandle<Response> {

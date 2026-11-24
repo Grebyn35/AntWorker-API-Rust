@@ -226,6 +226,25 @@ async fn auth_023_a_deletion_needs_the_password_proved_within_5_minutes() {
 }
 
 #[tokio::test]
+async fn auth_023_a_proof_of_4_minutes_ago_lets_a_deletion_through_and_one_of_5_minutes_ago_doesn_t()
+ {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    // By the database's clock as it updates each row: the deletion's check reads the clock after,
+    // which puts Grace's proof just past the 5 minutes.
+    users::authenticated_ago(&api, &ada, 4).await;
+    users::authenticated_ago(&api, &grace, 5).await;
+
+    let within = users::delete(&api, &ada).await;
+    let past = users::delete(&api, &grace).await;
+
+    assert_eq!(within.status, 204, "4 minutes ago");
+    assert_eq!(past.status, 403, "5 minutes ago");
+    assert_eq!(past.json()["code"], "request.reauthentication_required");
+}
+
+#[tokio::test]
 async fn auth_023_a_deletion_whose_session_another_request_ended_before_its_check_answers_401() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;

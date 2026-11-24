@@ -25,16 +25,11 @@ fn refused(output: &Output, message: &str, address: &str) {
     operator::refused(output, "end-sessions", message, &[address]);
 }
 
-/// The log, actor, resource type and resource ID of each `session.ended` entry, the actor `-`
-/// when there is none, in order.
+/// Each `session.ended` entry, as [`audit::entries`] reads it, sorted.
 async fn ended_entries(api: &Api) -> Vec<String> {
-    reads(
-        api,
-        "SELECT user_id || ' ' || coalesce(actor_user_id::text, '-') || ' ' || resource_type \
-         || ' ' || coalesce(resource_id::text, '-') FROM audit_entries \
-         WHERE action = 'session.ended' ORDER BY 1",
-    )
-    .await
+    let mut entries = audit::entries(api.database(), "session.ended").await;
+    entries.sort();
+    entries
 }
 
 /// What a `session.ended` entry of `user`'s log reads for `session`, as [`ended_entries`] reads
@@ -308,6 +303,49 @@ async fn auth_094_with_all_the_end_of_a_user_s_sessions_waits_for_their_row() {
         &ending,
         "end-sessions",
         "ended every session of every account: sessions 1, accounts 1",
+        &["example.com"],
+    );
+    assert!(users::sessions(&api).await.is_empty());
+}
+
+#[tokio::test]
+async fn auth_094_with_all_each_user_s_sessions_end_in_a_unit_of_work_of_their_own() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let bob = users::register(&api, "bob@example.com").await;
+    // The run takes the users in the order of their IDs, so it ends the first's sessions, then
+    // waits for the second's row, which a request of theirs that hasn't committed holds.
+    let (first, second) = if ada.user_id < bob.user_id {
+        (&ada, &bob)
+    } else {
+        (&bob, &ada)
+    };
+    let mut request = api
+        .database()
+        .holding(&format!(
+            "SELECT 1 FROM users WHERE id = '{}' FOR NO KEY UPDATE",
+            second.user_id
+        ))
+        .await;
+
+    let ending = tokio::spawn({
+        let api = api.clone();
+        async move { end(&api, &["--all"]).await }
+    });
+    query_waits_on_a_lock(api.database(), "FOR NO KEY UPDATE").await;
+    let while_waiting = (users::sessions(&api).await, ended_entries(&api).await);
+    execute_on(&mut request, "COMMIT").await;
+    let ending = ending.await.unwrap();
+
+    // The first user's end committed before the run came to the second.
+    assert_eq!(
+        while_waiting,
+        (vec![second.session_id.clone()], vec![entry(first, first)])
+    );
+    operator::finished(
+        &ending,
+        "end-sessions",
+        "ended every session of every account: sessions 2, accounts 2",
         &["example.com"],
     );
     assert!(users::sessions(&api).await.is_empty());

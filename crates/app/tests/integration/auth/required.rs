@@ -222,20 +222,13 @@ async fn auth_070_a_sign_in_and_a_re_authentication_through_a_provider_say_wheth
     let registered = providers::sign_in(&api, &grant()).await;
     let signed_in = providers::sign_in(&api, &grant()).await;
     let ada = SignedIn::from(&signed_in);
-    let reauthenticate = |ada: &SignedIn, extra: serde_json::Value| {
-        api.post(
-            "/v1/users/me/sessions/current/reauthenticate/provider",
-            &with_fields(grant(), extra),
-        )
-        .bearer(&ada.access)
-        .send()
-    };
 
     // A re-authentication is a route that verifying an address needs, which the setting serves.
-    let without_app = reauthenticate(&ada, json!({})).await;
+    let without_app = providers::reauthenticate(&api, &ada, json!({})).await;
     let ada = SignedIn::from(&without_app);
     let app = add_app(&api, &ada).await;
-    let with_app = reauthenticate(
+    let with_app = providers::reauthenticate(
+        &api,
         &ada,
         json!({ "second_factor_code": code(&api, &app.secret).await }),
     )
@@ -343,6 +336,8 @@ async fn auth_072_the_subcommand_removes_the_app_and_the_codes_and_ends_every_se
     let api = Api::new().await;
     let address = mailbox::address("ada");
     let ada = users::register(&api, &address).await;
+    // A second session, so that ending only one of them is told from ending every one.
+    users::new_session(&api, &address).await;
     add_app(&api, &ada).await;
     // A sign-in that waits for its second factor.
     second_factors::challenge(&api, &address).await;
@@ -443,20 +438,20 @@ async fn auth_046_the_operator_s_removal_publishes_session_ended_for_each_sessio
     assert_eq!(users::session_events(&api, "session.ended").await, ended);
 }
 
-/// The user of each email job whose payload names `subject`, `-` for no one.
-async fn email_jobs(api: &Api, subject: &str) -> Vec<String> {
+/// The subject of the email that tells an address the operator removed its account's app.
+const REMOVED: &str = "The authenticator app of your AntWorker account was removed";
+
+/// The user of each email job whose payload names the subject `REMOVED`, `-` for no one.
+async fn email_jobs(api: &Api) -> Vec<String> {
     reads(
         api,
         &format!(
             "SELECT coalesce(user_id::text, '-') FROM jobs WHERE kind = 'platform.send_email' \
-             AND payload::text LIKE '%{subject}%'"
+             AND payload::text LIKE '%{REMOVED}%'"
         ),
     )
     .await
 }
-
-/// The subject of the email that tells an address the operator removed its account's app.
-const REMOVED: &str = "The authenticator app of your AntWorker account was removed";
 
 #[tokio::test]
 async fn auth_068_the_operator_s_removal_tells_the_address_that_the_operator_removed_the_app() {
@@ -468,7 +463,7 @@ async fn auth_068_the_operator_s_removal_tells_the_address_that_the_operator_rem
     let removed = remove(&api, &address).await;
 
     assert_eq!(removed.status.code(), Some(0), "{}", printed(&removed));
-    assert_eq!(email_jobs(&api, REMOVED).await.len(), 1);
+    assert_eq!(email_jobs(&api).await.len(), 1);
     api.run_jobs().await;
     let emails = mailbox::to(&address).await;
     let told = emails
@@ -495,7 +490,7 @@ async fn platform_013_the_operator_s_removal_enqueues_its_email_for_the_account_
     let removed = remove(&api, &address).await;
 
     assert_eq!(removed.status.code(), Some(0), "{}", printed(&removed));
-    assert_eq!(email_jobs(&api, REMOVED).await, [ada.user_id]);
+    assert_eq!(email_jobs(&api).await, [ada.user_id]);
 }
 
 #[tokio::test]

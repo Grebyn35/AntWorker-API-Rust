@@ -3,6 +3,7 @@
 
 use serde_json::json;
 
+use super::held;
 use crate::support::{
     Api, Options,
     api::{PEER, Response},
@@ -10,24 +11,8 @@ use crate::support::{
     providers::{self, gives, grant, identity},
     queries_wait_on_locks, second_factors,
     upstream::Upstream,
-    users::{self, PASSWORD, SignedIn, WEB},
+    users::{self, PASSWORD, SignedIn, WEB, sign_in_from},
 };
-
-/// Signs `email` in with `password` from the client address `peer`, with `device_token` in the
-/// body when given.
-async fn sign_in(
-    api: &Api,
-    peer: &str,
-    email: &str,
-    password: &str,
-    device_token: Option<&str>,
-) -> Response {
-    let mut body = json!({ "email": email, "password": password });
-    if let Some(token) = device_token {
-        body["device_token"] = json!(token);
-    }
-    api.post("/v1/sessions", &body).from(peer).send().await
-}
 
 /// The device token in `response`'s body.
 fn device_token(response: &Response) -> String {
@@ -100,8 +85,8 @@ async fn auth_019_a_sign_in_with_a_valid_token_ends_it_and_the_account_s_expired
         ))
         .await;
 
-    let next = sign_in(&api, PEER, "ada@example.com", PASSWORD, Some(&used)).await;
-    let again = sign_in(&api, PEER, "ada@example.com", PASSWORD, Some(&used)).await;
+    let next = sign_in_from(&api, PEER, "ada@example.com", PASSWORD, Some(&used)).await;
+    let again = sign_in_from(&api, PEER, "ada@example.com", PASSWORD, Some(&used)).await;
 
     assert_eq!(next.status, 201);
     assert_eq!(bucket(&next), "sign_in_device");
@@ -132,9 +117,9 @@ async fn auth_006_a_valid_device_token_counts_only_in_its_own_limit() {
         "192.0.2.2:50000",
         "192.0.2.2:50000",
     ] {
-        sign_in(&api, peer, "ada@example.com", "wrong-password-123", None).await;
+        sign_in_from(&api, peer, "ada@example.com", "wrong-password-123", None).await;
     }
-    let attacker = sign_in(
+    let attacker = sign_in_from(
         &api,
         "192.0.2.4:50000",
         "ada@example.com",
@@ -143,7 +128,7 @@ async fn auth_006_a_valid_device_token_counts_only_in_its_own_limit() {
     )
     .await;
 
-    let ada = sign_in(
+    let ada = sign_in_from(
         &api,
         "192.0.2.1:50000",
         "ada@example.com",
@@ -155,7 +140,7 @@ async fn auth_006_a_valid_device_token_counts_only_in_its_own_limit() {
     let mut guesses = Vec::new();
     for _ in 0..3 {
         guesses.push(
-            sign_in(
+            sign_in_from(
                 &api,
                 "192.0.2.3:50000",
                 "ada@example.com",
@@ -203,7 +188,7 @@ async fn auth_019_a_token_got_before_a_change_of_the_address_counts_as_none_for_
     // Another account takes the address that Ada's gave up.
     users::register(&api, &before).await;
 
-    let signed_in = sign_in(&api, PEER, &before, PASSWORD, Some(&token)).await;
+    let signed_in = sign_in_from(&api, PEER, &before, PASSWORD, Some(&token)).await;
 
     assert_eq!(signed_in.status, 201);
     assert_eq!(bucket(&signed_in), "sign_in");
@@ -228,7 +213,7 @@ async fn auth_019_a_sign_in_that_waited_for_a_change_of_the_address_gets_a_token
 
     let signing_in = {
         let (api, before) = (api.clone(), before.clone());
-        tokio::spawn(async move { sign_in(&api, PEER, &before, PASSWORD, None).await })
+        tokio::spawn(async move { sign_in_from(&api, PEER, &before, PASSWORD, None).await })
     };
     queries_wait_on_locks(db, 1).await;
     execute_on(&mut change, "COMMIT").await;
@@ -237,8 +222,8 @@ async fn auth_019_a_sign_in_that_waited_for_a_change_of_the_address_gets_a_token
     assert_eq!(signed_in.status, 201, "{}", signed_in.json());
     let token = device_token(&signed_in);
     users::register(&api, &before).await;
-    let for_before = sign_in(&api, PEER, &before, PASSWORD, Some(&token)).await;
-    let for_after = sign_in(&api, PEER, &after, PASSWORD, Some(&token)).await;
+    let for_before = sign_in_from(&api, PEER, &before, PASSWORD, Some(&token)).await;
+    let for_after = sign_in_from(&api, PEER, &after, PASSWORD, Some(&token)).await;
     assert_eq!(bucket(&for_before), "sign_in");
     assert_eq!(bucket(&for_after), "sign_in_device");
 }
@@ -261,11 +246,13 @@ async fn auth_019_a_token_of_another_email_an_expired_or_an_unknown_one_counts_a
              WHERE token_hash = sha256(convert_to('{ada}', 'UTF8'))"
         ))
         .await;
+    // An unknown token of 64 characters, the most that the field takes.
+    let longest = "x".repeat(64);
 
-    let other_email = sign_in(&api, PEER, "ada@example.com", PASSWORD, Some(&grace)).await;
-    let expired = sign_in(&api, PEER, "ada@example.com", PASSWORD, Some(&ada)).await;
-    let unknown = sign_in(&api, PEER, "ada@example.com", PASSWORD, Some("nonsense")).await;
-    let grace_own = sign_in(&api, PEER, "grace@example.com", PASSWORD, Some(&grace)).await;
+    let other_email = sign_in_from(&api, PEER, "ada@example.com", PASSWORD, Some(&grace)).await;
+    let expired = sign_in_from(&api, PEER, "ada@example.com", PASSWORD, Some(&ada)).await;
+    let unknown = sign_in_from(&api, PEER, "ada@example.com", PASSWORD, Some(&longest)).await;
+    let grace_own = sign_in_from(&api, PEER, "grace@example.com", PASSWORD, Some(&grace)).await;
 
     for (response, what) in [
         (&other_email, "another email's"),
@@ -329,15 +316,7 @@ async fn auth_019_a_browser_s_sign_in_reads_its_device_token_from_its_cookie_whi
         .header("cookie", &cookies)
         .send()
         .await;
-    let signed_in = api
-        .post(
-            "/v1/sessions",
-            &json!({ "email": "ada@example.com", "password": PASSWORD }),
-        )
-        .header("origin", WEB)
-        .header("cookie", &format!("__Host-{name}={token}"))
-        .send()
-        .await;
+    let signed_in = held::sign_in(&api, "ada@example.com", &format!("__Host-{name}={token}")).await;
 
     assert_eq!(signed_out.status, 204);
     assert!(
@@ -417,7 +396,7 @@ async fn auth_019_a_completion_of_a_sign_in_ends_the_token_that_its_sign_in_brou
     let expired = device_token(&users::sign_in(&api, "ada@example.com", PASSWORD).await);
     expire(&api, &expired).await;
     let app = second_factors::add_app(&api, &ada).await;
-    let challenged = sign_in(&api, PEER, "ada@example.com", PASSWORD, Some(&used)).await;
+    let challenged = sign_in_from(&api, PEER, "ada@example.com", PASSWORD, Some(&used)).await;
     assert_eq!(challenged.status, 200, "{}", challenged.json());
     assert!(challenged.json().get("device_token").is_none());
     let challenge = challenged.json()["challenge"].as_str().unwrap().to_owned();
@@ -506,15 +485,7 @@ async fn auth_015_a_browser_keeps_a_device_token_for_each_account_it_signs_in_to
         names.push(name);
     }
 
-    let signed_in = api
-        .post(
-            "/v1/sessions",
-            &json!({ "email": "ada@example.com", "password": PASSWORD }),
-        )
-        .header("origin", WEB)
-        .header("cookie", &jar.join("; "))
-        .send()
-        .await;
+    let signed_in = held::sign_in(&api, "ada@example.com", &jar.join("; ")).await;
 
     assert_ne!(
         names[0], names[1],

@@ -8,7 +8,7 @@ use serde_json::json;
 use crate::support::{
     Api,
     events::{self, Event},
-    execute_on, queries_wait_on_locks, query_waits_on_a_lock, streams,
+    execute_on, lengthened, queries_wait_on_locks, query_waits_on_a_lock, streams,
     users::{self, PASSWORD, SignedIn},
     workspaces,
 };
@@ -203,21 +203,19 @@ async fn accounts_007_a_rename_with_a_stale_etag_answers_412_and_changes_nothing
 async fn accounts_003_a_display_name_is_counted_once_normalized_too() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
-    // U+0958, which NFC writes as two characters, U+0915 U+093C: 50 of them make a name of 100
-    // characters once normalized, and 51 one of 102, each within the 100 as given.
-    let (longest, too_long) = ("\u{958}".repeat(50), "\u{958}".repeat(51));
+    // Names of 100 and 101 characters once normalized, each within the 100 as given.
+    let (longest, too_long) = (lengthened(100), lengthened(101));
 
-    let kept = users::rename(&api, &ada, &longest, None).await;
-    let refused = users::rename(&api, &ada, &too_long, None).await;
+    let kept = users::rename(&api, &ada, &longest.given, None).await;
+    let refused = users::rename(&api, &ada, &too_long.given, None).await;
 
-    let normalized = "\u{915}\u{93c}".repeat(50);
     assert_eq!(kept.status, 200, "{}", kept.json());
-    assert_eq!(kept.json()["name"], normalized.as_str());
+    assert_eq!(kept.json()["name"], longest.normalized.as_str());
     assert_eq!(refused.status, 400, "{}", refused.json());
     assert_eq!(refused.json()["code"], "request.invalid_fields");
     assert_eq!(refused.json()["errors"][0]["field"], "/name");
     assert_eq!(refused.json()["errors"][0]["code"], "too_long");
-    assert_eq!(stored_name(&api, &ada).await, normalized);
+    assert_eq!(stored_name(&api, &ada).await, longest.normalized);
 }
 
 #[tokio::test]

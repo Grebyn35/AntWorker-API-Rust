@@ -823,6 +823,28 @@ pub fn not_unicode() -> OsString {
     }
 }
 
+/// A text that normalizing to Unicode Normalization Form C (NFC) lengthens, which [`lengthened`]
+/// gives.
+pub struct Lengthened {
+    /// The text as a request sends it.
+    pub given: String,
+    /// The text once normalized, as the API keeps it.
+    pub normalized: String,
+}
+
+/// A text of `chars` characters once normalized to NFC, and of `chars.div_ceil(2)` as given:
+/// copies of U+0958, which NFC writes as two characters, U+0915 U+093C, after an `a` when `chars`
+/// is odd. So a bound of N characters, from 1, on a text as given and once normalized, as
+/// `platform::types::one_line` checks one, refuses the text of N + 1 by its count once normalized
+/// alone.
+pub fn lengthened(chars: usize) -> Lengthened {
+    let start = if chars % 2 == 1 { "a" } else { "" };
+    Lengthened {
+        given: format!("{start}{}", "\u{958}".repeat(chars / 2)),
+        normalized: format!("{start}{}", "\u{915}\u{93c}".repeat(chars / 2)),
+    }
+}
+
 /// Runs `sql` through `executor`, such as a unit of work's.
 pub async fn execute_on(executor: &mut PgConnection, sql: &str) {
     execute(executor, sql).await;
