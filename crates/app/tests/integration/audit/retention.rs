@@ -219,7 +219,8 @@ async fn audit_011_a_run_that_meets_an_entry_that_another_transaction_holds_ends
         )
         .await;
 
-    // The run waits for no lock, so it ends while the entry stays held.
+    // The run waits at most a millisecond for the held entry, then ends while the transaction
+    // holds it.
     api.run_periodic(JOB).await;
     let during = ages(&api, "user.renamed").await;
     execute_on(&mut held, "ROLLBACK").await;

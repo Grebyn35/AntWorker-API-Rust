@@ -79,13 +79,8 @@ async fn auth_048_asking_needs_a_recent_proof_then_enqueues_the_code_s_job_and_a
     assert!(jobs(&api).await.is_empty());
 
     users::authenticated_ago(&api, &ada, 4).await;
-    // Spaces around an address are outside its documented format, which `post_raw` sends anyway.
     let typed = format!("  {}  ", new.to_uppercase());
-    let asked = api
-        .post_raw("/v1/users/me/email/change", &json!({ "email": typed }))
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let asked = ask(&api, &ada, &typed).await;
 
     assert_eq!(asked.status, 202);
     assert_eq!(asked.json(), json!({ "email": new }));

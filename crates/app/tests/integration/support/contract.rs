@@ -130,7 +130,9 @@ impl Contract {
     /// operation documents must get the router's `NotFound` or `MethodNotAllowed`, but for a
     /// `GET` or a `HEAD` of a health probe's path, or of the reference's in development, which
     /// the document leaves out, and isn't checked, while another method of those paths must get
-    /// `MethodNotAllowed` (OPS-05, PLATFORM-052).
+    /// `MethodNotAllowed` (OPS-05, PLATFORM-052). A CORS preflight, an `OPTIONS` whose response
+    /// carries `Access-Control-Allow-Methods`, isn't checked either, whatever its path
+    /// (PLATFORM-058).
     pub fn check(
         &self,
         method: &Method,

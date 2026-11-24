@@ -9,7 +9,7 @@ use crate::support::{
     api::Response,
     closed_port, execute_on, mailbox,
     password_reset::{ask, code_sent},
-    queries_wait_on_locks, query_waits_on_a_lock, second_factors,
+    queries_wait_on_locks, query_waits_on_a_lock, second_factors, streams,
     users::{self, SignedIn},
     verification, with_fields,
 };
@@ -484,6 +484,10 @@ async fn auth_037_the_code_resets_the_password_ends_every_session_and_starts_non
     let address = mailbox::address("ada");
     let ada = users::register(&api, &address).await;
     let other = users::new_session(&api, &address).await;
+    let mut open = [
+        streams::opened(&api, &ada).await,
+        streams::opened(&api, &other).await,
+    ];
     ask(&api, &address).await;
     let code = code_sent(&api, &address).await;
     let mut signals = api.database().signals().await;
@@ -500,13 +504,13 @@ async fn auth_037_the_code_resets_the_password_ends_every_session_and_starts_non
         users::sign_in(&api, &address, users::PASSWORD).await.status,
         401
     );
-    let received: Vec<Value> = signals.received().await;
-    assert_eq!(received.len(), 2);
-    assert!(
-        received
-            .iter()
-            .all(|signal| signal["kind"] == "session_ended")
-    );
+    let mut sessions = [ada.session_id.clone(), other.session_id.clone()];
+    sessions.sort();
+    assert_eq!(signals.ended_sessions().await, sessions);
+    for stream in &mut open {
+        let (_, reason) = stream.closed().await;
+        assert_eq!(reason, "session_ended");
+    }
     assert!(
         api.database()
             .owner_reads("SELECT id::text FROM verification_codes")
@@ -1088,14 +1092,7 @@ async fn auth_022_a_change_counts_in_the_bucket_of_the_user_s_password_checks() 
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     for _ in 0..5 {
-        let reauthenticated = api
-            .post(
-                "/v1/users/me/sessions/current/reauthenticate",
-                &json!({ "password": "not-the-password-77" }),
-            )
-            .bearer(&ada.access)
-            .send()
-            .await;
+        let reauthenticated = users::reauthenticate(&api, &ada, "not-the-password-77").await;
         assert_eq!(reauthenticated.status, 403);
     }
 

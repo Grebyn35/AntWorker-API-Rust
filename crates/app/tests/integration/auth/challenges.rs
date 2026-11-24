@@ -11,7 +11,7 @@ use crate::support::{
     api::reads,
     children, execute_on, is_the_request_s, mailbox,
     operator::printed,
-    password_reset,
+    password_reset, providers,
     second_factors::{self, add_app, challenge, code, code_at, complete, forget_steps, other_code},
     users::{self, PASSWORD, WEB},
 };
@@ -300,6 +300,68 @@ async fn auth_059_of_two_completions_of_one_challenge_only_one_starts_a_session(
         reads(&api, "SELECT count(*)::text FROM recovery_codes").await,
         ["9"]
     );
+}
+
+#[tokio::test]
+async fn auth_059_a_completion_starts_the_session_on_the_challenge_s_device_with_its_provider() {
+    let (upstream, api) = providers::standing().await;
+    providers::gives(
+        &upstream,
+        providers::identity("subject-1", "ada@example.com", true),
+    );
+    let ada = providers::signed_in(&api).await;
+    let app = add_app(&api, &ada).await;
+    let mut grant = providers::grant();
+    grant["device_id"] = json!("laptop");
+    grant["device_name"] = json!("Ada's laptop");
+    let challenged = providers::sign_in(&api, &grant).await.json();
+
+    let completed = complete(
+        &api,
+        challenged["challenge"].as_str().unwrap(),
+        json!({ "code": code(&api, &app.secret).await }),
+    )
+    .await;
+
+    assert_eq!(completed.status, 201, "{}", completed.json());
+    let session = completed.json();
+    assert_eq!(session["device_id"], "laptop");
+    assert_eq!(session["device_name"], "Ada's laptop");
+    assert_eq!(session["provider"], "stand_in");
+}
+
+#[tokio::test]
+async fn auth_059_a_browser_s_cookie_carries_the_challenge_and_the_completion_clears_it() {
+    let api = users::browsers_api().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let app = add_app(&api, &ada).await;
+    let challenged = api
+        .post(
+            "/v1/sessions",
+            &json!({ "email": "ada@example.com", "password": PASSWORD }),
+        )
+        .header("origin", WEB)
+        .send()
+        .await;
+    let cookie = users::cookie(&challenged, "sign_in_challenge");
+
+    // The body holds no challenge.
+    let completed = api
+        .post(
+            "/v1/sessions/second-factor",
+            &json!({ "code": code(&api, &app.secret).await }),
+        )
+        .header("origin", WEB)
+        .header("cookie", &format!("__Host-sign_in_challenge={cookie}"))
+        .send()
+        .await;
+
+    assert_eq!(completed.status, 201, "{}", completed.json());
+    let cleared = completed
+        .headers("set-cookie")
+        .into_iter()
+        .any(|set| set.starts_with("__Host-sign_in_challenge=;") && set.contains("Max-Age=0"));
+    assert!(cleared, "{:?}", completed.headers("set-cookie"));
 }
 
 #[tokio::test]
@@ -873,11 +935,14 @@ async fn auth_067_the_hourly_job_deletes_the_setups_and_challenges_that_expired(
 }
 
 #[tokio::test]
-async fn auth_067_a_run_that_meets_a_row_that_a_request_holds_ends_and_the_next_deletes_it() {
+async fn auth_067_a_run_that_meets_a_row_that_a_request_holds_ends_there_and_the_next_deletes_the_rest()
+ {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     add_app(&api, &ada).await;
     let held = challenge(&api, "ada@example.com").await;
+    // Another challenge, which no request holds, and which expires with the first.
+    challenge(&api, "ada@example.com").await;
     api.database()
         .owner_executes("UPDATE sign_in_challenges SET expires_at = now() - interval '1 second'")
         .await;
@@ -890,13 +955,14 @@ async fn auth_067_a_run_that_meets_a_row_that_a_request_holds_ends_and_the_next_
         ))
         .await;
 
-    // The run waits for no lock, so it ends while the row stays held.
+    // The run waits at most a millisecond for the held row, then ends while the request holds
+    // it, rolling its batch back, so the other row stays too.
     api.run_periodic("auth.expire_unfinished").await;
     execute_on(&mut request, "ROLLBACK").await;
     let during = reads(&api, "SELECT count(*)::text FROM sign_in_challenges").await;
     api.run_periodic("auth.expire_unfinished").await;
 
-    assert_eq!(during, ["1"]);
+    assert_eq!(during, ["2"]);
     assert!(
         reads(&api, "SELECT id::text FROM sign_in_challenges")
             .await

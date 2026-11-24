@@ -578,6 +578,21 @@ async fn realtime_006_a_user_holds_at_most_10_streams_on_a_replica() {
 }
 
 #[tokio::test]
+async fn realtime_006_the_10_streams_a_user_holds_on_one_replica_leave_another_replica_s_open() {
+    let api = Api::new().await;
+    let replica = api.instance(Options::default()).await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let mut open = Vec::new();
+    for _ in 0..10 {
+        open.push(streams::connect(&api, &ada.access, None).await);
+    }
+
+    let on_the_replica = streams::open_as(&replica, &ada.access).await;
+
+    assert!(on_the_replica.stream().is_some());
+}
+
+#[tokio::test]
 async fn realtime_002_an_event_that_no_request_published_has_no_trace_id_and_the_stream_s_frames_its_request_s()
  {
     let api = announcements::api().await;
@@ -620,19 +635,21 @@ async fn realtime_003_the_heartbeat_is_a_setting_of_5_to_300_seconds() {
         assert!(refused.contains("STREAM_HEARTBEAT_SECONDS"), "{refused}");
         assert!(refused.contains("5 to 300"), "{refused}");
     }
-    let every = Duration::from_secs(5);
-    let api = Api::with(Options::default().set("STREAM_HEARTBEAT_SECONDS", every.as_secs())).await;
-    let clock = api.clock();
-    let ada = users::register(&api, "ada@example.com").await;
-    let mut stream = streams::connect(&api, &ada.access, None).await;
-    let opened = stream.opened().await;
+    for seconds in [5, 300] {
+        let every = Duration::from_secs(seconds);
+        let api = Api::with(Options::default().set("STREAM_HEARTBEAT_SECONDS", seconds)).await;
+        let clock = api.clock();
+        let ada = users::register(&api, "ada@example.com").await;
+        let mut stream = streams::connect(&api, &ada.access, None).await;
+        let opened = stream.opened().await;
 
-    clock.sleeping(every).await;
-    clock.advance(every);
-    let beat = stream.frame().await.unwrap();
+        clock.sleeping(every).await;
+        clock.advance(every);
+        let beat = stream.frame().await.unwrap();
 
-    assert_eq!(opened.payload()["heartbeat_seconds"], every.as_secs());
-    assert_eq!(beat.event.as_deref(), Some(streams::BEAT));
+        assert_eq!(opened.payload()["heartbeat_seconds"], seconds, "{seconds}");
+        assert_eq!(beat.event.as_deref(), Some(streams::BEAT), "{seconds}");
+    }
 }
 
 #[tokio::test]
