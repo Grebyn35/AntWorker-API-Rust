@@ -1,5 +1,6 @@
 //! The session that a browser holds, which a request from it that starts a session ends (the auth
-//! spec's "A user's sessions", AUTH-096).
+//! spec's "A user's sessions", AUTH-096), and the events that such a request publishes
+//! (AUTH-046).
 
 use serde_json::{Value, json};
 
@@ -194,6 +195,45 @@ async fn auth_096_a_registration_from_a_browser_that_holds_a_session_ends_it() {
     assert_eq!(
         ended_entries(&api).await,
         [format!("{} - {held}", ada.user_id)]
+    );
+}
+
+#[tokio::test]
+async fn auth_046_a_start_in_place_of_the_session_a_browser_holds_publishes_its_end() {
+    let api = users::browsers_api().await;
+    let (ada, first) = in_a_browser(&api, "ada@example.com").await;
+    let held = session_of(&first);
+
+    let signed_in = sign_in(&api, "ada@example.com", &users::cookies(&first)).await;
+    // A registration of another user, from the browser that holds the sign-in's session.
+    let registered = from_browser(
+        &api,
+        "/v1/users",
+        &users::registration("bob@example.com"),
+        &users::cookies(&signed_in),
+    )
+    .await;
+
+    assert_eq!(signed_in.status, 201, "{}", signed_in.json());
+    assert_eq!(registered.status, 201, "{}", registered.json());
+    let ada_id = &ada.user_id;
+    let bob_id = registered.json()["user_id"].as_str().unwrap().to_owned();
+    let mut ended = vec![
+        format!("{ada_id} {held}"),
+        format!("{ada_id} {}", session_of(&signed_in)),
+    ];
+    ended.sort();
+    assert_eq!(users::session_events(&api, "session.ended").await, ended);
+    let mut started = vec![
+        format!("{ada_id} {}", ada.session_id),
+        format!("{ada_id} {held}"),
+        format!("{ada_id} {}", session_of(&signed_in)),
+        format!("{bob_id} {}", session_of(&registered)),
+    ];
+    started.sort();
+    assert_eq!(
+        users::session_events(&api, "session.created").await,
+        started
     );
 }
 

@@ -398,6 +398,41 @@ async fn auth_072_the_subcommand_removes_the_app_and_the_codes_and_ends_every_se
     );
 }
 
+/// The rows of the app, the recovery codes, the sign-in challenges and the sessions that
+/// `filter`, a `WHERE` clause or nothing, keeps, each as its table's name and its ID.
+async fn second_factor_rows(api: &Api, filter: &str) -> Vec<String> {
+    let mut rows = Vec::new();
+    for table in [
+        "totp_factors",
+        "recovery_codes",
+        "sign_in_challenges",
+        "sessions",
+    ] {
+        let sql = format!("SELECT '{table} ' || id FROM {table} {filter} ORDER BY id");
+        rows.extend(reads(api, &sql).await);
+    }
+    rows
+}
+
+#[tokio::test]
+async fn auth_072_the_removal_leaves_another_account_s_app_codes_challenges_and_sessions() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let ada = users::register(&api, &address).await;
+    add_app(&api, &ada).await;
+    let bob = users::register(&api, "bob@example.com").await;
+    add_app(&api, &bob).await;
+    // A sign-in of Bob's that waits for its second factor.
+    second_factors::challenge(&api, "bob@example.com").await;
+    let bobs = second_factor_rows(&api, &format!("WHERE user_id = '{}'", bob.user_id)).await;
+
+    let removed = remove(&api, &address).await;
+
+    assert_eq!(removed.status.code(), Some(0), "{}", printed(&removed));
+    // Ada's are gone, and every one of Bob's stays.
+    assert_eq!(second_factor_rows(&api, "").await, bobs);
+}
+
 #[tokio::test]
 async fn auth_072_the_removal_tells_the_address_and_the_account_signs_in_with_its_password_alone() {
     let api = Api::new().await;

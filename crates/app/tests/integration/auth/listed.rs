@@ -544,6 +544,47 @@ async fn auth_045_two_ends_of_each_other_s_sessions_take_turns_and_the_second_an
 }
 
 #[tokio::test]
+async fn auth_045_two_ends_by_id_of_each_other_s_session_take_turns_and_the_second_answers_401() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let phone = users::new_session(&api, "ada@example.com").await;
+    let db = api.database();
+    // A lock on the phone's session holds Ada's end of it at its delete, once it has its proof.
+    let mut holder = db
+        .holding(&format!(
+            "SELECT 1 FROM sessions WHERE id = '{}' FOR UPDATE",
+            phone.session_id
+        ))
+        .await;
+    let (phone_s, ada_s) = (
+        format!("/v1/users/me/sessions/{}", phone.session_id),
+        format!("/v1/users/me/sessions/{}", ada.session_id),
+    );
+
+    let first = spawn_request(&api, &phone_s, &ada.access, None);
+    queries_wait_on_locks(db, 1).await;
+    let mut second = spawn_request(&api, &ada_s, &phone.access, None);
+    // The phone's end waits for Ada's turn, or, with a lock of the user's row that takes no turn
+    // with Ada's, answers while her end still waits.
+    let answered_first = tokio::select! {
+        () = queries_wait_on_locks(db, 2) => None,
+        answer = &mut second => Some(answer.unwrap()),
+    };
+    execute_on(&mut holder, "COMMIT").await;
+    let first = first.await.unwrap();
+    let second = match answered_first {
+        Some(answer) => answer,
+        None => second.await.unwrap(),
+    };
+
+    assert_eq!(first.0, 204, "{}", first.1);
+    // The phone's turn came once Ada's end had ended its session.
+    assert_eq!(second.0, 401, "{}", second.1);
+    assert_eq!(second.1["code"], "request.unauthenticated");
+    assert_eq!(sessions_of(&api, &ada).await, [ada.session_id.as_str()]);
+}
+
+#[tokio::test]
 async fn auth_045_a_change_of_the_password_takes_its_turn_after_an_end_of_its_session() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;

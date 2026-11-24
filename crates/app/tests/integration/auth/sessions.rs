@@ -236,6 +236,38 @@ async fn auth_010_a_refresh_through_the_cookie_answers_with_new_cookies() {
 }
 
 #[tokio::test]
+async fn auth_010_a_refresh_with_a_token_in_the_body_and_another_in_the_cookie_reads_the_body_s() {
+    let api = browsers_api().await;
+    let browser = browser_sign_in(&api).await;
+    let in_cookie = cookie(&browser, "refresh_token");
+    let phone = users::new_session(&api, "ada@example.com").await;
+
+    let response = api
+        .post(
+            "/v1/sessions/refresh",
+            &json!({ "refresh_token": phone.refresh }),
+        )
+        .header("origin", WEB)
+        .header("cookie", &format!("__Host-refresh_token={in_cookie}"))
+        .send()
+        .await;
+
+    assert_eq!(response.status, 200, "{}", response.json());
+    assert_eq!(response.json()["id"], phone.session_id.as_str());
+    // The cookie's session keeps its refresh token.
+    assert_eq!(
+        api.database()
+            .owner_reads(&format!(
+                "SELECT (refresh_token_hash = sha256(convert_to('{in_cookie}', 'UTF8')))::text \
+                 FROM sessions WHERE id = '{}'",
+                browser.json()["id"].as_str().unwrap()
+            ))
+            .await,
+        ["true"]
+    );
+}
+
+#[tokio::test]
 async fn auth_010_a_refresh_never_slides_the_expiry_past_the_absolute_lifetime() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
@@ -458,6 +490,7 @@ async fn auth_015_a_browser_s_registration_takes_cookies_that_expire_with_their_
     let session = response.json();
     assert!(session.get("access_token").is_none());
     assert!(session.get("refresh_token").is_none());
+    assert!(session.get("device_token").is_none(), "{session}");
     // Postgres writes each expiry as HTTP writes a date, to the second.
     let stored = api
         .database()

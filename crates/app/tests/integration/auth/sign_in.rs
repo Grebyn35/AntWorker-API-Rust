@@ -5,7 +5,9 @@ use platform::telemetry::testing::collector::Collector;
 use serde_json::json;
 
 use crate::support::{
-    Api, Options, TestDatabase, answer_before_a_lock_wait, execute_on, query_waits_on_a_lock,
+    Api, Options, TestDatabase, answer_before_a_lock_wait,
+    api::Response,
+    execute_on, query_waits_on_a_lock,
     users::{self, PASSWORD, sign_in_from, signing_in},
 };
 
@@ -793,6 +795,48 @@ async fn auth_008_concurrent_sign_ins_on_one_device_leave_it_one_session() {
             .owner_reads("SELECT count(*)::text FROM sessions WHERE device_id = 'laptop-1'")
             .await,
         ["1"]
+    );
+}
+
+#[tokio::test]
+async fn auth_008_a_sign_in_on_a_device_ends_its_own_user_s_session_there_and_no_other_user_s() {
+    let api = Api::new().await;
+    users::register(&api, "ada@example.com").await;
+    users::register(&api, "bob@example.com").await;
+    let on_device =
+        |email: &str| json!({ "email": email, "password": PASSWORD, "device_id": "shared-1" });
+    let ada = api
+        .post("/v1/sessions", &on_device("ada@example.com"))
+        .send()
+        .await;
+    assert_eq!(ada.status, 201, "{}", ada.json());
+    let bob = api
+        .post("/v1/sessions", &on_device("bob@example.com"))
+        .send()
+        .await;
+    assert_eq!(bob.status, 201, "{}", bob.json());
+
+    let again = api
+        .post("/v1/sessions", &on_device("bob@example.com"))
+        .send()
+        .await;
+
+    assert_eq!(again.status, 201, "{}", again.json());
+    let id = |response: &Response| response.json()["id"].as_str().unwrap().to_owned();
+    let mut on_the_device = vec![id(&ada), id(&again)];
+    on_the_device.sort();
+    let db = api.database();
+    assert_eq!(
+        db.owner_reads("SELECT id::text FROM sessions WHERE device_id = 'shared-1' ORDER BY 1")
+            .await,
+        on_the_device
+    );
+    assert_eq!(
+        db.owner_reads(
+            "SELECT resource_id::text FROM audit_entries WHERE action = 'session.ended'"
+        )
+        .await,
+        [id(&bob)]
     );
 }
 

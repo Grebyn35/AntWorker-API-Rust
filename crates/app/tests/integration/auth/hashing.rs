@@ -187,6 +187,34 @@ async fn auth_093_a_sign_in_gives_its_turn_up_before_its_writes() {
 }
 
 #[tokio::test]
+async fn auth_093_a_re_authentication_gives_its_turn_up_before_its_writes() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    let busy = every_turn_but_one(&api).await;
+    // Held against the re-authentication's first write, which records the proof in its session's
+    // row, and against none of its reads.
+    let mut held = db
+        .holding("LOCK TABLE sessions IN SHARE ROW EXCLUSIVE MODE")
+        .await;
+
+    let ada_reauthenticating = api.spawn(
+        http::Method::POST,
+        "/v1/users/me/sessions/current/reauthenticate",
+        &ada.access,
+        Some(json!({ "password": PASSWORD })),
+    );
+    queries_wait_on_locks(db, 1).await;
+
+    // The re-authentication has verified the password, and waits to write.
+    another_request_hashes(&api).await;
+    execute_on(&mut held, "COMMIT").await;
+    let (status, body) = ada_reauthenticating.await.unwrap();
+    assert_eq!(status, 200, "{body}");
+    drop(busy);
+}
+
+#[tokio::test]
 async fn auth_093_a_change_of_the_password_gives_its_turn_up_before_its_writes() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;

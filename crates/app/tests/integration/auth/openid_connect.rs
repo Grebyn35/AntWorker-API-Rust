@@ -154,6 +154,28 @@ async fn auth_103_a_token_whose_answer_doesn_t_say_that_it_lapses_answers_503() 
 }
 
 #[tokio::test]
+async fn auth_103_a_token_whose_answer_says_that_it_lapses_in_1_second_is_taken() {
+    let (upstream, api) = named().await;
+    upstream.set(
+        "POST",
+        "/oauth2/token",
+        200,
+        json!({ "access_token": "named-token", "expires_in": 1, "token_type": "Bearer" }),
+    );
+    upstream.set(
+        "GET",
+        "/oauth2/userinfo",
+        200,
+        json!({ "sub": "7", "email": "ada@example.com" }),
+    );
+
+    let response = sign_in(&api).await;
+
+    assert_eq!(response.status, 201, "{}", response.json());
+    assert_eq!(subjects(&api).await, ["https://login.example.com 7"]);
+}
+
+#[tokio::test]
 async fn auth_103_the_same_sub_of_another_issuer_reaches_no_account_of_the_first_s() {
     let (upstream, api) = named().await;
     gives(&upstream, json!({ "sub": "7", "email": "ada@example.com" }));

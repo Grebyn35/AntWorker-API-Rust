@@ -1510,7 +1510,10 @@ async fn auth_015_a_browser_s_sign_in_through_a_provider_takes_its_tokens_in_coo
         .await;
 
     assert_eq!(response.status, 201, "{}", response.json());
-    assert!(response.json().get("access_token").is_none());
+    let session = response.json();
+    for token in ["access_token", "refresh_token", "device_token"] {
+        assert!(session.get(token).is_none(), "{token}: {session}");
+    }
     let cookies = users::cookies(&response);
     assert!(cookies.contains("__Host-access_token="), "{cookies}");
     assert!(cookies.contains("__Host-refresh_token="), "{cookies}");
