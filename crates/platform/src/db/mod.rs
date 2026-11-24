@@ -133,9 +133,9 @@ impl Database {
             .await
     }
 
-    /// Opens a unit of work for a job's run, which only a run's `JobContext` can ask for, as
-    /// only a request's `Client` can ask for a request's. Its queries filter by the context's
-    /// scope (PLATFORM-013), and its audit entries record no client.
+    /// Opens a unit of work for a job's run, from its `JobContext`, which outside the tests only
+    /// the dispatcher and the scheduler build. Its queries filter by the context's scope
+    /// (PLATFORM-013), and its audit entries record no client.
     pub async fn for_job(&self, _context: &JobContext) -> Result<UnitOfWork, Internal> {
         self.unattributed().await
     }
@@ -409,7 +409,10 @@ impl UnitOfWork {
         let result = record
             .result
             .ok_or_else(|| Internal::new("a committed idempotency record has no result"))?;
-        let result = serde_json::from_value(result).map_err(Internal::new)?;
+        // The decoding error's text may quote the result, so the failure names none of it.
+        let result = serde_json::from_value(result).map_err(|_| {
+            Internal::new("a committed idempotency record's result doesn't read as its type")
+        })?;
         idempotency::count(Outcome::Replayed);
         Ok(Claimed::Replay(result))
     }

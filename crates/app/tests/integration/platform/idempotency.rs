@@ -4,7 +4,7 @@
 
 use serde_json::{Value, json};
 
-use platform::{errors::PlatformError, idempotency::Claimed, jobs::JobContext};
+use platform::{errors::PlatformError, idempotency::Claimed, jobs::JobContext, telemetry::testing};
 
 use crate::support::{
     TestDatabase,
@@ -152,6 +152,35 @@ async fn platform_036_a_record_older_than_24_hours_counts_as_absent() {
 
     assert_eq!(again.status, 200);
     assert_eq!(again.json(), json!({ "value": "b", "run": 2 }));
+}
+
+#[tokio::test]
+async fn obs_04_a_stored_result_that_doesn_t_read_as_its_type_fails_and_logs_none_of_it() {
+    let api = fixtures::api().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let body = json!({ "value": "a" });
+    send_keyed(&api, &ada, &body, Some("\"k-1\"")).await;
+    // A string where the result's type reads a number.
+    api.database()
+        .owner_executes(
+            "UPDATE idempotency_records SET result = jsonb_set(result, '{run}', '\"grace@example.com\"')",
+        )
+        .await;
+
+    let retry = send_keyed(&api, &ada, &body, Some("\"k-1\"")).await;
+
+    assert_eq!(retry.status, 500);
+    let lines = testing::logged(retry.trace_id());
+    assert!(
+        lines.iter().any(|line| line["level"] == "ERROR"),
+        "{lines:#?}"
+    );
+    assert!(
+        lines
+            .iter()
+            .all(|line| !line.to_string().contains("grace@example.com")),
+        "{lines:#?}"
+    );
 }
 
 #[tokio::test]

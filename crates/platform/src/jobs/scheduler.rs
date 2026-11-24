@@ -8,8 +8,8 @@ use tracing::{Instrument, field::Empty};
 use uuid::Uuid;
 
 use super::{
-    DURATION, JobContext, JobScope, Outcome, Periodic, count, failed, release_within, renew_every,
-    runs::Runs,
+    DURATION, JobContext, JobScope, Outcome, Periodic, before, count, failed, release_within,
+    renew_every, runs::Runs,
 };
 use crate::{
     clock::SharedClock,
@@ -29,7 +29,8 @@ struct Claim {
 
 /// Runs the periodic jobs as they fall due until `stopping` turns true, then waits for the runs
 /// in flight until `deadline` passes, and releases those it then cancels, through
-/// [`release_within`] (PLATFORM-018).
+/// [`release_within`] (PLATFORM-018). An insert of the schedules, or a claim, that the database
+/// hasn't answered when `deadline` passes is given up then, through [`before`].
 pub(super) async fn schedule(
     periodic: Arc<HashMap<&'static str, Periodic>>,
     database: Database,
@@ -42,7 +43,10 @@ pub(super) async fn schedule(
     let mut runs = Runs::new();
     while !*stopping.borrow() {
         if !added {
-            added = match database.add_schedules(&names).await {
+            let Some(inserted) = before(&deadline, database.add_schedules(&names)).await else {
+                break;
+            };
+            added = match inserted {
                 Ok(()) => true,
                 Err(error) => {
                     tracing::warn!(
@@ -54,7 +58,10 @@ pub(super) async fn schedule(
             };
         }
         if added {
-            match database.claim_schedules(&names).await {
+            let Some(claimed) = before(&deadline, database.claim_schedules(&names)).await else {
+                break;
+            };
+            match claimed {
                 Ok(claimed) => {
                     for schedule in claimed {
                         let Some(job) = periodic.get(schedule.name.as_str()).cloned() else {

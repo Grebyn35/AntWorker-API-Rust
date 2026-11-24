@@ -600,6 +600,32 @@ async fn platform_018_the_jobs_stop_within_2_seconds_of_the_deadline_while_a_rel
 }
 
 #[tokio::test]
+async fn platform_018_a_claim_unanswered_at_the_deadline_is_given_up() {
+    let db = TestDatabase::migrated().await;
+    let database = db.app().await;
+    let (steering, _starts) = Steering::new(&[]);
+    // A lock that every write of `jobs` waits for, the dispatcher's claim among them, which alone
+    // adds one to an attempt.
+    let mut held = db.holding("LOCK TABLE jobs IN SHARE MODE").await;
+    let claim = "attempts = attempts + 1";
+    let clock = Arc::new(TestClock::default());
+    let (stop, running) = start(registry(&database, &steering), &database, &clock);
+    support::query_waits_on_a_lock(&db, claim).await;
+
+    stop.send_replace(true);
+    clock.sleeping(GRACE).await;
+    clock.advance(GRACE);
+    running.await.unwrap();
+    let waiting = support::queries_waiting_on_locks(&db).await;
+    support::execute_on(&mut held, "ROLLBACK").await;
+
+    assert!(
+        waiting.iter().any(|query| query.contains(claim)),
+        "{waiting:?}"
+    );
+}
+
+#[tokio::test]
 async fn platform_019_each_sweep_runs_every_hour() {
     let api = Api::new().await;
 
@@ -849,6 +875,108 @@ async fn platform_018_at_shutdown_a_periodic_run_still_going_at_the_deadline_is_
 }
 
 #[tokio::test]
+async fn platform_018_the_scheduler_stops_within_2_seconds_of_the_deadline_while_a_release_still_waits()
+ {
+    let db = TestDatabase::migrated().await;
+    let database = db.app().await;
+    let mut jobs = Jobs::new(&database, Duration::from_secs(86_400));
+    let (started, mut starts) = mpsc::unbounded_channel();
+    held(
+        &mut jobs,
+        "tests.held",
+        started,
+        &Arc::new(Semaphore::new(0)),
+    );
+    let clock = Arc::new(TestClock::default());
+    let (stop, running) = start(jobs, &database, &clock);
+    starts.recv().await.unwrap();
+    let mut row = db
+        .holding("SELECT 1 FROM job_schedules WHERE name = 'tests.held' FOR UPDATE")
+        .await;
+    let release = "UPDATE job_schedules SET claim_id = NULL";
+
+    stop.send_replace(true);
+    clock.sleeping(GRACE).await;
+    clock.advance(GRACE);
+    support::query_waits_on_a_lock(&db, release).await;
+    clock.advance(RELEASES);
+    running.await.unwrap();
+    let waiting = support::queries_waiting_on_locks(&db).await;
+    support::execute_on(&mut row, "ROLLBACK").await;
+
+    assert!(
+        waiting.iter().any(|query| query.contains(release)),
+        "{waiting:?}"
+    );
+}
+
+#[tokio::test]
+async fn platform_018_an_insert_of_the_schedules_unanswered_at_the_deadline_is_given_up() {
+    let db = TestDatabase::migrated().await;
+    let database = db.app().await;
+    let mut held = db.holding("LOCK TABLE job_schedules IN SHARE MODE").await;
+    let insert = "INSERT INTO job_schedules";
+    let clock = Arc::new(TestClock::default());
+    let jobs = Jobs::new(&database, Duration::from_secs(86_400));
+    let (stop, running) = start(jobs, &database, &clock);
+    support::query_waits_on_a_lock(&db, insert).await;
+
+    stop.send_replace(true);
+    clock.sleeping(GRACE).await;
+    clock.advance(GRACE);
+    running.await.unwrap();
+    let waiting = support::queries_waiting_on_locks(&db).await;
+    support::execute_on(&mut held, "ROLLBACK").await;
+
+    assert!(
+        waiting.iter().any(|query| query.contains(insert)),
+        "{waiting:?}"
+    );
+}
+
+#[tokio::test]
+async fn platform_018_a_claim_of_periodic_jobs_unanswered_at_the_deadline_is_given_up() {
+    let db = TestDatabase::migrated().await;
+    let database = db.app().await;
+    // A first replica inserts the schedules and runs each sweep once, which sets its next run an
+    // hour on.
+    let first = Arc::new(TestClock::default());
+    let (stop_first, running_first) = start(
+        Jobs::new(&database, Duration::from_secs(86_400)),
+        &database,
+        &first,
+    );
+    first.sleeping(TICK).await;
+    stop_first.send_replace(true);
+    running_first.await.unwrap();
+    // A second replica finds nothing due at its first tick, then claims at its next one while a
+    // lock holds every write of the schedules.
+    let clock = Arc::new(TestClock::default());
+    let (stop, running) = start(
+        Jobs::new(&database, Duration::from_secs(86_400)),
+        &database,
+        &clock,
+    );
+    clock.sleeping(TICK).await;
+    let mut held = db.holding("LOCK TABLE job_schedules IN SHARE MODE").await;
+    let claim = "AND next_run_at <= now()";
+    clock.advance(TICK);
+    support::query_waits_on_a_lock(&db, claim).await;
+
+    stop.send_replace(true);
+    clock.sleeping(GRACE).await;
+    clock.advance(GRACE);
+    running.await.unwrap();
+    let waiting = support::queries_waiting_on_locks(&db).await;
+    support::execute_on(&mut held, "ROLLBACK").await;
+
+    assert!(
+        waiting.iter().any(|query| query.contains(claim)),
+        "{waiting:?}"
+    );
+}
+
+#[tokio::test]
 async fn platform_013_a_run_of_scheduled_maintenance_runs_for_no_one() {
     let db = TestDatabase::migrated().await;
     let database = db.app().await;
@@ -891,6 +1019,14 @@ impl Job for Released {
     const KIND: &'static str = "tests.counted_released";
 }
 
+/// A job that only the test of a run whose outcome isn't recorded enqueues.
+#[derive(Serialize, Deserialize)]
+struct Unrecorded;
+
+impl Job for Unrecorded {
+    const KIND: &'static str = "tests.counted_unrecorded";
+}
+
 /// The runs of `kind` that `platform.job_runs` has counted, as each outcome and its count, such
 /// as `succeeded 1`, in the order of those texts.
 fn counted(kind: &str) -> Vec<String> {
@@ -904,7 +1040,7 @@ fn counted(kind: &str) -> Vec<String> {
 }
 
 #[tokio::test]
-async fn platform_020_each_run_is_counted_by_its_kind_and_outcome() {
+async fn platform_020_a_run_whose_outcome_the_queue_records_is_counted_by_its_kind_and_outcome() {
     testing::install(Service {
         name: "api",
         version: "0.0.0",
@@ -1005,6 +1141,29 @@ async fn platform_020_a_run_still_going_at_the_shutdown_s_deadline_is_counted_as
 
     assert_eq!(counted(Released::KIND), ["released 1"]);
     assert_eq!(counted("tests.counted_held"), ["released 1"]);
+}
+
+#[tokio::test]
+async fn platform_020_a_run_whose_outcome_the_queue_doesn_t_record_isn_t_counted() {
+    testing::install(Service {
+        name: "api",
+        version: "0.0.0",
+    })
+    .unwrap();
+    let db = TestDatabase::migrated().await;
+    let database = db.app().await;
+    let mut jobs = Jobs::new(&database, Duration::from_secs(86_400));
+    jobs.queued(|_, Unrecorded| async { Ok::<(), JobFailure>(()) })
+        .unwrap();
+    enqueue(&database, JobScope::for_tests(), &Unrecorded).await;
+    // The statement that records a success deletes the job's row, which `app` then may not do.
+    db.owner_executes("REVOKE DELETE ON jobs FROM app").await;
+
+    let clock: SharedClock = Arc::new(TestClock::default());
+    let runs = jobs.run_pending(&database, &clock).await;
+
+    assert_eq!(runs, 1);
+    assert_eq!(counted(Unrecorded::KIND), Vec::<String>::new());
 }
 
 #[tokio::test]

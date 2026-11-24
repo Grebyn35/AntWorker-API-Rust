@@ -1,5 +1,6 @@
-//! The proofs of a job's run: the scope a job runs for, and the context of a run, which only the
-//! dispatcher and the scheduler build (the platform spec's "The job queue").
+//! The proofs of a job's run: the scope a job runs for, and the context of a run, which the
+//! dispatcher and the scheduler build, and the tests, through `JobContext::for_tests` (the
+//! platform spec's "The job queue").
 
 use uuid::Uuid;
 
@@ -64,8 +65,9 @@ impl JobScope {
     }
 }
 
-/// A run of a job, which only the dispatcher and the scheduler build, so only a run opens a unit
-/// of work through [`Database::for_job`](crate::db::Database::for_job).
+/// A run of a job, which the dispatcher and the scheduler build, so that outside the tests, which
+/// build one of no run through `JobContext::for_tests`, only a run opens a unit of work through
+/// [`Database::for_job`](crate::db::Database::for_job).
 #[derive(Clone, Debug)]
 pub struct JobContext {
     pub(super) id: Uuid,

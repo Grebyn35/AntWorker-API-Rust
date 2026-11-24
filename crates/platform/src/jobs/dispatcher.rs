@@ -8,8 +8,8 @@ use tracing::{Instrument, field::Empty};
 use uuid::Uuid;
 
 use super::{
-    DURATION, JobContext, JobFailure, JobScope, Outcome, Queued, count, failed, release_within,
-    renew_every, runs::Runs,
+    DURATION, JobContext, JobFailure, JobScope, Outcome, Queued, before, count, failed,
+    release_within, renew_every, runs::Runs,
 };
 use crate::{
     clock::SharedClock,
@@ -41,7 +41,8 @@ struct Claim {
 
 /// Claims and runs jobs until `stopping` turns true, then waits for the runs in flight until
 /// `deadline` passes, and releases those it then cancels, through [`release_within`]
-/// (PLATFORM-018).
+/// (PLATFORM-018). A claim that the database hasn't answered when `deadline` passes is given up
+/// then, through [`before`].
 pub(super) async fn dispatch(
     queued: Arc<HashMap<&'static str, Queued>>,
     database: Database,
@@ -54,7 +55,10 @@ pub(super) async fn dispatch(
     while !*stopping.borrow() {
         let room = MOST_RUNNING.saturating_sub(runs.len());
         if room > 0 && !kinds.is_empty() {
-            match database.claim_jobs(&kinds, room).await {
+            let Some(claimed) = before(&deadline, database.claim_jobs(&kinds, room)).await else {
+                break;
+            };
+            match claimed {
                 Ok(claimed) => {
                     for job in claimed {
                         let Some(kind) = queued.get(job.kind.as_str()).cloned() else {

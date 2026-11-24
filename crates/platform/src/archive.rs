@@ -665,8 +665,11 @@ mod tests {
         u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap())
     }
 
-    fn u64_at(bytes: &[u8], at: usize) -> u64 {
-        u64::from_le_bytes(bytes[at..at + 8].try_into().unwrap())
+    /// The first value of the ZIP64 extra field in `header`, a directory's header of an entry
+    /// whose name is one byte: after the header's 46 bytes, the name, and the field's ID and
+    /// length.
+    fn zip64_value(header: &[u8]) -> u64 {
+        u64::from_le_bytes(header[51..59].try_into().unwrap())
     }
 
     /// An entry of `path` whose sizes are `size` and `stored_size`, deflated, of which the
@@ -732,7 +735,7 @@ mod tests {
             );
             assert_eq!(u16_at(directory, 30), if zip64 { 12 } else { 0 }, "{case}");
             if zip64 {
-                assert_eq!(u64_at(directory, 51), field, "{case}");
+                assert_eq!(zip64_value(directory), field, "{case}");
             }
         }
     }
@@ -756,7 +759,7 @@ mod tests {
             assert_eq!(u32_at(second, 42), held, "{offset}");
             assert_eq!(u16_at(second, 30), if zip64 { 12 } else { 0 }, "{offset}");
             if zip64 {
-                assert_eq!(u64_at(second, 51), offset, "{offset}");
+                assert_eq!(zip64_value(second), offset, "{offset}");
             }
         }
     }

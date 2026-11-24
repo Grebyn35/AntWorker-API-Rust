@@ -41,8 +41,9 @@ const RELEASE_WITHIN: Duration = Duration::from_secs(2);
 static RUNS: Counter<2> = Counter::new(
     "platform.job_runs",
     "{run}",
-    "Job runs, by the job's kind and how each ended: succeeded, retried, dead_lettered, failed \
-     for a periodic run, or released at shutdown (PLATFORM-020).",
+    "Job runs whose outcome the job queue's statement recorded, by the job's kind and that \
+     outcome: succeeded, retried, dead_lettered, failed for a periodic run, or released at \
+     shutdown (PLATFORM-020).",
     [names::JOB_KIND, names::JOB_OUTCOME],
 );
 
@@ -213,9 +214,10 @@ impl Jobs {
     }
 
     /// Runs the dispatcher and the scheduler on `database` until `stopping` turns true, then
-    /// the runs in flight until `grace` has passed, and then cancels and releases those still
-    /// going, waiting at most 2 seconds for the releases (PLATFORM-018). `serve` gives
-    /// it the time it gives the requests in flight.
+    /// the runs in flight until `grace` has passed, and then gives up a claim, or the insert of
+    /// the schedules, that the database hasn't answered, and cancels and releases the runs still
+    /// going, waiting at most 2 seconds for the releases (PLATFORM-018). `serve` gives it the
+    /// time it gives the requests in flight.
     pub async fn run(
         self,
         database: Database,
@@ -384,6 +386,23 @@ async fn release_within(clock: &SharedClock, release: impl Future<Output = ()>) 
         () = clock.sleep(RELEASE_WITHIN) => tracing::warn!(
             "stopped waiting for the releases of cancelled jobs after 2 seconds"
         ),
+    }
+}
+
+/// Waits for `statement`, the dispatcher's claim, or the scheduler's insert of the schedules or
+/// its claim, until `deadline` passes, and then drops it and gives `None`, as [`release_within`]
+/// drops the releases, since a statement's own waits bound no database that stops answering
+/// (D226): a claim that the database still carries out leaves the jobs it took to their leases,
+/// as a replica that crashed leaves its claims (PLATFORM-018).
+async fn before<T>(
+    deadline: &watch::Receiver<bool>,
+    statement: impl Future<Output = T>,
+) -> Option<T> {
+    let mut passed = deadline.clone();
+    tokio::select! {
+        done = statement => Some(done),
+        // The deadline's sender drops only once it has passed.
+        _ = passed.wait_for(|passed| *passed) => None,
     }
 }
 
