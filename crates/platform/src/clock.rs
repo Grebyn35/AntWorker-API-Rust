@@ -1,6 +1,6 @@
 //! Time for code that measures or waits (CODE-06). Every read of the time, and every wait for a
 //! time to pass, in the workspace goes through a [`Clock`], so the tests control time (TEST-06),
-//! but for the tests' watch and the reads of the system's time that CODE-06 names.
+//! but for the two waits on the real time and the reads of the system's time that CODE-06 names.
 #![expect(
     clippy::disallowed_types,
     reason = "the system clock is defined here, and only the binary's main.rs uses it (CODE-06)"

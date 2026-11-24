@@ -157,8 +157,7 @@ impl Deployment {
             heavy: AtomicBool::new(false),
         };
         deployment.set(&[]);
-        self.server
-            .copy_to(&deployment.server, &["secrets", "certs"]);
+        self.server.copy_secrets_and_certs_to(&deployment.server);
         // part: files
         // The new server reaches this one's files bucket, so it starts none whose start would give
         // its scanner the signature.

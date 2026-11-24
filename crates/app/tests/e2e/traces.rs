@@ -208,8 +208,8 @@ async fn obs_08_the_trace_id_of_a_4xx_response_leads_to_its_logs_and_its_trace()
 async fn obs_08_the_trace_id_of_a_5xx_response_leads_to_its_logs_and_its_trace() {
     let database = TestDatabase::empty().await;
     let server = serve_with_the_stack(&database, &[]).await;
-    // Every request but the health probes counts in its IP's bucket, so once app can't write the
-    // buckets, a request fails with the internal error, while the replica stays healthy.
+    // A request of `/v1/capabilities` counts in its IP's bucket (PLATFORM-054), so once app can't
+    // write the buckets, it fails with the internal error, while the replica stays healthy.
     database
         .admin_executes("REVOKE INSERT, UPDATE ON rate_limit_buckets FROM app")
         .await;

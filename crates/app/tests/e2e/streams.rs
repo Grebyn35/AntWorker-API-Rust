@@ -42,7 +42,7 @@ struct Seen {
     closed: Vec<String>,
     /// Whether a `stream.opened` said that its replay was truncated.
     truncated: bool,
-    /// Each failure to open or read the stream.
+    /// Each failure to open the stream: a status other than 200, or an error of the request.
     failures: Vec<String>,
 }
 
@@ -161,8 +161,8 @@ impl StreamClient {
 /// sender, or the error that fails the test once [`DELIVERY`] passes without either (TEST-06).
 #[expect(
     clippy::disallowed_methods,
-    reason = "an end-to-end test's wait for the stream ends at a timeout, which fails the test \
-              (TEST-06)"
+    reason = "the test of a deploy with an open stream waits at most a minute for each frame \
+              that it awaits from its client, as CODE-06 admits"
 )]
 fn next_from_the_client<T>(channel: &mpsc::Receiver<T>) -> Result<Option<T>, String> {
     match channel.recv_timeout(DELIVERY) {

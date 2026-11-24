@@ -476,15 +476,10 @@ impl Server {
     }
 
     /// What a service of the deployment's telemetry answers to `url`, such as Tempo's or Loki's
-    /// API, with the request headers `headers`, once its answer holds `text`, asked from the
-    /// network of the deployment's stack every two seconds, under a timeout of three minutes: the
-    /// collector decides on a trace 15 seconds after its first span arrived (OBS-08). Panics with
-    /// the last answer if none holds `text`.
-    pub fn telemetry_once_it_holds(&self, url: &str, headers: &[&str], text: &str) -> String {
-        let headers: String = headers
-            .iter()
-            .map(|header| format!(" --header '{header}'"))
-            .collect();
+    /// API, once its answer holds `text`, asked from the network of the deployment's stack every
+    /// two seconds, under a timeout of three minutes: the collector decides on a trace 15 seconds
+    /// after its first span arrived (OBS-08). Panics with the last answer if none holds `text`.
+    pub fn telemetry_once_it_holds(&self, url: &str, text: &str) -> String {
         let curl = compose(&[
             "--file",
             "../../deploy/tools/compose.yaml",
@@ -496,7 +491,7 @@ impl Server {
             "/root/telemetry-answer.sh",
             &format!(
                 "while :; do\n\
-                 \x20   answer=$(docker run --rm --quiet --network deployment_stack {curl} --silent{headers} '{url}') || true\n\
+                 \x20   answer=$(docker run --rm --quiet --network deployment_stack {curl} --silent '{url}') || true\n\
                  \x20   printf '%s' \"$answer\" > /root/telemetry-answer\n\
                  \x20   case $answer in *\"{text}\"*) exit 0 ;; esac\n\
                  \x20   sleep 2\n\
@@ -533,10 +528,10 @@ impl Server {
         self.container.address(port)
     }
 
-    /// Copies each of `paths`, a file or a directory of the deployment's directory, to the same
+    /// Copies the directories `secrets` and `certs` of the deployment's directory to the same
     /// place on `other`.
-    pub fn copy_to(&self, other: &Server, paths: &[&str]) {
-        for path in paths {
+    pub fn copy_secrets_and_certs_to(&self, other: &Server) {
+        for path in ["secrets", "certs"] {
             let mut from = Command::new("docker")
                 .args([
                     "cp",
@@ -981,8 +976,7 @@ impl Server {
     /// secrets beside its bucket's, then returns the settings of its backup bucket, and the
     /// hour of its daily backup: the one twelve hours after the server's clock now. At that
     /// hour the deployment's backup service takes a backup that no test asked for, which a test
-    /// that lists the bucket's backups while it runs across that hour finds among them, as two
-    /// did across the setting's default, 03:00 UTC (TEST-06).
+    /// that lists the bucket's backups while it runs across that hour finds among them (TEST-06).
     pub fn start_bucket(&self) -> Vec<(String, String)> {
         let address = self.start_buckets();
         let hour = self.shell_ok("echo $(( ($(date -u +%s) / 3600 + 12) % 24 ))");

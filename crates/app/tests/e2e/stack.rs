@@ -606,11 +606,15 @@ fn collector_metrics_read() -> BTreeSet<String> {
     names
 }
 
-/// The collector's metrics that it creates at their first event: a failed send, and a point that
-/// it can't add to a series. A deployment in which neither happened holds no series of them, as a
-/// run of the end-to-end tests showed.
-const AT_FIRST_EVENT: [&str; 4] = [
+/// The collector's metrics that it creates at their first event, of which a deployment holds no
+/// series until that event happens: a failed send.
+// part: client_telemetry
+/// And a point of clients' metrics that it can't add to a series.
+// end part: client_telemetry
+const AT_FIRST_EVENT: &[&str] = &[
+    // part: client_telemetry
     "otelcol_deltatocumulative_datapoints_total",
+    // end part: client_telemetry
     "otelcol_exporter_send_failed_log_records_total",
     "otelcol_exporter_send_failed_metric_points_total",
     "otelcol_exporter_send_failed_spans_total",
@@ -1138,19 +1142,16 @@ async fn obs_08_the_trace_id_of_the_proxy_s_503_leads_to_its_span_and_its_log_li
     let trace = trace_of_a_request_no_replica_answers(&deployment);
     let spans = deployment.server.telemetry_once_it_holds(
         &format!("http://tempo:3200/api/traces/{trace}"),
-        &[],
         "no replica answered",
     );
     let lines = deployment.server.telemetry_once_it_holds(
         &format!(
             "http://loki:3100/loki/api/v1/query_range?query=%7Bservice_name%3D%22caddy%22%7D%20%7C%20trace_id%3D%22{trace}%22"
         ),
-        &[],
         "no replica answered",
     );
     let both = deployment.server.telemetry_once_it_holds(
         &format!("http://tempo:3200/api/traces/{answered}"),
-        &[],
         support::service_name(),
     );
 
@@ -1321,15 +1322,52 @@ async fn obs_08_a_managed_backend_receives_the_proxy_s_span_and_log_line_of_its_
     assert!(telemetry.contains("no replica answered"), "{telemetry}");
 }
 
+/// The `service.version` of each resource of the service `caddy` in `line`, a line of the
+/// stand-in backend's file, whether its spans' or its log records'; `None` for one that names no
+/// version.
+fn proxy_versions(line: &str) -> Vec<Option<String>> {
+    let batch: serde_json::Value = serde_json::from_str(line).expect("a line of OTLP's JSON");
+    let resources = ["resourceSpans", "resourceLogs"]
+        .into_iter()
+        .flat_map(|kind| batch[kind].as_array().into_iter().flatten());
+    let mut versions = Vec::new();
+    for resource in resources {
+        let attribute = |key: &str| {
+            resource["resource"]["attributes"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|attribute| attribute["key"] == key)
+                .and_then(|attribute| attribute["value"]["stringValue"].as_str())
+                .map(str::to_owned)
+        };
+        if attribute("service.name").as_deref() == Some("caddy") {
+            versions.push(attribute("service.version"));
+        }
+    }
+    versions
+}
+
 #[tokio::test]
 async fn obs_02_each_span_and_log_line_of_the_proxy_names_its_service_s_version() {
     let deployment = Deployment::with_a_managed_backend().await;
+    // The version of Caddy that its image names.
+    let version = deployment
+        .server
+        .shell_ok("docker exec deployment-caddy-1 printenv CADDY_VERSION");
 
     let trace = trace_of_a_request_no_replica_answers(&deployment);
     let telemetry = received(&deployment, &trace);
 
-    // `received` returns once a line of spans and one of log records hold the trace.
+    assert!(!version.is_empty());
+    // `received` returns once a line of spans and one of log records hold the trace. Each
+    // version is read up to its first space, since a version holds no space.
     for line in telemetry.lines() {
-        assert!(line.contains("\"service.version\""), "{line}");
+        let versions = proxy_versions(line);
+        assert!(!versions.is_empty(), "{line}");
+        for named in &versions {
+            let first = named.as_deref().and_then(|named| named.split(' ').next());
+            assert_eq!(first, Some(version.as_str()), "{line}");
+        }
     }
 }

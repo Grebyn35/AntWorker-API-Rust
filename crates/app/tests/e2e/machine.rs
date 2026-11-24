@@ -7,6 +7,7 @@
 
 use std::{
     fs::{File, OpenOptions, TryLockError},
+    path::{Path, PathBuf},
     sync::OnceLock,
 };
 
@@ -15,9 +16,9 @@ use crate::{
     images::Pushed,
 };
 
-/// The label of every container that the tests start on the machine in the background, as of each
-/// that the load test starts (crates/xtask/src/load/replica.rs), by which a later run of either
-/// finds what an earlier one left.
+/// The label of each container that `Container::start` starts (docker.rs), as of each that the
+/// load test starts (crates/xtask/src/load/replica.rs), by which a later run of either finds what
+/// an earlier one left.
 pub const LABEL: &str = "image-test-container";
 
 /// Holds the machine for this run, from the first call on: a run that finds another holding it
@@ -26,8 +27,7 @@ pub const LABEL: &str = "image-test-container";
 pub fn claim() {
     static CLAIMED: OnceLock<File> = OnceLock::new();
     CLAIMED.get_or_init(|| {
-        let lock = locked();
-        remove_containers_labelled(LABEL);
+        let lock = hold(&lock_path(), LABEL);
         push_images_under_test();
         remove_images_of_earlier_builds();
         lock
@@ -49,24 +49,26 @@ fn remove_containers_labelled(label: &str) {
     }
 }
 
-/// The file whose lock a run holds the machine by.
-fn lock_path() -> std::path::PathBuf {
+/// The file whose lock a run holds the machine by, in the system's temporary directory, so runs
+/// from different checkouts take turns too, and so does `just load-test`, which holds it as well.
+fn lock_path() -> PathBuf {
     std::env::temp_dir().join("image-tests.lock")
 }
 
-/// The lock that one run holds at a time, on a file in the system's temporary directory, so runs
-/// from different checkouts take turns too, and so does `just load-test`, which holds it as well.
+/// Takes the lock on the file at `path`, which one run holds at a time, then removes every
+/// container that carries `label`, with its anonymous volumes, and returns the lock. `claim` gives
+/// it the run's lock and `LABEL` before the run starts a container, so what it removes is what an
+/// earlier run left.
 #[expect(
     clippy::disallowed_methods,
     reason = "tests may block, each on a runtime of its own (CODE-05)"
 )]
-fn locked() -> File {
-    let path = lock_path();
+fn hold(path: &Path, label: &str) -> File {
     let file = OpenOptions::new()
         .create(true)
         .truncate(false)
         .write(true)
-        .open(&path)
+        .open(path)
         .expect("the lock file in the temporary directory");
     let locked = file.try_lock();
     assert!(
@@ -77,6 +79,7 @@ fn locked() -> File {
         path.display()
     );
     locked.expect("the lock on the machine");
+    remove_containers_labelled(label);
     file
 }
 
@@ -148,16 +151,20 @@ mod tests {
 
     #[test]
     fn ops_21_a_run_removes_the_containers_that_an_earlier_one_left() {
-        // A label of this test's own, so the removal leaves the containers of the tests that run
-        // beside it, which carry `LABEL`; and a container that removes itself once its sleep ends,
-        // should the removal fail.
+        // Once this run holds the machine, a hold such as `claim` takes, through a lock and a
+        // label of this test's own, so it leaves the containers of the tests that run beside it,
+        // which carry `LABEL`. Should the hold leave the container, it goes once its sleep ends,
+        // or with a later run, since it carries `LABEL` too.
         claim();
+        let lock = std::env::temp_dir().join("image-tests-left.lock");
         let label = "image-test-container-left";
         let image = compose(&["config", "--images", "server"]);
         docker(&[
             "run",
             "--detach",
             "--rm",
+            "--label",
+            &format!("{LABEL}=true"),
             "--label",
             label,
             "--entrypoint",
@@ -166,7 +173,7 @@ mod tests {
             "600",
         ]);
 
-        remove_containers_labelled(label);
+        let _held = hold(&lock, label);
 
         let left = docker(&[
             "ps",

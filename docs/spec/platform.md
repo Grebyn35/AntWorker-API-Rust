@@ -371,7 +371,7 @@ A superadmin's route is authorized the same way, by a proof of its own (D62). Th
 ### Rate limits
 
 Three kinds of bucket count requests:
-- the IP limit's bucket, `ip`, which the pipeline counts before authentication, of every request that reaches it but the health probes and a listed origin's preflight
+- the IP limit's bucket, `ip`, which the pipeline counts before authentication, of each request but those that PLATFORM-054 names
   A request whose path is under `/v1/public/`, the prefix of public downloads, of files, avatars and workspaces' pictures ([files spec](files.md#visibility)), counts in the IP limit's bucket `public` instead. <!-- part: files -->
 - the user bucket of every authenticated request, which `Principal` counts once it has verified the session
 - the bucket of a per-action limit, which a module counts through `RateLimits::check`, such as the sign-in email's (AUTH-006)
@@ -596,7 +596,7 @@ The metrics `platform` records are in the catalog, each with the file that decla
 
 ### Clock
 
-`Clock` is a trait with two implementations (ARCH-13): the system clock, and the test clock, which only the `test-support` feature compiles. `now` reads the time, and `sleep` waits. A test clock's `sleep` completes when the test advances the clock to its deadline (TEST-06). Every wait for a time to pass that the workspace's Rust makes but the tests' watch goes through it (CODE-06), the readiness checks and the shutdown delay included.
+`Clock` is a trait with two implementations (ARCH-13): the system clock, and the test clock, which only the `test-support` feature compiles. `now` reads the time, and `sleep` waits. A test clock's `sleep` completes when the test advances the clock to its deadline (TEST-06). Every wait for a time to pass that the workspace's Rust makes goes through it, the readiness checks and the shutdown delay included, but for the two waits on the real time that CODE-06 names.
 
 ### Workers
 

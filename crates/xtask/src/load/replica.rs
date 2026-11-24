@@ -87,9 +87,9 @@ pub(super) fn healthy(root: &Path, id: &str) -> Result<(), String> {
     }
 }
 
-/// The label of each container that the load test starts, as of each that the end-to-end tests
-/// start in the background (crates/app/tests/e2e/machine.rs), by which a later run of either finds
-/// what an earlier one left.
+/// The label of each container that the load test starts, as of each that the end-to-end tests'
+/// `Container::start` starts (crates/app/tests/e2e/docker.rs), by which a later run of either
+/// finds what an earlier one left.
 pub(super) const LABEL: &str = "image-test-container";
 
 /// Holds the machine for the load test, through the lock that a run of the end-to-end tests holds
