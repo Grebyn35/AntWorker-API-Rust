@@ -678,7 +678,7 @@ networks:
   # Caddy, and what it reaches beside the replicas: Grafana, and the collector, which takes its
   # spans.
   edge:
-  # The replicas, the one-shot subcommands, Postgres and its backups.
+  # The replicas, the one-shot subcommands that reach the database, Postgres and its backups.
   data:
   # part: files
   # The replicas and the scanner, which reaches ClamAV's mirrors through it.

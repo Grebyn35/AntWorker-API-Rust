@@ -138,6 +138,8 @@ done
 names=$(yq '.groups[].name' /release/rules.yaml)
 loaded=$(grafana GET /api/convert/prometheus/config/v1/rules --header "X-Grafana-Alerting-Folder-UID: $folder" \
     --header 'Accept: application/json')
+# The loop's standard input is the names, which yq's `docker run --interactive` would read, so
+# the loop's body reads /dev/null in its place.
 # shellcheck disable=SC2016 # yq expands its own variables.
 printf '%s\n' "$loaded" | yq --input-format json --output-format yaml '.[strenv(ALERTS)] // [] | .[].name' |
     while IFS= read -r name; do
@@ -146,7 +148,7 @@ printf '%s\n' "$loaded" | yq --input-format json --output-format yaml '.[strenv(
             NAME=$name
             grafana DELETE "$rules/$(yq --null-input 'strenv(NAME) | @uri')" \
                 --header "X-Grafana-Alerting-Folder-UID: $folder" > /dev/null
-        fi
+        fi < /dev/null
     done
 
 # A deployment may run without a contact point, but not without knowing.

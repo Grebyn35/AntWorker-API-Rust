@@ -73,7 +73,7 @@ recovered() {
 # failed, it starts nothing: the backups would start Postgres on the data that restore left.
 serve_again() {
     if [ "$serving" != yes ]; then return; fi
-    say "starting the API and the backups again, with the database as the restore found it"
+    say "starting ${live:+the API and }the backups again, with the database as the restore found it"
     if [ -n "$live" ]; then
         compose up --detach --wait --quiet-pull --no-deps --scale "api-$live=$replicas" "api-$live"
     fi
@@ -188,7 +188,7 @@ prepare_restore() {
             fail "$unmarked, and started nothing, since Postgres doesn't run the database that the restore found; once the bucket answers, restore again"
         fi
         compose up --detach --wait --quiet-pull backup
-        fail "$unmarked, with the API serving, and started the backups again; once the bucket answers, restore again"
+        fail "$unmarked${live:+, with the API serving}, and started the backups again; once the bucket answers, restore again"
     fi
     say "the bucket keeps the full backup ${set%%_*}, which the restore starts from, until a backup taken after the restore is as old as the retention"
     say "stopping the API's replicas"
@@ -216,7 +216,7 @@ prepare_restore() {
             if [ "$anyway" != yes ]; then
                 say "$failed: $refusal"
                 serve_again
-                fail "refused the restore, and started the API and the backups again"
+                fail "refused the restore, and started ${live:+the API and }the backups again"
             fi
             say "$failed; restoring anyway, as --allow-unarchived asks, so what the bucket lacks of the database stays only in the data that moves aside"
         fi
@@ -352,12 +352,13 @@ restore_data() {
         API_IMAGE_NEW=$live_image compose --profile tasks run --rm --no-deps --quiet-pull migrate
         compose up --detach --wait --quiet-pull --no-deps --scale "api-$live=$replicas" "api-$live"
     fi
-    # Online, as the scheduled backups are, while the replicas serve, so a later restore starts
-    # from the restored database's timeline. Postgres archives what they write meanwhile.
-    say "taking a full backup of the restored database, while the API serves"
+    # Online, as the scheduled backups are, while the replicas, if any started, serve, so a later
+    # restore starts from the restored database's timeline. Postgres archives what they write
+    # meanwhile.
+    say "taking a full backup of the restored database${live:+, while the API serves}"
     if ! full_backup; then
         compose up --detach --wait --quiet-pull backup
-        fail "restored the database${moment:+ as it stood at $moment}${undo:+, which a restore to $undo undoes}, and the API serves, but the full backup after it failed, with the error above; take one with just backup, so a later restore starts from the restored database's timeline"
+        fail "restored the database${moment:+ as it stood at $moment}${undo:+, which a restore to $undo undoes}${live:+, and the API serves}, but the full backup after it failed, with the error above; take one with just backup, so a later restore starts from the restored database's timeline"
     fi
     compose up --detach --wait --quiet-pull backup
     say "restored the database${moment:+ as it stood at $moment}${undo:+; a restore to $undo undoes it}"

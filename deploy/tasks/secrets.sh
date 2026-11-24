@@ -156,7 +156,10 @@ check_secrets() {
         if [ ! -s "$secrets/grafana_admin_password" ]; then
             fail "$secrets/grafana_admin_password is missing: just server-setup asks for it (docs/operations/deploy.md#grafana)"
         fi
-        if [ "$(wc -m < "$secrets/grafana_admin_password")" -lt 15 ]; then
+        # The file's characters before the newlines that end it, if any, which the command
+        # substitution drops, counted in UTF-8 whatever the locale: the bytes but those that
+        # continue a character, from 0x80 to 0xBF.
+        if [ "$(printf '%s' "$(cat "$secrets/grafana_admin_password")" | LC_ALL=C tr -d '\200-\277' | wc -c)" -lt 15 ]; then
             fail "$secrets/grafana_admin_password holds fewer than 15 characters: just server-setup asks for another (docs/operations/deploy.md#grafana)"
         fi
     fi

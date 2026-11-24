@@ -494,10 +494,14 @@ mod tests {
     }
 
     /// What `read_settings`, in deploy/tasks/common.sh, refuses of the settings, which a deploy
-    /// reads before it starts a service. The tests run the script in a POSIX shell, as the server
-    /// does, which Windows doesn't provide, so they compile only on Unix.
+    /// reads before it starts a service, `check_secrets`, in deploy/tasks/secrets.sh, of the
+    /// password of Grafana's administrator, and what a restore, in deploy/tasks/backups.sh, says
+    /// of the API. The tests run the scripts in a POSIX shell, as the server does, which Windows
+    /// doesn't provide, so they compile only on Unix.
     #[cfg(unix)]
     mod settings {
+        use std::process::Output;
+
         use super::*;
 
         /// The settings that `read_settings` requires, with a bundled database and no telemetry.
@@ -534,14 +538,24 @@ mod tests {
             steps: &str,
             settings: &[&str],
         ) -> Option<String> {
+            let output = run_with(variables, steps, settings);
+            (!output.status.success()).then(|| String::from_utf8_lossy(&output.stderr).into_owned())
+        }
+
+        /// What `steps` does, run after common.sh in an environment that holds `PATH` and
+        /// `variables` alone, beside settings.env holding the required settings, then
+        /// `settings`, with the repository's deploy/ as the release's files, as deploy.sh's
+        /// `here`.
+        fn run_with(variables: &[(&str, &str)], steps: &str, settings: &[&str]) -> Output {
             let lines: Vec<&str> = REQUIRED.iter().chain(settings).copied().collect();
-            let output = Command::new("sh")
+            Command::new("sh")
                 .env_clear()
                 .env("PATH", std::env::var_os("PATH").unwrap_or_default())
                 .envs(variables.iter().copied())
                 .args([
                     "-c",
-                    "deployment=$(mktemp -d) && printf '%s\\n' \"$1\" > \"$deployment/settings.env\" \
+                    "here=$4 && deployment=$(mktemp -d) \
+                     && printf '%s\\n' \"$1\" > \"$deployment/settings.env\" \
                      && . \"$2\" && (eval \"$3\"); refused=$?; rm -rf \"$deployment\"; \
                      exit $refused",
                     "sh",
@@ -549,9 +563,9 @@ mod tests {
                 .arg(lines.join("\n"))
                 .arg(root().join("deploy/tasks/common.sh"))
                 .arg(steps)
+                .arg(root().join("deploy"))
                 .output()
-                .unwrap();
-            (!output.status.success()).then(|| String::from_utf8_lossy(&output.stderr).into_owned())
+                .unwrap()
         }
 
         /// Asserts that `read_settings` refuses the setting `name` set to each of `refused`,
@@ -640,6 +654,24 @@ mod tests {
             for (security, refused) in unencrypted.iter().zip(&refusals) {
                 assert!(refused.is_some(), "{security:?}");
             }
+        }
+
+        #[test]
+        fn ops_17_a_deploy_refuses_unencrypted_email_that_the_environment_sets_where_settings_env_sets_no_security()
+         {
+            let remote = [
+                "EMAIL=smtp",
+                "SMTP_HOST=192.0.2.25",
+                "EMAIL_FROM=a@example.com",
+            ];
+
+            let refused = refusal_with(&[("SMTP_SECURITY", "none")], "read_settings", &remote);
+
+            assert!(
+                refused.as_deref().is_some_and(|message| message
+                    .contains("deploy: the environment that this task runs in sets SMTP_SECURITY")),
+                "{refused:?}"
+            );
         }
 
         #[test]
@@ -761,12 +793,18 @@ mod tests {
                 "read_settings",
                 &["SMTP_SECURITY="],
             );
-            // A variable that no line of the file sets, and one whose name only ends as a
-            // line's does.
+            // A variable that a comment of the file names, that no line of it sets and that
+            // compose.yaml doesn't read, and one whose name only ends as a line's does.
             let beside = refusal_with(
-                &[("SMTP_HOST", "192.0.2.25"), ("MY_SMTP_SECURITY", "none")],
+                &[
+                    ("IMAGE_REPOSITORY", "ghcr.io/owner/name"),
+                    ("MY_SMTP_SECURITY", "none"),
+                ],
                 "read_settings",
-                &["SMTP_SECURITY=starttls", "#SMTP_HOST=localhost"],
+                &[
+                    "SMTP_SECURITY=starttls",
+                    "#IMAGE_REPOSITORY=ghcr.io/owner/name",
+                ],
             );
 
             for refused in [set_twice, set_empty] {
@@ -867,6 +905,186 @@ mod tests {
                     "{case}: {refused:?}"
                 );
             }
+        }
+
+        /// What `check_secrets`, in deploy/tasks/secrets.sh, writes to stderr as it refuses the
+        /// secrets that the self-hosted stack needs, with `password` as Grafana's
+        /// administrator's, or `None` when it takes them.
+        fn refusal_of_grafana_password(password: &str) -> Option<String> {
+            let others = [
+                "encryption_keys",
+                "postgres_password",
+                "backup_s3_key",
+                "backup_s3_key_secret",
+                "backup_cipher_pass",
+                // part: files
+                "files_s3_key",
+                "files_s3_key_secret",
+                // end part: files
+            ];
+            let steps = format!(
+                ". \"$here/tasks/secrets.sh\" && read_settings && mkdir \"$deployment/secrets\" \
+                 && for name in {}; do echo x > \"$deployment/secrets/$name\"; done \
+                 && printf '%s' '{password}' > \"$deployment/secrets/grafana_admin_password\" \
+                 && check_secrets",
+                others.join(" ")
+            );
+            refusal_of(
+                &steps,
+                &[
+                    "TELEMETRY=self-hosted",
+                    "GRAFANA_ADDRESS=grafana.example.com",
+                    "GRAFANA_ADMIN_USER=operator",
+                ],
+            )
+        }
+
+        #[test]
+        fn sec_14_a_deploy_refuses_a_grafana_password_of_fewer_than_15_characters_however_many_bytes_they_take()
+         {
+            // 14 and 15 characters of one byte each, and 8 and 15 of two bytes each: 8 take 16
+            // bytes, which a count of bytes would take for 15 characters or more.
+            let refused = ["a".repeat(14), "\u{e9}".repeat(8)];
+            let taken = ["a".repeat(15), "\u{e9}".repeat(15)];
+
+            let refusals = refused
+                .clone()
+                .map(|password| refusal_of_grafana_password(&password));
+            let takes = taken
+                .clone()
+                .map(|password| refusal_of_grafana_password(&password));
+
+            for (password, refusal) in refused.iter().zip(&refusals) {
+                assert!(
+                    refusal.as_deref().is_some_and(|message| {
+                        message.contains("grafana_admin_password holds fewer than 15 characters")
+                    }),
+                    "{password}: {refusal:?}"
+                );
+            }
+            for (password, take) in taken.iter().zip(&takes) {
+                assert_eq!(take, &None, "{password}");
+            }
+        }
+
+        #[test]
+        fn sec_14_a_deploy_counts_no_newline_that_ends_the_file_of_grafana_s_password_among_its_characters()
+         {
+            // 14 characters with one newline, and with two, after them, and 15 with one.
+            let refused = [
+                format!("{}\n", "a".repeat(14)),
+                format!("{}\n\n", "a".repeat(14)),
+            ];
+            let taken = format!("{}\n", "a".repeat(15));
+
+            let refusals = refused
+                .clone()
+                .map(|password| refusal_of_grafana_password(&password));
+            let take = refusal_of_grafana_password(&taken);
+
+            for (password, refusal) in refused.iter().zip(&refusals) {
+                assert!(
+                    refusal.as_deref().is_some_and(|message| {
+                        message.contains("grafana_admin_password holds fewer than 15 characters")
+                    }),
+                    "{password:?}: {refusal:?}"
+                );
+            }
+            assert_eq!(take, None, "{taken:?}");
+        }
+
+        /// What a restore's `step`, a function of deploy/tasks/backups.sh, writes to standard
+        /// output and to standard error, with `live` as the color whose replicas served when the
+        /// restore began, or none, and with `stubs`, shell functions that stand in for Compose's
+        /// and pgBackRest's work.
+        fn restore_output(step: &str, live: &str, stubs: &str) -> (String, String) {
+            let steps = format!(
+                ". \"$here/tasks/backups.sh\" && {stubs} \
+                 && moment= set=20261101-000000F timeline=1 held= undo= anyway=no \
+                 && live={live} live_image=image replicas=2 && {step}"
+            );
+            let output = run_with(&[], &steps, &[]);
+            (
+                String::from_utf8_lossy(&output.stdout).into_owned(),
+                String::from_utf8_lossy(&output.stderr).into_owned(),
+            )
+        }
+
+        #[test]
+        fn ops_15_a_restore_says_that_the_api_serves_during_its_full_backup_only_once_it_started_replicas()
+         {
+            let stubs = "compose() { :; } && recovered() { :; } && confirm_timeline() { :; } \
+                         && full_backup() { return 1; }";
+
+            let (started, started_failure) = restore_output("restore_data", "blue", stubs);
+            let (none, none_failure) = restore_output("restore_data", "", stubs);
+
+            assert!(
+                started.contains(
+                    "deploy: taking a full backup of the restored database, while the API serves\n"
+                ),
+                "{started}"
+            );
+            assert!(
+                started_failure
+                    .contains("deploy: restored the database, and the API serves, but the full"),
+                "{started_failure}"
+            );
+            assert!(
+                none.contains("deploy: taking a full backup of the restored database\n"),
+                "{none}"
+            );
+            assert!(
+                none_failure.contains("deploy: restored the database, but the full"),
+                "{none_failure}"
+            );
+        }
+
+        #[test]
+        fn ops_15_a_restore_that_refuses_says_that_it_started_the_api_again_only_when_a_replica_served()
+         {
+            // Postgres runs the database that the bucket backs up, and the mark of the backup, or
+            // the transaction after it, fails.
+            let stubs = |mark: &str| {
+                format!(
+                    "compose() {{ case \"$*\" in *pg_is_in_recovery*) echo f ;; \
+                     *annotate*) [ {mark} = ok ] ;; *pg_current_xact_id*) return 1 ;; esac; }}"
+                )
+            };
+
+            let (_, unmarked_serving) = restore_output("prepare_restore", "blue", &stubs("fail"));
+            let (_, unmarked_down) = restore_output("prepare_restore", "", &stubs("fail"));
+            let (said_serving, refused_serving) =
+                restore_output("prepare_restore", "blue", &stubs("ok"));
+            let (said_down, refused_down) = restore_output("prepare_restore", "", &stubs("ok"));
+
+            assert!(
+                unmarked_serving.contains(
+                    "before the replicas stopped, with the API serving, and started the backups"
+                ),
+                "{unmarked_serving}"
+            );
+            assert!(
+                unmarked_down.contains("before the replicas stopped, and started the backups"),
+                "{unmarked_down}"
+            );
+            assert!(
+                said_serving.contains("deploy: starting the API and the backups again"),
+                "{said_serving}"
+            );
+            assert!(
+                refused_serving
+                    .contains("deploy: refused the restore, and started the API and the backups"),
+                "{refused_serving}"
+            );
+            assert!(
+                said_down.contains("deploy: starting the backups again"),
+                "{said_down}"
+            );
+            assert!(
+                refused_down.contains("deploy: refused the restore, and started the backups"),
+                "{refused_down}"
+            );
         }
 
         #[test]

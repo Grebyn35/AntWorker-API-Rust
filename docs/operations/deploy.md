@@ -128,7 +128,7 @@ Run it again to change a setting, a secret or the login, signed in as on its fir
 - a comment, whose first character is `#`;
 - `NAME=value`, with a `NAME` of capital letters, digits and underscores that starts with a letter, and a value that is empty, or that starts and ends with no space, also none of those beyond ASCII that Unicode lists as white space, such as the no-break space, starts with no quote, and holds no tab or other control character of ASCII's, no `$` or `\`, and no `#` after a space.
 
-A value is written as it is, without quotes, such as `EMAIL_FROM=AntWorker <noreply@example.com>`. Compose also takes a variable of the environment that it runs in over the file's line of that name, so such a task refuses as well while the environment that it runs in on the server sets a variable that a line of the file sets, and names the variable.
+A value is written as it is, without quotes, such as `EMAIL_FROM=AntWorker <noreply@example.com>`. Compose also takes a variable of the environment that it runs in over the file's line of that name, and where no line sets it, so such a task refuses as well while the environment that it runs in on the server sets a variable that a line of the file sets, or whose name follows a `${` in the release's `compose.yaml`, and names the variable.
 
 ### Checking a server
 
@@ -188,7 +188,7 @@ What a deploy refuses, and what to do:
 | The release doesn't verify | Read the error: the registry login on the server, or a release whose images aren't signed by your repository's CI |
 | A setting is missing or invalid | Set it with `just server-setup`, which asks for it, as `deploy/settings.env.example` describes it |
 | A line of `settings.env` is of another form than [The settings file](#the-settings-file) lists | Write the line in one of those forms, on the server or by typing its value again at `just server-setup` |
-| The environment on the server sets a variable that a line of `settings.env` sets | Take the variable out of the environment of the deployment's user on the server, such as its shell's profile |
+| The environment on the server sets a variable that a line of `settings.env` sets, or another that Compose reads ([The settings file](#the-settings-file)) | Take the variable out of the environment of the deployment's user on the server, such as its shell's profile |
 | A secret that the settings need is missing | Give it with `just server-setup`, which asks for each one |
 | A managed database's URL doesn't set `sslmode=verify-full` | Give the URL again with `just server-setup`, with `sslmode=verify-full` in its query, and `sslrootcert` for a provider whose authority is its own ([above](#setting-up-a-server)) |
 | The connections wouldn't fit | Lower `API_REPLICAS` or `DATABASE_MAX_CONNECTIONS`, or raise `POSTGRES_MAX_CONNECTIONS`, with `just server-setup` ([Scaling](#scaling)) |

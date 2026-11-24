@@ -166,7 +166,7 @@
     },
     {
       "type": "stat",
-      "title": "How much telemetry was lost in the last hour?",
+      "title": "How much telemetry was dropped, refused or not passed on in the last hour?",
       "description": "Spans and log records that the API dropped because they arrived while its queue for them was full, spans, log records and metric data points that the API failed to export, that the collector refused or failed to pass on, and traces that tail sampling dropped before deciding them. The Telemetry pipeline dashboard shows where.",
       "datasource": {
         "type": "prometheus",
