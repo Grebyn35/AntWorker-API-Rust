@@ -45,7 +45,8 @@ pub const HTTP_ROUTE: &str = convention("http.route", otel::HTTP_ROUTE);
 /// The response's status.
 pub const HTTP_RESPONSE_STATUS_CODE: &str =
     convention("http.response.status_code", otel::HTTP_RESPONSE_STATUS_CODE);
-/// The kind of a failure: an error code, such as `request.internal_error`.
+/// The kind of a failure: an error code, such as `request.internal_error`, `_OTHER` for a server
+/// error that names none, or the `snake_case` name of another failure, such as `export_failed`.
 pub const ERROR_TYPE: &str = convention("error.type", otel::ERROR_TYPE);
 /// A failure's cause chain, or a panic's message.
 pub const EXCEPTION_MESSAGE: &str = convention("exception.message", otel::EXCEPTION_MESSAGE);

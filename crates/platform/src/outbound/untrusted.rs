@@ -237,8 +237,9 @@ impl Resolve for PublicAddresses {
 
 /// Whether `address` is a public one: none of the private, loopback, link-local, shared,
 /// documentation, benchmarking, multicast and reserved ranges of the Internet Assigned Numbers
-/// Authority's special-purpose registries. An IPv6 address that carries an IPv4 one is as public
-/// as the address it carries.
+/// Authority's special-purpose registries. An IPv4-mapped address, or one of the prefix of
+/// translated addresses, `64:ff9b::/96`, is as public as the IPv4 address it carries, and a 6to4
+/// or Teredo address is not public, whatever it carries.
 fn public(address: IpAddr) -> bool {
     match address {
         IpAddr::V4(address) => public_v4(address),
@@ -332,6 +333,9 @@ mod tests {
             "2001:db8::1",
             "2001::1",
             "2002:a00:1::1",
+            // 6to4's and Teredo's, each carrying 8.8.8.8.
+            "2002:808:808::1",
+            "2001:0:808:808::f7f7:f7f7",
             "3fff::1",
         ] {
             assert!(!public(address.parse().unwrap()), "{address}");

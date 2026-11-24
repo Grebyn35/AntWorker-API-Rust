@@ -142,6 +142,23 @@ fn auth_007_startup_refuses_an_access_token_that_would_outlive_its_refresh_token
 }
 
 #[test]
+fn auth_006_startup_refuses_a_limit_from_one_address_above_half_the_limit_from_every_address() {
+    let above = Options::default()
+        .set("SIGN_IN_ATTEMPTS", 26)
+        .set("SIGN_IN_EMAIL_ATTEMPTS", 50);
+    let half = Options::default()
+        .set("SIGN_IN_ATTEMPTS", 25)
+        .set("SIGN_IN_EMAIL_ATTEMPTS", 50);
+
+    assert_eq!(
+        api::refusal(&above),
+        "SIGN_IN_ATTEMPTS must be at most half SIGN_IN_EMAIL_ATTEMPTS"
+    );
+    // A limit from one address of half the limit from every address is one startup takes.
+    api::configuration(&half);
+}
+
+#[test]
 fn ops_01_each_number_setting_is_refused_just_outside_its_range() {
     for (name, low, high) in &ranged_settings() {
         for value in [low - 1, high + 1] {

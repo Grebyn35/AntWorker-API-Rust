@@ -29,7 +29,13 @@ pub enum RequestError {
     /// The body is larger than the route's limit (API-08).
     #[error("the body is larger than the route's limit")]
     PayloadTooLarge,
-    /// The request carries no access token, or one no session has (AUTH-009).
+    /// The request carries no access token, or one no session has (AUTH-009), or its session
+    /// stopped lasting, or its account went, while it ran, as when a deletion of the account
+    /// committed (ACCOUNTS-019, PLATFORM-097).
+    // part: files
+    /// Or its signed URL lacks one of its three parameters, carries a signature that doesn't
+    /// match, or names a session that doesn't last (PLATFORM-080).
+    // end part: files
     #[error("the request isn't authenticated")]
     Unauthenticated,
     /// The request's access token has expired (AUTH-009).
@@ -58,6 +64,9 @@ pub enum RequestError {
     OriginNotAllowed,
     /// A member lacks the route's permission, or acts on a member of equal or higher rank
     /// (ACCESS-003, ACCESS-004).
+    // part: superadmins
+    /// A caller who is no superadmin gets it on a superadmin's route (SUPERADMINS-004).
+    // end part: superadmins
     #[error("the caller's role doesn't allow the request")]
     PermissionDenied,
     /// The caller's session hasn't proved who its user is within the last 5 minutes, which the

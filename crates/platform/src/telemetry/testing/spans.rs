@@ -33,9 +33,13 @@ impl OpenSpans {
         Dispatch::new(tracing_subscriber::registry().with(self.clone()))
     }
 
-    /// Whether a span named `name` is open.
-    pub fn is_open(&self, name: &str) -> bool {
-        self.0.lock().held().iter().any(|(_, open)| *open == name)
+    /// Whether a unit of work's span, `transaction`, is open.
+    pub fn transaction_is_open(&self) -> bool {
+        self.0
+            .lock()
+            .held()
+            .iter()
+            .any(|(_, open)| *open == "transaction")
     }
 }
 

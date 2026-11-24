@@ -7,7 +7,7 @@ use std::{io, sync::Arc, time::Duration};
 
 use futures_util::future::{Either, select};
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::{AsyncRead, AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
 };
 use tracing::Instrument;
@@ -190,12 +190,14 @@ async fn send(stream: &mut TcpStream, bytes: &[u8]) -> io::Result<()> {
 }
 
 /// clamd's answer, up to its zero byte, or to the end of the connection, and at most
-/// `ANSWER_BYTES`.
-async fn read_answer(stream: &mut TcpStream) -> io::Result<Vec<u8>> {
+/// `ANSWER_BYTES`, which is also the most it reads of the connection.
+async fn read_answer(stream: &mut (impl AsyncRead + Unpin)) -> io::Result<Vec<u8>> {
     let mut answer = Vec::new();
     let mut buffer = [0_u8; 512];
     while answer.len() < ANSWER_BYTES {
-        let read = stream.read(&mut buffer).await?;
+        let room = buffer.len().min(ANSWER_BYTES - answer.len());
+        let window = buffer.get_mut(..room).unwrap_or_default();
+        let read = stream.read(window).await?;
         let Some(read) = buffer.get(..read).filter(|read| !read.is_empty()) else {
             break;
         };
@@ -205,7 +207,6 @@ async fn read_answer(stream: &mut TcpStream) -> io::Result<Vec<u8>> {
         }
         answer.extend_from_slice(read);
     }
-    answer.truncate(ANSWER_BYTES);
     Ok(answer)
 }
 
@@ -270,5 +271,18 @@ mod tests {
             Err(ScanError::Failed(_))
         ));
         assert!(matches!(verdict(b"PONG"), Err(ScanError::Failed(_))));
+    }
+
+    #[tokio::test]
+    async fn platform_079_the_client_reads_at_most_4_kib_of_clamd_s_answer() {
+        // 4,000 bytes, then a read that holds 300 more and the zero byte, past 4 KiB.
+        let (first, second) = ([b'x'; 4_000], [[b'x'; 300].as_slice(), &[0]].concat());
+        let mut connection = first.as_slice().chain(second.as_slice());
+
+        let answer = read_answer(&mut connection).await.unwrap();
+
+        assert_eq!(answer.len(), 4_096);
+        let (_, unread) = connection.into_inner();
+        assert_eq!(unread.len(), 301 - 96, "it reads at most 4 KiB");
     }
 }

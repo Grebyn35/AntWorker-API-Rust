@@ -118,27 +118,25 @@ async fn auth_019_a_sign_in_with_a_valid_token_ends_it_and_the_account_s_expired
 async fn auth_006_a_valid_device_token_counts_only_in_its_own_limit() {
     let options = Options::default()
         .set("SIGN_IN_ATTEMPTS", 2)
-        .set("SIGN_IN_EMAIL_ATTEMPTS", 2);
+        .set("SIGN_IN_EMAIL_ATTEMPTS", 4);
     let api = Api::with(options).await;
     let registered = api
         .post("/v1/users", &users::registration("ada@example.com"))
         .send()
         .await;
     let token = device_token(&registered);
-    // An attacker at Ada's own address fills that address's count and the email's.
-    for _ in 0..2 {
-        sign_in(
-            &api,
-            "192.0.2.1:50000",
-            "ada@example.com",
-            "wrong-password-123",
-            None,
-        )
-        .await;
+    // An attacker fills the count of Ada's own address, then the email's from another.
+    for peer in [
+        "192.0.2.1:50000",
+        "192.0.2.1:50000",
+        "192.0.2.2:50000",
+        "192.0.2.2:50000",
+    ] {
+        sign_in(&api, peer, "ada@example.com", "wrong-password-123", None).await;
     }
     let attacker = sign_in(
         &api,
-        "192.0.2.2:50000",
+        "192.0.2.4:50000",
         "ada@example.com",
         "wrong-password-123",
         None,

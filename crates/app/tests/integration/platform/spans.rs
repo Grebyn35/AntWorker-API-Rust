@@ -223,13 +223,13 @@ async fn platform_104_a_unit_of_work_s_span_lasts_until_it_has_committed() {
         }
     });
     query_waits_on_a_lock(&db, "pg_advisory_xact_lock").await;
-    let while_it_commits = spans.is_open("transaction");
+    let while_it_commits = spans.transaction_is_open();
     execute_on(&mut held, "COMMIT").await;
     let committed = committing.await.unwrap();
 
     assert!(committed.is_ok(), "{committed:?}");
     assert!(while_it_commits);
-    assert!(!spans.is_open("transaction"));
+    assert!(!spans.transaction_is_open());
 }
 
 #[tokio::test]
@@ -242,9 +242,9 @@ async fn platform_104_a_unit_of_work_s_span_lasts_until_it_is_dropped() {
         let mut uow = database.for_job(&JobContext::for_tests()).await.unwrap();
         // A statement of the unit of work's own.
         let ran = uow.wait_for_locks_at_most(Duration::from_secs(1)).await;
-        let while_it_lasts = spans.is_open("transaction");
+        let while_it_lasts = spans.transaction_is_open();
         drop(uow);
-        (ran, while_it_lasts, spans.is_open("transaction"))
+        (ran, while_it_lasts, spans.transaction_is_open())
     })
     .await;
 

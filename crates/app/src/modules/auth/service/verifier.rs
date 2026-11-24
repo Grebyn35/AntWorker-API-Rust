@@ -100,7 +100,8 @@ impl Auth {
     /// What a verified session proves: `principal`, and whether its account must still prove its
     /// email address or set up a second factor, which the account's rows say as `uow` reads them,
     /// so a proof or an app counts from the next request on (AUTH-025, AUTH-070). An account that
-    /// is gone proves none.
+    /// a deletion took since its session was read proves none with email on, when `required`
+    /// finds it gone, and with email off its session proves its principal.
     async fn verified(
         &self,
         uow: &mut UnitOfWork,

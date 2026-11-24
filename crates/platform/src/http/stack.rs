@@ -306,9 +306,9 @@ struct PanicLogged;
 /// Writes one `INFO` line when the request completes, and before it the `ERROR` line of a 5xx
 /// with its cause chain, unless the 5xx answers a panic, or says that the deployment turned the
 /// route's feature off, which is no failure (PLATFORM-044, OPS-04). It records the request's
-/// duration, and gives a 5xx's error code to the metric and the request's span as `error.type`
-/// (PLATFORM-067). A request that ends before any response gets its line and its duration from
-/// [`Completion`].
+/// duration, and gives a 5xx's error code, or `_OTHER` for one without, to the metric and the
+/// request's span as `error.type` (PLATFORM-067). A request that ends before any response gets
+/// its line and its duration from [`Completion`].
 async fn log(State(clock): State<SharedClock>, request: Request, next: Next) -> Response {
     let route = request
         .extensions()

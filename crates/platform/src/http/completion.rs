@@ -67,7 +67,7 @@ impl Completion {
     }
 
     /// Writes the line, with the response's status, and records the duration, with the status
-    /// and `error_type`, a 5xx's error code (PLATFORM-067).
+    /// and `error_type`, a 5xx's error code, or `_OTHER` for one without (PLATFORM-067).
     pub(super) fn write(mut self, status: StatusCode, error_type: Option<&'static str>) {
         self.end(Some(status.as_u16()), error_type);
     }

@@ -433,14 +433,14 @@ async fn auth_006_each_email_allows_its_attempts_from_each_address_then_answers_
 async fn auth_006_an_email_allows_its_attempts_from_every_address_together_counting_only_those_each_address_lets_through()
  {
     let options = Options::default()
-        .set("SIGN_IN_ATTEMPTS", 2)
-        .set("SIGN_IN_EMAIL_ATTEMPTS", 3);
+        .set("SIGN_IN_ATTEMPTS", 1)
+        .set("SIGN_IN_EMAIL_ATTEMPTS", 2);
     let api = Api::with(options).await;
     users::register(&api, "ada@example.com").await;
 
-    // The third from one address is that address's refusal, which the email's count leaves out.
+    // The second from one address is that address's refusal, which the email's count leaves out.
     let mut one = Vec::new();
-    for _ in 0..3 {
+    for _ in 0..2 {
         one.push(
             sign_in_from(&api, "192.0.2.1:50000", "ada@example.com")
                 .await
@@ -451,14 +451,14 @@ async fn auth_006_an_email_allows_its_attempts_from_every_address_together_count
     let third = sign_in_from(&api, "192.0.2.3:50000", "ada@example.com").await;
     let other_email = sign_in_from(&api, "192.0.2.3:50000", "grace@example.com").await;
 
-    assert_eq!(one, [201, 201, 429]);
+    assert_eq!(one, [201, 429]);
     assert_eq!(another.status, 201);
     assert_eq!(third.status, 429);
     assert_eq!(third.json()["code"], "request.rate_limited");
     assert!(
         third
             .header("ratelimit-policy")
-            .starts_with("\"sign_in_email\";q=3;w=900")
+            .starts_with("\"sign_in_email\";q=2;w=900")
     );
     assert_eq!(other_email.status, 401);
 }
@@ -466,12 +466,28 @@ async fn auth_006_an_email_allows_its_attempts_from_every_address_together_count
 #[tokio::test]
 async fn auth_006_by_default_an_email_allows_5_attempts_from_an_address_and_50_from_all_together() {
     // An empty setting counts as unset (OPS-01), so each API reads the default of one of the two
-    // limits, which the test support otherwise raises.
+    // limits, which the test support otherwise raises. Beside the default from every address,
+    // the limit from one address is 25, the most that startup takes with it (AUTH-006).
     let address = Api::with(Options::default().set("SIGN_IN_ATTEMPTS", "")).await;
-    let every = Api::with(Options::default().set("SIGN_IN_EMAIL_ATTEMPTS", "")).await;
+    let every = Api::with(
+        Options::default()
+            .set("SIGN_IN_EMAIL_ATTEMPTS", "")
+            .set("SIGN_IN_ATTEMPTS", 25),
+    )
+    .await;
 
     let from_address = sign_in_from(&address, "192.0.2.1:50000", "nobody@example.com").await;
-    let from_every = sign_in_from(&every, "192.0.2.1:50000", "nobody@example.com").await;
+    // After an attempt from each of 26 addresses, one from a 27th leaves the count of every
+    // address 23 attempts, fewer than the 24 that the count of its address leaves.
+    for host in 1..=26 {
+        sign_in_from(
+            &every,
+            &format!("192.0.2.{host}:50000"),
+            "nobody@example.com",
+        )
+        .await;
+    }
+    let from_every = sign_in_from(&every, "192.0.2.27:50000", "nobody@example.com").await;
 
     // Each answer names the bucket with the fewest attempts left (PLATFORM-056).
     assert_eq!(from_address.status, 401);

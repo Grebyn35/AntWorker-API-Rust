@@ -222,8 +222,15 @@ mod tests {
     }
 
     #[test]
+    fn platform_086_a_ring_takes_the_version_32767() {
+        let ring = Keyring::parse(&format!("1:{},32767:{}", key(1), key(2)), None).unwrap();
+
+        assert_eq!(ring.current(), 32_767);
+    }
+
+    #[test]
     fn platform_086_a_ring_refuses_what_isn_t_versions_and_keys_of_32_bytes() {
-        let short = STANDARD.encode([1; 31]);
+        let (short, long) = (STANDARD.encode([1; 31]), STANDARD.encode([1; 33]));
         for refused in [
             String::new(),
             key(1),
@@ -231,6 +238,7 @@ mod tests {
             format!("-1:{}", key(1)),
             format!("32768:{}", key(1)),
             format!("1:{short}"),
+            format!("1:{long}"),
             format!("1:{},1:{}", key(1), key(2)),
             format!("1:{},", key(1)),
             "1:not base64".to_owned(),

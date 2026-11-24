@@ -18,8 +18,6 @@ pub(super) enum Problem {
     Invalid(&'static str),
     #[error("must be a whole number from {0} to {1}")]
     OutOfRange(u32, u32),
-    #[error("must be at most {0}")]
-    AtMost(&'static str),
     #[error("names a file that can't be read")]
     UnreadableFile,
     #[error("must be valid Unicode")]
@@ -46,8 +44,8 @@ impl ConfigError {
         Self::new(setting, Problem::Missing)
     }
 
-    /// The refusal of the setting `setting`, which a module reads itself, that must be what
-    /// `expected` says, such as `a comma-separated list of redirect URIs`.
+    /// The refusal of the setting `setting`, which code outside `platform` reads itself, that must
+    /// be what `expected` says, such as `a comma-separated list of redirect URIs`.
     #[must_use]
     pub fn invalid(setting: &str, expected: &'static str) -> Self {
         Self::new(setting, Problem::Invalid(expected))

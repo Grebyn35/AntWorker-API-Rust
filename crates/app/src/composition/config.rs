@@ -49,6 +49,51 @@ const SIGN_IN_EMAIL_BUCKET: &str = "sign_in_email";
 /// The name of the bucket of the sign-in limit of a device token (AUTH-006).
 const SIGN_IN_DEVICE_BUCKET: &str = "sign_in_device";
 
+/// The sign-in limits of an email from one client address, of an email from every address, and
+/// of a device token, from `settings`, in that order. Startup refuses a `SIGN_IN_ATTEMPTS` above
+/// half `SIGN_IN_EMAIL_ATTEMPTS`, so that no one address fills the count of every address
+/// (AUTH-006).
+fn sign_in_limits<E, F>(settings: &Settings<E, F>) -> Result<[Bucket; 3], ConfigError>
+where
+    E: Fn(&str) -> Option<OsString>,
+    F: Fn(&Path) -> io::Result<String>,
+{
+    let attempts = settings.number("SIGN_IN_ATTEMPTS", 5, 1..=1_000)?;
+    let email_attempts = settings.number("SIGN_IN_EMAIL_ATTEMPTS", 50, 1..=100_000)?;
+    if attempts.saturating_mul(2) > email_attempts {
+        return Err(ConfigError::invalid(
+            "SIGN_IN_ATTEMPTS",
+            "at most half SIGN_IN_EMAIL_ATTEMPTS",
+        ));
+    }
+    let window = settings.duration("SIGN_IN_WINDOW_SECONDS", 900, 1..=86_400)?;
+    let bucket = |name: &'static str, limit: u32| Bucket {
+        name,
+        limit,
+        window,
+    };
+    Ok([
+        bucket(SIGN_IN_BUCKET, attempts),
+        bucket(SIGN_IN_EMAIL_BUCKET, email_attempts),
+        bucket(SIGN_IN_DEVICE_BUCKET, attempts),
+    ])
+}
+
+/// Whether every account must have a second factor, from `SECOND_FACTOR_REQUIRED`, `true` or
+/// `false`, and `false` when it is unset (AUTH-070).
+fn second_factor_required<E, F>(settings: &Settings<E, F>) -> Result<bool, ConfigError>
+where
+    E: Fn(&str) -> Option<OsString>,
+    F: Fn(&Path) -> io::Result<String>,
+{
+    let name = "SECOND_FACTOR_REQUIRED";
+    settings.text_setting(name)?.map_or(Ok(false), |value| {
+        value
+            .parse()
+            .map_err(|_| ConfigError::invalid(name, "true or false"))
+    })
+}
+
 // part: client_telemetry
 /// The telemetry proxy's settings: what the composition root builds the proxy from.
 pub(super) struct TelemetryProxy {
@@ -157,9 +202,16 @@ impl Config {
         F: Fn(&Path) -> io::Result<String>,
     {
         let day: u32 = 86_400;
-        let sign_in_attempts = settings.number("SIGN_IN_ATTEMPTS", 5, 1..=1_000)?;
-        let sign_in_window = settings.duration("SIGN_IN_WINDOW_SECONDS", 900, 1..=day)?;
+        let [sign_in, sign_in_email, sign_in_device] = sign_in_limits(settings)?;
         let refresh = settings.duration("REFRESH_TOKEN_SECONDS", 30 * day, 3_600..=365 * day)?;
+        let access = settings.duration("ACCESS_TOKEN_SECONDS", 3_600, 60..=day)?;
+        // No access token outlives its refresh token (AUTH-007).
+        if access > refresh {
+            return Err(ConfigError::invalid(
+                "ACCESS_TOKEN_SECONDS",
+                "at most REFRESH_TOKEN_SECONDS",
+            ));
+        }
         Ok(Self {
             audit: audit::Settings {
                 retention_days: settings.number(
@@ -171,13 +223,7 @@ impl Config {
             providers: auth::Providers::from_settings(settings)?,
             auth: auth::Settings {
                 lifetimes: auth::Lifetimes {
-                    // No access token outlives its refresh token (AUTH-007).
-                    access: settings.duration_at_most(
-                        "ACCESS_TOKEN_SECONDS",
-                        3_600,
-                        60..=day,
-                        ("REFRESH_TOKEN_SECONDS", refresh),
-                    )?,
+                    access,
                     refresh,
                     absolute: settings.duration(
                         "SESSION_LIFETIME_SECONDS",
@@ -185,27 +231,15 @@ impl Config {
                         3_600..=365 * day,
                     )?,
                 },
-                sign_in: Bucket {
-                    name: SIGN_IN_BUCKET,
-                    limit: sign_in_attempts,
-                    window: sign_in_window,
-                },
-                sign_in_email: Bucket {
-                    name: SIGN_IN_EMAIL_BUCKET,
-                    limit: settings.number("SIGN_IN_EMAIL_ATTEMPTS", 50, 1..=100_000)?,
-                    window: sign_in_window,
-                },
-                sign_in_device: Bucket {
-                    name: SIGN_IN_DEVICE_BUCKET,
-                    limit: sign_in_attempts,
-                    window: sign_in_window,
-                },
+                sign_in,
+                sign_in_email,
+                sign_in_device,
                 device_tokens: settings.duration(
                     "DEVICE_TOKEN_SECONDS",
                     365 * day,
                     day..=5 * 365 * day,
                 )?,
-                second_factor_required: settings.flag("SECOND_FACTOR_REQUIRED", false)?,
+                second_factor_required: second_factor_required(settings)?,
             },
             // part: client_telemetry
             client_telemetry: TelemetryProxy {

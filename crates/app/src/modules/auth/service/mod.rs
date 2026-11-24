@@ -338,8 +338,9 @@ impl Auth {
     /// email address or set up a second factor, as `uow` reads the account (AUTH-026, AUTH-070).
     /// An account that a deletion took since the session was read went with the session: with
     /// email on, `required` finds it gone, and the request answers as one sent after the deletion
-    /// does (AUTH-016, ACCOUNTS-019); with email off, it reads no row of the account's, and the
-    /// session answers as it was read.
+    /// does (AUTH-016, ACCOUNTS-019); with email off, it reads of the account's rows only whether
+    /// the account holds an app, while the deployment requires a second factor, and finds none, so
+    /// the session answers as it was read, with a second factor to set up while one is required.
     async fn answer(
         &self,
         uow: &mut UnitOfWork,

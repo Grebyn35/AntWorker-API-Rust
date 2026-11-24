@@ -25,6 +25,9 @@ pub(crate) type MakingSuperadmin<'a> =
 /// The seconds of a step of an authenticator app's codes (AUTH-057).
 const APP_STEP_SECONDS: u64 = 30;
 
+/// The name of the workspace that the superadmin creates (SYSTEM-010).
+pub(super) const HOLDINGS: &str = "Acme Holdings";
+
 impl Api {
     /// Sets up an authenticator app for `account`, as a client does, and returns the account,
     /// with its session's new access token, and the app's secret, in base32, whose codes a
@@ -70,19 +73,18 @@ impl Api {
         Ok((account, Secret::new(secret)))
     }
 
-    /// Creates the workspace `name` as `superadmin`, who owns it, and returns its ID
+    /// Creates the workspace [`HOLDINGS`] as `superadmin`, who owns it, and returns its ID
     /// (WORKSPACES-031).
     pub(super) async fn create_as_superadmin(
         &self,
         superadmin: &Account,
-        name: &str,
     ) -> Result<String, SystemError> {
         let answer = self
             .send(
                 Method::POST,
                 "/v1/superadmin/workspaces",
                 Some(superadmin),
-                Some(json!({ "name": name })),
+                Some(json!({ "name": HOLDINGS })),
             )
             .await?;
         text(&answer, "id")

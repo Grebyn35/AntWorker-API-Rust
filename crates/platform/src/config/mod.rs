@@ -311,7 +311,7 @@ where
             database_url: self.database_url("DATABASE_URL")?,
             database_max_connections: self.number("DATABASE_MAX_CONNECTIONS", 10, 1..=1000)?,
             max_concurrent_requests: self.number("MAX_CONCURRENT_REQUESTS", 100, 1..=100_000)?,
-            shutdown_delay: self.seconds("SHUTDOWN_DELAY_SECONDS", 5)?,
+            shutdown_delay: self.duration("SHUTDOWN_DELAY_SECONDS", 5, 0..=300)?,
             shutdown_drain: self.duration("SHUTDOWN_DRAIN_SECONDS", DRAIN, DRAIN..=300)?,
             hmac_key: self.with("HMAC_KEY", HMAC_KEY_EXPECTED, web::hmac_key)?,
             encryption_keys: self.keyring()?,
@@ -385,11 +385,6 @@ where
         })
     }
 
-    /// The setting `name`, `true` or `false`, or `default` when it is unset (OPS-01).
-    pub fn flag(&self, name: &str, default: bool) -> Result<bool, ConfigError> {
-        self.optional(name, default, "true or false")
-    }
-
     /// The settings for `migrate`.
     pub fn migrate(&self) -> Result<MigrateConfig, ConfigError> {
         Ok(MigrateConfig {
@@ -432,11 +427,6 @@ where
         expected: &'static str,
     ) -> Result<T, ConfigError> {
         Ok(self.parsed(name, expected)?.unwrap_or(default))
-    }
-
-    /// A duration in whole seconds, from 0 to 300.
-    fn seconds(&self, name: &str, default: u32) -> Result<Duration, ConfigError> {
-        self.duration(name, default, 0..=300)
     }
 
     fn parsed<T: FromStr>(

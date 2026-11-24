@@ -177,12 +177,12 @@ pub(crate) async fn seed(seed: Seed<'_>) -> Result<Seeded, SystemError> {
     // set an authenticator app up (SYSTEM-010).
     (seed.make_superadmin)(sam.email).await?;
     let (sam, app_secret) = api.set_up_app(sam).await?;
-    let holdings = api.create_as_superadmin(&sam, "Acme Holdings").await?;
+    let holdings = api.create_as_superadmin(&sam).await?;
     // part: invitations
     // Sam hands it over to Olivia, and leaves it.
     api.hand_over(&sam, &holdings, &olivia).await?;
     // end part: invitations
-    workspaces.push(("Acme Holdings", holdings));
+    workspaces.push((superadmin::HOLDINGS, holdings));
     // end part: superadmins
     // part: invitations
     // The members of the first workspace, and the invitation that waits (SYSTEM-005).
