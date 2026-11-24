@@ -209,14 +209,9 @@ async fn auth_095_a_proof_that_fails_leaves_the_session_its_tokens() {
     // The right password with a code that isn't the app's.
     let app = add_app(&api, &ada).await;
     let code = other_code(&second_factors::code(&api, &app.secret).await);
-    let wrong_code = api
-        .post(
-            "/v1/users/me/sessions/current/reauthenticate",
-            &json!({ "password": PASSWORD, "code": code }),
-        )
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let wrong_code =
+        second_factors::reauthenticate(&api, &ada, &json!({ "password": PASSWORD, "code": code }))
+            .await;
     assert_eq!(wrong_code.status, 403, "{}", wrong_code.json());
     assert_eq!(wrong_code.json()["code"], "auth.wrong_second_factor");
     assert_eq!(reads(&api, hashes).await, before);

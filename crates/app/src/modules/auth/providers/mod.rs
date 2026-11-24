@@ -48,9 +48,9 @@ const REGISTRY: &[Entry] = &[
     // end part: openid_connect
 ];
 
-/// The tests' stand-in provider, in the tests' build alone.
+/// The tests' stand-in provider, and the other stand-in, in the tests' build alone.
 #[cfg(feature = "test-support")]
-const STAND_IN: &[Entry] = &[stand_in::ENTRY];
+const STAND_IN: &[Entry] = &[stand_in::ENTRY, stand_in::OTHER];
 #[cfg(not(feature = "test-support"))]
 const STAND_IN: &[Entry] = &[];
 

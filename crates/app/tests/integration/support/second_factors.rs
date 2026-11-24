@@ -183,3 +183,11 @@ pub async fn complete(api: &Api, challenge: &str, body: Value) -> Response {
     body["challenge"] = json!(challenge);
     api.post("/v1/sessions/second-factor", &body).send().await
 }
+
+/// Re-authenticates `user` with `body`.
+pub async fn reauthenticate(api: &Api, user: &SignedIn, body: &Value) -> Response {
+    api.post("/v1/users/me/sessions/current/reauthenticate", body)
+        .bearer(&user.access)
+        .send()
+        .await
+}

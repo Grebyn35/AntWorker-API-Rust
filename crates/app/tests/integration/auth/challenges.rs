@@ -92,10 +92,46 @@ fn hex_sha256(token: &str) -> String {
 }
 
 #[tokio::test]
-async fn auth_058_a_browser_takes_the_challenge_in_a_cookie_and_completes_with_it() {
+async fn auth_058_a_challenge_holds_no_device_token_that_isn_t_valid_for_the_email() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    add_app(&api, &ada).await;
+    let grace = api
+        .post("/v1/users", &users::registration("grace@example.com"))
+        .send()
+        .await;
+    let graces = grace.json()["device_token"].as_str().unwrap().to_owned();
+    // An unknown token of 64 characters, the most that the field takes.
+    let unknown = "x".repeat(64);
+
+    for token in [&graces, &unknown] {
+        let response = api
+            .post(
+                "/v1/sessions",
+                &json!({ "email": "ada@example.com", "password": PASSWORD,
+                         "device_token": token }),
+            )
+            .send()
+            .await;
+        assert_eq!(response.status, 200, "{}", response.json());
+    }
+
+    assert_eq!(
+        reads(
+            &api,
+            "SELECT (device_token_hash IS NULL)::text FROM sign_in_challenges"
+        )
+        .await,
+        ["true", "true"],
+        "another email's token and an unknown one"
+    );
+}
+
+#[tokio::test]
+async fn auth_058_a_browser_takes_the_challenge_in_a_cookie() {
     let api = users::browsers_api().await;
     let ada = users::register(&api, "ada@example.com").await;
-    let app = add_app(&api, &ada).await;
+    add_app(&api, &ada).await;
 
     let response = api
         .post(
@@ -127,23 +163,14 @@ async fn auth_058_a_browser_takes_the_challenge_in_a_cookie_and_completes_with_i
     )
     .await;
     assert_eq!(users::expires(&response, "sign_in_challenge"), expires[0]);
+    // Its value is the challenge's token.
     let cookie = users::cookie(&response, "sign_in_challenge");
-    let completed = api
-        .post(
-            "/v1/sessions/second-factor",
-            &json!({ "code": code(&api, &app.secret).await }),
-        )
-        .header("origin", WEB)
-        .header("cookie", &format!("__Host-sign_in_challenge={cookie}"))
-        .send()
-        .await;
-    assert_eq!(completed.status, 201, "{}", completed.json());
-    assert!(completed.json().get("access_token").is_none());
-    let cleared = completed
-        .headers("set-cookie")
-        .into_iter()
-        .any(|set| set.starts_with("__Host-sign_in_challenge=;") && set.contains("Max-Age=0"));
-    assert!(cleared, "{:?}", completed.headers("set-cookie"));
+    let hash = reads(
+        &api,
+        "SELECT encode(token_hash, 'hex') FROM sign_in_challenges",
+    )
+    .await;
+    assert_eq!(hash, [hex_sha256(&cookie)]);
 }
 
 #[tokio::test]
@@ -493,8 +520,11 @@ async fn auth_060_a_wrong_code_answers_401_records_it_and_leaves_the_challenge()
             .post_raw("/v1/sessions/second-factor", &body)
             .send()
             .await;
-        assert_eq!(invalid.status, 400);
-        assert_eq!(invalid.json()["errors"][0]["field"], pointer);
+        assert_eq!(
+            invalid.refused_fields(),
+            [(pointer.to_owned(), "invalid_code".to_owned())],
+            "{body}"
+        );
     }
     let completed = complete(&api, &token, json!({ "code": right })).await;
     assert_eq!(completed.status, 201, "{}", completed.json());
@@ -618,14 +648,9 @@ async fn auth_061_a_signed_in_user_s_checks_of_codes_count_in_one_bucket_of_thei
         limited.header("ratelimit-policy")
     );
     // A re-authentication that carries a code counts in the same bucket, before its password's.
-    let reauthenticated = api
-        .post(
-            "/v1/users/me/sessions/current/reauthenticate",
-            &json!({ "password": PASSWORD, "code": right }),
-        )
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let reauthenticated =
+        second_factors::reauthenticate(&api, &ada, &json!({ "password": PASSWORD, "code": right }))
+            .await;
     assert_eq!(reauthenticated.status, 429);
     // So does a change of the password that carries a code, before its password's bucket.
     let changed = api

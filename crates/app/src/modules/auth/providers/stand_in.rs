@@ -6,7 +6,9 @@
 //! the address. It reads its name from a setting, so the tests prove what the registry does with
 //! a setting that a provider reads beside its clients' (AUTH-081). The tokens of its second
 //! client don't lapse, as those of a provider's client of another kind: the stand-in deletes
-//! one, so the tests prove what the registry does with a deletion (AUTH-079).
+//! one, so the tests prove what the registry does with a deletion (AUTH-079). A second entry,
+//! the other stand-in, is the same provider under a key of its own, so the tests prove what
+//! startup does with one redirect URI that the clients of two providers list (AUTH-081).
 
 use futures_util::future::BoxFuture;
 use platform::{
@@ -40,6 +42,25 @@ pub(super) const ENTRY: Entry = Entry {
     // end part: files
 };
 
+/// The other stand-in in the registry, with one client, whose settings start with
+/// `STAND_IN_OTHER_`, and no other setting.
+pub(super) const OTHER: Entry = Entry {
+    key: "stand_in_other",
+    clients: &["STAND_IN_OTHER_"],
+    settings: &[],
+    build: |_| {
+        Ok(Box::new(StandIn {
+            name: "Other stand-in".to_owned(),
+        }))
+    },
+    // part: files
+    pictures: super::pictures::Pictures {
+        hosts: &[],
+        setting: None,
+    },
+    // end part: files
+};
+
 struct StandIn {
     name: String,
 }
@@ -68,7 +89,7 @@ impl Provider for StandIn {
     }
 
     /// Deletes a token of the second client, with a `DELETE` of the token endpoint that the
-    /// token authenticates, which answers 204; a token of the first lapses.
+    /// token authenticates, which answers 204; a token of another client lapses.
     fn discard<'a>(
         &'a self,
         outbound: &'a Configured,

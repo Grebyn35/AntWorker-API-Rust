@@ -256,7 +256,7 @@ modules/workspaces/
   personal_data.rs   its export and erasure contract (D31)
 ```
 
-Three modules have one extra entry each: `access/permissions.rs` holds the permission matrix, `auth/providers/` holds one file per OAuth provider together with their registry, in `mod.rs`, `clients.rs` and `exchange.rs`, and the tests' stand-in provider, and `system/seed/` holds `seed`, a client of the API's routes, which names HTTP types as a service may not ([system spec](spec/system.md#seed)).
+Three modules have one extra entry each: `access/permissions.rs` holds the permission matrix, `auth/providers/` holds one file per OAuth provider together with their registry, in `mod.rs`, `clients.rs` and `exchange.rs`, and the tests' stand-in providers, and `system/seed/` holds `seed`, a client of the API's routes, which names HTTP types as a service may not ([system spec](spec/system.md#seed)).
 The registry of `auth/providers/` also says where each provider's users' pictures come from, in `pictures.rs`. <!-- part: files -->
 
 The layers have strict jobs (ARCH-08 to ARCH-10):

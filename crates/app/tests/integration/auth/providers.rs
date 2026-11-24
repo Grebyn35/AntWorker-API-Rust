@@ -682,14 +682,12 @@ async fn auth_100_a_provider_outside_its_schema_answers_400_at_its_field_before_
         );
     }
     assert!(upstream.received().is_empty());
-    // The longest key that the schema allows, which names no provider.
-    let longest = sign_in(
-        &api,
-        &with_fields(grant(), json!({ "provider": "a".repeat(64) })),
-    )
-    .await;
-    assert_eq!(longest.status, 404);
-    assert_eq!(longest.json()["code"], "auth.provider_not_found");
+    // The shortest key that the schema allows and the longest, which name no provider.
+    for key in ["a".to_owned(), "a".repeat(64)] {
+        let named = sign_in(&api, &with_fields(grant(), json!({ "provider": key }))).await;
+        assert_eq!(named.status, 404, "{key}");
+        assert_eq!(named.json()["code"], "auth.provider_not_found", "{key}");
+    }
 }
 
 #[tokio::test]
@@ -930,6 +928,30 @@ async fn auth_081_startup_refuses_a_redirect_uri_that_two_clients_list_or_match(
         "http://127.0.0.1:4000/callback",
         "http://127.0.0.1:5000/callback",
     ));
+}
+
+/// The two providers are the stand-in and the other stand-in, which every build of the tests
+/// holds, whichever other providers it has.
+#[tokio::test]
+async fn auth_081_startup_refuses_a_redirect_uri_that_clients_of_two_providers_list() {
+    let both = |other: &str| {
+        Options::default()
+            .set("STAND_IN_NAME", "Stand-in")
+            .set("STAND_IN_CLIENT_ID", "stand-in")
+            .set("STAND_IN_CLIENT_SECRET", "secret")
+            .set("STAND_IN_REDIRECT_URIS", "https://app.example.com/callback")
+            .set("STAND_IN_OTHER_CLIENT_ID", "other")
+            .set("STAND_IN_OTHER_CLIENT_SECRET", "secret")
+            .set("STAND_IN_OTHER_REDIRECT_URIS", other)
+    };
+
+    let refusal = api::refusal(&both("https://app.example.com/callback"));
+
+    assert!(
+        refusal.starts_with("STAND_IN_OTHER_REDIRECT_URIS must be"),
+        "{refusal}"
+    );
+    api::configuration(&both("https://app.example.com/callback/other"));
 }
 
 #[tokio::test]
@@ -1644,6 +1666,39 @@ async fn auth_058_a_sign_in_through_a_provider_to_an_account_with_an_app_answers
             )
             .await,
         [format!("{ada_id} - user {ada_id}")]
+    );
+}
+
+#[tokio::test]
+async fn auth_058_a_challenge_through_a_provider_holds_no_device_token_that_isn_t_valid_for_the_email()
+ {
+    let (upstream, api) = providers::standing().await;
+    gives(&upstream, identity("subject-1", "ada@example.com", true));
+    let ada = signed_in(&api).await;
+    second_factors::add_app(&api, &ada).await;
+    let bob = api
+        .post("/v1/users", &users::registration("bob@example.com"))
+        .send()
+        .await;
+    let bobs = bob.json()["device_token"].as_str().unwrap().to_owned();
+    // An unknown token of 64 characters, the most that the field takes.
+    let unknown = "x".repeat(64);
+
+    for token in [&bobs, &unknown] {
+        let response = sign_in(
+            &api,
+            &with_fields(grant(), json!({ "device_token": token })),
+        )
+        .await;
+        assert_eq!(response.status, 200, "{}", response.json());
+    }
+
+    assert_eq!(
+        api.database()
+            .owner_reads("SELECT (device_token_hash IS NULL)::text FROM sign_in_challenges")
+            .await,
+        ["true", "true"],
+        "another email's token and an unknown one"
     );
 }
 

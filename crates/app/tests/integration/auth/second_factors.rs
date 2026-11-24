@@ -11,21 +11,13 @@ use crate::support::{
     audit, mailbox, password_reset,
     providers::{self, gives, identity},
     second_factors::{
-        self, App, add_app, code, confirm, forget_steps, new_codes, other_code, read, remove,
-        start_setup,
+        self, App, add_app, code, confirm, forget_steps, new_codes, other_code, read,
+        reauthenticate, remove, start_setup,
     },
     upstream::Upstream,
     users::{self, PASSWORD, SignedIn},
     with_fields,
 };
-
-/// Re-authenticates `user` with `body`.
-async fn reauthenticate(api: &Api, user: &SignedIn, body: &Value) -> Response {
-    api.post("/v1/users/me/sessions/current/reauthenticate", body)
-        .bearer(&user.access)
-        .send()
-        .await
-}
 
 #[tokio::test]
 async fn auth_054_reading_one_s_second_factors_shows_the_app_and_the_codes_left_and_no_secret() {
@@ -518,19 +510,19 @@ async fn auth_065_both_codes_or_a_malformed_one_answer_400_at_its_field() {
         let fields: Vec<String> = answer
             .refused_fields()
             .into_iter()
-            .map(|(field, _)| field)
+            .map(|(field, code)| format!("{field} {code}"))
             .collect();
-        refused.push(fields.join(" "));
+        refused.push(fields.join(", "));
     }
 
     assert_eq!(
         refused,
         [
-            "/code",
-            "/code",
-            "/code",
-            "/recovery_code",
-            "/code /recovery_code"
+            "/code invalid_code",
+            "/code invalid_code",
+            "/code invalid_code",
+            "/recovery_code invalid_code",
+            "/code invalid_code, /recovery_code invalid_code"
         ]
     );
 }

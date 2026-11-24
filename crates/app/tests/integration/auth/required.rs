@@ -154,14 +154,12 @@ async fn auth_070_every_answer_that_holds_a_session_says_whether_its_account_mus
     };
 
     let app = add_app(&api, &ada).await;
-    let reauthenticated = api
-        .post(
-            "/v1/users/me/sessions/current/reauthenticate",
-            &json!({ "password": PASSWORD, "code": code(&api, &app.secret).await }),
-        )
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let reauthenticated = second_factors::reauthenticate(
+        &api,
+        &ada,
+        &json!({ "password": PASSWORD, "code": code(&api, &app.secret).await }),
+    )
+    .await;
     assert_eq!(reauthenticated.status, 200);
     assert_eq!(
         reauthenticated.json()["second_factor_setup_required"],
