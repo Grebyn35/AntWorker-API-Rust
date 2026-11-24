@@ -1,7 +1,8 @@
 //! The personal data contract of `users` and of the user's exports (D31), which a deletion runs
 //! last: it enqueues the email that tells the account's address it is deleted, locks the user's
-//! row `FOR UPDATE`, then deletes it waiting for no lock, which the foreign keys carry to every row
-//! that still names them, their exports' among them (the accounts spec's "Deleting an account").
+//! row `FOR UPDATE`, then deletes it, waiting at most a millisecond for a lock (ACCOUNTS-016),
+//! which the foreign keys carry to every row that still names them, their exports' among them
+//! (the accounts spec's "Deleting an account").
 //! An export holds the user's record (the accounts spec's "What an export holds").
 
 use platform::{

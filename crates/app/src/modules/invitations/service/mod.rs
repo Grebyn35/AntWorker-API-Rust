@@ -81,13 +81,7 @@ pub(crate) async fn invite(
         return Err(authz::refuse(uow, authorized).await.into());
     }
     let workspace = authorized.workspace_id();
-    let invitee = accounts::find_by_email(&mut uow, &input.email).await?;
-    if let Some(user) = invitee
-        && access::is_member(&mut uow, workspace, user).await?
-    {
-        return Err(InvitationsError::AlreadyMember);
-    }
-    let Some((current, created)) = repo::upsert(
+    let upserted = repo::upsert(
         &mut uow,
         workspace,
         (&input.email, input.role),
@@ -95,8 +89,21 @@ pub(crate) async fn invite(
         invitations.settings.expiry_days,
         &offerable,
     )
-    .await?
-    else {
+    .await?;
+    // Held, so that the entry's target and the event's user meet their foreign keys: an account
+    // that a deletion took while the read waited is none. After the invitation's row, the order
+    // in which a change, a sending again and a cancellation take the two, and an acceptance and a
+    // decline the invitation and the invitee's row (DATA-20).
+    let invitee = accounts::find_by_email_for_key_share(&mut uow, &input.email).await?;
+    // An acceptance adds its invitee while it holds the invitation's row, which this unit of work
+    // holds now: the read sees the member of one that committed first, and one that reaches the
+    // row later waits for it until the unit of work ends (INVITATIONS-002, DATA-20).
+    if let Some(user) = invitee
+        && access::is_member(&mut uow, workspace, user).await?
+    {
+        return Err(InvitationsError::AlreadyMember);
+    }
+    let Some((current, created)) = upserted else {
         // The address's invitation offers a role the caller may not offer (INVITATIONS-014).
         return Err(authz::refuse(uow, authorized).await.into());
     };
@@ -106,11 +113,6 @@ pub(crate) async fn invite(
     } else {
         (audit::INVITATION_UPDATED, &published::INVITATION_UPDATED)
     };
-    // Read again, and held, so that the entry's target and the event's user meet their
-    // foreign keys: an account that a deletion took meanwhile is none. After the invitation's
-    // row, the order in which a change, a sending again and a cancellation take the two, and
-    // an acceptance and a decline the invitation and the invitee's row (DATA-20).
-    let invitee = accounts::find_by_email_for_key_share(&mut uow, &input.email).await?;
     let entry = Entry::detailed(
         action,
         audit::INVITATION,

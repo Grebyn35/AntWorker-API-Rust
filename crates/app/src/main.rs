@@ -85,29 +85,28 @@ fn main() -> ExitCode {
         Err(error) => error.exit(),
     };
     let settings = platform::config::from_process();
+    let telemetry = || (settings.environment().ok(), settings.telemetry());
     match command {
-        Command::Bootstrap => start(settings.telemetry(), settings.bootstrap(), bootstrap),
-        Command::Migrate => start(settings.telemetry(), settings.migrate(), migrate),
+        Command::Bootstrap => start(telemetry(), settings.bootstrap(), bootstrap),
+        Command::Migrate => start(telemetry(), settings.migrate(), migrate),
         Command::Serve => {
             let config = settings
                 .server()
                 .and_then(|server| Ok((server, app::Config::read(&settings)?)));
-            start(settings.telemetry(), config, serve)
+            start(telemetry(), config, serve)
         }
         Command::Seed => {
             let config = settings
                 .server()
                 .and_then(|server| Ok((server, app::Config::read(&settings)?.for_seed())));
-            start(settings.telemetry(), config, seed)
+            start(telemetry(), config, seed)
         }
         Command::Health => health(settings.health()),
-        Command::Operator(operation) => {
-            start(settings.telemetry(), settings.operator(), |config| {
-                operate(subcommand, config, operation)
-            })
-        }
+        Command::Operator(operation) => start(telemetry(), settings.operator(), |config| {
+            operate(subcommand, config, operation)
+        }),
         // part: files
-        Command::RestoreFiles(task) => start(settings.telemetry(), settings.bucket(), |bucket| {
+        Command::RestoreFiles(task) => start(telemetry(), settings.bucket(), |bucket| {
             let done = task.run(bucket, Arc::new(SystemClock));
             async move { ended(&subcommand, done.await) }
         }),
@@ -117,19 +116,16 @@ fn main() -> ExitCode {
 }
 
 /// Sets up telemetry, runs `task` with its configuration on a new async runtime, then writes
-/// out the telemetry and the logs (PLATFORM-068).
+/// out the telemetry and the logs (PLATFORM-068). A failure before logging names `environment`,
+/// which `ENVIRONMENT` gives when it reads, whatever the other settings hold (OBS-02).
 fn start<C, F>(
-    telemetry: Result<TelemetryConfig, ConfigError>,
+    (environment, telemetry): (Option<Environment>, Result<TelemetryConfig, ConfigError>),
     config: Result<C, ConfigError>,
     task: impl FnOnce(C) -> F,
 ) -> ExitCode
 where
     F: Future<Output = ExitCode>,
 {
-    let environment = telemetry
-        .as_ref()
-        .ok()
-        .map(|telemetry| telemetry.environment);
     let (telemetry, config) = match telemetry.and_then(|telemetry| Ok((telemetry, config?))) {
         Ok(loaded) => loaded,
         Err(error) => return failed_before_logging(environment, "config", &error),

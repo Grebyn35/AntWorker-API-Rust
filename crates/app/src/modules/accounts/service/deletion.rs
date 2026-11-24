@@ -46,9 +46,9 @@ impl Deletion {
     /// Deletes the caller's account in `uow`, the unit of work of `auth` that confirmed it
     /// (AUTH-023): it first holds the user's row against every other change of it, `FOR NO KEY
     /// UPDATE`, then `access` locks their memberships and refuses while a workspace they own has
-    /// another member, then it locks their exports, waiting for none that a job holds, then each
-    /// contract erases its part (ACCOUNTS-012 to ACCOUNTS-016, the accounts spec's "Deleting an
-    /// account").
+    /// another member, then it locks their exports, waiting at most a millisecond for one that a
+    /// job holds, then each contract erases its part (ACCOUNTS-012 to ACCOUNTS-016, the accounts
+    /// spec's "Deleting an account").
     pub(crate) async fn delete(
         &self,
         uow: &mut UnitOfWork,

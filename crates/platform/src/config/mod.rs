@@ -302,6 +302,12 @@ where
         })
     }
 
+    /// `ENVIRONMENT` alone, whatever the other settings hold, so that a subcommand that logs names
+    /// it in the line of a failure before its logging exists (OBS-02).
+    pub fn environment(&self) -> Result<Environment, ConfigError> {
+        self.required("ENVIRONMENT", "development, test or production")
+    }
+
     /// The settings for `serve`.
     pub fn server(&self) -> Result<ServerConfig, ConfigError> {
         let environment = self.required("ENVIRONMENT", "development, test or production")?;

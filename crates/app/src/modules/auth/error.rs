@@ -84,8 +84,8 @@ pub(crate) enum AuthError {
     /// The provider refused the exchange of the code (AUTH-077).
     #[error("the provider refused the code")]
     ProviderCodeRejected,
-    /// The provider failed, or answered what the API can't read, or didn't answer in time
-    /// (AUTH-077).
+    /// The provider refused the API's own client, failed, answered what the API can't read, or
+    /// didn't answer in time (AUTH-077).
     #[error("the provider is unavailable")]
     ProviderUnavailable(#[source] Internal),
     /// The provider gave no address, or one that ACCOUNTS-002 refuses, for a subject that no

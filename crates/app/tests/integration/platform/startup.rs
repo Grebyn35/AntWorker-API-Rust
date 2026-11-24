@@ -25,6 +25,21 @@ async fn ops_03_a_failure_before_logging_is_one_json_line_on_stderr_and_exit_cod
 }
 
 #[tokio::test]
+async fn obs_02_a_failure_before_logging_names_the_environment_that_its_setting_names() {
+    // A level that the settings refuse, and an OpenTelemetry variable that must be unset, which
+    // the settings refuse before they read the environment (PLATFORM-065).
+    for refused in [("LOG_LEVEL", "verbose"), ("OTEL_SERVICE_NAME", "other")] {
+        let output = run_binary(&["serve"], &[("ENVIRONMENT", "production"), refused]).await;
+
+        assert_eq!(output.status.code(), Some(1));
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        let line: Value = serde_json::from_str(stderr.trim_end()).unwrap();
+        assert_eq!(line["startup.area"], "config", "{line}");
+        assert_eq!(line["deployment.environment.name"], "production", "{line}");
+    }
+}
+
+#[tokio::test]
 async fn ops_03_a_command_line_that_the_parser_refuses_ends_with_its_usage_and_exit_code_2() {
     // No setting at all, which a run that read the settings first would fail on, as above.
     let output = run_binary(&["serve", "--unknown"], &[]).await;

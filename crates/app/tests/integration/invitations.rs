@@ -10,7 +10,7 @@ use crate::support::{
     api::Response,
     execute_on,
     invitations::invite,
-    mailbox, queries_wait_on_locks, streams,
+    mailbox, queries_wait_on_locks, query_waits_on_a_lock, streams,
     users::{self, SignedIn},
     workspaces,
 };
@@ -375,6 +375,48 @@ async fn invitations_002_inviting_a_member_answers_409_and_writes_nothing() {
     assert_eq!(response.status, 409);
     assert_eq!(response.json()["code"], "invitations.already_member");
     assert_eq!(written(&api).await, "0 0 0 0");
+}
+
+#[tokio::test]
+async fn invitations_002_inviting_while_the_invitee_accepts_answers_409_once_they_joined() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let invitee = users::register(&api, "arranged@example.com").await;
+    let workspace = acme(&api, &ada, &[]).await;
+    let db = api.database();
+    let id = crate::support::invitations::arrange(db, &workspace).await;
+    // The workspace's row, which the foreign key of the acceptance's membership reads `FOR KEY
+    // SHARE`, once the acceptance has locked the invitation.
+    let mut held = db
+        .holding(&format!(
+            "SELECT id FROM workspaces WHERE id = '{workspace}' FOR UPDATE"
+        ))
+        .await;
+
+    let accepted = api.spawn(
+        http::Method::POST,
+        &format!("/v1/users/me/invitations/{id}/accept"),
+        &invitee.access,
+        None,
+    );
+    query_waits_on_a_lock(db, "INSERT INTO workspace_memberships").await;
+    let invited = api.spawn(
+        http::Method::POST,
+        &format!("/v1/workspaces/{workspace}/invitations"),
+        &ada.access,
+        Some(json!({ "email": "arranged@example.com", "role": "member" })),
+    );
+    // The invite waits at the invitation's row, which the acceptance holds.
+    query_waits_on_a_lock(db, "INSERT INTO invitations").await;
+    execute_on(&mut held, "COMMIT").await;
+    let (accepted, _) = accepted.await.unwrap();
+    let (status, problem) = invited.await.unwrap();
+
+    assert_eq!(accepted, 200);
+    assert_eq!(status, 409, "{problem}");
+    assert_eq!(problem["code"], "invitations.already_member");
+    // No invitation is left, and the one entry is the acceptance's.
+    assert_eq!(written(&api).await, "0 1 0 0");
 }
 
 #[tokio::test]

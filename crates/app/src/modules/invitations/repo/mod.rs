@@ -1,7 +1,8 @@
 //! The SQL of `invitations` (ARCH-10), but the expiry sweep's, which `jobs.rs` holds: inviting,
-//! an invitee's own invitations, accepting and declining here, and what a workspace's members do
-//! with its invitations in `managing`. A workspace's invitations are filtered by the workspace
-//! from the proof, and an invitee's by the caller's address (DATA-16).
+//! an invitee's own invitations, accepting, declining and the export here, and what a workspace's
+//! members do with its invitations in `managing`. A workspace's invitations are filtered by the
+//! workspace from the proof, or, in the export, by one whose only member is the user, which came
+//! from their own memberships, and an invitee's by the caller's address (DATA-16).
 
 pub(super) mod managing;
 

@@ -94,11 +94,11 @@ fn days(count: u32) -> String {
 mod tests {
     use super::*;
 
-    fn invitation(inviter: &str, workspace: &str) -> Invitation {
+    fn invitation(inviter: &str) -> Invitation {
         Invitation {
             to: EmailAddress::parse("alice@example.com").unwrap(),
             inviter: DisplayName::parse(inviter).unwrap(),
-            workspace: WorkspaceName::parse(workspace).unwrap(),
+            workspace: WorkspaceName::parse("Acme").unwrap(),
             role: Role::Member,
             expires_in_days: 7,
         }
@@ -106,7 +106,7 @@ mod tests {
 
     #[test]
     fn invitations_010_the_email_names_the_inviter_the_workspace_the_role_and_the_expiry() {
-        let email = invitation("Bob Jones", "Acme").render().unwrap();
+        let email = invitation("Bob Jones").render().unwrap();
         assert_eq!(email.to.as_str(), "alice@example.com");
         assert_eq!(email.subject, "Bob Jones invited you to Acme on AntWorker");
         for part in [&email.text, &email.html] {
@@ -124,7 +124,7 @@ mod tests {
 
     #[test]
     fn invitations_010_the_html_part_escapes_values_and_the_text_part_keeps_them() {
-        let email = invitation("<b>Bob</b> & co", "Acme").render().unwrap();
+        let email = invitation("<b>Bob</b> & co").render().unwrap();
         let html = &email.html;
         assert!(!html.contains("<b>Bob</b>"), "{html}");
         assert!(

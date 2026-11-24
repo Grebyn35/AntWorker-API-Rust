@@ -29,7 +29,8 @@ pub(super) enum Exchange {
     Succeeded,
     /// The provider refused the code, its verifier or its redirect URI.
     Rejected,
-    /// The provider failed, answered what the API can't read, or didn't answer in time.
+    /// The provider refused the API's own client, failed, answered what the API can't read, or
+    /// didn't answer in time.
     Unavailable,
 }
 
