@@ -13,6 +13,9 @@ use uuid::Uuid;
 use super::Database;
 use crate::errors::Internal;
 
+/// How long a claim lasts unless its run renews it.
+const LEASE: Duration = Duration::from_secs(60);
+
 /// A job that a dispatcher claimed.
 #[derive(Debug)]
 pub(crate) struct ClaimedJob {
@@ -47,12 +50,11 @@ pub(crate) struct ClaimedSchedule {
 
 impl Database {
     /// Claims at most `limit` runnable jobs of `kinds`, the longest-waiting first, each with a
-    /// lease of `lease` and one more attempt.
+    /// lease of [`LEASE`] and one more attempt.
     pub(crate) async fn claim_jobs(
         &self,
         kinds: &[String],
         limit: usize,
-        lease: Duration,
     ) -> Result<Vec<ClaimedJob>, Internal> {
         let limit = i64::try_from(limit).unwrap_or(i64::MAX);
         let rows = sqlx::query!(
@@ -72,7 +74,7 @@ impl Database {
                 claim_id AS "claim_id!""#,
             kinds,
             limit,
-            lease.as_secs_f64(),
+            LEASE.as_secs_f64(),
         )
         .fetch_all(&self.pool)
         .instrument(self.statement("UPDATE jobs"))
@@ -92,19 +94,14 @@ impl Database {
             .collect())
     }
 
-    /// Renews the lease of the job that `claim` holds to `lease` from now.
-    pub(crate) async fn renew_job(
-        &self,
-        id: Uuid,
-        claim: Uuid,
-        lease: Duration,
-    ) -> Result<(), Internal> {
+    /// Renews the lease of the job that `claim` holds to [`LEASE`] from now.
+    pub(crate) async fn renew_job(&self, id: Uuid, claim: Uuid) -> Result<(), Internal> {
         sqlx::query!(
             "UPDATE jobs SET lease_expires_at = now() + make_interval(secs => $3)
             WHERE id = $1 AND claim_id = $2",
             id,
             claim,
-            lease.as_secs_f64(),
+            LEASE.as_secs_f64(),
         )
         .execute(&self.pool)
         .instrument(self.statement("UPDATE jobs"))
@@ -222,11 +219,10 @@ impl Database {
     }
 
     /// Claims every due periodic job of `names` that no replica holds, each with a lease of
-    /// `lease`.
+    /// [`LEASE`].
     pub(crate) async fn claim_schedules(
         &self,
         names: &[String],
-        lease: Duration,
     ) -> Result<Vec<ClaimedSchedule>, Internal> {
         let rows = sqlx::query!(
             r#"UPDATE job_schedules SET
@@ -240,7 +236,7 @@ impl Database {
             )
             RETURNING name, claim_id AS "claim_id!", now() AS "claimed_at!""#,
             names,
-            lease.as_secs_f64(),
+            LEASE.as_secs_f64(),
         )
         .fetch_all(&self.pool)
         .instrument(self.statement("UPDATE job_schedules"))
@@ -255,19 +251,14 @@ impl Database {
             .collect())
     }
 
-    /// Renews the lease of the periodic job that `claim` holds to `lease` from now.
-    pub(crate) async fn renew_schedule(
-        &self,
-        name: &str,
-        claim: Uuid,
-        lease: Duration,
-    ) -> Result<(), Internal> {
+    /// Renews the lease of the periodic job that `claim` holds to [`LEASE`] from now.
+    pub(crate) async fn renew_schedule(&self, name: &str, claim: Uuid) -> Result<(), Internal> {
         sqlx::query!(
             "UPDATE job_schedules SET lease_expires_at = now() + make_interval(secs => $3)
             WHERE name = $1 AND claim_id = $2",
             name,
             claim,
-            lease.as_secs_f64(),
+            LEASE.as_secs_f64(),
         )
         .execute(&self.pool)
         .instrument(self.statement("UPDATE job_schedules"))

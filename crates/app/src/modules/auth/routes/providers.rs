@@ -301,8 +301,9 @@ async fn sign_in_through(
         device,
         device_token,
         device_cookies: cookies
-            .starting_with(DEVICE_COOKIE)
+            .all_but_access()
             .into_iter()
+            .filter(|(name, _)| name.starts_with(DEVICE_COOKIE))
             .map(|(name, token)| (name.to_owned(), Secret::new(token.to_owned())))
             .collect(),
     };

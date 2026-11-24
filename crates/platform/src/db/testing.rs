@@ -8,6 +8,7 @@ use sqlx::{
 };
 
 use super::DatabaseUrl;
+use crate::events;
 
 /// A connection with `url`, outside any unit of work.
 #[expect(
@@ -24,17 +25,18 @@ pub fn address(url: &DatabaseUrl) -> (String, u16) {
     (options.get_host().to_owned(), options.get_port())
 }
 
-/// A listener with `url` on `channel`, for the tests of the signals a unit of work sends.
+/// A listener with `url` on the channel of access-change signals, for the tests of the signals
+/// a unit of work sends.
 #[expect(
     clippy::disallowed_types,
     reason = "the test support's raw connections are the one other place DATA-15 allows"
 )]
-pub async fn listen(url: &DatabaseUrl, channel: &str) -> Result<PgListener, sqlx::Error> {
+pub async fn listen(url: &DatabaseUrl) -> Result<PgListener, sqlx::Error> {
     let pool = PgPoolOptions::new()
         .max_connections(1)
         .connect_with(url.connect_options())
         .await?;
     let mut listener = PgListener::connect_with(&pool).await?;
-    listener.listen(channel).await?;
+    listener.listen(events::CHANNEL).await?;
     Ok(listener)
 }

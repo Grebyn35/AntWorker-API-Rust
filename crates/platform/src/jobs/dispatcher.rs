@@ -8,8 +8,8 @@ use tracing::{Instrument, field::Empty};
 use uuid::Uuid;
 
 use super::{
-    DURATION, JobContext, JobFailure, JobScope, LEASE, Outcome, Queued, count, failed, renew_every,
-    runs::Runs,
+    DURATION, JobContext, JobFailure, JobScope, Outcome, Queued, count, failed, release_within,
+    renew_every, runs::Runs,
 };
 use crate::{
     clock::SharedClock,
@@ -40,7 +40,8 @@ struct Claim {
 }
 
 /// Claims and runs jobs until `stopping` turns true, then waits for the runs in flight until
-/// `deadline` passes, and releases those it then cancels (PLATFORM-018).
+/// `deadline` passes, and releases those it then cancels, through [`release_within`]
+/// (PLATFORM-018).
 pub(super) async fn dispatch(
     queued: Arc<HashMap<&'static str, Queued>>,
     database: Database,
@@ -53,7 +54,7 @@ pub(super) async fn dispatch(
     while !*stopping.borrow() {
         let room = MOST_RUNNING.saturating_sub(runs.len());
         if room > 0 && !kinds.is_empty() {
-            match database.claim_jobs(&kinds, room, LEASE).await {
+            match database.claim_jobs(&kinds, room).await {
                 Ok(claimed) => {
                     for job in claimed {
                         let Some(kind) = queued.get(job.kind.as_str()).cloned() else {
@@ -80,17 +81,21 @@ pub(super) async fn dispatch(
             changed = stopping.changed() => if changed.is_err() { break },
         }
     }
-    for claim in runs.drain(deadline).await {
-        match database.release_job(claim.id, claim.claim).await {
-            Ok(()) => count(claim.kind, Outcome::Released),
-            Err(error) => tracing::warn!(
-                { names::EXCEPTION_MESSAGE } = errors::chain(&error),
-                { names::JOB_KIND } = claim.kind,
-                { names::JOB_ID } = %claim.id,
-                "can't release a cancelled job, whose lease runs out instead"
-            ),
+    let cancelled = runs.drain(deadline).await;
+    release_within(&clock, async {
+        for claim in cancelled {
+            match database.release_job(claim.id, claim.claim).await {
+                Ok(()) => count(claim.kind, Outcome::Released),
+                Err(error) => tracing::warn!(
+                    { names::EXCEPTION_MESSAGE } = errors::chain(&error),
+                    { names::JOB_KIND } = claim.kind,
+                    { names::JOB_ID } = %claim.id,
+                    "can't release a cancelled job, whose lease runs out instead"
+                ),
+            }
         }
-    }
+    })
+    .await;
 }
 
 /// Runs `job` in a span of its own, linked to the span that enqueued it (OBS-07), renewing its
@@ -159,7 +164,7 @@ async fn run(
             () = clock.sleep(queued.time_limit) => Err(JobFailure::Transient(Internal::new(
                 "the run passed its time limit",
             ))),
-            never = renew_every(&clock, || database.renew_job(id, claim, LEASE)) => match never {},
+            never = renew_every(&clock, || database.renew_job(id, claim)) => match never {},
         };
         if result.is_err() {
             failed();

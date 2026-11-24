@@ -148,11 +148,17 @@ pub fn values<T>(
     })
 }
 
+/// The `limit` that `value` names: ASCII digits, after a `+`, a `-` or neither, of a number from
+/// 1 to 100, refused as `out_of_range` when they write another number, whatever its size, and any
+/// other text as `invalid` (API-06).
 fn parse_limit(value: &str) -> Result<u16, Invalid> {
+    let digits = value.strip_prefix(['+', '-']).unwrap_or(value);
+    if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(Invalid::new("invalid", "A limit is a whole number."));
+    }
     match value.parse::<u16>() {
         Ok(limit) if (1..=MAX_LIMIT).contains(&limit) => Ok(limit),
-        Ok(_) => Err(Invalid::new("out_of_range", "A limit is 1 to 100.")),
-        Err(_) => Err(Invalid::new("invalid", "A limit is a whole number.")),
+        _ => Err(Invalid::new("out_of_range", "A limit is 1 to 100.")),
     }
 }
 
@@ -536,5 +542,22 @@ mod tests {
         assert_eq!(parse_limit("0").unwrap_err().code, "out_of_range");
         assert_eq!(parse_limit("101").unwrap_err().code, "out_of_range");
         assert_eq!(parse_limit("ten").unwrap_err().code, "invalid");
+    }
+
+    #[test]
+    fn api_06_a_whole_number_outside_1_to_100_is_out_of_range() {
+        let codes = ["-1", "70000", "1000000000000000000000000000000", "1.5", "-"]
+            .map(|value| parse_limit(value).unwrap_err().code);
+
+        assert_eq!(
+            codes,
+            [
+                "out_of_range",
+                "out_of_range",
+                "out_of_range",
+                "invalid",
+                "invalid"
+            ]
+        );
     }
 }

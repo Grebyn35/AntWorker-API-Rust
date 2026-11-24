@@ -154,8 +154,9 @@ x-api: &api
     - files_s3_key
     - files_s3_key_secret
     # end part: files
-  # The shutdown delay and the drain take at most 75 seconds, and writing out telemetry the 9 that
-  # the platform spec's Telemetry export bounds it to, which fit in the rest.
+  # The shutdown delay and the drain take at most 75 seconds, 5 and 70, releasing the jobs that
+  # the drain's end cancels the 2 more that PLATFORM-018 bounds it to, and writing out telemetry
+  # the 9 that the platform spec's Telemetry export bounds it to: 86 of the 90.
   stop_grace_period: 90s
   deploy:
     resources:

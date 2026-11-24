@@ -298,8 +298,9 @@ async fn sign_in(
     let mut input = SignIn::try_from(request).map_err(AuthError::from)?;
     input.device.held = held(&cookies);
     input.device_cookies = cookies
-        .starting_with(DEVICE_COOKIE)
+        .all_but_access()
         .into_iter()
+        .filter(|(name, _)| name.starts_with(DEVICE_COOKIE))
         .map(|(name, token)| (name.to_owned(), Secret::new(token.to_owned())))
         .collect();
     match auth.sign_in(&limits, &client, input).await? {

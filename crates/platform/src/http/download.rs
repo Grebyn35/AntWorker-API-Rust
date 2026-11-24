@@ -177,13 +177,13 @@ where
 /// `Content-Disposition: attachment` for bytes named `name`, with [`named`]'s parameters
 /// (RFC 6266).
 fn attachment(name: &str) -> HeaderValue {
-    as_header(&format!("attachment; {}", named(name)))
+    to_header(&format!("attachment; {}", named(name)))
 }
 
 // part: files
 /// `Content-Disposition: inline` for bytes named `name`, with [`named`]'s parameters (RFC 6266).
 fn inline(name: &str) -> HeaderValue {
-    as_header(&format!("inline; {}", named(name)))
+    to_header(&format!("inline; {}", named(name)))
 }
 // end part: files
 
@@ -198,7 +198,7 @@ fn named(name: &str) -> String {
 }
 
 /// `value`, a `Content-Disposition`, as a header's value.
-fn as_header(value: &str) -> HeaderValue {
+fn to_header(value: &str) -> HeaderValue {
     // Both forms of the name hold only visible ASCII, so the value is always a header's.
     match HeaderValue::from_str(value) {
         Ok(value) => value,

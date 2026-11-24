@@ -30,10 +30,13 @@ pub use hub::{Hub, ListenError, Listener, SubscribeError, listen};
 pub use subscription::{Closed, Delivery, Event, Subscription};
 
 /// The channel the signals go out on.
-const CHANNEL: &str = "access_changed";
+pub(crate) const CHANNEL: &str = "access_changed";
 
 /// The channel on which each commit that published names the last position it gave.
 pub(crate) const EVENTS_CHANNEL: &str = "events";
+
+/// The channels the hub's listener listens on.
+pub(crate) const CHANNELS: &[&str] = &[EVENTS_CHANNEL, CHANNEL];
 
 /// The key of the transaction-level advisory lock under which a commit positions its events
 /// (PLATFORM-028): the bytes of `events`.

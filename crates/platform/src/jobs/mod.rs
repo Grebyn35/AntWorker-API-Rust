@@ -28,14 +28,15 @@ use crate::{
     types::{UserId, WorkspaceId},
 };
 
-/// How long a claim lasts unless its run renews it.
-const LEASE: Duration = Duration::from_secs(60);
-
 /// How often a run renews its lease.
 const RENEWAL: Duration = Duration::from_secs(20);
 
 /// How often each replica records how long the longest-waiting job has waited.
 const DELAY_EVERY: Duration = Duration::from_secs(15);
+
+/// How long the dispatcher and the scheduler each wait, after the deadline, for the releases of
+/// the claims that it cancelled (PLATFORM-018).
+const RELEASE_WITHIN: Duration = Duration::from_secs(2);
 
 static RUNS: Counter<2> = Counter::new(
     "platform.job_runs",
@@ -213,7 +214,8 @@ impl Jobs {
 
     /// Runs the dispatcher and the scheduler on `database` until `stopping` turns true, then
     /// the runs in flight until `grace` has passed, and then cancels and releases those still
-    /// going (PLATFORM-018). `serve` gives it the time it gives the requests in flight.
+    /// going, waiting at most 2 seconds for the releases (PLATFORM-018). `serve` gives
+    /// it the time it gives the requests in flight.
     pub async fn run(
         self,
         database: Database,
@@ -249,7 +251,7 @@ impl Jobs {
         let kinds: Vec<String> = self.queued.keys().map(|kind| (*kind).to_owned()).collect();
         let mut runs = 0;
         loop {
-            let claimed = match database.claim_jobs(&kinds, 1, LEASE).await {
+            let claimed = match database.claim_jobs(&kinds, 1).await {
                 Ok(claimed) => claimed,
                 Err(error) => {
                     tracing::warn!(
@@ -369,6 +371,20 @@ fn count(kind: &'static str, outcome: Outcome) {
 /// gives a request's, which the collector's sampling reads (PLATFORM-020, OBS-08).
 fn failed() {
     tracing::Span::current().record(names::OTEL_STATUS_CODE, "error");
+}
+
+/// Waits for `release`, the releases of the claims that the deadline cancelled, for at most
+/// [`RELEASE_WITHIN`] on `clock`, and then drops it, since a statement's own waits bound no
+/// database that stops answering (D226). A claim whose release hasn't ended is then left as a
+/// replica that crashed leaves its claims: its lease runs out, unless the database still carries
+/// out the release that it was sent (PLATFORM-018).
+async fn release_within(clock: &SharedClock, release: impl Future<Output = ()>) {
+    tokio::select! {
+        () = release => {}
+        () = clock.sleep(RELEASE_WITHIN) => tracing::warn!(
+            "stopped waiting for the releases of cancelled jobs after 2 seconds"
+        ),
+    }
 }
 
 /// Renews the lease of a run every [`RENEWAL`], for as long as the run lasts. A renewal that

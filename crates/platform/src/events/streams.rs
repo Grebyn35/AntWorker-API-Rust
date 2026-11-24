@@ -413,14 +413,14 @@ mod tests {
         Snapshot::parse(text).expect("a snapshot")
     }
 
-    /// The signal that `user`'s membership changed, in the transaction `transaction`.
-    fn membership_changed(user: UserId, transaction: Option<u64>) -> Signal {
+    /// The signal that `user`'s membership changed, in the transaction 150.
+    fn membership_changed(user: UserId) -> Signal {
         Signal {
             change: AccessChange::MembershipChanged {
                 user_id: user,
                 workspace_id: WorkspaceId::from_uuid(id()),
             },
-            transaction,
+            transaction: Some(150),
         }
     }
 
@@ -438,7 +438,7 @@ mod tests {
         streams.activate(before.id, Memberships::default(), snapshot("150:150:"));
         streams.activate(after.id, Memberships::default(), snapshot("140:160:145"));
 
-        streams.changed(membership_changed(ada, Some(150)));
+        streams.changed(membership_changed(ada));
 
         assert_eq!(closed(&before), Some(Closed::AccessChanged));
         assert_eq!(closed(&after), None);
@@ -452,7 +452,7 @@ mod tests {
         let before = register(&mut streams, ada);
         let after = register(&mut streams, ada);
 
-        streams.changed(membership_changed(ada, Some(150)));
+        streams.changed(membership_changed(ada));
         let held = streams.activate(before.id, Memberships::default(), snapshot("140:160:150"));
         let holding = streams.activate(after.id, Memberships::default(), snapshot("151:151:"));
 

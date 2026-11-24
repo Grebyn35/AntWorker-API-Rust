@@ -7,7 +7,7 @@ use std::{collections::VecDeque, sync::Arc, time::Duration};
 use tokio::sync::{mpsc, oneshot, watch};
 
 use super::{
-    CHANNEL, EVENTS_CHANNEL, log,
+    log,
     subscription::{Closed, Delivery, Registration, Subscription},
     task::Task,
 };
@@ -20,9 +20,6 @@ use crate::{
     lifecycle::Readiness,
     types::UserId,
 };
-
-/// The channels the hub listens on.
-const CHANNELS: &[&str] = &[EVENTS_CHANNEL, CHANNEL];
 
 /// A stream's number in its hub.
 pub(crate) type StreamId = u64;
@@ -90,7 +87,7 @@ pub struct ListenError(String);
 /// a check's timeout on `clock` (OPS-18); then reads the last position given, so every event that
 /// commits from then on is one the hub loads.
 pub async fn listen(database: &Database, clock: &dyn Clock) -> Result<Listener, ListenError> {
-    let mut listener = database.listener(CHANNELS);
+    let mut listener = database.listener();
     if let Checked::Failed(failure) = listener.check(clock).await {
         return Err(ListenError(failure));
     }

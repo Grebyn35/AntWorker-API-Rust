@@ -8,7 +8,7 @@ use tracing::{Instrument, field::Empty};
 use uuid::Uuid;
 
 use super::{
-    DURATION, JobContext, JobScope, LEASE, Outcome, Periodic, count, failed, renew_every,
+    DURATION, JobContext, JobScope, Outcome, Periodic, count, failed, release_within, renew_every,
     runs::Runs,
 };
 use crate::{
@@ -28,7 +28,8 @@ struct Claim {
 }
 
 /// Runs the periodic jobs as they fall due until `stopping` turns true, then waits for the runs
-/// in flight until `deadline` passes, and releases those it then cancels (PLATFORM-018).
+/// in flight until `deadline` passes, and releases those it then cancels, through
+/// [`release_within`] (PLATFORM-018).
 pub(super) async fn schedule(
     periodic: Arc<HashMap<&'static str, Periodic>>,
     database: Database,
@@ -53,7 +54,7 @@ pub(super) async fn schedule(
             };
         }
         if added {
-            match database.claim_schedules(&names, LEASE).await {
+            match database.claim_schedules(&names).await {
                 Ok(claimed) => {
                     for schedule in claimed {
                         let Some(job) = periodic.get(schedule.name.as_str()).cloned() else {
@@ -81,16 +82,20 @@ pub(super) async fn schedule(
             changed = stopping.changed() => if changed.is_err() { break },
         }
     }
-    for claim in runs.drain(deadline).await {
-        match database.release_schedule(claim.name, claim.claim).await {
-            Ok(()) => count(claim.name, Outcome::Released),
-            Err(error) => tracing::warn!(
-                { names::EXCEPTION_MESSAGE } = errors::chain(&error),
-                { names::JOB_KIND } = claim.name,
-                "can't release a cancelled periodic job, whose lease runs out instead"
-            ),
+    let cancelled = runs.drain(deadline).await;
+    release_within(&clock, async {
+        for claim in cancelled {
+            match database.release_schedule(claim.name, claim.claim).await {
+                Ok(()) => count(claim.name, Outcome::Released),
+                Err(error) => tracing::warn!(
+                    { names::EXCEPTION_MESSAGE } = errors::chain(&error),
+                    { names::JOB_KIND } = claim.name,
+                    "can't release a cancelled periodic job, whose lease runs out instead"
+                ),
+            }
         }
-    }
+    })
+    .await;
 }
 
 /// Runs a periodic job in a span of its own, renewing its lease while it runs and cancelling it
@@ -124,7 +129,7 @@ async fn run(job: Periodic, schedule: ClaimedSchedule, database: Database, clock
     let result = tokio::select! {
         result = (job.run)(context) => result,
         () = clock.sleep(job.time_limit) => Err(Internal::new("the run passed its time limit")),
-        never = renew_every(&clock, || database.renew_schedule(job.name, claim, LEASE)) => {
+        never = renew_every(&clock, || database.renew_schedule(job.name, claim)) => {
             match never {}
         }
     };

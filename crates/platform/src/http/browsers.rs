@@ -12,6 +12,7 @@ use axum::{
 };
 
 use crate::{
+    authn::ACCESS_COOKIE,
     config::Origin,
     errors::{self, Internal, Problem, RequestError},
     types::Timestamp,
@@ -179,16 +180,17 @@ impl Cookies {
         Ok(value)
     }
 
-    /// The cookies `__Host-<name>` whose names start with `prefix`, each with its name after
-    /// `__Host-`, for cookies that authenticate no request, such as browsers' device tokens
-    /// (AUTH-015). The refusal of a session cookie without a listed `Origin` doesn't apply to
-    /// them (PLATFORM-059).
-    pub fn starting_with(&self, prefix: &str) -> Vec<(&str, &str)> {
+    /// Every cookie `__Host-<name>` but `__Host-access_token`, the access token's, by which
+    /// `Principal` authenticates a request, each with its name after `__Host-`: a browser's device
+    /// tokens among them (AUTH-015). Unlike [`Cookies::credential`], it refuses no request that
+    /// carries no listed `Origin` (PLATFORM-059), so it also gives the cookie of another
+    /// credential, such as a refresh token, which its route reads through `credential`.
+    pub fn all_but_access(&self) -> Vec<(&str, &str)> {
         self.pairs
             .iter()
             .filter_map(|(key, value)| {
                 key.strip_prefix(HOST_PREFIX)
-                    .filter(|name| name.starts_with(prefix))
+                    .filter(|name| *name != ACCESS_COOKIE)
                     .map(|name| (name, value.as_str()))
             })
             .collect()
@@ -355,5 +357,24 @@ mod tests {
             cookies.credential("refresh_token").unwrap(),
             Some("\u{FFFD}")
         );
+    }
+
+    #[test]
+    fn platform_059_the_cookies_but_the_access_token_s_never_hold_it() {
+        let mut headers = HeaderMap::new();
+        headers.append(
+            header::COOKIE,
+            HeaderValue::from_static(
+                "__Host-access_token=one; __Host-device_token_ab=two; __Host-access_token=three",
+            ),
+        );
+        let cookies = Cookies {
+            pairs: pairs(&headers),
+            may_authenticate: false,
+        };
+
+        let others = cookies.all_but_access();
+
+        assert_eq!(others, [("device_token_ab", "two")]);
     }
 }

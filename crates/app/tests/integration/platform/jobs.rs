@@ -39,6 +39,10 @@ use crate::support::{self, Api, Options, TestDatabase, hex, mailbox, users};
 /// How long a shutdown lets runs go on, in these tests.
 const GRACE: Duration = Duration::from_secs(5);
 
+/// How long the dispatcher and the scheduler wait for their releases after the deadline
+/// (PLATFORM-018).
+const RELEASES: Duration = Duration::from_secs(2);
+
 /// The dispatcher's poll, the scheduler's tick, and a lease's renewal (the platform spec's
 /// Jobs).
 const POLL: Duration = Duration::from_secs(1);
@@ -565,6 +569,34 @@ async fn platform_018_at_shutdown_nothing_more_is_claimed_and_runs_still_going_a
         )
         .await;
     assert_eq!(jobs, ["in flight 0 true", "too late 0 true"]);
+}
+
+#[tokio::test]
+async fn platform_018_the_jobs_stop_within_2_seconds_of_the_deadline_while_a_release_still_waits() {
+    let db = TestDatabase::migrated().await;
+    let database = db.app().await;
+    let (steering, mut starts) = Steering::new(&[Act::Wait]);
+    enqueue(&database, JobScope::for_tests(), &probe("in flight")).await;
+    let clock = Arc::new(TestClock::default());
+    let (stop, running) = start(registry(&database, &steering), &database, &clock);
+    starts.recv().await.unwrap();
+    let mut held = db.holding("SELECT 1 FROM jobs FOR UPDATE").await;
+
+    stop.send_replace(true);
+    clock.sleeping(GRACE).await;
+    clock.advance(GRACE);
+    support::query_waits_on_a_lock(&db, "UPDATE jobs SET claim_id = NULL").await;
+    clock.advance(RELEASES);
+    running.await.unwrap();
+    let waiting = support::queries_waiting_on_locks(&db).await;
+    support::execute_on(&mut held, "ROLLBACK").await;
+
+    assert!(
+        waiting
+            .iter()
+            .any(|query| query.contains("UPDATE jobs SET claim_id = NULL")),
+        "{waiting:?}"
+    );
 }
 
 #[tokio::test]

@@ -11,10 +11,9 @@ use utoipa::openapi::{OpenApi, RefOr, Schema, schema::ArrayItems};
 /// The start of a reference to a component that is a schema.
 const SCHEMAS: &str = "#/components/schemas/";
 
-/// Requires every property that may be `null` of the schemas of `document` that no request
-/// gives: the schemas in the responses themselves, and each component but those that a request's
-/// body or its parameters refer to, through any number of others, since a request may leave out
-/// a field that may be `null`.
+/// Requires every property that `nullable` finds may be `null` of the schemas in the responses
+/// of `document` themselves, and of each component but those that `asked` names, which a
+/// request gives: a request may leave out a field that may be `null`.
 pub(in crate::http) fn require_nullable(document: &mut OpenApi) {
     let asked = asked(document);
     for item in document.paths.paths.values_mut() {
@@ -44,7 +43,8 @@ pub(in crate::http) fn require_nullable(document: &mut OpenApi) {
 }
 
 /// The names of the components that a request's body or its parameters refer to, in `document`,
-/// or that such a component refers to.
+/// or that such a component refers to, and none when `serde_json` can't write `document` as a
+/// JSON value.
 fn asked(document: &OpenApi) -> BTreeSet<String> {
     let mut found = BTreeSet::new();
     let Ok(document) = serde_json::to_value(document) else {
@@ -82,7 +82,8 @@ fn references(value: &Value, names: &mut Vec<String>) {
     }
 }
 
-/// Requires every property of `schema` that may be `null`, and those of the schemas it holds.
+/// Requires every property of `schema` that `nullable` finds may be `null`, and those of the
+/// schemas it holds.
 fn require(schema: &mut RefOr<Schema>) {
     let RefOr::T(schema) = schema else {
         return;
@@ -108,7 +109,8 @@ fn require(schema: &mut RefOr<Schema>) {
     }
 }
 
-/// Whether `schema` takes `null`: its `type` holds it, or one of its `oneOf` is it.
+/// Whether `schema` takes `null`: its `type` holds it, or one of its `oneOf` is it. A schema that
+/// `serde_json` can't write as a JSON value reads as one that doesn't.
 fn nullable(schema: &RefOr<Schema>) -> bool {
     let Ok(schema) = serde_json::to_value(schema) else {
         return false;

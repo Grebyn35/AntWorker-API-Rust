@@ -161,7 +161,7 @@ impl Layout {
             let header = self.local_header(entry);
             let bytes_at = header_at + header.len() as u64;
             if let Some(part) = overlap(header_at..bytes_at, range.start..end) {
-                pieces.push(Piece::Bytes(header.slice(to_usize(part))));
+                pieces.push(Piece::Bytes(header.slice(into_usize(part))));
             }
             if let Some(part) = overlap(bytes_at..bytes_at + entry.stored_size, range.start..end) {
                 pieces.push(Piece::Entry {
@@ -171,7 +171,7 @@ impl Layout {
             }
         }
         if let Some(part) = overlap(self.directory_at..self.size(), range.start..end) {
-            pieces.push(Piece::Bytes(self.directory.slice(to_usize(part))));
+            pieces.push(Piece::Bytes(self.directory.slice(into_usize(part))));
         }
         pieces
     }
@@ -244,7 +244,7 @@ impl Layout {
         let count = if count >= limits.count {
             0xFFFF
         } else {
-            short(to_usize(0..count).end)
+            short(into_usize(0..count).end)
         };
         put_u32(&mut directory, END);
         put_u16(&mut directory, 0);
@@ -325,7 +325,7 @@ fn overlap(range: Range<u64>, within: Range<u64>) -> Option<Range<u64>> {
 }
 
 /// `range` as offsets of bytes held in memory, which a header's or the directory's always are.
-fn to_usize(range: Range<u64>) -> Range<usize> {
+fn into_usize(range: Range<u64>) -> Range<usize> {
     let convert = |value: u64| usize::try_from(value).unwrap_or(usize::MAX);
     convert(range.start)..convert(range.end)
 }
@@ -403,7 +403,7 @@ mod tests {
             match piece {
                 Piece::Bytes(generated) => bytes.extend_from_slice(&generated),
                 Piece::Entry { index, offsets } => {
-                    bytes.extend_from_slice(&stored[index][to_usize(offsets)]);
+                    bytes.extend_from_slice(&stored[index][into_usize(offsets)]);
                 }
             }
         }
@@ -476,7 +476,7 @@ mod tests {
                 let end = (start + length).min(size);
                 assert_eq!(
                     bytes(&layout, &stored, start..end),
-                    whole[to_usize(start..end)],
+                    whole[into_usize(start..end)],
                     "{start}..{end}"
                 );
             }
@@ -555,7 +555,7 @@ mod tests {
             let end = (start + 50).min(layout.size());
             assert_eq!(
                 bytes(&layout, &stored, start..end),
-                archive[to_usize(start..end)]
+                archive[into_usize(start..end)]
             );
         }
         // Under the format's limits, no ZIP64 record stands.

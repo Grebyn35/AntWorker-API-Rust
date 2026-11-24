@@ -384,7 +384,7 @@ impl TestDatabase {
     /// A listener of the access-change signals that units of work send at commit (D35).
     pub async fn signals(&self) -> Signals {
         Signals(
-            testing::listen(&self.owner_url(), "access_changed")
+            testing::listen(&self.owner_url())
                 .await
                 .expect("listen for the signals"),
         )

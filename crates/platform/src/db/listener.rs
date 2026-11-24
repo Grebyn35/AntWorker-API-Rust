@@ -13,7 +13,7 @@ use sqlx::{
 use super::Database;
 use crate::{
     clock::Clock,
-    errors,
+    errors, events,
     telemetry::{metrics::Gauge, names},
 };
 
@@ -28,14 +28,13 @@ static DATABASE_REACHABLE: Gauge<1> = Gauge::new(
     [names::DB_NAMESPACE],
 );
 
-/// The listener: the instance's own connection, which listens on a fixed set of channels. It holds no
+/// The listener: the instance's own connection, which listens on the hub's channels. It holds no
 /// connection until a check opens one, and drops one that fails, so the next check opens it
 /// again and listens again.
 pub(crate) struct Listener {
     /// The listener's own pool of one connection, which every connection it opens comes from, so
     /// it never holds two: one it dropped returns there only once sqlx's `UNLISTEN` on it ends.
     pool: PgPool,
-    channels: &'static [&'static str],
     database: String,
     connection: Option<PgListener>,
 }
@@ -71,9 +70,9 @@ impl Database {
         self.options.get_database().unwrap_or_default().to_owned()
     }
 
-    /// The listener, which listens on `channels` once a check opens it
+    /// The listener, which listens on the hub's channels once a check opens it
     /// (OPS-18: the one connection beside the pool).
-    pub(crate) fn listener(&self, channels: &'static [&'static str]) -> Listener {
+    pub(crate) fn listener(&self) -> Listener {
         Listener {
             database: self.name(),
             pool: PgPoolOptions::new()
@@ -83,7 +82,6 @@ impl Database {
                 .idle_timeout(None)
                 .acquire_timeout(CHECK_TIMEOUT)
                 .connect_lazy_with(self.options.clone()),
-            channels,
             connection: None,
         }
     }
@@ -130,7 +128,9 @@ impl Listener {
         let mut connection = PgListener::connect_with(&self.pool).await?;
         connection.ignore_pool_close_event(true);
         connection.eager_reconnect(false);
-        connection.listen_all(self.channels.iter().copied()).await?;
+        connection
+            .listen_all(events::CHANNELS.iter().copied())
+            .await?;
         Ok(connection)
     }
 
