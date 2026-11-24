@@ -179,7 +179,9 @@ impl Response {
 pub struct OutboundError(String);
 
 impl Configured {
-    /// The configured client of a deployment in `environment`, with `config`'s settings.
+    /// The configured client of a deployment in `environment`, with `config`'s settings. It goes
+    /// through no proxy, so no variable of the environment, such as `HTTPS_PROXY`, takes its
+    /// requests elsewhere (SEC-10).
     ///
     /// # Errors
     ///
@@ -192,6 +194,7 @@ impl Configured {
             .connect_timeout(CONNECT_TIMEOUT)
             .timeout(TIMEOUT)
             .redirect(reqwest::redirect::Policy::none())
+            .no_proxy()
             .tls_backend_preconfigured(tls)
             .build()
             .map_err(|error| OutboundError(format!("the client: {error}")))?;
@@ -324,5 +327,84 @@ mod tests {
             .target("https://provider.test/user/emails?page=1")
             .unwrap();
         assert_eq!(target.as_str(), "http://127.0.0.1:4000/user/emails?page=1");
+    }
+
+    /// The test that runs in a process whose environment names a proxy, by its path.
+    const PAST_A_PROXY: &str =
+        "outbound::tests::sec_10_each_client_reaches_a_local_server_while_a_proxy_is_named";
+
+    /// Each client reaches its server while `HTTP_PROXY` names a stand-in proxy, which takes none
+    /// of their connections. The variable is set only in a process of its own, which runs the
+    /// test binary again for `PAST_A_PROXY` alone: set here, it would reach every test of the
+    /// binary.
+    #[test]
+    fn sec_10_no_outbound_client_takes_a_proxy_from_the_environment() {
+        let proxy = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = proxy.local_addr().unwrap();
+        // The stand-in proxy closes the first connection that it takes, so a request sent through
+        // it fails at once.
+        let taking = std::thread::spawn(move || proxy.accept().unwrap().1);
+
+        let run = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([PAST_A_PROXY, "--exact", "--ignored"])
+            .env("HTTP_PROXY", format!("http://{address}"))
+            .env_remove("NO_PROXY")
+            .env_remove("no_proxy")
+            // reqwest ignores HTTP_PROXY while REQUEST_METHOD is set, as in a CGI program.
+            .env_remove("REQUEST_METHOD")
+            .output()
+            .unwrap();
+
+        let printed = String::from_utf8_lossy(&run.stdout);
+        assert!(
+            run.status.success() && printed.contains(" 1 passed;"),
+            "{printed}"
+        );
+        // The first connection that the stand-in takes is the test's own.
+        let own = std::net::TcpStream::connect(address).unwrap();
+        assert_eq!(taking.join().unwrap(), own.local_addr().unwrap());
+    }
+
+    #[test]
+    #[ignore = "the test of proxies above runs it, in a process whose environment names one"]
+    fn sec_10_each_client_reaches_a_local_server_while_a_proxy_is_named() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let server = runtime
+            .block_on(tokio::net::TcpListener::bind("127.0.0.1:0"))
+            .unwrap();
+        let origin = format!("http://{}", server.local_addr().unwrap());
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the stand-in server answers every request alike, outside the API's routes"
+        )]
+        let answers = axum::Router::new().fallback(|| async { "answered" });
+        runtime.spawn(async move { axum::serve(server, answers).await });
+        let endpoint: crate::telemetry::OtlpEndpoint = origin.parse().unwrap();
+
+        runtime.block_on(async {
+            let configured = client(Environment::Test, Some(&origin));
+            let answered = configured.send(Request::get(&origin)).await;
+            assert!(answered.is_ok_and(|answer| answer.is_success()));
+            let config = OutboundConfig {
+                test_origin: Some(origin.parse().unwrap()),
+            };
+            let untrusted = Untrusted::new(&config, Vec::new()).unwrap();
+            assert!(untrusted.get(&origin, 64).await.is_ok());
+            // part: files
+            let bucket = crate::storage::client(None).unwrap();
+            let answered = bucket.get(&origin).send().await;
+            assert!(answered.is_ok_and(|answer| answer.status().is_success()));
+            // end part: files
+            // part: client_telemetry
+            let clock = std::sync::Arc::new(crate::clock::SystemClock);
+            let relay = crate::telemetry::Relay::new(&endpoint, clock).unwrap();
+            let traces = crate::telemetry::Signal::Traces;
+            let forwarded = relay.forward(traces, "application/json", bytes::Bytes::new());
+            assert!(forwarded.await.is_ok());
+            // end part: client_telemetry
+        });
+        let exporters = crate::telemetry::exporters_client(&endpoint).unwrap();
+        let answered = exporters.get(&origin).send();
+        assert!(answered.is_ok_and(|answer| answer.status().is_success()));
     }
 }

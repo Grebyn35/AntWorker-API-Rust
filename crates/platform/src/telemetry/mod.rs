@@ -41,6 +41,8 @@ use tracing_subscriber::{
     registry::LookupSpan,
 };
 
+#[cfg(test)]
+pub(crate) use export::client as exporters_client;
 pub use export::{ExportError, OtlpEndpoint};
 // part: client_telemetry
 pub use relay::{Relay, RelayBuildError, RelayError, Signal};

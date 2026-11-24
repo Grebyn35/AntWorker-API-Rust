@@ -76,6 +76,7 @@ Three actions are exceptions to the rank of members, and each has its own rule:
 All outbound HTTP that application code makes uses one of the two clients in `platform::outbound`. The telemetry adapters use their libraries' own clients, with endpoints from configuration, and follow no redirect. The probe that the `health` subcommand sends to the instance's own address (PLATFORM-063) reaches no other service, so neither client applies to it.
 The object storage adapter sends its requests through a client of its own too, to the endpoint that configuration names, and follows no redirect (PLATFORM-094), and the malware scanner's adapter speaks clamd's own protocol, not HTTP, over TCP to the address that configuration names (PLATFORM-079), so neither client applies to them either. <!-- part: files -->
 The relay of clients' batches of telemetry is a telemetry adapter too: it sends each batch to the collector's receiver that configuration names, through a client of its own, which follows no redirect and sends none of the caller's credentials (PLATFORM-091). <!-- part: client_telemetry -->
+None of these clients goes through a proxy, which would resolve a name in the client's place, so none takes one from the environment, such as `HTTP_PROXY`.
 - The configured client calls URLs that come from configuration or from the code, such as an OAuth provider's endpoints. It requires HTTPS, unless the environment is development or test, follows no redirect, and caps response size and time.
 - The untrusted client calls URLs that come from a third party. It:
   - allows HTTPS only, at HTTPS's own port
@@ -83,13 +84,13 @@ The relay of clients' batches of telemetry is a telemetry adapter too: it sends 
   - blocks private, loopback and link-local addresses after DNS resolution
   - re-checks every redirect, and limits redirects
   - caps response size and time
-  - sends no credential, and goes through no proxy, which would resolve a name in its place
+  - sends no credential
 
   The picture of a user that an OAuth provider names is such a URL, and the client that fetches it is built with the hosts that the deployment's providers name for their users' pictures (AUTH-097). <!-- part: files -->
 
 In the test environment only, the configured client sends every request to one configured loopback origin, keeping its path, and the untrusted client accepts that origin, over `http`, as the one address that isn't public, whatever hosts it is built with, so tests can reach a fake provider. Startup refuses the setting in any other environment.
-- Why: no server-side request forgery, while every path stays testable (D26). A third party's URL reaches only the hosts that the code or the deployment named beforehand, as requirements 1.3.6 and 13.2.4 of ASVS ask (D195).
-- Check: `ci: check-layers` (no HTTP client library or TCP stream is named outside the places that this rule allows), plus `test` (including a test that the loopback setting is refused outside the test environment).
+- Why: no server-side request forgery, while every path stays testable (D26). A third party's URL reaches only the hosts that the code or the deployment named beforehand, as requirements 1.3.6 and 13.2.4 of ASVS ask (D195). No request goes to a proxy that a variable outside the settings names (OPS-01, D242).
+- Check: `ci: check-layers` (no HTTP client library or TCP stream is named outside the places that this rule allows), plus `test` (including a test that the loopback setting is refused outside the test environment, and one that each client reaches its server while `HTTP_PROXY` names a proxy).
 
 <!-- part: files -->
 ### SEC-11 Uploaded content can't run in a browser

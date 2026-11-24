@@ -298,13 +298,15 @@ pub(super) fn resource(service: Service, environment: Environment) -> Resource {
 /// The blocking HTTP client the three exporters share. It runs on a thread of its own, so an
 /// export never needs the async runtime. An `https` endpoint is verified against the operating
 /// system's certificate store, as a verified database connection is (D38). It follows no
-/// redirect, so an export reaches the endpoint that the settings name, or fails (SEC-10).
-fn client(endpoint: &OtlpEndpoint) -> Result<reqwest::blocking::Client, ExportError> {
+/// redirect, and reads no proxy from the environment, such as `ALL_PROXY`, so an export reaches
+/// the endpoint that the settings name, or fails (SEC-10).
+pub(crate) fn client(endpoint: &OtlpEndpoint) -> Result<reqwest::blocking::Client, ExportError> {
     let tls =
         crate::tls::client_config(endpoint.0.scheme() == "https").map_err(ExportError::Client)?;
     reqwest::blocking::Client::builder()
         .timeout(EXPORT_TIMEOUT)
         .redirect(reqwest::redirect::Policy::none())
+        .no_proxy()
         .tls_backend_preconfigured(tls)
         .build()
         .map_err(|error| ExportError::Client(Box::new(error)))

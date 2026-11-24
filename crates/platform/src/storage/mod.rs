@@ -401,12 +401,15 @@ fn answered<T: Send + 'static>(
 /// files that `SSL_CERT_FILE` and `SSL_CERT_DIR` name, as a verified database connection does
 /// (D38), and against those of `ca_path`, if it names a file. Its only timeout is the
 /// connection's: the waits for the bucket's answers are the clock's, in [`Storage`]. It follows
-/// no redirect, so a request reaches the endpoint that the settings name, or fails (SEC-10).
-fn client(ca_path: Option<&std::path::Path>) -> Result<reqwest::Client, Internal> {
+/// no redirect, and goes through no proxy, whatever the environment's variables, such as
+/// `HTTPS_PROXY`, name, so a request reaches the endpoint that the settings name, or fails
+/// (SEC-10).
+pub(crate) fn client(ca_path: Option<&std::path::Path>) -> Result<reqwest::Client, Internal> {
     let tls = crate::tls::client_config_trusting(ca_path).map_err(Internal::new)?;
     reqwest::Client::builder()
         .connect_timeout(CONNECT_TIMEOUT)
         .redirect(reqwest::redirect::Policy::none())
+        .no_proxy()
         .tls_backend_preconfigured(tls)
         .build()
         .map_err(|error| Internal::new(format!("the bucket's client: {}", error.without_url())))

@@ -80,11 +80,13 @@ impl Relay {
     /// The relay to the receiver at `endpoint`, whose waits are measured by `clock`. It reaches
     /// the collector only when it forwards, so a collector that doesn't answer at startup keeps
     /// no route from serving. An `https` endpoint is verified against the operating system's
-    /// certificate store (D38).
+    /// certificate store (D38). It takes no proxy, from the environment's `HTTP_PROXY` or any
+    /// other, so a batch goes to the receiver itself (SEC-10).
     pub fn new(endpoint: &OtlpEndpoint, clock: SharedClock) -> Result<Self, RelayBuildError> {
         let tls = crate::tls::client_config(endpoint.is_https()).map_err(RelayBuildError)?;
         let client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
+            .no_proxy()
             .tls_backend_preconfigured(tls)
             .build()
             .map_err(|error| RelayBuildError(Box::new(error)))?;
