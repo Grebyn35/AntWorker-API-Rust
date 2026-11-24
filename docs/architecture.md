@@ -341,7 +341,7 @@ Nothing runs after the response except background work driven by committed rows.
 - **Tenancy is enforced by the application (D4).** There is no row-level security. Every query on tenant data filters by tenant itself, workspace data by the workspace ID from `Authorized<P>` or a job's recorded scope, and user data by the caller's ID, but for the reads that DATA-16 exempts. Three things keep that true:
   - Repository functions for workspace data take the workspace ID as a parameter.
   - A CI check fails a query on a workspace table that doesn't filter by `workspace_id`, or by `user_id` on a table that also has one, or by the address of a table whose rows are addressed to a user, unless a function that the check lists holds it: a cross-tenant job's, or one of the reads that DATA-16 exempts, as DATA-16's Check says.
-  - A generated test sends every workspace route an ID from another workspace the caller belongs to (TEST-08).
+  - A generated test sends each workspace route that addresses a row by ID the ID of a row in another workspace the caller belongs to (TEST-08).
 - **No business logic lives in SQL**, and there are no stored procedures or `SECURITY DEFINER` functions (DATA-07).
 - **What the role can't protect against.** A compromised API process can read and change anything `app` can. The defenses for that case are:
   - The database is not reachable from outside the private network.
@@ -350,7 +350,7 @@ Nothing runs after the response except background work driven by committed rows.
   - The audit log and backups support detection and recovery (D6, D30).
 - **Conventions (D24):**
   - UUIDv7 IDs from `uuidv7()`.
-  - Timestamps from `now()` in the database.
+  - Timestamps from the database's clock (DATA-03).
   - SQL checked at compile time with `sqlx::query!` and a committed offline cache.
   - `ETag` and `If-Match` on editable resources.
   - Hard deletes, with cascades declared in the schema.
@@ -453,7 +453,7 @@ The decided parts of the stack are decisions with recorded reasons: OpenTelemetr
 
 Validation uses the domain types (D25), not a validation crate. Async traits are native wherever no trait object is needed.
 
-Exact versions are pinned in `Cargo.toml`.
+Exact versions are pinned in `Cargo.lock`.
 
 ## 11. Glossary
 

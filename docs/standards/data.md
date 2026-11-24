@@ -8,13 +8,15 @@ Schema, migrations, database roles, tenancy, queries and transactions.
 These names apply to the product schema: the tables, views, columns and constraints that the files in `migrations/` create.
 - Tables and views are plural `snake_case` (`workspace_memberships`).
 - A foreign-key column is named `<singular>_id`, after the table it references (`workspace_id`), or `<role>_id`, after the role of the row it references, with that singular where the role alone doesn't tell the table (`publisher_id`, `actor_user_id`). Timestamps are `<event>_at`.
-- Constraints and indexes are named explicitly:
+- Constraints and indexes take these names, which a migration gives them, but for a primary key and a `NOT NULL` that a column declares, whose names it leaves to Postgres:
+  - `<table>_pkey` for the primary key
   - `<table>_<columns>_key` for unique constraints, and for the unique indexes that back no constraint, such as a partial one
   - `<table>_<columns>_fkey` for foreign keys
   - `<table>_<columns>_check` for checks, whose `<columns>` are some of the columns that the check reads
+  - `<table>_<column>_not_null` for a `NOT NULL` that a migration adds to a column of a table that an earlier one created (DATA-10)
   - `<table>_<columns>_idx` for the other indexes
 - Why: ERR-05 maps constraint violations by name, and a predictable name needs no lookup.
-- Check: `ci: check-schema`, which reads of a foreign-key column's name only that it ends in `_id`, of a check's name only that what stands between its table's name and `_check` is some of the first eight columns that the check reads, in the catalog's order, joined by `_`, and of the name of an index on an expression only that it starts with its table's and ends in `_key` or `_idx`, plus `review` (what those names are taken from).
+- Check: `ci: check-schema`, which reads of a foreign-key column's name only that it ends in `_id`, of a check's name only that what stands between its table's name and `_check` is some of the first eight columns that the check reads, in the catalog's order, joined by `_`, and of the name of an index on an expression only that it starts with its table's and ends in `_key` or `_idx`, and reads no `NOT NULL`'s name, plus `review` (what those names are taken from, and a `NOT NULL`'s name).
 
 ### DATA-02 Standard columns
 - Every table of the product schema (DATA-01) has `id uuid PRIMARY KEY DEFAULT uuidv7()` and `created_at timestamptz NOT NULL DEFAULT now()`.
@@ -83,7 +85,7 @@ A test applies every migration to an empty database. To a second, it applies the
 | Role | Used by | Attributes |
 |---|---|---|
 | `owner` | the `migrate` subcommand only | owns the tables it creates, and has `CREATE` on the schema `public`, which the database's owner keeps |
-| `app` | every request and every job, `seed`, which sends the API's routes requests in process ([system spec](../spec/system.md#seed)), and each subcommand that an operator runs against the accounts, such as `remove-second-factor` | no superuser, owns nothing, data manipulation statements (DML) only (DATA-19) |
+| `app` | every request and every job, `seed`, which sends the API's routes requests in process ([system spec](../spec/system.md#seed)), and each subcommand that an operator runs against the accounts, such as `remove-second-factor` | no superuser, owns nothing, data manipulation language (DML) statements only (DATA-19) |
 
 The `bootstrap` subcommand creates both roles with these attributes, grants their privileges on the database and sets the role-level timeouts (DATA-19). The privileges on the tables come from the first migration. It runs with an administrator connection: the bundled Postgres superuser, or a managed provider's admin role. Running it again keeps the roles, their attributes and the grants, and sets each role's password again from its URL. Roles belong to the whole Postgres server, so a deployment's server holds its database alone (D75), and in production `bootstrap` refuses a server that holds another database of the roles before it changes one.
 - Why: the running API can change data but never the schema, and holds no privilege beyond that (D4).
@@ -96,7 +98,7 @@ The server refuses to start unless it connects as the role `app`, and that role 
 
 ### DATA-19 Least privilege in grants
 - `EXECUTE` is revoked from `PUBLIC` on every function in the application schema, including through default privileges.
-- `app` has `SELECT`, `INSERT`, `UPDATE` and `DELETE` on the application schema only, with no data definition statements (DDL) and no `TRUNCATE`. On `audit_entries` and `audit_entry_clients` it has only `INSERT` and `SELECT`, and on `deletable_audit_entries`, the view through which retention deletes, which shows only the entries recorded more than 90 days ago, only `SELECT` and `DELETE` (AUDIT-005), and on each table whose rows are never edited, and which so has no `updated_at` or `version` (DATA-02), no `UPDATE`, such as `device_tokens` (AUTH-019) and `verification_codes` (AUTH-030).
+- `app` has `SELECT`, `INSERT`, `UPDATE` and `DELETE` on the application schema only, with no data definition language (DDL) statements and no `TRUNCATE`. On `audit_entries` and `audit_entry_clients` it has only `INSERT` and `SELECT`, and on `deletable_audit_entries`, the view through which retention deletes, which shows only the entries recorded more than 90 days ago, only `SELECT` and `DELETE` (AUDIT-005), and on each table whose rows are never edited, and which so has no `updated_at` or `version` (DATA-02), no `UPDATE`, such as `device_tokens` (AUTH-019) and `verification_codes` (AUTH-030).
   `export_entries` and `export_chunks` are such tables too (the accounts spec's Owns).
   So are `workspace_files`, `user_files`, `avatars`, `workspace_pictures`, `exported_files` and `object_deletions` (the files spec's Owns). <!-- part: files -->
   So is `workspace_setups` (the workspaces spec's Owns). <!-- part: workspace_setup -->
@@ -150,7 +152,7 @@ A row ID alone never addresses tenant data. These reads are exempt:
 - the startup check of the versions of the key ring under which secrets are stored, which reads the versions alone, of every user's rows (AUTH-066)
 - a public file's download, which reads its row by its ID and its visibility alone, and an avatar's and a workspace's picture's, which each read their row by its ID alone, since whoever holds a public file's ID, an avatar's or a picture's, may read it ([files spec](../spec/files.md#visibility)) <!-- part: files -->
 - Why: there is no row-level security, so the application's filters are the only guard between tenants, and they are checked by machine and by test (D4).
-- Check: `ci: check-tenancy` (each item below), `test` (TEST-08 sends, for every workspace route, an ID from another workspace the caller belongs to), plus `review` (the exemptions).
+- Check: `ci: check-tenancy` (each item below), `test` (TEST-08 sends each workspace route that addresses a row by ID the ID of a row in another workspace the caller belongs to), plus `review` (the exemptions).
   - every query on a table with a `workspace_id` column, platform data aside, filters on it, on its `user_id` where it has one, or on the address its rows are addressed to, and every query of a view that reads such a table filters on a tenant column that the view shows, unless a listed function holds the query: a function of a cross-tenant job, or of the reads that this rule exempts
   - every other table is listed
   - the migrations create each table and view in a form that the check reads, which the doc of `crates/xtask/src/tenancy/mod.rs` names
@@ -183,7 +185,7 @@ Audit entries (`audit::record`), events (`uow.publish_to_user` and `uow.publish_
 
 What is audited:
 - Every change that a request, an enqueued job or an operator's subcommand makes to data a module owns.
-- Each security failure: those D6 lists, a failed sign-in, a wrong current password, a reused refresh token and a refused authorization, a wrong verification code, a guess at what proves an account's address (AUTH-032), resets its password (AUTH-038) or changes its address (AUTH-052), a wrong code of a second factor (AUTH-056, AUTH-060, AUTH-065, AUTH-098), and a re-authentication through a provider whose account isn't the caller's (AUTH-101). A failed sign-in commits its audit entry and then answers 401 (ARCH-11, PLATFORM-008). Refusals are reported to the `SecurityEventSink` (PLATFORM-010).
+- Each security failure: those D6 lists, a failed sign-in with a password to an account that holds the email (AUTH-005), a wrong current password, a reused refresh token and a refused authorization, a wrong verification code, a guess at what proves an account's address (AUTH-032), resets its password (AUTH-038) or changes its address (AUTH-052), a wrong code of a second factor (AUTH-056, AUTH-060, AUTH-065, AUTH-098), and a re-authentication through a provider whose account isn't the caller's (AUTH-101). A failed sign-in with a password to such an account commits its audit entry and then answers 401 (ARCH-11, PLATFORM-008), unless a deletion of the account commits before the record, which leaves no log to hold it, as it leaves none for a guess at what resets the account's password (AUTH-038). Refusals are reported to the `SecurityEventSink` (PLATFORM-010).
 - Reads that a module spec names as audited, such as the download of an export (D31).
 
 Platform bookkeeping (rate-limit buckets, idempotency records, job state) and scheduled maintenance (retention, sweeps) aren't audited. Metrics count them instead. Deleting an account records only the entries that the logs of the workspaces the user shared keep, since their own log goes with the account (ACCOUNTS-014, D31). Deleting a workspace records its one entry in the own log of whoever deletes it, since the workspace's log goes with the workspace (WORKSPACES-017).

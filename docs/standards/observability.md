@@ -34,13 +34,14 @@ Of the telemetry that a user's client sends through the telemetry proxy, the col
 - Check: `compiler` (the redacting types), `ci: check-instrument` (every `#[instrument]` has `skip_all`), plus `ci: e2e` (the proxy's span, its log line and its own log hold no client address or user agent, under any name, and the bundled Postgres's log holds no value that a unique constraint refused), plus `review`.
 
 ### OBS-05 Telemetry names come from one list
-Every field name in the logs and spans that the code of `crates/platform/src/` and `crates/app/src/` writes, and every metric label name, comes from the list in `platform::telemetry`, and that code uses no other name. The list declares no field for personal data or secrets (OBS-04).
+Every field name in the logs and spans that the code of `crates/platform/src/` and `crates/app/src/` writes, and every metric label name, comes from the list in `platform::telemetry`, and that code uses no other name, a JSON line's own keys aside. The list declares no field for personal data or secrets (OBS-04).
 - A name is OpenTelemetry's wherever a semantic convention names the same thing, such as `http.request.method` or `http.route`. The list pins the conventions' version.
 - Any other name is `<term>.<property>` in lowercase, using the glossary's term for the concept (CODE-11), and never starts with a namespace the conventions define. Where the conventions use the term with another meaning, the owning module's name goes first: `auth.session.id`, since OpenTelemetry's `session` is a client application's session, and `realtime.event.id`, since its `event` names log records.
 - `trace_id` and `span_id` are top-level fields, as OpenTelemetry names trace context in JSON logs.
+- `timestamp`, `level` and `message`, under which a JSON line holds its time (OBS-02), its level and its event's message, are the line's own keys, and the list doesn't hold them.
 - `otel.name` and `otel.kind`, which the bridge from `tracing` to OpenTelemetry reads to name a span and set its kind, are the bridge's own fields, and the only names in a namespace the conventions define. No JSON log line carries them; the readable text of development shows them with the span they belong to.
 - Why: standard names work with standard dashboards and tools, and one list keeps each name the same in every log, span and metric (D19).
-- Check: `compiler` (each convention's entry is checked against the conventions' published name), `clippy` (a deprecated convention name fails), plus `ci: check-instrument` (every name the code uses is on the list).
+- Check: `compiler` (each convention's entry is checked against the conventions' published name), `clippy` (a deprecated convention name fails), plus `ci: check-instrument` (each field name that an event, a span or a `record` call names is on the list), and the label names as OBS-11 checks them.
 
 ## Traces
 

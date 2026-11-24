@@ -1,6 +1,8 @@
 //! Every name that logs and spans give a field, and that metrics give a label (OBS-05). The code
-//! in the `src/` of `platform` and `app` uses no other name, and `check-instrument` checks that it
-//! doesn't.
+//! in the `src/` of `platform` and `app` uses no other name, but for a JSON line's own keys,
+//! `timestamp`, `level` and `message`. `check-instrument` checks the names of the fields that
+//! events, spans and `record` calls name, and `check-metrics` that each label of a metric's
+//! declaration is one of the constants here.
 //!
 //! A name that OpenTelemetry's semantic conventions define is declared with `convention`, which
 //! fails compilation when the name differs from the one the conventions publish. The

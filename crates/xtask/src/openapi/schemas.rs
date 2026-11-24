@@ -229,7 +229,7 @@ impl Places<'_> {
 
     /// Checks of each content type of `content` its `schema` and its `x-itemSchema`, the schema of
     /// a stream's items, where the type isn't a problem's, the headers of its `encoding`, and, in a
-    /// request body of JSON, each string's `maxLength`.
+    /// request body of JSON, that each string has a `maxLength` or an `enum`.
     fn content(&mut self, content: &Value, at: &str, needle: &str, request: bool) {
         for (media, of_media) in members(content) {
             let owner = if request {

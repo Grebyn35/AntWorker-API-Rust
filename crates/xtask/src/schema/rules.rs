@@ -534,6 +534,7 @@ mod tests {
         let mut catalog = catalog();
         catalog["tables"][1]["name"] = json!("UserRole");
         catalog["tables"][0]["columns"][1]["name"] = json!("created");
+        catalog["constraints"][3]["name"] = json!("audit_entries_primary");
         catalog["constraints"][4]["name"] = json!("fk_audit_user");
         catalog["constraints"][5]["name"] = json!("audit_entries_check");
         catalog["indexes"][1]["name"] = json!("audit_entries_user_idx");
@@ -541,6 +542,7 @@ mod tests {
         for expected in [
             "the table UserRole isn't a plural snake_case name (DATA-01)",
             "users.created is a timestamp, so its name is <event>_at (DATA-01)",
+            "the constraint audit_entries_primary of audit_entries isn't named `audit_entries_pkey` (DATA-01)",
             "the constraint fk_audit_user of audit_entries isn't named `audit_entries_user_id_fkey` (DATA-01)",
             "the constraint audit_entries_check of audit_entries isn't named `audit_entries_scope_check` (DATA-01)",
             "the index audit_entries_user_idx of audit_entries isn't named `audit_entries_<columns>_idx` (DATA-01)",

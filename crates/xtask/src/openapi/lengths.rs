@@ -123,7 +123,7 @@ mod tests {
     }
 
     #[test]
-    fn api_17_every_string_of_a_request_body_has_a_max_length() {
+    fn api_17_every_string_of_a_request_body_has_a_max_length_or_an_enum() {
         let schemas = json!({
             "Name": { "type": "string", "maxLength": 100 },
             "Note": { "type": "string" },
