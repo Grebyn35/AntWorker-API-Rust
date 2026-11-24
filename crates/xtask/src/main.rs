@@ -123,8 +123,8 @@ enum Command {
     #[command(name = "check-pins")]
     Pins,
     /// Fails on a finding of shellcheck in a recipe of the justfile that runs on Linux and macOS,
-    /// or in a shell script under `deploy/`, and on an `echo`, a function or a `psql` of such a
-    /// script that `shell::scripts` refuses.
+    /// or in a shell script under `deploy/`, on an `echo` or a function of such a script that
+    /// `shell::scripts` refuses, and on a `psql` of one that `shell::psql` refuses.
     #[command(name = "check-shell")]
     Shell,
     /// Fails on a function, method or macro that the locked sqlx exposes and that takes SQL text,

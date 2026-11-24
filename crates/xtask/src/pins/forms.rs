@@ -1,9 +1,9 @@
 //! The forms of a pin that `check-pins` reads: an image's digest, an exact version, a runner's
-//! versioned label, and a variable that Compose requires.
+//! versioned label, and a variable that the deploy sets.
 
-/// Whether `value` is one variable that Compose requires, `${NAME}` or `${NAME:?message}`, with
-/// no default it could fall back to.
-pub(super) fn is_required_variable(value: &str) -> bool {
+/// Whether `value` is one variable, `${NAME}`, `${NAME?message}` or `${NAME:?message}`, with no
+/// default it could fall back to, which `check-pins` takes for a variable that the deploy sets.
+pub(super) fn is_deploy_variable(value: &str) -> bool {
     let Some(inner) = value
         .strip_prefix("${")
         .and_then(|rest| rest.strip_suffix('}'))

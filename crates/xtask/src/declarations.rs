@@ -1,5 +1,10 @@
-//! The metric declarations in the API's code (OBS-11): every `static` built by
-//! `Counter::new`, `Histogram::new` or `Gauge::new`, with the names Prometheus gives its series.
+//! The metric declarations in the API's code (OBS-11), with the names Prometheus gives their
+//! series. A declaration is a `static` of a declaration type, one whose path's last segment is
+//! `Counter`, `Histogram` or `Gauge`, and the check reads it from its initializer, a call of a
+//! path whose last two segments are one of the three and `new`, as `Counter::new` is, or of
+//! `<T>::new` for such a type `T`. Outside a module that only tests compile, it refuses a static
+//! of a declaration type that anything else builds, a path to one of their `new` anywhere else,
+//! and a `use` or a `type` that gives one of them another name.
 
 use std::collections::BTreeMap;
 
@@ -152,25 +157,75 @@ impl<'ast> Visit<'ast> for Declarations<'_> {
         }
     }
 
+    /// Reads a static of a declaration type as a metric, from its initializer, which is a call of
+    /// a path that [`names_new`]; reads no further into it.
     fn visit_item_static(&mut self, item: &'ast syn::ItemStatic) {
-        if let Some(kind) = declared_kind(&item.ty)
-            && let Expr::Call(call) = &*item.expr
-        {
-            let line = item.static_token.span.start().line;
-            match self.metric(kind, call, line) {
-                Ok(metric) => {
-                    self.check(&metric);
-                    self.metrics.push(metric);
-                }
-                Err(message) => self.findings.push(Finding::new(self.path, line, message)),
+        let Some(kind) = declared_kind(&item.ty) else {
+            visit::visit_item_static(self, item);
+            return;
+        };
+        let line = item.static_token.span.start().line;
+        let declared = match &*item.expr {
+            Expr::Call(call) if matches!(&*call.func, Expr::Path(path) if names_new(path)) => {
+                self.metric(kind, call, line)
             }
+            _ => Err(
+                "a metric's static is a call of its declaration type's `new`, which \
+                      check-metrics reads (OBS-11)"
+                    .into(),
+            ),
+        };
+        match declared {
+            Ok(metric) => {
+                self.check(&metric);
+                self.metrics.push(metric);
+            }
+            Err(message) => self.findings.push(Finding::new(self.path, line, message)),
         }
-        visit::visit_item_static(self, item);
+    }
+
+    /// Refuses a path that [`names_new`] anywhere but in the initializer of a static of a
+    /// declaration type, which the visitor reads no further into.
+    fn visit_expr_path(&mut self, path: &'ast syn::ExprPath) {
+        if names_new(path) {
+            let line = path
+                .path
+                .segments
+                .last()
+                .map_or(1, |segment| segment.ident.span().start().line);
+            self.findings.push(Finding::new(
+                self.path,
+                line,
+                "a declaration type's `new` builds a metric's static alone, whose initializer \
+                 check-metrics reads (OBS-11)",
+            ));
+        }
+        visit::visit_expr_path(self, path);
+    }
+
+    /// Refuses a `use` that renames a declaration type.
+    fn visit_use_rename(&mut self, rename: &'ast syn::UseRename) {
+        if kind_named(&rename.ident).is_some() {
+            self.findings
+                .push(renamed(self.path, rename.ident.span().start().line));
+        }
+        visit::visit_use_rename(self, rename);
+    }
+
+    /// Refuses a `type` whose type is a declaration type.
+    fn visit_item_type(&mut self, item: &'ast syn::ItemType) {
+        if declared_kind(&item.ty).is_some() {
+            self.findings
+                .push(renamed(self.path, item.type_token.span.start().line));
+        }
+        visit::visit_item_type(self, item);
     }
 }
 
 impl Declarations<'_> {
-    /// The metric that `call`, a `new` of the declaration type `kind`, declares.
+    /// The metric that `call`, a `new` of the declaration type `kind`, declares. Its name is a
+    /// string literal, or a convention's: the first argument, a string literal, of a call whose
+    /// path's last segment is `convention`.
     fn metric(&self, kind: Kind, call: &ExprCall, line: usize) -> Result<Metric, String> {
         let arguments: Vec<&Expr> = call.args.iter().collect();
         let [name, unit, description, labels, ..] = arguments.as_slice() else {
@@ -179,7 +234,7 @@ impl Declarations<'_> {
             );
         };
         let (name, convention) = match name {
-            Expr::Call(convention) => (
+            Expr::Call(convention) if calls_convention(convention) => (
                 convention
                     .args
                     .first()
@@ -187,7 +242,11 @@ impl Declarations<'_> {
                     .ok_or("a convention's name is a literal")?,
                 true,
             ),
-            name => (literal(name).ok_or("a metric's name is a literal")?, false),
+            name => (
+                literal(name)
+                    .ok_or("a metric's name is a literal, or `convention` of one (OBS-11)")?,
+                false,
+            ),
         };
         let Expr::Array(ExprArray { elems, .. }) = labels else {
             return Err("a metric's labels are an array of the list's constants".into());
@@ -278,17 +337,52 @@ pub fn only_tests(attrs: &[syn::Attribute]) -> bool {
     })
 }
 
-/// The kind of a declaration of type `Counter<N>`, `Histogram<N>` or `Gauge<N>`.
+/// The kind of a declaration of type `Counter<N>`, `Histogram<N>` or `Gauge<N>`: a path whose
+/// last segment is one of the three.
 fn declared_kind(ty: &Type) -> Option<Kind> {
     let Type::Path(path) = ty else {
         return None;
     };
-    match path.path.segments.last()?.ident.to_string().as_str() {
+    kind_named(&path.path.segments.last()?.ident)
+}
+
+/// The kind of the declaration type that `ident` names, if it names one.
+fn kind_named(ident: &syn::Ident) -> Option<Kind> {
+    match ident.to_string().as_str() {
         "Counter" => Some(Kind::Counter),
         "Histogram" => Some(Kind::Histogram),
         "Gauge" => Some(Kind::Gauge),
         _ => None,
     }
+}
+
+/// Whether `path` names a declaration type's `new`: its last two segments are `Counter`,
+/// `Histogram` or `Gauge`, then `new`, as in `Counter::<1>::new`, or its last is `new` and its
+/// qualified type is a declaration type, as in `<Counter<1>>::new`.
+fn names_new(path: &syn::ExprPath) -> bool {
+    let segments: Vec<&syn::PathSegment> = path.path.segments.iter().collect();
+    match (&path.qself, segments.as_slice()) {
+        (Some(qself), [.., new]) => new.ident == "new" && declared_kind(&qself.ty).is_some(),
+        (None, [.., kind, new]) => new.ident == "new" && kind_named(&kind.ident).is_some(),
+        _ => false,
+    }
+}
+
+/// The finding of a `use` or a `type` that gives a declaration type another name, at `line` of
+/// the file at `path`.
+fn renamed(path: &str, line: usize) -> Finding {
+    Finding::new(
+        path,
+        line,
+        "a declaration type keeps its name, by which check-metrics finds a metric's static \
+         (OBS-11)",
+    )
+}
+
+/// Whether `call` is a call of a path whose last segment is `convention`.
+fn calls_convention(call: &ExprCall) -> bool {
+    matches!(&*call.func, Expr::Path(path)
+        if path.path.segments.last().is_some_and(|segment| segment.ident == "convention"))
 }
 
 fn literal(expr: &Expr) -> Option<String> {
@@ -353,6 +447,69 @@ mod tests {
         );
         assert_eq!(findings.len(), 1, "{findings:?}");
         assert!(findings[0].contains("app.auth.sign_ins"));
+    }
+
+    #[test]
+    fn obs_11_a_name_is_a_convention_s_only_through_convention() {
+        let (metrics, findings) = read_code(
+            "crates/platform/src/http/stack.rs",
+            r#"static A: Counter<0> = Counter::new(core::convert::identity("orders"), "{order}", "O.", []);
+               static B: Counter<0> = Counter::new(names::convention("http.server.active_requests", otel::X), "{request}", "R.", []);"#,
+        );
+
+        assert_eq!(
+            findings,
+            ["a metric's name is a literal, or `convention` of one (OBS-11)"]
+        );
+        assert_eq!(metrics.len(), 1, "{metrics:?}");
+        assert!(metrics[0].convention, "{metrics:?}");
+    }
+
+    #[test]
+    fn obs_11_a_metric_s_static_that_isn_t_a_call_of_its_type_s_new_is_refused() {
+        let (metrics, findings) = read_code(
+            "crates/platform/src/errors.rs",
+            r#"static A: Counter<0> = { Counter::new("orders", "{order}", "O.", []) };
+               static B: Counter<0> = own("platform.b", "{b}", "B.", []);
+               static C: Counter<0> = OTHER;
+               static D: metrics::Counter<0> = metrics::Counter::<0>::new("platform.d", "{d}", "D.", []);"#,
+        );
+
+        let refused = "a metric's static is a call of its declaration type's `new`, which \
+                       check-metrics reads (OBS-11)";
+        assert_eq!(findings, [refused, refused, refused]);
+        let names: Vec<&str> = metrics.iter().map(|metric| metric.name.as_str()).collect();
+        assert_eq!(names, ["platform.d"]);
+    }
+
+    #[test]
+    fn obs_11_a_declaration_type_s_new_outside_a_static_is_refused() {
+        let (metrics, findings) = read_code(
+            "crates/platform/src/errors.rs",
+            r#"const A: Counter<0> = Counter::new("orders", "{order}", "O.", []);
+               const B: Counter<0> = <Counter<0>>::new("orders", "{order}", "O.", []);
+               fn c() { Counter::<0>::new("orders", "{order}", "O.", []).add(1, []); }
+               fn d() { let make = Histogram::<0>::new; }"#,
+        );
+
+        let refused = "a declaration type's `new` builds a metric's static alone, whose \
+                       initializer check-metrics reads (OBS-11)";
+        assert_eq!(findings, [refused, refused, refused, refused]);
+        assert!(metrics.is_empty(), "{metrics:?}");
+    }
+
+    #[test]
+    fn obs_11_a_declaration_type_keeps_its_name() {
+        let (_, findings) = read_code(
+            "crates/platform/src/errors.rs",
+            r#"use crate::telemetry::metrics::{Counter as Tally, Gauge};
+               type Measure<const N: usize> = metrics::Histogram<N>;
+               static A: Tally<0> = Tally::new("orders", "{order}", "O.", []);"#,
+        );
+
+        let refused = "a declaration type keeps its name, by which check-metrics finds a \
+                       metric's static (OBS-11)";
+        assert_eq!(findings, [refused, refused]);
     }
 
     #[test]

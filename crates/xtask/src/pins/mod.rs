@@ -2,10 +2,14 @@
 //! says (OPS-11), and the toolchain and the edition are the ones `rust-toolchain.toml` and the
 //! workspace name (CODE-01).
 
+mod commands;
 mod forms;
+mod instructions;
 mod locked;
 
-use forms::{has_digest, is_exact_version, is_required_variable, is_versioned_runner};
+use commands::command_problems;
+use forms::{has_digest, is_deploy_variable, is_exact_version, is_versioned_runner};
+use instructions::instructions;
 
 use crate::{Finding, Outcome, repo::Repo};
 
@@ -127,15 +131,23 @@ fn workflow_pins(path: &str, text: &str, just_version: Option<&str>, findings: &
                     format!("the image {image} is pinned by digest (OPS-11)"),
                 ));
             }
-        } else if let Some(version) =
-            value_of(line, "tool:").and_then(|tool| tool.strip_prefix("just@"))
-            && just_version.is_some_and(|pinned| pinned != version)
-        {
-            findings.push(Finding::new(
-                path,
-                number,
-                format!("just@{version} differs from the justfile's just_version (OPS-11)"),
-            ));
+        } else if let Some(tools) = value_of(line, "tool:") {
+            // Each tool of the list, split at commas and whitespace, that is `just` or starts
+            // with `just@`.
+            for tool in tools.split(|c: char| c == ',' || c.is_whitespace()) {
+                let problem = match tool.strip_prefix("just@") {
+                    _ if tool == "just" => format!(
+                        "just names no version: the workflows install the justfile's \
+                         just_version, as just@{} (OPS-11)",
+                        just_version.unwrap_or("<version>")
+                    ),
+                    Some(version) if Some(version) != just_version => {
+                        format!("just@{version} differs from the justfile's just_version (OPS-11)")
+                    }
+                    _ => continue,
+                };
+                findings.push(Finding::new(path, number, problem));
+            }
         }
         if line.contains("rustup") || line.contains("cargo +") {
             findings.push(Finding::new(
@@ -206,13 +218,14 @@ fn action_problem(action: &str) -> Option<String> {
     })
 }
 
-/// Checks the images that the compose file at `path` names. An image that is one required
-/// variable, such as `${API_IMAGE_BLUE:?...}`, comes from the deploy, which names it by digest.
+/// Checks the images that the compose file at `path` names. An image that is one variable with
+/// no default, such as `${API_IMAGE_BLUE:?...}`, passes as a variable that the deploy sets to a
+/// digest.
 fn compose_pins(path: &str, text: &str, findings: &mut Vec<Finding>) {
     for (number, line) in numbered(text) {
         if let Some(image) = value_of(line.trim_start(), "image:")
             && !has_digest(image)
-            && !is_required_variable(image)
+            && !is_deploy_variable(image)
         {
             findings.push(Finding::new(
                 path,
@@ -307,51 +320,6 @@ fn dockerfile_pins(path: &str, text: &str, findings: &mut Vec<Finding>) {
     }
 }
 
-/// The instructions of the Dockerfile `text`, each with the line it starts on, as BuildKit reads
-/// them: a comment line, which starts with `#` after any whitespace, belongs to none, and a line
-/// that ends in `\` goes on over the next, past comment lines and empty ones.
-fn instructions(text: &str) -> Vec<(usize, String)> {
-    let mut instructions = Vec::new();
-    let mut open: Option<(usize, String)> = None;
-    for (number, line) in numbered(text) {
-        let line = line.trim();
-        if line.starts_with('#') || (open.is_some() && line.is_empty()) {
-            continue;
-        }
-        let (start, mut joined) = open.take().unwrap_or((number, String::new()));
-        match line.strip_suffix('\\') {
-            Some(part) => {
-                joined.push_str(part);
-                joined.push(' ');
-                open = Some((start, joined));
-            }
-            None => {
-                joined.push_str(line);
-                instructions.push((start, joined));
-            }
-        }
-    }
-    instructions.extend(open);
-    instructions
-}
-
-/// What is wrong with the commands of the Dockerfile instruction `line`, split into `words`: a
-/// crate or a package installed without its version, or a toolchain other than the pinned one.
-fn command_problems(line: &str, words: &[&str]) -> Vec<String> {
-    let mut problems: Vec<String> = cargo_install_problems(words);
-    for package in unpinned_packages(words) {
-        problems.push(format!(
-            "the package {package} is pinned by version, as {package}=<version> (OPS-11)"
-        ));
-    }
-    if line.contains("cargo +") || words.windows(3).any(toolchain_named) {
-        problems.push(
-            "the image builds with the toolchain rust-toolchain.toml pins (CODE-01)".to_owned(),
-        );
-    }
-    problems
-}
-
 /// Whether `image` names an earlier stage, such as `tools`, or one per platform, such as
 /// `zig-$BUILDARCH` for the stages `zig-amd64` and `zig-arm64`.
 fn names_stage(image: &str, stages: &[String]) -> bool {
@@ -362,76 +330,6 @@ fn names_stage(image: &str, stages: &[String]) -> bool {
                 .iter()
                 .any(|stage| *stage == format!("{prefix}{arch}"))
         }),
-    }
-}
-
-/// The packages that each `apt-get` or `apt` among `words` installs without a version: each word
-/// after the first `install` among the words of its command, which ends at `&&`, `;`, `\` or
-/// `||`, that neither starts with `-` nor holds a `=`.
-fn unpinned_packages<'a>(words: &[&'a str]) -> Vec<&'a str> {
-    let mut packages = Vec::new();
-    for (at, word) in words.iter().enumerate() {
-        if !matches!(*word, "apt-get" | "apt") {
-            continue;
-        }
-        let mut command = words[at + 1..]
-            .iter()
-            .take_while(|word| !["&&", ";", "\\", "||"].contains(word))
-            .skip_while(|word| **word != "install");
-        if command.next().is_some() {
-            packages.extend(
-                command
-                    .filter(|word| !word.starts_with('-') && !word.contains('='))
-                    .copied(),
-            );
-        }
-    }
-    packages
-}
-
-/// What is wrong with each `cargo install` among `words`.
-fn cargo_install_problems(words: &[&str]) -> Vec<String> {
-    words
-        .windows(2)
-        .enumerate()
-        .filter(|(_, pair)| *pair == ["cargo", "install"])
-        .filter_map(|(at, _)| cargo_install_problem(&words[at + 2..]))
-        .collect()
-}
-
-/// What is wrong with the `cargo install` whose arguments `args` start, if anything.
-fn cargo_install_problem(args: &[&str]) -> Option<String> {
-    let args = args
-        .iter()
-        .take_while(|word| !matches!(**word, "&&" | ";" | "\\" | "|"));
-    let mut locked = false;
-    let mut problems = Vec::new();
-    for arg in args {
-        if *arg == "--locked" {
-            locked = true;
-        } else if !arg.starts_with('-') {
-            let exact = arg
-                .split_once('@')
-                .is_some_and(|(_, version)| is_exact_version(version));
-            if !exact {
-                problems.push(format!("{arg} names an exact version, as name@1.2.3"));
-            }
-        }
-    }
-    if !locked {
-        problems.push("cargo install takes --locked".to_owned());
-    }
-    (!problems.is_empty()).then(|| format!("{} (OPS-11)", problems.join("; ")))
-}
-
-/// Whether three words are `rustup default` and another, or `toolchain install` and a word other
-/// than `&&`, `;` and `\`, as `rustup toolchain install <toolchain>` ends, which would pick a
-/// toolchain other than rust-toolchain.toml's.
-fn toolchain_named(words: &[&str]) -> bool {
-    match words {
-        ["rustup", "default", _] => true,
-        ["toolchain", "install", toolchain] => !matches!(*toolchain, "&&" | ";" | "\\"),
-        _ => false,
     }
 }
 
@@ -626,10 +524,11 @@ mod tests {
     }
 
     #[test]
-    fn ops_11_a_compose_image_from_a_required_variable_passes_and_one_with_a_default_fails() {
+    fn ops_11_a_compose_image_from_a_variable_the_deploy_sets_passes_and_one_with_a_default_fails()
+    {
         let findings = findings_with(
             "deploy/compose.yaml",
-            "services:\n  a:\n    image: ${API_IMAGE:?the image, from the deploy}\n  b:\n    image: ${OTHER}\n  c:\n    image: ${FALLBACK:-postgres:18}\n",
+            "services:\n  a:\n    image: ${API_IMAGE:?the image, from the deploy}\n  b:\n    image: ${OTHER}\n  c:\n    image: ${FALLBACK:-postgres:18}\n  d:\n    image: ${SET?the image}\n",
         );
 
         assert_eq!(
@@ -692,6 +591,45 @@ mod tests {
                 "deploy/postgres/Dockerfile:3: the package wget is pinned by version, as wget=<version> (OPS-11)",
                 "deploy/postgres/Dockerfile:3: the package less is pinned by version, as less=<version> (OPS-11)",
                 "deploy/postgres/Dockerfile:3: the package vim is pinned by version, as vim=<version> (OPS-11)",
+            ]
+        );
+    }
+
+    #[test]
+    fn ops_11_a_package_or_a_crate_whose_command_has_a_path_or_quotes_is_pinned_by_version() {
+        let findings = findings_with(
+            "deploy/postgres/Dockerfile",
+            &format!(
+                "# syntax=docker/dockerfile:1@sha256:{DIGEST}\nFROM postgres:18.6@sha256:{DIGEST}\nRUN /usr/bin/apt-get install -y curl\nRUN \"apt\" install jq && \\apt-get \"install\" wget\nRUN /usr/local/cargo/bin/cargo install --locked cargo-chef\n"
+            ),
+        );
+
+        assert_eq!(
+            findings,
+            [
+                "deploy/postgres/Dockerfile:3: the package curl is pinned by version, as curl=<version> (OPS-11)",
+                "deploy/postgres/Dockerfile:4: the package jq is pinned by version, as jq=<version> (OPS-11)",
+                "deploy/postgres/Dockerfile:4: the package wget is pinned by version, as wget=<version> (OPS-11)",
+                "deploy/postgres/Dockerfile:5: cargo-chef names an exact version, as name@1.2.3 (OPS-11)",
+            ]
+        );
+    }
+
+    #[test]
+    fn ops_11_an_onbuild_instruction_is_refused() {
+        let findings = findings_with(
+            DOCKERFILE,
+            &format!(
+                "# syntax=docker/dockerfile:1.27.1@sha256:{DIGEST}\nONBUILD ADD https://example.org/zig.tar.xz /zig.tar.xz\nonbuild RUN [\"apt-get\", \"install\", \"curl\"]\nONBUILD \\\n    COPY --from=alpine:3.24 / /\nRUN echo ONBUILD\n"
+            ),
+        );
+
+        assert_eq!(
+            findings,
+            [
+                "Dockerfile:2: check-pins doesn't read an ONBUILD's instruction, which another image's build runs: write it in that build's Dockerfile (OPS-11)",
+                "Dockerfile:3: check-pins doesn't read an ONBUILD's instruction, which another image's build runs: write it in that build's Dockerfile (OPS-11)",
+                "Dockerfile:4: check-pins doesn't read an ONBUILD's instruction, which another image's build runs: write it in that build's Dockerfile (OPS-11)",
             ]
         );
     }
@@ -823,14 +761,36 @@ mod tests {
         let findings = findings_with(
             ".github/workflows/ci.yml",
             &format!(
-                "jobs:\n  a:\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: taiki-e/install-action@{SHA}\n        with:\n          tool: just@1.58.0\n"
+                "jobs:\n  a:\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: taiki-e/install-action@{SHA}\n        with:\n          tool: just@1.58.0\n      - uses: taiki-e/install-action@{SHA}\n        with:\n          tool: just\n      - uses: taiki-e/install-action@{SHA}\n        with:\n          tool: cargo-deny,just\n      - uses: taiki-e/install-action@{SHA}\n        with:\n          tool: cargo-deny just\n      - uses: taiki-e/install-action@{SHA}\n        with:\n          tool: just@1.59.0, cargo-deny\n"
             ),
         );
 
         assert_eq!(
             findings,
             [
-                ".github/workflows/ci.yml:7: just@1.58.0 differs from the justfile's just_version (OPS-11)"
+                ".github/workflows/ci.yml:7: just@1.58.0 differs from the justfile's just_version (OPS-11)",
+                ".github/workflows/ci.yml:10: just names no version: the workflows install the justfile's just_version, as just@1.59.0 (OPS-11)",
+                ".github/workflows/ci.yml:13: just names no version: the workflows install the justfile's just_version, as just@1.59.0 (OPS-11)",
+                ".github/workflows/ci.yml:16: just names no version: the workflows install the justfile's just_version, as just@1.59.0 (OPS-11)",
+            ]
+        );
+    }
+
+    #[test]
+    fn ops_11_a_run_or_an_add_in_the_exec_form_is_refused() {
+        let findings = findings_with(
+            DOCKERFILE,
+            &format!(
+                "# syntax=docker/dockerfile:1.27.1@sha256:{DIGEST}\nadd [\"https://example.org/zig.tar.xz\", \"/zig.tar.xz\"]\nRUN [\"apt-get\", \"install\", \"-y\", \"curl\"]\nRUN --mount=type=cache,target=/root/.cargo [ \"cargo\", \"install\", \"cargo-chef\" ]\nRUN [ \"$TARGETARCH\" = amd64 ] || true\n"
+            ),
+        );
+
+        assert_eq!(
+            findings,
+            [
+                "Dockerfile:2: a RUN or an ADD takes the shell form, which check-pins reads, not a JSON array (OPS-11)",
+                "Dockerfile:3: a RUN or an ADD takes the shell form, which check-pins reads, not a JSON array (OPS-11)",
+                "Dockerfile:4: a RUN or an ADD takes the shell form, which check-pins reads, not a JSON array (OPS-11)",
             ]
         );
     }
@@ -948,7 +908,7 @@ mod tests {
         let dockerfile = findings_with(
             DOCKERFILE,
             &format!(
-                "# syntax=docker/dockerfile:1.27.1@sha256:{DIGEST}\nRUN rustup toolchain install 1.98.0\nRUN cargo +nightly build\n"
+                "# syntax=docker/dockerfile:1.27.1@sha256:{DIGEST}\nRUN rustup toolchain install 1.98.0\nRUN cargo +nightly build\nRUN /usr/local/cargo/bin/rustup default 1.98.0\nRUN \"cargo\" +nightly build\n"
             ),
         );
 
@@ -959,7 +919,7 @@ mod tests {
         assert_eq!(workflow.len(), 2, "{workflow:?}");
         assert!(workflow[0].contains("dtolnay/rust-toolchain installs a toolchain"));
         assert!(workflow[1].contains("installs or picks no toolchain"));
-        assert_eq!(dockerfile.len(), 2, "{dockerfile:?}");
+        assert_eq!(dockerfile.len(), 4, "{dockerfile:?}");
     }
 
     #[test]
