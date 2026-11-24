@@ -867,7 +867,7 @@ async fn auth_049_requests_for_changes_and_the_buckets_of_registrations_and_code
 
 #[tokio::test]
 async fn auth_050_an_attempt_after_a_failed_send_issues_a_new_code_in_place_of_its_own() {
-    let unreachable = closed_port().await;
+    let unreachable = closed_port();
     let failing = Api::with(Options::default().set("SMTP_PORT", unreachable.port())).await;
     let ada = users::register(&failing, &mailbox::address("ada")).await;
     let new = mailbox::address("ada-new");

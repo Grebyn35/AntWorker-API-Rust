@@ -692,7 +692,7 @@ async fn auth_030_a_run_on_a_replica_with_email_off_issues_nothing() {
 #[tokio::test]
 async fn auth_030_an_attempt_after_a_failed_send_issues_a_new_code_in_place_of_its_own() {
     let address = mailbox::address("ada");
-    let unreachable = closed_port().await;
+    let unreachable = closed_port();
     let failing = Api::with(Options::default().set("SMTP_PORT", unreachable.port())).await;
     users::register_unverified(&failing, &address).await;
     assert_eq!(failing.run_jobs().await, 1);

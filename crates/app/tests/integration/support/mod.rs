@@ -114,13 +114,36 @@ pub fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-/// A port of the loopback address that nothing listens on: the closed listener's.
-pub async fn closed_port() -> SocketAddr {
-    tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .unwrap()
-        .local_addr()
-        .unwrap()
+/// A port of the loopback address that refuses every connection while this value lives: a
+/// socket holds it bound and never listens, so no server of another test takes the port
+/// between the moment a test gets it and the moment the test's code connects to it.
+pub struct ClosedPort {
+    address: SocketAddr,
+    _bound: tokio::net::TcpSocket,
+}
+
+impl ClosedPort {
+    /// The address that refuses connections.
+    pub fn address(&self) -> SocketAddr {
+        self.address
+    }
+
+    /// The address's port.
+    pub fn port(&self) -> u16 {
+        self.address.port()
+    }
+}
+
+/// A port of the loopback address that nothing listens on, held until the value is dropped.
+pub fn closed_port() -> ClosedPort {
+    let bound = tokio::net::TcpSocket::new_v4().unwrap();
+    bound
+        .bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))
+        .unwrap();
+    ClosedPort {
+        address: bound.local_addr().unwrap(),
+        _bound: bound,
+    }
 }
 
 /// Whether `span` is the server span of the request in the trace `trace`, which also holds a

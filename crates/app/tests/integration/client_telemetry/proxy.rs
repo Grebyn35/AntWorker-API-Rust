@@ -568,10 +568,9 @@ async fn client_telemetry_009_a_collector_that_doesn_t_answer_within_5_seconds_a
 
 #[tokio::test]
 async fn client_telemetry_009_a_collector_that_no_connection_reaches_answers_503() {
-    let closed = closed_port().await;
-    let api =
-        Api::with(Options::default().set("CLIENT_TELEMETRY_ENDPOINT", format!("http://{closed}")))
-            .await;
+    let closed = closed_port();
+    let endpoint = format!("http://{}", closed.address());
+    let api = Api::with(Options::default().set("CLIENT_TELEMETRY_ENDPOINT", endpoint)).await;
     let ada = consenting(&api, "ada@example.com").await;
 
     let response = send_bytes(&api, &ada, 8).await;
@@ -926,8 +925,8 @@ async fn platform_091_forward_fails_as_unavailable_when_the_collector_answers_an
 
 #[tokio::test]
 async fn platform_091_forward_fails_as_unavailable_when_no_connection_opens() {
-    let closed = closed_port().await;
-    let endpoint = format!("http://{closed}").parse().unwrap();
+    let closed = closed_port();
+    let endpoint = format!("http://{}", closed.address()).parse().unwrap();
 
     let forwarded = relay(&endpoint, &Arc::default())
         .forward(Signal::Traces, PROTOBUF, Bytes::from_static(BATCH))

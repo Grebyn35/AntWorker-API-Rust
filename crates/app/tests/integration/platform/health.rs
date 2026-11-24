@@ -158,7 +158,8 @@ async fn platform_063_health_exits_1_and_names_the_answer_while_the_instance_isn
 
 #[tokio::test]
 async fn platform_063_health_exits_1_when_no_instance_listens() {
-    let address = closed_port().await;
+    let closed = closed_port();
+    let address = closed.address();
 
     let output = health(address).await;
 
@@ -167,6 +168,25 @@ async fn platform_063_health_exits_1_when_no_instance_listens() {
     assert!(
         message.starts_with(&format!("can't reach {address}: ")),
         "{message}"
+    );
+}
+
+/// The port that the test above reaches no instance on: nothing takes it from the test that
+/// holds it, as another test's server took a port that its test had only found free.
+#[tokio::test]
+async fn test_06_a_closed_port_refuses_a_connection_and_takes_no_listener_while_a_test_holds_it() {
+    let closed = closed_port();
+
+    let listener = tokio::net::TcpListener::bind(closed.address()).await;
+    let connection = tokio::net::TcpStream::connect(closed.address()).await;
+
+    assert_eq!(
+        listener.err().map(|error| error.kind()),
+        Some(std::io::ErrorKind::AddrInUse)
+    );
+    assert_eq!(
+        connection.err().map(|error| error.kind()),
+        Some(std::io::ErrorKind::ConnectionRefused)
     );
 }
 

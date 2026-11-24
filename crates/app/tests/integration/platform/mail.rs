@@ -135,7 +135,8 @@ async fn platform_021_a_request_only_enqueues_its_email_and_a_job_sends_it() {
 
 #[tokio::test]
 async fn platform_021_a_failed_send_is_retried_with_backoff_then_dead_lettered() {
-    let options = Options::default().set("SMTP_PORT", support::closed_port().await.port());
+    let closed = support::closed_port();
+    let options = Options::default().set("SMTP_PORT", closed.port());
     let (api, ada) = api(options).await;
     send(&api, &ada, "bob@example.com").await;
 
@@ -282,7 +283,7 @@ async fn platform_023_in_development_every_email_reaches_the_mail_catcher_on_the
 
 #[tokio::test]
 async fn platform_025_every_email_comes_from_email_from_with_the_message_id_fixed_when_enqueued() {
-    let closed = support::closed_port().await;
+    let closed = support::closed_port();
     let (api, ada) = api(Options::default()).await;
     let to = mailbox::address("identified");
     send(&api, &ada, &to).await;
@@ -378,7 +379,8 @@ async fn platform_021_send_now_sends_at_once_and_tells_its_job_whether_to_retry(
         .send_now(secret_email(&to))
         .await
         .unwrap();
-    let unreachable = Options::default().set("SMTP_PORT", support::closed_port().await.port());
+    let closed = support::closed_port();
+    let unreachable = Options::default().set("SMTP_PORT", closed.port());
     let failed = mail(&unreachable).send_now(secret_email(&to)).await;
     let refusing = Options::default().set("SMTP_PORT", refusing_server().await.port());
     let refused = mail(&refusing).send_now(secret_email(&to)).await;
@@ -564,7 +566,8 @@ async fn platform_105_a_reply_from_400_to_599_but_421_and_454_counts_as_refused(
 
 #[tokio::test]
 async fn platform_105_a_send_that_no_server_serves_counts_as_unavailable() {
-    let closed = support::closed_port().await.port().to_string();
+    let held = support::closed_port();
+    let closed = held.port().to_string();
     let down = scripted_server(
         "421 4.3.2 the service isn't available",
         None,

@@ -395,7 +395,7 @@ async fn auth_036_a_run_for_no_one_issues_nothing() {
 #[tokio::test]
 async fn auth_036_an_attempt_after_a_failed_send_issues_a_code_of_its_own_beside_the_first() {
     let address = mailbox::address("ada");
-    let unreachable = closed_port().await;
+    let unreachable = closed_port();
     let failing = Api::with(Options::default().set("SMTP_PORT", unreachable.port())).await;
     users::register(&failing, &address).await;
     ask(&failing, &address).await;
