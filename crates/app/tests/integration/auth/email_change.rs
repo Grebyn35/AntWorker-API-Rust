@@ -7,7 +7,7 @@ use serde_json::json;
 use crate::support::{
     Api, Options, closed_port,
     email_change::{ask, code_sent, confirm},
-    execute_on, mailbox, password_reset, queries_wait_on_locks,
+    execute_on, limited_while_holding, mailbox, password_reset, queries_wait_on_locks,
     users::{self, PASSWORD, SignedIn},
     verification, workspaces,
 };
@@ -675,6 +675,27 @@ async fn auth_033_a_change_s_checks_count_in_the_bucket_of_the_user_s_code_check
     assert_eq!(refused.status, 429);
     assert_eq!(refused.json()["code"], "request.rate_limited");
     assert_ne!(address_of(&api, &ada).await, format!("{new}|true"));
+}
+
+#[tokio::test]
+async fn auth_033_a_change_s_check_beyond_the_limit_answers_429_before_it_reads_the_code() {
+    let api = Api::new().await;
+    let ada = users::register(&api, &mailbox::address("ada")).await;
+    let new = mailbox::address("ada-new");
+    ask(&api, &ada, &new).await;
+    let code = code_sent(&api, &new).await;
+    for _ in 0..10 {
+        let wrong = confirm(&api, &ada, &new, &mailbox::other_grouped_code(&code)).await;
+        assert_eq!(wrong.status, 422);
+    }
+
+    // Held against every read of a code.
+    limited_while_holding(
+        api.database(),
+        "LOCK TABLE verification_codes IN ACCESS EXCLUSIVE MODE",
+        confirm(&api, &ada, &new, &code),
+    )
+    .await;
 }
 
 #[tokio::test]

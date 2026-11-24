@@ -4,7 +4,8 @@
 use serde_json::json;
 
 use crate::support::{
-    Api, Options, closed_port, execute_on, mailbox, queries_wait_on_locks, second_factors,
+    Api, Options, closed_port, execute_on, limited_while_holding, mailbox, queries_wait_on_locks,
+    second_factors,
     users::{self, SignedIn},
     verification::{ask, code_sent, confirm},
     workspaces,
@@ -1073,4 +1074,23 @@ async fn auth_033_every_check_counts_in_a_bucket_of_the_user_s() {
     );
     let bob = users::register_unverified(&api, &mailbox::address("bob")).await;
     assert_eq!(confirm(&api, &bob, "123456").await.status, 422);
+}
+
+#[tokio::test]
+async fn auth_033_a_check_beyond_the_limit_answers_429_before_it_reads_the_code() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let ada = users::register_unverified(&api, &address).await;
+    let code = code_sent(&api, &address).await;
+    for _ in 0..10 {
+        assert_eq!(confirm(&api, &ada, &other_than(&code)).await.status, 422);
+    }
+
+    // Held against every read of a code.
+    limited_while_holding(
+        api.database(),
+        "LOCK TABLE verification_codes IN ACCESS EXCLUSIVE MODE",
+        confirm(&api, &ada, &code),
+    )
+    .await;
 }

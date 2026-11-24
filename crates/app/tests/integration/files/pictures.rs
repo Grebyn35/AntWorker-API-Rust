@@ -11,7 +11,7 @@ use crate::support::{
     api::reads,
     api::{self, Options},
     counts, execute_on, files,
-    providers::{self, gives, grant, sign_in, signed_in},
+    providers::{self, gives, grant, link, sign_in, signed_in},
     query_waits_on_a_lock,
     scanner::{self, Script},
     upstream::{PICTURE, Upstream},
@@ -540,11 +540,7 @@ async fn auth_092_a_link_hands_no_picture_on() {
     let ada = users::register(&api, "ada@example.com").await;
     pictured(&upstream, &upstream.url(PICTURE));
 
-    let linked = api
-        .post("/v1/users/me/identities/provider", &grant())
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let linked = link(&api, &ada, &grant()).await;
 
     assert_eq!(linked.status, 200, "{}", linked.json());
     assert!(copies(&api).await.is_empty());

@@ -9,7 +9,7 @@ use crate::support::{
     api::Response,
     api::reads,
     execute_on, mailbox,
-    providers::{self, gives, grant, identity, sign_in, signed_in},
+    providers::{self, gives, grant, identity, link, sign_in, signed_in},
     queries_wait_on_locks, second_factors, streams,
     upstream::Upstream,
     users::{self, PASSWORD, SignedIn},
@@ -32,14 +32,6 @@ async fn add_password(api: &Api, user: &SignedIn, password: &str) -> Response {
     .bearer(&user.access)
     .send()
     .await
-}
-
-/// Links the account that the stand-in gives for `body`'s code to `user`'s account.
-async fn link(api: &Api, user: &SignedIn, body: &Value) -> Response {
-    api.post(&format!("{IDENTITIES}/provider"), body)
-        .bearer(&user.access)
-        .send()
-        .await
 }
 
 /// Removes `user`'s identity `id`.
@@ -77,14 +69,14 @@ async fn provider_id(api: &Api, user: &SignedIn) -> String {
     .remove(0)
 }
 
-/// Gives `user` an identity at `retired`, a provider that the deployment configures no more,
+/// Gives `user` an identity at `provider`, a provider that the deployment configures no more,
 /// linked a day ago, a row that no route of this API writes (TEST-09), and returns its ID.
-async fn retired_identity(api: &Api, user: &SignedIn) -> String {
+async fn retired_identity(api: &Api, user: &SignedIn, provider: &str) -> String {
     reads(
         api,
         &format!(
             "INSERT INTO provider_identities (user_id, provider, subject, created_at) \
-             VALUES ('{}', 'retired', 'subject-0', now() - interval '1 day') RETURNING id::text",
+             VALUES ('{}', '{provider}', 'subject-0', now() - interval '1 day') RETURNING id::text",
             user.user_id
         ),
     )
@@ -136,7 +128,9 @@ async fn auth_085_the_identities_are_the_password_and_each_provider_identity_the
     let ada = users::register(&api, "ada@example.com").await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     assert_eq!(link(&api, &ada, &grant()).await.status, 200);
-    let retired = retired_identity(&api, &ada).await;
+    // Linked a day before the stand-in's, at a key that sorts after `stand_in`, and inserted after
+    // it, so that neither the keys' order nor the IDs' is the order of linking.
+    let retired = retired_identity(&api, &ada, "withdrawn").await;
     // Another user's identities, which hers leave out.
     gives(&upstream, identity("subject-2", "bob@example.com", true));
     signed_in(&api).await;
@@ -153,7 +147,7 @@ async fn auth_085_the_identities_are_the_password_and_each_provider_identity_the
     for provider in providers {
         assert_eq!(members(provider), ["created_at", "id", "provider"]);
     }
-    assert_eq!(providers[0]["provider"], "retired");
+    assert_eq!(providers[0]["provider"], "withdrawn");
     assert_eq!(providers[0]["id"], retired);
     assert_eq!(providers[1]["provider"], "stand_in");
     assert_eq!(providers[1]["id"], provider_id(&api, &ada).await);
@@ -725,8 +719,12 @@ async fn auth_088_removing_the_password_needs_a_recent_proof_then_ends_its_other
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     assert_eq!(link(&api, &ada, &grant()).await.status, 200);
     let phone = users::new_session(&api, "ada@example.com").await;
+    let laptop = users::new_session(&api, "ada@example.com").await;
     let tablet = signed_in(&api).await;
-    let mut stream = streams::opened(&api, &phone).await;
+    let mut open = [
+        streams::opened(&api, &phone).await,
+        streams::opened(&api, &laptop).await,
+    ];
     let password = password_id(&api, &ada).await;
     users::authenticated_ago(&api, &ada, 10).await;
 
@@ -742,10 +740,12 @@ async fn auth_088_removing_the_password_needs_a_recent_proof_then_ends_its_other
     assert_eq!(removed.status, 204);
     assert!(removed.body.is_empty());
     assert_eq!(read(&api, &ada).await.json()["password"], Value::Null);
-    assert!(
-        !users::authenticates(&api, &phone).await,
-        "it signed in with the password"
-    );
+    for session in [&phone, &laptop] {
+        assert!(
+            !users::authenticates(&api, session).await,
+            "it signed in with the password"
+        );
+    }
     assert!(
         users::authenticates(&api, &tablet).await,
         "it signed in through the provider"
@@ -764,16 +764,21 @@ async fn auth_088_removing_the_password_needs_a_recent_proof_then_ends_its_other
         entries(&api, &ada, "password.removed").await,
         [format!("{} identity {password} {{}}", ada.user_id)]
     );
+    let mut ended = [phone.session_id.clone(), laptop.session_id.clone()];
+    ended.sort();
+    let mut recorded = entries(&api, &ada, "session.ended").await;
+    recorded.sort();
     assert_eq!(
-        entries(&api, &ada, "session.ended").await,
-        [format!("{} session {} {{}}", ada.user_id, phone.session_id)]
+        recorded,
+        ended
+            .clone()
+            .map(|session| format!("{} session {session} {{}}", ada.user_id))
     );
-    let received: Vec<Value> = signals.received().await;
-    assert_eq!(received.len(), 1);
-    assert_eq!(received[0]["kind"], "session_ended");
-    assert_eq!(received[0]["session_id"], phone.session_id.as_str());
-    let (_, reason) = stream.closed().await;
-    assert_eq!(reason, "session_ended");
+    assert_eq!(signals.ended_sessions().await, ended);
+    for stream in &mut open {
+        let (_, reason) = stream.closed().await;
+        assert_eq!(reason, "session_ended");
+    }
 }
 
 #[tokio::test]
@@ -783,8 +788,10 @@ async fn auth_088_removing_a_provider_identity_ends_the_other_sessions_that_sign
     let ada = signed_in(&api).await;
     assert_eq!(add_password(&api, &ada, PASSWORD).await.status, 200);
     let tablet = signed_in(&api).await;
+    let watch = signed_in(&api).await;
     let phone = users::new_session(&api, "ada@example.com").await;
     let id = provider_id(&api, &ada).await;
+    let mut signals = api.database().signals().await;
 
     let removed = remove(&api, &ada, &id).await;
 
@@ -793,10 +800,12 @@ async fn auth_088_removing_a_provider_identity_ends_the_other_sessions_that_sign
         users::authenticates(&api, &ada).await,
         "the request's own session stays, whatever way it signed in"
     );
-    assert!(
-        !users::authenticates(&api, &tablet).await,
-        "it signed in through the provider"
-    );
+    for session in [&tablet, &watch] {
+        assert!(
+            !users::authenticates(&api, session).await,
+            "it signed in through the provider"
+        );
+    }
     assert!(
         users::authenticates(&api, &phone).await,
         "it signed in with the password"
@@ -809,13 +818,17 @@ async fn auth_088_removing_a_provider_identity_ends_the_other_sessions_that_sign
             ada.user_id
         )]
     );
+    let mut ended = [tablet.session_id.clone(), watch.session_id.clone()];
+    ended.sort();
+    let mut recorded = entries(&api, &ada, "session.ended").await;
+    recorded.sort();
     assert_eq!(
-        entries(&api, &ada, "session.ended").await,
-        [format!(
-            "{} session {} {{}}",
-            ada.user_id, tablet.session_id
-        )]
+        recorded,
+        ended
+            .clone()
+            .map(|session| format!("{} session {session} {{}}", ada.user_id))
     );
+    assert_eq!(signals.ended_sessions().await, ended);
     // The provider's account signs in to hers no more: it meets her address, as a stranger's
     // would (AUTH-076).
     let again = sign_in(&api, &grant()).await;
@@ -830,6 +843,7 @@ async fn auth_046_a_removal_of_an_identity_publishes_session_ended_for_each_sess
     let ada = signed_in(&api).await;
     assert_eq!(add_password(&api, &ada, PASSWORD).await.status, 200);
     let tablet = signed_in(&api).await;
+    let watch = signed_in(&api).await;
     let phone = users::new_session(&api, "ada@example.com").await;
     let provider = provider_id(&api, &ada).await;
     let before = users::session_events(&api, "session.ended").await;
@@ -838,12 +852,14 @@ async fn auth_046_a_removal_of_an_identity_publishes_session_ended_for_each_sess
 
     assert_eq!(unlinked.status, 204);
     assert!(before.is_empty());
-    // The session that signed in through the provider, and neither the request's own nor the
+    // The sessions that signed in through the provider, and neither the request's own nor the
     // one that signed in with the password.
-    assert_eq!(
-        users::session_events(&api, "session.ended").await,
-        [format!("{} {}", ada.user_id, tablet.session_id)]
-    );
+    let mut ended = [
+        format!("{} {}", ada.user_id, tablet.session_id),
+        format!("{} {}", ada.user_id, watch.session_id),
+    ];
+    ended.sort();
+    assert_eq!(users::session_events(&api, "session.ended").await, ended);
     assert!(users::authenticates(&api, &phone).await);
 }
 
@@ -852,7 +868,7 @@ async fn auth_088_an_identity_of_a_provider_that_the_deployment_dropped_is_remov
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     let phone = users::new_session(&api, "ada@example.com").await;
-    let retired = retired_identity(&api, &ada).await;
+    let retired = retired_identity(&api, &ada, "retired").await;
     // A session that signed in through the provider while the deployment configured it.
     api.database()
         .owner_executes(&format!(
@@ -1217,7 +1233,7 @@ async fn auth_091_each_change_tells_the_address_what_happened() {
     let address = mailbox::address("ada");
     gives(&upstream, identity("subject-1", &address, true));
     let ada = signed_in(&api).await;
-    let retired = retired_identity(&api, &ada).await;
+    let retired = retired_identity(&api, &ada, "retired").await;
 
     assert_eq!(add_password(&api, &ada, PASSWORD).await.status, 200);
     let provider = provider_id(&api, &ada).await;

@@ -392,12 +392,19 @@ pub fn cookies(response: &Response) -> String {
         .join("; ")
 }
 
-/// Makes `user`'s session have proved their password `minutes` minutes ago, a time in the past
-/// that only a test sets (TEST-09), as a session that hasn't re-authenticated since (AUTH-023).
+/// Makes `user`'s session have proved their password `minutes` minutes ago, as
+/// [`authenticated_seconds_ago`] does.
 pub async fn authenticated_ago(api: &Api, user: &SignedIn, minutes: u32) {
+    authenticated_seconds_ago(api, user, minutes * 60).await;
+}
+
+/// Makes `user`'s session have proved their password `seconds` seconds ago, by the database's
+/// clock as it updates the row, a time in the past that only a test sets (TEST-09), as a session
+/// that hasn't re-authenticated since (AUTH-023).
+pub async fn authenticated_seconds_ago(api: &Api, user: &SignedIn, seconds: u32) {
     api.database()
         .owner_executes(&format!(
-            "UPDATE sessions SET authenticated_at = now() - make_interval(mins => {minutes}) \
+            "UPDATE sessions SET authenticated_at = now() - make_interval(secs => {seconds}) \
              WHERE id = '{}'",
             user.session_id
         ))

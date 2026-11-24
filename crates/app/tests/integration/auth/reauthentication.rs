@@ -6,7 +6,7 @@ use serde_json::json;
 use crate::support::{
     Api,
     api::Response,
-    execute_on, query_waits_on_a_lock,
+    execute_on, limited_while_holding, query_waits_on_a_lock,
     users::{self, PASSWORD, SignedIn},
 };
 
@@ -157,6 +157,24 @@ async fn auth_022_every_check_of_a_signed_in_user_s_password_counts_in_one_bucke
 }
 
 #[tokio::test]
+async fn auth_022_a_check_beyond_the_limit_answers_429_before_it_reads_the_password() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    for _ in 0..5 {
+        let wrong = users::reauthenticate(&api, &ada, "wrong-password-123").await;
+        assert_eq!(wrong.status, 403);
+    }
+
+    // Held against every read of a password.
+    limited_while_holding(
+        api.database(),
+        "LOCK TABLE identities IN ACCESS EXCLUSIVE MODE",
+        users::reauthenticate(&api, &ada, PASSWORD),
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn auth_021_a_session_that_another_request_ended_meanwhile_answers_401() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
@@ -226,20 +244,21 @@ async fn auth_023_a_deletion_needs_the_password_proved_within_5_minutes() {
 }
 
 #[tokio::test]
-async fn auth_023_a_proof_of_4_minutes_ago_lets_a_deletion_through_and_one_of_5_minutes_ago_doesn_t()
+async fn auth_023_a_proof_of_4_minutes_50_seconds_ago_lets_a_deletion_through_and_one_of_5_minutes_ago_doesn_t()
  {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     let grace = users::register(&api, "grace@example.com").await;
     // By the database's clock as it updates each row: the deletion's check reads the clock after,
-    // which puts Grace's proof just past the 5 minutes.
-    users::authenticated_ago(&api, &ada, 4).await;
+    // which puts Grace's proof just past the 5 minutes, and Ada's, set last, 10 seconds inside
+    // them less the time until her deletion's check.
     users::authenticated_ago(&api, &grace, 5).await;
+    users::authenticated_seconds_ago(&api, &ada, 290).await;
 
     let within = users::delete(&api, &ada).await;
     let past = users::delete(&api, &grace).await;
 
-    assert_eq!(within.status, 204, "4 minutes ago");
+    assert_eq!(within.status, 204, "4 minutes 50 seconds ago");
     assert_eq!(past.status, 403, "5 minutes ago");
     assert_eq!(past.json()["code"], "request.reauthentication_required");
 }

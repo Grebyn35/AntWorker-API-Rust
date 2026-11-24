@@ -85,6 +85,14 @@ pub async fn signed_in(api: &Api) -> SignedIn {
     SignedIn::from(&response)
 }
 
+/// Links the account that the stand-in gives for `body`'s code to `user`'s account.
+pub async fn link(api: &Api, user: &SignedIn, body: &Value) -> Response {
+    api.post("/v1/users/me/identities/provider", body)
+        .bearer(&user.access)
+        .send()
+        .await
+}
+
 /// Re-authenticates `user` through the stand-in, with `extra` in the body.
 pub async fn reauthenticate(api: &Api, user: &SignedIn, extra: Value) -> Response {
     api.post(

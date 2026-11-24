@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use crate::support::{
     Api, Options, answer_before_a_lock_wait,
     api::Response,
-    closed_port, execute_on, mailbox,
+    closed_port, execute_on, limited_while_holding, mailbox,
     password_reset::{ask, code_sent},
     queries_wait_on_locks, query_waits_on_a_lock, second_factors, streams,
     users::{self, SignedIn},
@@ -208,6 +208,24 @@ async fn auth_035_asking_counts_in_a_bucket_of_the_address_before_it_enqueues_an
         ["4"],
         "the refused request enqueued nothing"
     );
+}
+
+#[tokio::test]
+async fn auth_035_asking_beyond_the_limit_answers_429_before_it_reads_the_account() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    users::register(&api, &address).await;
+    for _ in 0..3 {
+        assert_eq!(ask(&api, &address).await.status, 202);
+    }
+
+    // Held against every read of an account.
+    limited_while_holding(
+        api.database(),
+        "LOCK TABLE users IN ACCESS EXCLUSIVE MODE",
+        ask(&api, &address),
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -928,7 +946,10 @@ async fn auth_040_changing_sets_the_password_ends_the_other_sessions_and_keeps_t
     let api = Api::new().await;
     let address = mailbox::address("ada");
     let ada = users::register(&api, &address).await;
-    let other = users::new_session(&api, &address).await;
+    let others = [
+        users::new_session(&api, &address).await,
+        users::new_session(&api, &address).await,
+    ];
     let before = users::current(&api, &ada.access).await.json()["authenticated_at"].clone();
     let mut signals = api.database().signals().await;
 
@@ -938,8 +959,10 @@ async fn auth_040_changing_sets_the_password_ends_the_other_sessions_and_keeps_t
     // It answers the caller's session, with the new tokens that the proof gave it (AUTH-095).
     let renewed = SignedIn::from(&changed);
     assert_eq!(renewed.session_id, ada.session_id);
-    let refused = api.get("/v1/users/me").bearer(&other.access).send().await;
-    assert_eq!(refused.status, 401);
+    for other in &others {
+        let refused = api.get("/v1/users/me").bearer(&other.access).send().await;
+        assert_eq!(refused.status, 401);
+    }
     let session = users::current(&api, &renewed.access).await;
     assert_eq!(session.status, 200);
     assert_eq!(
@@ -947,23 +970,30 @@ async fn auth_040_changing_sets_the_password_ends_the_other_sessions_and_keeps_t
         changed.json()["authenticated_at"]
     );
     assert!(session.json()["authenticated_at"].as_str() > before.as_str());
-    let received: Vec<Value> = signals.received().await;
-    assert_eq!(received.len(), 1);
-    assert_eq!(received[0]["session_id"], other.session_id.as_str());
-    let entries = log(&api, &ada.user_id).await;
+    let mut ended: Vec<String> = others
+        .iter()
+        .map(|other| other.session_id.clone())
+        .collect();
+    ended.sort();
+    assert_eq!(signals.ended_sessions().await, ended);
+    let mut entries = log(&api, &ada.user_id).await;
+    let changed_entry = entries.pop().unwrap();
+    let mut ended_entries = entries.split_off(entries.len() - 2);
+    ended_entries.sort();
     assert_eq!(
-        entries[entries.len() - 2..],
-        [
-            format!(
-                "session.ended {} session {} {{}}",
-                ada.user_id, other.session_id
-            ),
-            format!(
-                "password.changed {} identity {} {{}}",
-                ada.user_id,
-                identity(&api, &ada.user_id).await
-            ),
-        ]
+        ended_entries,
+        ended
+            .iter()
+            .map(|session| format!("session.ended {} session {session} {{}}", ada.user_id))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        changed_entry,
+        format!(
+            "password.changed {} identity {} {{}}",
+            ada.user_id,
+            identity(&api, &ada.user_id).await
+        )
     );
     assert_eq!(
         users::sign_in(&api, &address, users::PASSWORD).await.status,
@@ -980,7 +1010,10 @@ async fn auth_046_a_change_and_a_reset_publish_the_end_of_each_session_they_end(
     let api = Api::new().await;
     let address = mailbox::address("ada");
     let ada = users::register(&api, &address).await;
-    let other = users::new_session(&api, &address).await;
+    let others = [
+        users::new_session(&api, &address).await,
+        users::new_session(&api, &address).await,
+    ];
 
     let changed = users::change_password(&api, &ada, users::PASSWORD, NEW_PASSWORD).await;
     let after_change = users::session_events(&api, "session.ended").await;
@@ -992,16 +1025,17 @@ async fn auth_046_a_change_and_a_reset_publish_the_end_of_each_session_they_end(
 
     assert_eq!(changed.status, 200);
     assert_eq!(reset.status, 204);
-    // The change ends the other session alone, and the reset every session left.
-    assert_eq!(
-        after_change,
-        [format!("{} {}", ada.user_id, other.session_id)]
-    );
-    let mut ended = vec![
-        format!("{} {}", ada.user_id, other.session_id),
+    // The change ends the other sessions alone, and the reset every session left.
+    let mut ended: Vec<String> = others
+        .iter()
+        .map(|other| format!("{} {}", ada.user_id, other.session_id))
+        .collect();
+    ended.sort();
+    assert_eq!(after_change, ended);
+    ended.extend([
         format!("{} {}", ada.user_id, ada.session_id),
         format!("{} {}", ada.user_id, again.session_id),
-    ];
+    ]);
     ended.sort();
     assert_eq!(users::session_events(&api, "session.ended").await, ended);
 }
@@ -1104,6 +1138,24 @@ async fn auth_022_a_change_counts_in_the_bucket_of_the_user_s_password_checks() 
             .header("ratelimit-policy")
             .starts_with("\"password_check\";q=5;w=900")
     );
+}
+
+#[tokio::test]
+async fn auth_022_a_change_beyond_the_limit_answers_429_before_it_reads_the_password() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    for _ in 0..5 {
+        let reauthenticated = users::reauthenticate(&api, &ada, "not-the-password-77").await;
+        assert_eq!(reauthenticated.status, 403);
+    }
+
+    // Held against every read of a password.
+    limited_while_holding(
+        api.database(),
+        "LOCK TABLE identities IN ACCESS EXCLUSIVE MODE",
+        users::change_password(&api, &ada, users::PASSWORD, NEW_PASSWORD),
+    )
+    .await;
 }
 
 #[tokio::test]
