@@ -616,13 +616,15 @@ mod tests {
             );
         }
         // U+0958, which NFC writes as two characters, U+0915 U+093C: 3 of them make a line of 6
-        // characters once normalized, and 4 one of 8, each within the 6 as given.
+        // characters once normalized, and after an `a`, one of 7, each within the 6 as given.
         assert_eq!(
             one_line(&"\u{958}".repeat(3), 6, "", "").unwrap(),
             "\u{915}\u{93c}".repeat(3)
         );
         assert_eq!(
-            one_line(&"\u{958}".repeat(4), 6, "", "").unwrap_err().code,
+            one_line(&format!("a{}", "\u{958}".repeat(3)), 6, "", "")
+                .unwrap_err()
+                .code,
             "too_long"
         );
         // White space alone is no line, whatever its length.

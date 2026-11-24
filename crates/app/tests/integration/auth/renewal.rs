@@ -8,10 +8,9 @@ use crate::support::{
     api::Response,
     api::reads,
     execute_on,
-    providers::{self, gives, grant, identity, stand_in},
+    providers::{self, gives, identity},
     queries_wait_on_locks,
     second_factors::{self, add_app, other_code},
-    upstream::Upstream,
     users::{self, PASSWORD, SignedIn, WEB},
 };
 
@@ -110,19 +109,11 @@ async fn auth_095_a_change_of_the_password_gives_the_caller_s_session_new_tokens
 
 #[tokio::test]
 async fn auth_095_a_reauthentication_through_a_provider_gives_the_session_new_tokens() {
-    let upstream = Upstream::start().await;
-    let api = Api::with(stand_in(&upstream)).await;
+    let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     let ada = providers::signed_in(&api).await;
 
-    let response = api
-        .post(
-            "/v1/users/me/sessions/current/reauthenticate/provider",
-            &grant(),
-        )
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let response = providers::reauthenticate(&api, &ada, json!({})).await;
 
     renewed(&api, &ada, &response).await;
 }

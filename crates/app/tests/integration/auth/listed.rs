@@ -27,8 +27,14 @@ async fn sign_in_with(api: &Api, fields: Value) -> SignedIn {
 
 /// Ends `user`'s session `id`.
 pub(super) async fn end(api: &Api, user: &SignedIn, id: &str) -> Response {
+    end_with(api, &user.access, id).await
+}
+
+/// Ends session `id` with the access token `access`, such as the one a browser holds in its
+/// cookie.
+async fn end_with(api: &Api, access: &str, id: &str) -> Response {
     api.request(http::Method::DELETE, &format!("/v1/users/me/sessions/{id}"))
-        .bearer(&user.access)
+        .bearer(access)
         .send()
         .await
 }
@@ -366,11 +372,7 @@ async fn auth_044_ending_one_s_own_session_by_its_id_signs_out_without_a_recent_
         .await;
     let mut signals = api.database().signals().await;
 
-    let ended = api
-        .request(http::Method::DELETE, &format!("/v1/users/me/sessions/{id}"))
-        .bearer(&access)
-        .send()
-        .await;
+    let ended = end_with(&api, &access, &id).await;
 
     assert_eq!(ended.status, 204);
     let cleared = ended.headers("set-cookie");

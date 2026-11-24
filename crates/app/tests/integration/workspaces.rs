@@ -810,22 +810,19 @@ async fn workspaces_002_a_name_is_counted_once_normalized_too() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     let workspace = workspaces::arrange(api.database(), "Acme", &[(&ada.user_id, "owner")]).await;
-    // U+0958, which NFC writes as two characters, U+0915 U+093C: after an `a`, 127 of them make a
-    // name of 255 characters once normalized, and after `ab`, one of 256, each within the 255 as
-    // given.
-    let named = |start: &str| format!("{start}{}", "\u{958}".repeat(127));
+    // Names of 255 and 256 characters once normalized, each within the 255 as given.
+    let (longest, too_long) = (lengthened(255), lengthened(256));
 
-    let kept = workspaces::rename(&api, &ada, &workspace, &named("a"), &[]).await;
-    let refused = workspaces::rename(&api, &ada, &workspace, &named("ab"), &[]).await;
+    let kept = workspaces::rename(&api, &ada, &workspace, &longest.given, &[]).await;
+    let refused = workspaces::rename(&api, &ada, &workspace, &too_long.given, &[]).await;
 
-    let normalized = format!("a{}", "\u{915}\u{93c}".repeat(127));
     assert_eq!(kept.status, 200, "{}", kept.json());
-    assert_eq!(kept.json()["name"], normalized.as_str());
+    assert_eq!(kept.json()["name"], longest.normalized.as_str());
     assert_eq!(refused.status, 400, "{}", refused.json());
     assert_eq!(refused.json()["code"], "request.invalid_fields");
     assert_eq!(refused.json()["errors"][0]["field"], "/name");
     assert_eq!(refused.json()["errors"][0]["code"], "too_long");
-    assert_eq!(stored_name(&api, &workspace).await, normalized);
+    assert_eq!(stored_name(&api, &workspace).await, longest.normalized);
 }
 
 #[tokio::test]

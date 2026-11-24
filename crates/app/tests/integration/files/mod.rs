@@ -34,7 +34,7 @@ use crate::support::{
     api::{Options, Response},
     bucket, counts,
     events::{self, Event},
-    files, jobs,
+    files, jobs, lengthened,
     lists::{field, pages},
     scanner::{self, Script},
     streams,
@@ -363,23 +363,22 @@ async fn files_002_a_name_comes_from_content_disposition_normalized() {
 async fn files_002_a_name_is_counted_once_normalized_too() {
     let api = Api::new().await;
     let (workspace, ada, _) = acme(&api, "member").await;
-    // U+0958, which NFC writes as two characters, U+0915 U+093C, percent-encoded as RFC 8187 has
-    // it: between `a` and `.txt`, 125 of them make a name of 255 characters once normalized, and
-    // between `ab` and `.txt`, one of 256, each within the 255 as given.
-    let named = async |start: &str| {
-        let disposition = format!(
-            "attachment; filename*=UTF-8''{start}{}.txt",
-            "%E0%A5%98".repeat(125)
-        );
+    // Before `.txt`, texts of 251 and 252 characters once normalized make names of 255 and 256,
+    // each within the 255 as given, percent-encoded as RFC 8187 has it.
+    let (longest, too_long) = (lengthened(251), lengthened(252));
+    let named = async |given: &str| {
+        let encoded =
+            percent_encoding::utf8_percent_encode(given, percent_encoding::NON_ALPHANUMERIC);
+        let disposition = format!("attachment; filename*=UTF-8''{encoded}.txt");
         let headers = [("content-disposition", disposition.as_str())];
         upload_with(&api, &ada, &workspace, &headers, b"x", None).await
     };
 
-    let kept = named("a").await;
-    let refused = named("ab").await;
+    let kept = named(&longest.given).await;
+    let refused = named(&too_long.given).await;
 
     assert_eq!(kept.status, 201, "{}", kept.json());
-    let normalized = format!("a{}.txt", "\u{915}\u{93c}".repeat(125));
+    let normalized = format!("{}.txt", longest.normalized);
     assert_eq!(kept.json()["name"], normalized.as_str());
     assert_eq!(refused.status, 400, "{}", refused.json());
     assert_eq!(refused.json()["code"], "files.invalid_name");
