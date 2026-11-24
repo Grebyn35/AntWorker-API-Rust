@@ -23,8 +23,12 @@ const ALLOWED_METHODS: &str = "GET, HEAD, POST, PUT, PATCH, DELETE";
 
 /// The request headers a preflight allows.
 const ALLOWED_HEADERS: &str = concat!(
-    "authorization, content-type, idempotency-key, if-match, if-none-match, if-range, \
-     last-event-id, range, traceparent, tracestate",
+    // Who sends the request, and what its body is.
+    "authorization, content-type, idempotency-key",
+    // The conditions of a write or a read, and the part of a stream or a download that a read names.
+    ", if-match, if-none-match, if-range, last-event-id, range",
+    // The trace context.
+    ", traceparent, tracestate",
     // part: files
     ", content-disposition",
     // end part: files
