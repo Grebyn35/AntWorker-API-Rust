@@ -341,7 +341,7 @@ async fn system_009_with_email_on_the_setup_takes_olivia_s_proved_address_and_en
 /// superadmin. The seed encrypts the secret under the tests' key ring, so the API that a test
 /// then runs in process reads it (AUTH-066).
 async fn seed_with_a_superadmin(database: &TestDatabase) -> (String, String) {
-    let key_ring = [("ENCRYPTION_KEYS", crate::support::api::KEY_RING)];
+    let key_ring = [("ENCRYPTION_KEYS", crate::support::api::ENCRYPTION_KEYS)];
     let printed = seeded(database, &key_ring).await;
     let secret = printed_after(
         &printed,

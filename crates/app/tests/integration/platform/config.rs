@@ -179,7 +179,7 @@ fn ops_01_each_number_setting_is_refused_just_outside_its_range() {
 /// address.
 #[test]
 fn ops_01_each_number_that_a_setting_holds_refuses_a_sign_and_a_leading_zero() {
-    let (_, key) = api::KEY_RING.split_once(':').unwrap();
+    let (_, key) = api::ENCRYPTION_KEYS.split_once(':').unwrap();
     let mut refused = Vec::new();
     for (name, low, high) in ranged_settings() {
         let refusal = format!("{name} must be a whole number from {low} to {high}");
