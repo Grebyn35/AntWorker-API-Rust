@@ -151,12 +151,13 @@ pub fn values<T>(
     })
 }
 
-/// The `limit` that `value` names: ASCII digits, after a `+`, a `-` or neither, of a number from
-/// 1 to 100, refused as `out_of_range` when they write another number, whatever its size, and any
-/// other text as `invalid` (API-06).
+/// The `limit` that `value` names: ASCII digits with no leading zero, after a `-` or nothing, of
+/// a number from 1 to 100, refused as `out_of_range` when they write another number, whatever its
+/// size, and any other text, such as `+5` or `005`, as `invalid` (PLATFORM-046).
 fn parse_limit(value: &str) -> Result<u16, Invalid> {
-    let digits = value.strip_prefix(['+', '-']).unwrap_or(value);
-    if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+    let digits = value.strip_prefix('-').unwrap_or(value);
+    let leading_zero = digits.len() > 1 && digits.starts_with('0');
+    if digits.is_empty() || leading_zero || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
         return Err(Invalid::new("invalid", "A limit is a whole number."));
     }
     match value.parse::<u16>() {
@@ -550,6 +551,15 @@ mod tests {
         assert_eq!(parse_limit("0").unwrap_err().code, "out_of_range");
         assert_eq!(parse_limit("101").unwrap_err().code, "out_of_range");
         assert_eq!(parse_limit("ten").unwrap_err().code, "invalid");
+    }
+
+    #[test]
+    fn platform_046_a_limit_with_a_plus_or_a_leading_zero_is_invalid() {
+        let codes = ["+5", "005", "00", "-05"].map(|value| parse_limit(value).unwrap_err().code);
+
+        assert_eq!(codes, ["invalid"; 4]);
+        assert_eq!(parse_limit("5"), Ok(5));
+        assert_eq!(parse_limit("0").unwrap_err().code, "out_of_range");
     }
 
     #[test]

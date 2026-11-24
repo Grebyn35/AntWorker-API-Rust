@@ -779,6 +779,30 @@ mod tests {
     }
 
     #[test]
+    fn ops_01_a_number_is_digits_alone_without_a_sign_or_a_leading_zero() {
+        for value in ["+600", "007", "1e2"] {
+            let error = settings(
+                &with(&server_vars(), &[("DATABASE_MAX_CONNECTIONS", value)]),
+                &[],
+            )
+            .server()
+            .unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                "DATABASE_MAX_CONNECTIONS must be a whole number from 1 to 1000",
+                "{value}"
+            );
+        }
+        let config = settings(
+            &with(&server_vars(), &[("DATABASE_MAX_CONNECTIONS", "70")]),
+            &[],
+        )
+        .server()
+        .unwrap();
+        assert_eq!(config.database_max_connections, 70);
+    }
+
+    #[test]
     fn ops_01_the_server_s_limits_are_range_checked() {
         for (name, value, range) in [
             ("MAX_CONCURRENT_REQUESTS", "0", "1 to 100000"),

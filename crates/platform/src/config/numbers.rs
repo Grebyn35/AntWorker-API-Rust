@@ -10,7 +10,8 @@ where
     E: Fn(&str) -> Option<OsString>,
     F: Fn(&Path) -> io::Result<String>,
 {
-    /// A whole number from the setting `name`, or `default` when it is unset (OPS-01).
+    /// A whole number from the setting `name`, written in ASCII digits with no sign and no
+    /// leading zero, or `default` when it is unset (OPS-01).
     pub fn number(
         &self,
         name: &str,
@@ -20,9 +21,11 @@ where
         let Some(value) = self.value(name)? else {
             return Ok(default);
         };
-        value
-            .parse()
-            .ok()
+        let digits = value.bytes().all(|byte| byte.is_ascii_digit());
+        let leading_zero = value.len() > 1 && value.starts_with('0');
+        (digits && !leading_zero)
+            .then(|| value.parse().ok())
+            .flatten()
             .filter(|number| range.contains(number))
             .ok_or_else(|| {
                 ConfigError::new(name, Problem::OutOfRange(*range.start(), *range.end()))
