@@ -64,7 +64,7 @@ async fn superadmins_of(api: &Api) -> Vec<String> {
 
 /// The log, actor, target, resource and details of each entry of `action`, the oldest first,
 /// with `-` for no actor, no target or no resource ID, and how many of them record a client, an
-/// address or a user agent.
+/// address or a user agent. This part's file keeps its own copy (TEST-09).
 async fn entries(api: &Api, action: &str) -> (Vec<String>, usize) {
     let entries = reads(
         api,

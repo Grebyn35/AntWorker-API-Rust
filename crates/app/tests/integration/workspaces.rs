@@ -10,7 +10,7 @@ use crate::support::{
     lists::{field, pages},
     streams,
     users::{self, SignedIn},
-    workspaces,
+    workspaces::{self, change_role},
 };
 
 /// The names of the permissions that the matrix gives `role`, in its order (ACCESS-002).
@@ -165,6 +165,28 @@ async fn platform_047_a_search_that_holds_a_control_character_answers_400() {
 }
 
 #[tokio::test]
+async fn platform_047_a_search_is_counted_once_normalized_too() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    // U+0958, which NFC writes as two characters, U+0915 U+093C, percent-encoded: 50 of them make
+    // a search of 100 characters once normalized, and 51 one of 102, each within the 100 as given.
+    let search = async |count: usize| {
+        let path = format!("/v1/workspaces?search={}", "%E0%A5%98".repeat(count));
+        api.get(&path).bearer(&ada.access).send().await
+    };
+
+    let longest = search(50).await;
+    let too_long = search(51).await;
+
+    assert_eq!(longest.status, 200, "{}", longest.json());
+    assert_eq!(too_long.status, 400, "{}", too_long.json());
+    let body = too_long.json();
+    assert_eq!(body["code"], "request.invalid_query");
+    assert_eq!(body["errors"][0]["field"], "/search");
+    assert_eq!(body["errors"][0]["code"], "too_long");
+}
+
+#[tokio::test]
 async fn access_005_a_search_reaches_every_workspace_the_caller_belongs_to_and_no_other() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
@@ -201,11 +223,7 @@ async fn access_005_a_rename_publishes_in_each_workspace_the_caller_belongs_to_a
     db.owner_executes("DELETE FROM events").await;
 
     // Each workspace of `workspace_ids` gets the rename's event (ACCOUNTS-007).
-    let renamed = api
-        .patch("/v1/users/me", &json!({ "name": "Ada King" }))
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let renamed = users::rename(&api, &ada, "Ada King", None).await;
 
     assert_eq!(renamed.status, 200);
     let reached = db
@@ -357,10 +375,7 @@ async fn accounts_006_a_member_search_finds_a_member_by_their_name_alone() {
     let grace = users::register(&api, "grace@example.com").await;
     workspaces::join(api.database(), &workspace, &grace.user_id, "member").await;
     // Grace's name holds the search, and no member's email does.
-    api.patch("/v1/users/me", &json!({ "name": "Grace Hopper" }))
-        .bearer(&grace.access)
-        .send()
-        .await;
+    users::rename(&api, &grace, "Grace Hopper", None).await;
 
     let body = api
         .get(&format!("/v1/workspaces/{workspace}/members?search=HOPPER"))
@@ -623,6 +638,12 @@ async fn workspaces_007_reading_a_workspace_gives_it_with_the_caller_s_role_and_
     let api = Api::new().await;
     let (workspace, ada, grace) = workspaces::acme(&api, "member").await;
     let path = format!("/v1/workspaces/{workspace}");
+    // A creation apart from the workspace's last change, which moves its version to 2.
+    api.database()
+        .owner_executes(&format!(
+            "UPDATE workspaces SET created_at = '2026-11-01T10:00:00.5Z' WHERE id = '{workspace}'"
+        ))
+        .await;
 
     let owner = api.get(&path).bearer(&ada.access).send().await;
     let member = api.get(&path).bearer(&grace.access).send().await;
@@ -632,11 +653,11 @@ async fn workspaces_007_reading_a_workspace_gives_it_with_the_caller_s_role_and_
     assert_eq!(body["id"], workspace);
     assert_eq!(body["name"], "Acme");
     assert_eq!(body["role"], "owner");
-    assert!(body["created_at"].as_str().unwrap().ends_with('Z'));
-    assert_eq!(owner.header("etag"), "\"1\"");
+    assert_eq!(body["created_at"], "2026-11-01T10:00:00.500000Z");
+    assert_eq!(owner.header("etag"), "\"2\"");
     assert_eq!(member.status, 200);
     assert_eq!(member.json()["role"], "member");
-    assert_eq!(member.header("etag"), "\"1\"");
+    assert_eq!(member.header("etag"), "\"2\"");
 }
 
 #[tokio::test]
@@ -744,6 +765,29 @@ async fn workspaces_008_a_member_may_not_rename_and_the_owner_may() {
     assert_eq!(unchanged, "Acme");
     assert_eq!(renamed.status, 200);
     assert_eq!(stored_name(&api, &workspace).await, "Ada's");
+}
+
+#[tokio::test]
+async fn workspaces_002_a_name_is_counted_once_normalized_too() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let workspace = workspaces::arrange(api.database(), "Acme", &[(&ada.user_id, "owner")]).await;
+    // U+0958, which NFC writes as two characters, U+0915 U+093C: after an `a`, 127 of them make a
+    // name of 255 characters once normalized, and after `ab`, one of 256, each within the 255 as
+    // given.
+    let named = |start: &str| format!("{start}{}", "\u{958}".repeat(127));
+
+    let kept = workspaces::rename(&api, &ada, &workspace, &named("a"), &[]).await;
+    let refused = workspaces::rename(&api, &ada, &workspace, &named("ab"), &[]).await;
+
+    let normalized = format!("a{}", "\u{915}\u{93c}".repeat(127));
+    assert_eq!(kept.status, 200, "{}", kept.json());
+    assert_eq!(kept.json()["name"], normalized.as_str());
+    assert_eq!(refused.status, 400, "{}", refused.json());
+    assert_eq!(refused.json()["code"], "request.invalid_fields");
+    assert_eq!(refused.json()["errors"][0]["field"], "/name");
+    assert_eq!(refused.json()["errors"][0]["code"], "too_long");
+    assert_eq!(stored_name(&api, &workspace).await, normalized);
 }
 
 #[tokio::test]
@@ -994,27 +1038,6 @@ async fn sec_19_workspace_updated_reaches_every_member_s_every_device_and_no_rep
     assert_eq!(after_joining.id, second[1]);
 }
 
-/// Changes the role of `user` in `workspace` to `role`, as `caller`, with `if_match` as its
-/// `If-Match` if given.
-async fn change_role(
-    api: &Api,
-    caller: &SignedIn,
-    (workspace, user): (&str, &str),
-    role: &str,
-    if_match: Option<&str>,
-) -> crate::support::api::Response {
-    let mut call = api
-        .patch(
-            &format!("/v1/workspaces/{workspace}/members/{user}"),
-            &json!({ "role": role }),
-        )
-        .bearer(&caller.access);
-    if let Some(tag) = if_match {
-        call = call.header("if-match", tag);
-    }
-    call.send().await
-}
-
 /// The members of `workspace`, each as their user ID and their role, in the order they joined.
 async fn roles(api: &Api, workspace: &str) -> Vec<String> {
     api.database()
@@ -1211,26 +1234,24 @@ async fn workspaces_013_a_caller_changes_only_a_lower_rank_and_only_to_a_role_be
     )
     .await;
     let before = roles(&api, &workspace).await;
-    let change = |caller: &SignedIn, user: &str, role: &'static str| {
-        let target = format!("/v1/workspaces/{workspace}/members/{user}");
-        let call = api.patch(&target, &json!({ "role": role }));
-        call.bearer(&caller.access).send()
+    let change = async |caller: &SignedIn, user: &SignedIn, role: &str| {
+        change_role(&api, caller, (&workspace, &user.user_id), role, None).await
     };
 
     let refused = [
         // Their own role, an equal's and the owner's.
-        change(&admin, &admin.user_id, "member").await,
-        change(&admin, &peer.user_id, "member").await,
-        change(&admin, &owner.user_id, "member").await,
-        change(&owner, &owner.user_id, "admin").await,
+        change(&admin, &admin, "member").await,
+        change(&admin, &peer, "member").await,
+        change(&admin, &owner, "member").await,
+        change(&owner, &owner, "admin").await,
         // A role that doesn't rank below the caller's own: an equal one, and a higher, whether
         // or not the user is a member.
-        change(&admin, &member.user_id, "admin").await,
-        change(&admin, &member.user_id, "owner").await,
-        change(&owner, &admin.user_id, "owner").await,
-        change(&owner, &stranger.user_id, "owner").await,
+        change(&admin, &member, "admin").await,
+        change(&admin, &member, "owner").await,
+        change(&owner, &admin, "owner").await,
+        change(&owner, &stranger, "owner").await,
         // A member holds no members.update.
-        change(&member, &member.user_id, "member").await,
+        change(&member, &member, "member").await,
     ];
 
     for response in &refused {

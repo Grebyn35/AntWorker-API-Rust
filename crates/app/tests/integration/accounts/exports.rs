@@ -248,6 +248,7 @@ async fn accounts_022_the_caller_lists_and_reads_their_own_exports_and_no_other_
         assert_eq!(response.json()["code"], "accounts.export_not_found");
         let content = download(&api, &ada, missing, &[]).await;
         assert_eq!(content.status, 404, "{missing}");
+        assert_eq!(content.json()["code"], "accounts.export_not_found");
     }
     // An expired export is gone, though the job that deletes it hasn't run.
     api.database()
@@ -381,6 +382,12 @@ async fn accounts_023_the_job_builds_the_archive_makes_the_export_ready_and_publ
     )
     .await;
     assert_eq!(again, documents);
+    // The run ended its job, which no attempt waits to retry, and recorded and published nothing
+    // more.
+    let jobs = one(&api, "SELECT count(*)::text FROM jobs").await;
+    assert_eq!(jobs, "0");
+    assert_eq!(entries_of(&api, "export.completed").await.len(), 1);
+    assert_eq!(event_users(&api, "export.completed").await.len(), 1);
 }
 
 #[tokio::test]
@@ -749,11 +756,7 @@ async fn accounts_026_a_download_serves_the_archive_by_ranges_the_same_bytes_eac
 
     let whole = download(&api, &ada, &id, &[]).await;
     // A change since the export was built changes none of its bytes.
-    let renamed = api
-        .patch("/v1/users/me", &json!({ "name": "Countess of Lovelace" }))
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let renamed = users::rename(&api, &ada, "Countess of Lovelace", None).await;
     assert_eq!(renamed.status, 200);
     let again = download(&api, &ada, &id, &[]).await;
     let range = download(&api, &ada, &id, &[("range", "bytes=10-99")]).await;
@@ -852,8 +855,13 @@ async fn accounts_027_the_expiry_deletes_expired_exports_and_fails_those_pending
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     let grace = users::register(&api, "grace@example.com").await;
+    let alan = users::register(&api, "alan@example.com").await;
     let expired = built(&api, &ada).await;
     let stale = request(&api, &grace).await.json()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let young = request(&api, &alan).await.json()["id"]
         .as_str()
         .unwrap()
         .to_owned();
@@ -863,9 +871,11 @@ async fn accounts_027_the_expiry_deletes_expired_exports_and_fails_those_pending
         "UPDATE exports SET expires_at = now() - interval '1 second' WHERE id = '{expired}'"
     ))
     .await;
+    // Grace's export was requested 24 hours ago, and Alan's a minute later.
     db.owner_executes(&format!(
-        "UPDATE exports SET created_at = now() - interval '24 hours 1 second' \
-         WHERE id = '{stale}'"
+        "UPDATE exports SET created_at = now() - CASE id WHEN '{stale}' \
+         THEN interval '24 hours' ELSE interval '23 hours 59 minutes' END \
+         WHERE id IN ('{stale}', '{young}')"
     ))
     .await;
     let mut stream = streams::opened(&api, &grace).await;
@@ -874,9 +884,12 @@ async fn accounts_027_the_expiry_deletes_expired_exports_and_fails_those_pending
     api.run_periodic("accounts.expire_exports").await;
 
     let left = db
-        .owner_reads("SELECT id || ' ' || state::text FROM exports")
+        .owner_reads("SELECT id || ' ' || state::text FROM exports ORDER BY created_at")
         .await;
-    assert_eq!(left, [format!("{stale} failed")]);
+    assert_eq!(
+        left,
+        [format!("{stale} failed"), format!("{young} pending")]
+    );
     let documents = one(
         &api,
         "SELECT (SELECT count(*) FROM export_entries) || ' ' || \

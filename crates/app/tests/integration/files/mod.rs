@@ -360,6 +360,33 @@ async fn files_002_a_name_comes_from_content_disposition_normalized() {
 }
 
 #[tokio::test]
+async fn files_002_a_name_is_counted_once_normalized_too() {
+    let api = Api::new().await;
+    let (workspace, ada, _) = acme(&api, "member").await;
+    // U+0958, which NFC writes as two characters, U+0915 U+093C, percent-encoded as RFC 8187 has
+    // it: between `a` and `.txt`, 125 of them make a name of 255 characters once normalized, and
+    // between `ab` and `.txt`, one of 256, each within the 255 as given.
+    let named = async |start: &str| {
+        let disposition = format!(
+            "attachment; filename*=UTF-8''{start}{}.txt",
+            "%E0%A5%98".repeat(125)
+        );
+        let headers = [("content-disposition", disposition.as_str())];
+        upload_with(&api, &ada, &workspace, &headers, b"x", None).await
+    };
+
+    let kept = named("a").await;
+    let refused = named("ab").await;
+
+    assert_eq!(kept.status, 201, "{}", kept.json());
+    let normalized = format!("a{}.txt", "\u{915}\u{93c}".repeat(125));
+    assert_eq!(kept.json()["name"], normalized.as_str());
+    assert_eq!(refused.status, 400, "{}", refused.json());
+    assert_eq!(refused.json()["code"], "files.invalid_name");
+    assert_eq!(stored_names(&api, &workspace).await, [normalized]);
+}
+
+#[tokio::test]
 async fn files_003_a_file_whose_extension_or_bytes_are_of_no_accepted_kind_is_refused() {
     let api = Api::new().await;
     let (workspace, ada, _) = acme(&api, "member").await;
@@ -566,12 +593,15 @@ async fn files_006_an_upload_refuses_a_caller_before_reading_the_body() {
     let (workspace, _, _) = acme(&api, "member").await;
     let eve = users::register(&api, "eve@example.com").await;
 
-    // Each of these bodies would be refused once read, and the name before it: the refusal of the
-    // caller comes first.
-    let empty = upload(&api, &eve, &workspace, "a.txt", b"", None).await;
+    // A body that fails once it is read, and a request without the name, which is refused before
+    // the body is read: the refusal of the caller comes first.
+    let path = format!("/v1/workspaces/{workspace}/files");
+    let failing = upload_streamed(&api, path, &eve.access, unread())
+        .await
+        .unwrap();
     let unnamed = upload_with(&api, &eve, &workspace, &[], b"x", None).await;
 
-    for refused in [&empty, &unnamed] {
+    for refused in [&failing, &unnamed] {
         assert_eq!(refused.status, 404);
         assert_eq!(refused.json()["code"], "request.not_found");
     }
@@ -1103,12 +1133,9 @@ async fn files_009_a_range_past_a_cut_short_object_s_end_answers_500_and_its_cau
     // A resume from the byte that was cut.
     let short = files::BYTES.len() - 1;
 
-    let response = api
-        .get(&format!("/v1/workspaces/{workspace}/files/{id}/content"))
-        .header("range", &format!("bytes={short}-"))
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let path = format!("/v1/workspaces/{workspace}/files/{id}/content");
+    let response =
+        ranges::ranged(&api, &ada, &path, &[("range", &format!("bytes={short}-"))]).await;
 
     assert_eq!(response.status, 500);
     assert_eq!(response.json()["code"], "request.internal_error");

@@ -28,6 +28,11 @@ use tokio::sync::Notify;
 
 use super::api::Options;
 
+// part: files
+/// The path of Ada's picture at the stand-in.
+pub const PICTURE: &str = "/pictures/ada.png";
+// end part: files
+
 /// A request that the stand-in received.
 #[derive(Clone, Debug)]
 pub struct Received {
@@ -125,10 +130,10 @@ impl Upstream {
     }
 
     // part: files
-    /// Makes `GET` of `path` answer `status`, with `body` as its bytes, such as a picture's.
-    pub fn set_bytes(&self, path: &str, status: u16, body: &[u8]) {
+    /// Makes `GET` of [`PICTURE`] answer `status`, with `body` as its bytes.
+    pub fn set_bytes(&self, status: u16, body: &[u8]) {
         self.lock().by_route.insert(
-            ("GET".to_owned(), path.to_owned()),
+            ("GET".to_owned(), PICTURE.to_owned()),
             Answer::Bytes(status, body.to_vec()),
         );
     }
@@ -141,12 +146,12 @@ impl Upstream {
     // end part: files
 
     // part: client_telemetry
-    /// Makes `method` of `path` answer 307, a redirect to `location`, which keeps the method and
-    /// the body.
-    pub fn redirect(&self, method: &str, path: &str, location: &str) {
+    /// Makes `POST` of the collector's `/v1/traces` answer 307, a redirect to `/elsewhere`, a path
+    /// of its own, which keeps the method and the body.
+    pub fn redirect(&self) {
         self.lock().by_route.insert(
-            (method.to_owned(), path.to_owned()),
-            Answer::Redirect(location.to_owned()),
+            ("POST".to_owned(), "/v1/traces".to_owned()),
+            Answer::Redirect("/elsewhere".to_owned()),
         );
     }
     // end part: client_telemetry

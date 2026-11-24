@@ -32,11 +32,7 @@ async fn auth_025_an_account_that_must_verify_is_refused_but_where_verifying_nee
         assert_eq!(refused.status, 403, "{path}");
         assert_eq!(refused.json()["code"], "request.email_unverified");
     }
-    let renamed = api
-        .patch("/v1/users/me", &json!({ "name": "Ada" }))
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let renamed = users::rename(&api, &ada, "Ada", None).await;
     assert_eq!(renamed.status, 403);
     assert_eq!(renamed.json()["code"], "request.email_unverified");
 

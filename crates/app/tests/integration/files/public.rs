@@ -1,7 +1,9 @@
 //! Public files: an upload's visibility, and the downloads that anyone may make (FILES-020,
 //! FILES-023), counted in a bucket of their own (PLATFORM-082).
 
-use super::{acme, download, own::upload_own, stored_names, upload_queried};
+use super::{
+    acme, download, own::upload_own, stored_names, unread, upload_queried, upload_streamed,
+};
 use crate::support::{
     Api,
     api::{Options, Response},
@@ -61,8 +63,11 @@ async fn files_020_another_visibility_answers_400_with_the_body_unread() {
     let api = Api::new().await;
     let (workspace, ada, _) = acme(&api, "member").await;
 
-    // An empty body would be refused once read: the query's refusal comes first.
-    let response = upload_query(&api, &ada, &workspace, "?visibility=Public", b"").await;
+    // A body that fails once it is read: the query's refusal comes first.
+    let path = format!("/v1/workspaces/{workspace}/files?visibility=Public");
+    let response = upload_streamed(&api, path, &ada.access, unread())
+        .await
+        .unwrap();
 
     assert_eq!(response.status, 400);
     let problem = response.json();

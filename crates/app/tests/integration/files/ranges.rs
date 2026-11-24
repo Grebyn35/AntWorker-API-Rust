@@ -24,7 +24,12 @@ async fn uploaded(api: &Api, ada: &SignedIn, workspace: &str, query: &str) -> Va
 }
 
 /// The download of the file at `path` as `ada`, with `headers`.
-async fn ranged(api: &Api, ada: &SignedIn, path: &str, headers: &[(&str, &str)]) -> Response {
+pub(super) async fn ranged(
+    api: &Api,
+    ada: &SignedIn,
+    path: &str,
+    headers: &[(&str, &str)],
+) -> Response {
     let mut call = api.get(path).bearer(&ada.access);
     for (name, value) in headers {
         call = call.header(name, value);

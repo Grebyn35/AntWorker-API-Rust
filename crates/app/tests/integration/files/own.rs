@@ -3,7 +3,7 @@
 use platform::telemetry::testing::collector::Collector;
 use serde_json::json;
 
-use super::{objects, uploads_counted, without_links};
+use super::{objects, unread, upload_streamed, uploads_counted, without_links};
 use crate::support::{
     Api,
     api::{Options, Response},
@@ -130,12 +130,12 @@ async fn files_016_a_retry_with_the_key_stores_one_file() {
 async fn files_016_an_upload_without_a_credential_answers_401_with_the_body_unread() {
     let api = Api::new().await;
 
-    // An empty body would be refused once read, and so would the missing name: the refusal of
-    // the caller comes first.
+    // A body that fails once it is read, and no name, which would be refused: the refusal of the
+    // caller comes first.
     let response = api
         .request(http::Method::POST, "/v1/users/me/files")
         .header("content-type", "application/octet-stream")
-        .send()
+        .send_streamed(unread())
         .await;
 
     assert_eq!(response.status, 401);
@@ -220,8 +220,11 @@ async fn files_020_an_upload_to_one_s_own_files_of_another_visibility_answers_40
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
 
-    // An empty body would be refused once read: the query's refusal comes first.
-    let response = upload_own(&api, &ada, "a.txt", b"", "?visibility=everyone", None).await;
+    // A body that fails once it is read: the query's refusal comes first.
+    let path = "/v1/users/me/files?visibility=everyone".to_owned();
+    let response = upload_streamed(&api, path, &ada.access, unread())
+        .await
+        .unwrap();
 
     assert_eq!(response.status, 400);
     assert_eq!(response.json()["code"], "request.invalid_query");

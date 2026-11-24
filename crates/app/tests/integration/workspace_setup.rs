@@ -48,15 +48,16 @@ async fn memberships(api: &Api) -> Vec<String> {
 }
 
 /// The log, actor, target, resource and details of each entry of `action`, the oldest first,
-/// with `-` for no actor or no target, and how many of them record a client, an address or a
-/// user agent.
+/// with `-` for no actor, no target or no resource ID, and how many of them record a client, an
+/// address or a user agent. This part's file keeps its own copy (TEST-09).
 async fn entries(api: &Api, action: &str) -> (Vec<String>, usize) {
     let entries = reads(
         api,
         &format!(
             "SELECT scope || ' ' || coalesce(workspace_id, user_id) || ' ' \
              || coalesce(actor_user_id::text, '-') || ' ' || coalesce(target_user_id::text, '-') \
-             || ' ' || resource_type || ' ' || resource_id || ' ' || details::text \
+             || ' ' || resource_type || ' ' || coalesce(resource_id::text, '-') || ' ' \
+             || details::text \
              FROM audit_entries WHERE action = '{action}' ORDER BY id"
         ),
     )
@@ -710,6 +711,14 @@ async fn workspaces_027_an_export_of_its_only_member_holds_the_name_the_run_was_
     let globex = workspaces(&api).await.remove(1).0;
     crate::support::workspaces::join(api.database(), &globex, &grace.user_id, "member").await;
 
+    // The run's row, at a moment apart from the workspace's creation.
+    api.database()
+        .owner_executes(&format!(
+            "UPDATE workspace_setups SET created_at = '2026-11-01T10:00:00.5Z' \
+             WHERE workspace_id = '{id}'"
+        ))
+        .await;
+
     let export = built(&api, &ada).await;
     let archive = download(&api, &ada, &export, &[]).await;
 
@@ -720,7 +729,7 @@ async fn workspaces_027_an_export_of_its_only_member_holds_the_name_the_run_was_
         [json!({
             "workspace_id": id,
             "name": "Acme",
-            "created_at": setups[0]["created_at"],
+            "created_at": "2026-11-01T10:00:00.500000Z",
         })]
     );
 }

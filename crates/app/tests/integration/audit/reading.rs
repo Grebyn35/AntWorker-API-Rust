@@ -543,7 +543,7 @@ async fn audit_009_the_values_a_list_refuses_are_named_together() {
 
 /// An API whose clients' addresses come from `X-Forwarded-For`, as the tests' proxy sends it
 /// (SEC-13).
-async fn behind_a_proxy() -> Api {
+pub(super) async fn behind_a_proxy() -> Api {
     Api::with(Options::default().set("TRUSTED_PROXIES", "198.51.100.0/24")).await
 }
 

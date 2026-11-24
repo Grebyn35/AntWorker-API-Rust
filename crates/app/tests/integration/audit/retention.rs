@@ -188,6 +188,10 @@ async fn audit_011_by_default_a_log_keeps_an_entry_365_days_and_a_run_deletes_ev
 
 #[tokio::test]
 async fn audit_011_a_log_keeps_an_entry_90_to_3650_days() {
+    // Taken: `configuration` fails the test on a refusal.
+    for days in [90, 3_650] {
+        crate::support::api::configuration(&Options::default().set("AUDIT_RETENTION_DAYS", days));
+    }
     for days in [89, 3_651] {
         let refused =
             crate::support::api::refusal(&Options::default().set("AUDIT_RETENTION_DAYS", days));

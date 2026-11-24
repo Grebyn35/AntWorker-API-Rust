@@ -7,7 +7,6 @@ use serde_json::json;
 
 use crate::support::{
     Api,
-    api::Response,
     events::{self, Event},
     execute_on, queries_wait_on_locks, query_waits_on_a_lock, streams,
     users::{self, PASSWORD, SignedIn},
@@ -112,17 +111,6 @@ async fn accounts_004_no_two_users_have_the_same_email() {
     assert_eq!(count, ["1"]);
 }
 
-/// Renames `user` to `name` with the merge patch of ACCOUNTS-007, with `if_match` if given.
-async fn rename(api: &Api, user: &SignedIn, name: &str, if_match: Option<&str>) -> Response {
-    let mut call = api
-        .patch("/v1/users/me", &json!({ "name": name }))
-        .bearer(&user.access);
-    if let Some(etag) = if_match {
-        call = call.header("if-match", etag);
-    }
-    call.send().await
-}
-
 /// The name of `user` that the database holds.
 async fn stored_name(api: &Api, user: &SignedIn) -> String {
     api.database()
@@ -147,7 +135,7 @@ async fn accounts_007_renaming_oneself_stores_the_name_records_it_and_publishes_
     // The registrations' sessions published their starts (AUTH-046).
     db.owner_executes("DELETE FROM events").await;
 
-    let response = rename(&api, &ada, "  Ada \t King ", None).await;
+    let response = users::rename(&api, &ada, "  Ada \t King ", None).await;
 
     assert_eq!(response.status, 200);
     assert_eq!(response.json()["id"], ada.user_id);
@@ -192,9 +180,9 @@ async fn accounts_007_a_rename_with_a_stale_etag_answers_412_and_changes_nothing
     let ada = users::register(&api, "ada@example.com").await;
     let etag = users::etag(&api, &ada).await;
 
-    let first = rename(&api, &ada, "Ada King", Some(&etag)).await;
-    let stale = rename(&api, &ada, "Ada Byron", Some(&etag)).await;
-    let current = rename(&api, &ada, "Ada Lovelace", Some(first.header("etag"))).await;
+    let first = users::rename(&api, &ada, "Ada King", Some(&etag)).await;
+    let stale = users::rename(&api, &ada, "Ada Byron", Some(&etag)).await;
+    let current = users::rename(&api, &ada, "Ada Lovelace", Some(first.header("etag"))).await;
 
     assert_eq!(first.status, 200);
     assert_eq!(stale.status, 412);
@@ -212,13 +200,34 @@ async fn accounts_007_a_rename_with_a_stale_etag_answers_412_and_changes_nothing
 }
 
 #[tokio::test]
+async fn accounts_003_a_display_name_is_counted_once_normalized_too() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    // U+0958, which NFC writes as two characters, U+0915 U+093C: 50 of them make a name of 100
+    // characters once normalized, and 51 one of 102, each within the 100 as given.
+    let (longest, too_long) = ("\u{958}".repeat(50), "\u{958}".repeat(51));
+
+    let kept = users::rename(&api, &ada, &longest, None).await;
+    let refused = users::rename(&api, &ada, &too_long, None).await;
+
+    let normalized = "\u{915}\u{93c}".repeat(50);
+    assert_eq!(kept.status, 200, "{}", kept.json());
+    assert_eq!(kept.json()["name"], normalized.as_str());
+    assert_eq!(refused.status, 400, "{}", refused.json());
+    assert_eq!(refused.json()["code"], "request.invalid_fields");
+    assert_eq!(refused.json()["errors"][0]["field"], "/name");
+    assert_eq!(refused.json()["errors"][0]["code"], "too_long");
+    assert_eq!(stored_name(&api, &ada).await, normalized);
+}
+
+#[tokio::test]
 async fn accounts_003_a_new_name_that_the_rule_refuses_answers_400_and_changes_nothing() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
 
-    let blank = rename(&api, &ada, " \t ", None).await;
+    let blank = users::rename(&api, &ada, " \t ", None).await;
     // Postgres stores no U+0000 in a text, so the name must be refused before it reaches it.
-    let control = rename(&api, &ada, "A\u{0}da", None).await;
+    let control = users::rename(&api, &ada, "A\u{0}da", None).await;
     // A name longer than the document allows, or a field the patch doesn't take, is malformed
     // input, sent raw.
     let raw = |body: serde_json::Value| {
@@ -279,11 +288,11 @@ async fn sec_19_member_updated_reaches_the_members_and_no_replay_from_before_joi
     let mut own = streams::opened(&api, &ada).await;
     let mut member = streams::opened(&api, &grace).await;
 
-    let renamed = rename(&api, &ada, "Ada King", None).await;
+    let renamed = users::rename(&api, &ada, "Ada King", None).await;
     workspaces::join(db, &acme, &alan.user_id, "member").await;
     let mut joined = streams::connect(&api, &alan.access, before.as_deref()).await;
     joined.opened().await;
-    let again = rename(&api, &ada, "Ada Byron", None).await;
+    let again = users::rename(&api, &ada, "Ada Byron", None).await;
     let after_joining = joined.event().await;
 
     assert_eq!(renamed.status, 200);

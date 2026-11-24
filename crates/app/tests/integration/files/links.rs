@@ -2,7 +2,6 @@
 //! in place of a credential (FILES-022, PLATFORM-080, AUTH-020).
 
 use platform::{
-    hashing::HmacKey,
     signed_urls::SignedUrls,
     types::{SessionId, Timestamp},
 };
@@ -11,13 +10,13 @@ use serde_json::Value;
 use super::{acme, delete, own::upload_own, upload, upload_queried};
 use crate::support::{
     Api,
-    api::Options,
+    api::{Options, hmac_key},
     users::{self, SignedIn},
 };
 
-/// The signer of the tests' `HMAC_KEY`: 32 bytes of 7.
+/// The signer of the tests' `HMAC_KEY`.
 fn signer() -> SignedUrls {
-    SignedUrls::new(HmacKey::new(&[7; 32]).unwrap())
+    SignedUrls::new(hmac_key())
 }
 
 /// A text file that `ada` uploaded to `workspace`, as the upload answered it.

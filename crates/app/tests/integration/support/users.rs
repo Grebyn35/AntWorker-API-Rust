@@ -215,6 +215,17 @@ pub async fn etag(api: &Api, user: &SignedIn) -> String {
         .to_owned()
 }
 
+/// Renames `user` to `name` with the merge patch of ACCOUNTS-007, with `if_match` if given.
+pub async fn rename(api: &Api, user: &SignedIn, name: &str, if_match: Option<&str>) -> Response {
+    let mut call = api
+        .patch("/v1/users/me", &json!({ "name": name }))
+        .bearer(&user.access);
+    if let Some(etag) = if_match {
+        call = call.header("if-match", etag);
+    }
+    call.send().await
+}
+
 /// Ends every session of `user`'s but their own.
 pub async fn end_others(api: &Api, user: &SignedIn) -> Response {
     api.request(http::Method::DELETE, "/v1/users/me/sessions/others")

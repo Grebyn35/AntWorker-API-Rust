@@ -59,6 +59,20 @@ async fn acme(api: &Api, owner: &SignedIn, others: &[(&SignedIn, &str)]) -> Stri
     workspaces::arrange(api.database(), "Acme", &members).await
 }
 
+/// How many invitations, audit entries of an `invitation.%` action, events of an `invitation.%`
+/// name and jobs the database holds, as `<invitations> <entries> <events> <jobs>`.
+async fn written(api: &Api) -> String {
+    api.database()
+        .owner_reads(
+            "SELECT (SELECT count(*) FROM invitations) || ' ' \
+             || (SELECT count(*) FROM audit_entries WHERE action LIKE 'invitation.%') || ' ' \
+             || (SELECT count(*) FROM events WHERE name LIKE 'invitation.%') || ' ' \
+             || (SELECT count(*) FROM jobs)",
+        )
+        .await
+        .remove(0)
+}
+
 #[tokio::test]
 async fn invitations_001_inviting_an_email_creates_a_pending_invitation_and_enqueues_its_email() {
     let api = Api::new().await;
@@ -81,6 +95,19 @@ async fn invitations_001_inviting_an_email_creates_a_pending_invitation_and_enqu
     assert_eq!(body["inviter_id"], ada.user_id.as_str());
     assert_eq!(response.header("etag"), "\"1\"");
     let db = api.database();
+    let stored = db
+        .owner_reads(
+            "SELECT to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') \
+             || ' ' || to_char(expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') \
+             FROM invitations",
+        )
+        .await;
+    let answered = format!(
+        "{} {}",
+        body["created_at"].as_str().unwrap(),
+        body["expires_at"].as_str().unwrap()
+    );
+    assert_eq!(stored, [answered]);
     let events = db
         .owner_reads(
             "SELECT name || ' ' || scope || ' ' || workspace_id || ' ' || permission || ' ' \
@@ -347,15 +374,7 @@ async fn invitations_002_inviting_a_member_answers_409_and_writes_nothing() {
 
     assert_eq!(response.status, 409);
     assert_eq!(response.json()["code"], "invitations.already_member");
-    let db = api.database();
-    for written in [
-        "SELECT count(*)::text FROM invitations",
-        "SELECT count(*)::text FROM jobs",
-        "SELECT count(*)::text FROM audit_entries WHERE action LIKE 'invitation.%'",
-        "SELECT count(*)::text FROM events WHERE name LIKE 'invitation.%'",
-    ] {
-        assert_eq!(db.owner_reads(written).await, ["0"], "{written}");
-    }
+    assert_eq!(written(&api).await, "0 0 0 0");
 }
 
 #[tokio::test]
@@ -858,6 +877,8 @@ async fn invitations_009_beyond_its_limit_a_member_s_invitation_answers_429() {
         .owner_reads("SELECT email FROM invitations")
         .await;
     assert_eq!(invited, ["dave@example.com"]);
+    // The fourth request's invitation, entry, event and email's job alone.
+    assert_eq!(written(&api).await, "1 1 1 1");
 }
 
 #[tokio::test]
@@ -903,6 +924,8 @@ async fn invitations_009_a_request_refused_for_its_idempotency_key_counts_in_no_
     assert_eq!(malformed.status, 400);
     assert_eq!(malformed.json()["code"], "request.invalid_idempotency_key");
     assert_eq!(invited.status, 201);
+    // The second request's invitation, entry, event and email's job alone.
+    assert_eq!(written(&api).await, "1 1 1 1");
 }
 
 #[tokio::test]
@@ -929,6 +952,8 @@ async fn invitations_009_a_request_refused_for_its_body_counts_in_no_member_s_bu
     assert_eq!(not_json.status, 400);
     assert_eq!(not_json.json()["code"], "request.invalid_body");
     assert_eq!(invited.status, 201);
+    // The second request's invitation, entry, event and email's job alone.
+    assert_eq!(written(&api).await, "1 1 1 1");
 }
 
 #[tokio::test]
@@ -960,6 +985,8 @@ async fn invitations_009_a_request_that_platform_054_refuses_counts_in_no_member
     assert_eq!(refused.status, 429);
     assert!(refused.header("ratelimit-policy").starts_with("\"ip\";"));
     assert_eq!(invited.status, 201);
+    // The second request's invitation, entry, event and email's job alone.
+    assert_eq!(written(&api).await, "1 1 1 1");
 }
 
 #[tokio::test]

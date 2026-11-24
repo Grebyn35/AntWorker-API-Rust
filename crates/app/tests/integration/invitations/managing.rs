@@ -4,7 +4,7 @@
 use http::Method;
 use serde_json::{Value, json};
 
-use super::acme;
+use super::{acme, written};
 use crate::support::{
     Api, Options,
     api::Response,
@@ -558,11 +558,7 @@ async fn invitations_015_the_email_sent_again_names_the_member_who_sent_it() {
     let ada = users::register(&api, "ada@example.com").await;
     let bob = users::register(&api, "bob@example.com").await;
     let workspace = acme(&api, &ada, &[(&bob, "admin")]).await;
-    let renamed = api
-        .patch("/v1/users/me", &json!({ "name": "Bob Jones" }))
-        .bearer(&bob.access)
-        .send()
-        .await;
+    let renamed = users::rename(&api, &bob, "Bob Jones", None).await;
     assert_eq!(renamed.status, 200);
     let invitee = mailbox::address("invitee");
     let id = invited(&api, &ada, &workspace, &invitee, "member").await;
@@ -592,11 +588,7 @@ async fn invitations_010_the_email_sent_again_names_its_inviter_its_workspace_it
         &[(&ada.user_id, "owner"), (&bob.user_id, "admin")],
     )
     .await;
-    let renamed = api
-        .patch("/v1/users/me", &json!({ "name": "Bob Jones" }))
-        .bearer(&bob.access)
-        .send()
-        .await;
+    let renamed = users::rename(&api, &bob, "Bob Jones", None).await;
     assert_eq!(renamed.status, 200);
     let invitee = mailbox::address("invitee");
     let id = invited(&api, &ada, &workspace, &invitee, "member").await;
@@ -662,6 +654,9 @@ async fn invitations_009_sending_again_counts_in_the_member_s_bucket_of_inviting
         assert_eq!(refused.json()["code"], "request.rate_limited");
     }
     assert_eq!(entries(&api).await.len(), 1);
+    // The invitation, and its creation's and the second request's entries, events and emails'
+    // jobs alone.
+    assert_eq!(written(&api).await, "1 2 2 2");
 }
 
 #[tokio::test]

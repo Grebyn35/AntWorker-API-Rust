@@ -10,13 +10,12 @@ use serde_json::{Value, json};
 use crate::{
     accounts::exports::{built, document, download},
     support::{
-        Api, execute_on, query_waits_on_a_lock,
+        Api,
+        api::CONSENT,
+        execute_on, query_waits_on_a_lock,
         users::{self, SignedIn},
     },
 };
-
-/// The consent's route.
-const CONSENT: &str = "/v1/users/me/telemetry-consent";
 
 /// Reads `user`'s consent: the response's status, its body and its `ETag`.
 async fn read(api: &Api, user: &SignedIn) -> (u16, Value, String) {
@@ -33,7 +32,7 @@ async fn choose(
     if_match: Option<&str>,
 ) -> crate::support::api::Response {
     let call = api
-        .put(CONSENT, &json!({ "consented": consented }))
+        .put(&json!({ "consented": consented }))
         .bearer(&user.access);
     match if_match {
         Some(etag) => call.header("if-match", etag),
@@ -214,7 +213,7 @@ fn spawn_choice(api: &Api, user: &SignedIn) -> tokio::task::JoinHandle<(u16, Val
     let (api, access) = (api.clone(), user.access.clone());
     tokio::spawn(async move {
         let response = api
-            .put(CONSENT, &json!({ "consented": true }))
+            .put(&json!({ "consented": true }))
             .bearer(&access)
             .send()
             .await;

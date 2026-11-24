@@ -7,7 +7,7 @@ mod retention;
 
 use platform::telemetry::testing;
 
-use crate::support::{Api, Options, users, workspaces};
+use crate::support::{Api, users, workspaces};
 
 #[tokio::test]
 async fn audit_001_an_entry_commits_or_rolls_back_with_its_change() {
@@ -99,8 +99,7 @@ async fn audit_002_an_entry_s_actor_and_log_come_from_the_proof() {
 
 #[tokio::test]
 async fn audit_003_an_entry_records_the_client_its_trace_and_only_ids() {
-    let options = Options::default().set("TRUSTED_PROXIES", "198.51.100.0/24");
-    let api = Api::with(options).await;
+    let api = reading::behind_a_proxy().await;
 
     let response = api
         .post("/v1/users", &users::registration("ada@example.com"))

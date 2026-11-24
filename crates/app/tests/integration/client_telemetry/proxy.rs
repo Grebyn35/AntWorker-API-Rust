@@ -745,7 +745,7 @@ async fn platform_090_a_batch_s_route_has_no_body_limit_of_its_own() {
 async fn platform_091_the_relay_follows_no_redirect() {
     let (collector, api) = standing().await;
     let ada = consenting(&api, "ada@example.com").await;
-    collector.redirect("POST", "/v1/traces", "/elsewhere");
+    collector.redirect();
     collector.set("POST", "/elsewhere", 200, json!({}));
 
     let response = send_bytes(&api, &ada, 8).await;

@@ -34,8 +34,8 @@ pub(crate) const SERVICE: Service = Service {
 /// The base64 of the tests' `HMAC_KEY`: 32 bytes of 7.
 const HMAC_KEY: &str = "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=";
 
-/// The key of the tests' `HMAC_KEY`, with which a test finds what an API with that setting keys
-/// by an HMAC, such as a rate-limit bucket (PLATFORM-057).
+/// The key of the tests' `HMAC_KEY`, with which a test computes what an API with that setting
+/// derives by an HMAC, such as a rate-limit bucket's key (PLATFORM-057).
 pub fn hmac_key() -> HmacKey {
     let bytes = data_encoding::BASE64.decode(HMAC_KEY.as_bytes()).unwrap();
     HmacKey::new(&bytes).unwrap()
@@ -52,6 +52,11 @@ pub const KEY_RING: &str = ENCRYPTION_KEYS;
 
 /// The address the tests' requests come from, unless a test names another.
 pub const PEER: &str = "198.51.100.20:50000";
+
+// part: client_telemetry
+/// The route of a user's consent to the telemetry of their clients.
+pub const CONSENT: &str = "/v1/users/me/telemetry-consent";
+// end part: client_telemetry
 
 /// How the tests' API differs from its defaults: routes added to the API's, and settings.
 #[derive(Default)]
@@ -541,11 +546,11 @@ impl Api {
     }
 
     // part: client_telemetry
-    /// A `PUT` of `path`, with `body` as JSON, which is checked against the operation's
+    /// A `PUT` of [`CONSENT`], with `body` as JSON, which is checked against the operation's
     /// documented request body when sent (API-03).
-    pub fn put(&self, path: &str, body: &Value) -> Call<'_> {
+    pub fn put(&self, body: &Value) -> Call<'_> {
         let mut call = self
-            .request(Method::PUT, path)
+            .request(Method::PUT, CONSENT)
             .header("content-type", "application/json")
             .body(body.to_string());
         call.typed = true;

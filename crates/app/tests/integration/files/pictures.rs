@@ -14,13 +14,10 @@ use crate::support::{
     providers::{self, gives, grant, sign_in, signed_in},
     query_waits_on_a_lock,
     scanner::{self, Script},
-    upstream::Upstream,
+    upstream::{PICTURE, Upstream},
     users::{self, SignedIn},
     workspaces,
 };
-
-/// The path of Ada's picture at the stand-in.
-const PICTURE: &str = "/pictures/ada.png";
 
 /// The setting that lists the hosts of the pictures of the stand-in's users.
 const HOSTS_SETTING: &str = "STAND_IN_PICTURE_HOSTS";
@@ -57,7 +54,7 @@ fn pictured(upstream: &Upstream, picture: &str) {
 
 /// Registers Ada through the stand-in, which serves [`files::PNG`] as her picture.
 async fn registered(upstream: &Upstream, api: &Api) -> SignedIn {
-    upstream.set_bytes(PICTURE, 200, files::PNG);
+    upstream.set_bytes(200, files::PNG);
     pictured(upstream, &upstream.url(PICTURE));
     signed_in(api).await
 }
@@ -309,12 +306,13 @@ async fn accounts_030_an_account_that_set_an_avatar_before_the_job_ran_keeps_it(
 
 #[tokio::test]
 async fn accounts_029_a_picture_that_is_no_avatar_leaves_the_account_without_one() {
-    // Bytes that are no image, more bytes than an avatar holds, and an answer that says the
+    // Bytes that are no image, a byte more than an avatar holds, and an answer that says the
     // address gives nothing.
-    let large = [files::PNG, &vec![0; 1_048_576]].concat();
+    let mut large = files::PNG.to_vec();
+    large.resize(1_048_577, 0);
     for (status, bytes) in [(200, b"hello".as_slice()), (200, &large), (404, b"")] {
         let (upstream, api) = standing(Options::default()).await;
-        upstream.set_bytes(PICTURE, status, bytes);
+        upstream.set_bytes(status, bytes);
         pictured(&upstream, &upstream.url(PICTURE));
         let ada = signed_in(&api).await;
         let collector = Collector::start().await.unwrap();
@@ -333,6 +331,24 @@ async fn accounts_029_a_picture_that_is_no_avatar_leaves_the_account_without_one
             "{status}: ERR-11's count: {ignored:?}"
         );
     }
+}
+
+#[tokio::test]
+async fn accounts_029_a_picture_of_1_mib_becomes_the_avatar() {
+    let (upstream, api) = standing(Options::default()).await;
+    let mut largest = files::PNG.to_vec();
+    largest.resize(1_048_576, 0);
+    upstream.set_bytes(200, &largest);
+    pictured(&upstream, &upstream.url(PICTURE));
+    let ada = signed_in(&api).await;
+
+    api.run_jobs().await;
+
+    let url = avatar_url(&api, &ada).await;
+    let picture = api.get(url.as_str().unwrap()).send().await;
+    assert_eq!(picture.status, 200);
+    assert_eq!(picture.body, largest);
+    assert!(copies(&api).await.is_empty());
 }
 
 #[tokio::test]
@@ -367,7 +383,7 @@ async fn accounts_029_an_address_that_the_untrusted_client_refuses_is_never_fetc
         "https://elsewhere.example.com/ada.png",
     ] {
         let (upstream, api) = standing(Options::default()).await;
-        upstream.set_bytes(PICTURE, 200, files::PNG);
+        upstream.set_bytes(200, files::PNG);
         pictured(&upstream, picture);
         let ada = signed_in(&api).await;
         let ignored = not_copied();
@@ -389,7 +405,7 @@ async fn accounts_029_an_address_that_the_untrusted_client_refuses_is_never_fetc
 #[tokio::test]
 async fn accounts_029_a_fetch_that_fails_is_tried_again_and_the_fifth_leaves_no_dead_letter() {
     let (upstream, api) = standing(Options::default()).await;
-    upstream.set_bytes(PICTURE, 503, b"");
+    upstream.set_bytes(503, b"");
     pictured(&upstream, &upstream.url(PICTURE));
     let ada = signed_in(&api).await;
 

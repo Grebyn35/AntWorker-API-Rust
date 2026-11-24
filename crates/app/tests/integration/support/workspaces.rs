@@ -4,8 +4,8 @@
 //! So the other tests pass in a fork that leaves such a part out.
 // end part: removal
 //!
-//! It also sends a workspace's rename, its read and its transfer, requests that more than one test
-//! file sends (TEST-09).
+//! It also sends a workspace's rename, its read, its transfer and a change of a member's role,
+//! requests that more than one test file sends (TEST-09).
 
 use serde_json::{Value, json};
 
@@ -54,6 +54,27 @@ pub async fn transfer(api: &Api, caller: &SignedIn, workspace: &str, user: &str)
     .bearer(&caller.access)
     .send()
     .await
+}
+
+/// Changes the role of `user` in `workspace` to `role`, as `caller`, with `if_match` as its
+/// `If-Match` if given.
+pub async fn change_role(
+    api: &Api,
+    caller: &SignedIn,
+    (workspace, user): (&str, &str),
+    role: &str,
+    if_match: Option<&str>,
+) -> Response {
+    let mut call = api
+        .patch(
+            &format!("/v1/workspaces/{workspace}/members/{user}"),
+            &json!({ "role": role }),
+        )
+        .bearer(&caller.access);
+    if let Some(tag) = if_match {
+        call = call.header("if-match", tag);
+    }
+    call.send().await
 }
 
 /// A workspace named Acme that ada@example.com owns and grace@example.com belongs to at `role`,

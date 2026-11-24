@@ -54,21 +54,14 @@ async fn access_001_no_change_of_a_membership_leaves_a_workspace_without_its_own
         "SELECT user_id::text FROM workspace_memberships \
          WHERE workspace_id = '{workspace}' AND role = 'owner'"
     );
-    let demoted = json!({ "role": "member" });
+    let ada_in_acme = (workspace.as_str(), ada.user_id.as_str());
 
     // Each way that a membership changes, short of a transfer, keeps Ada the owner.
     let left = call(&api, Method::POST, &format!("{path}/leave"), &ada).await;
     let removed = call(&api, Method::DELETE, &ada_member, &grace).await;
-    let demoted_by_admin = api
-        .patch(&ada_member, &demoted)
-        .bearer(&grace.access)
-        .send()
-        .await;
-    let demoted_by_herself = api
-        .patch(&ada_member, &demoted)
-        .bearer(&ada.access)
-        .send()
-        .await;
+    let removed_by_herself = call(&api, Method::DELETE, &ada_member, &ada).await;
+    let demoted_by_admin = workspaces::change_role(&api, &grace, ada_in_acme, "member", None).await;
+    let demoted_by_herself = workspaces::change_role(&api, &ada, ada_in_acme, "member", None).await;
     let deleted = call(&api, Method::DELETE, "/v1/users/me", &ada).await;
     let kept = db.owner_reads(&owners).await;
     let transferred = workspaces::transfer(&api, &ada, &workspace, &grace.user_id).await;
@@ -76,6 +69,7 @@ async fn access_001_no_change_of_a_membership_leaves_a_workspace_without_its_own
     let refusals = [
         &left,
         &removed,
+        &removed_by_herself,
         &demoted_by_admin,
         &demoted_by_herself,
         &deleted,
@@ -84,7 +78,7 @@ async fn access_001_no_change_of_a_membership_leaves_a_workspace_without_its_own
         .iter()
         .map(|answer| answer.status.as_u16())
         .collect();
-    assert_eq!(statuses, [403, 403, 403, 403, 409]);
+    assert_eq!(statuses, [403, 403, 422, 403, 403, 409]);
     assert_eq!(kept, std::slice::from_ref(&ada.user_id));
     assert_eq!(transferred.status, StatusCode::NO_CONTENT);
     assert_eq!(
@@ -294,10 +288,9 @@ async fn access_004_a_member_assigns_only_roles_below_their_own() {
         ],
     )
     .await;
-    let assign = |caller: &SignedIn, role: &'static str| {
-        let path = format!("/v1/workspaces/{workspace}/members/{}", member.user_id);
-        let call = api.patch(&path, &serde_json::json!({ "role": role }));
-        call.bearer(&caller.access).send()
+    let assign = async |caller: &SignedIn, role: &str| {
+        let target = (workspace.as_str(), member.user_id.as_str());
+        workspaces::change_role(&api, caller, target, role, None).await
     };
 
     let equal = assign(&admin, "admin").await;
