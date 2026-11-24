@@ -7,9 +7,10 @@ use crate::{Finding, repo::Repo};
 /// The file that holds the locked versions.
 const LOCK: &str = "Cargo.lock";
 
-/// A finding when the justfile's line `sqlx_cli_version := "<version>"` names another version
-/// than every line `version = "<version>"` that follows a line `name = "sqlx"` of `Cargo.lock`, or
-/// when no such line follows one. A justfile without the line pins nothing to compare.
+/// A finding when a line `version = "<version>"` that follows a line `name = "sqlx"` of
+/// `Cargo.lock` names another version than the justfile's line `sqlx_cli_version :=
+/// "<version>"`, or when no such line follows one. A justfile without the line pins nothing to
+/// compare.
 pub(super) fn sqlx_cli(repo: &Repo, findings: &mut Vec<Finding>) {
     let text = |path: &str| repo.file(path).map_or("", |file| file.text.as_str());
     let pinned = text(super::JUSTFILE)

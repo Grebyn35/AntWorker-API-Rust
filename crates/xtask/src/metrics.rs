@@ -1,7 +1,9 @@
 //! `check-metrics`: every metric is declared and named as OBS-11 says, the catalog is the one
 //! the declarations give (OBS-12), every dashboard and alert reads only metrics that are
-//! declared or listed, every metric is read by one, every panel's title is a question, and the
-//! dashboards are read-only, with an overview that links to every other (OBS-13).
+//! declared or listed, every metric is read by one, an `increase(` of a metric that the API
+//! declares counts a series' first value, as [`first_values`] reads one, every panel's title is
+//! a question, and the dashboards are read-only, with an overview that links to every other
+//! (OBS-13).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -194,7 +196,8 @@ fn code_spans(values: &[String]) -> String {
 }
 
 /// Fails a query of an unknown metric, a metric or recording rule that nothing reads, a panel
-/// title that isn't a question, and what [`boards::check`] fails.
+/// title that isn't a question, what [`boards::check`] fails, and an `increase(` that
+/// [`first_values`] fails.
 fn check_use(repo: &Repo, catalog: &Catalog, findings: &mut Vec<Finding>) {
     let dashboards = stack::dashboards(repo, findings);
     boards::check(repo, &dashboards, findings);
@@ -267,9 +270,10 @@ fn check_use(repo: &Repo, catalog: &Catalog, findings: &mut Vec<Finding>) {
 /// whitespace collapsed to single spaces, whose argument, the text up to the first `)` outside a
 /// string in double quotes, names a series of a metric that the API declares before its first
 /// `{` or `[`, spaces aside, unless the argument is `S[W]` and the text from the `(` before the
-/// `increase(` is `(increase(S[W]) and S offset W) or (S unless S offset W)`, which counts a
-/// series that appears within the window by its first value (OBS-13). It reads no other
-/// function, such as `rate(`.
+/// `increase(` is `(increase(S[W]) and S offset W) or (S unless S offset W)`, between a `(`, a
+/// `,` or the query's start and a `)`, a `,` or its end, spaces aside, which counts a series
+/// that appears within the window by its first value (OBS-13). It reads no other function, such
+/// as `rate(`.
 fn first_values(
     catalog: &Catalog,
     dashboards: &stack::Dashboards,
@@ -297,28 +301,45 @@ fn first_values(
             if !declared.contains(name) {
                 continue;
             }
-            // The form, from the `increase(` on.
-            let form = argument
-                .strip_suffix(']')
-                .and_then(|argument| argument.rsplit_once('['))
-                .map(|(s, w)| {
-                    format!("increase({s}[{w}]) and {s} offset {w}) or ({s} unless {s} offset {w})")
-                });
-            if !form.is_some_and(|form| {
-                text[..start].ends_with('(') && text[start..].starts_with(&form)
-            }) {
-                findings.push(Finding::new(
-                    path,
-                    line,
-                    format!(
-                        "`increase({argument})` counts nothing of the first value of a series \
-                         that appears within its window: write `(increase(S[W]) and S offset W) or \
-                         (S unless S offset W)` (OBS-13)"
-                    ),
-                ));
+            if let Some(problem) = form_problem(&text, start, argument) {
+                findings.push(Finding::new(path, line, problem));
             }
         }
     }
+}
+
+/// What is wrong with the `increase(` at `start` of `text`, whose argument is `argument`, as
+/// [`first_values`] reads it: the form missing, or the form that doesn't stand whole.
+fn form_problem(text: &str, start: usize, argument: &str) -> Option<String> {
+    // The form, from the `increase(` on, and the text before it and after it.
+    let around = argument
+        .strip_suffix(']')
+        .and_then(|argument| argument.rsplit_once('['))
+        .map(|(s, w)| {
+            format!("increase({s}[{w}]) and {s} offset {w}) or ({s} unless {s} offset {w})")
+        })
+        .and_then(|form| {
+            let before = text[..start].strip_suffix('(')?;
+            Some((before, text[start..].strip_prefix(&form)?))
+        });
+    let Some((before, after)) = around else {
+        return Some(format!(
+            "`increase({argument})` counts nothing of the first value of a series that appears \
+             within its window: write `(increase(S[W]) and S offset W) or (S unless S offset W)` \
+             (OBS-13)"
+        ));
+    };
+    let (before, after) = (before.trim_end(), after.trim_start());
+    let whole = (before.is_empty() || before.ends_with(['(', ',']))
+        && (after.is_empty() || after.starts_with([')', ',']));
+    (!whole).then(|| {
+        format!(
+            "`increase({argument})` stands in the form that counts the first value of a series \
+             that appears within its window, but a function or an operator takes one half of the \
+             form alone: put it between a `(`, a `,` or the query's start and a `)`, a `,` or its \
+             end (OBS-13)"
+        )
+    })
 }
 
 /// The text of `rest` up to the first `)` outside a string in double quotes.
@@ -518,6 +539,48 @@ mod tests {
         for (query, found) in missed.iter().zip(&refused) {
             assert!(
                 found.len() == 1 && found[0].contains("counts nothing of the first value"),
+                "{query}: {found:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn obs_13_an_increase_s_form_that_a_function_or_an_operator_takes_half_of_fails() {
+        let rules =
+            "groups:\n  - name: a\n    rules:\n      - alert: Down\n        expr: up == 0\n";
+        let x = "platform_panics_total";
+        let form = format!("(increase({x}[5m]) and {x} offset 5m) or ({x} unless {x} offset 5m)");
+        let counted = [
+            format!("sum by (job) ({form})"),
+            format!("round({form}, 1)"),
+            format!("histogram_quantile(0.9, {form})"),
+            format!("sum(\n  {form}\n) > 0"),
+        ];
+        // A function's parenthesis that opens the form, an aggregation's after its labels, and
+        // an operator before the form and after it.
+        let missed = [
+            format!("sum(increase({x}[5m]) and {x} offset 5m) or ({x} unless {x} offset 5m)"),
+            format!(
+                "sum by (job) (increase({x}[5m]) and {x} offset 5m) or ({x} unless {x} offset 5m)"
+            ),
+            format!("1 + {form}"),
+            format!("{form} > 0"),
+        ];
+
+        let taken = counted
+            .each_ref()
+            .map(|query| findings(&dashboard("Did anything panic?", query), rules));
+        let refused = missed
+            .each_ref()
+            .map(|query| findings(&dashboard("Did anything panic?", query), rules));
+
+        for (query, found) in counted.iter().zip(&taken) {
+            assert!(found.is_empty(), "{query}: {found:?}");
+        }
+        for (query, found) in missed.iter().zip(&refused) {
+            assert!(
+                found.len() == 1
+                    && found[0].contains("a function or an operator takes one half of the form"),
                 "{query}: {found:?}"
             );
         }

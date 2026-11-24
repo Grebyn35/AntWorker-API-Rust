@@ -105,18 +105,20 @@ fn writes_expansion(arguments: &str) -> Echoed {
 }
 
 /// The shell scripts under `deploy/`: the files named `*.sh`, and those whose shebang names a
-/// shell.
+/// shell: their first line starts with `#!` and holds a word whose last part, after any `/`, is
+/// `sh`, `bash` or `dash`, as in `#!/bin/sh -e` and `#!/usr/bin/env bash`.
 pub fn scripts(repo: &Repo) -> Vec<String> {
     repo.files()
         .filter(|file| file.path.starts_with("deploy/"))
         .filter(|file| {
             let shebang = file.text.lines().next().unwrap_or_default();
             file.path.ends_with(".sh")
-                || (shebang.starts_with("#!")
-                    && ["sh", "bash", "dash"].iter().any(|shell| {
-                        shebang.ends_with(&format!("/{shell}"))
-                            || shebang.ends_with(&format!(" {shell}"))
-                    }))
+                || shebang.strip_prefix("#!").is_some_and(|command| {
+                    command.split_whitespace().any(|word| {
+                        let name = word.rsplit('/').next().unwrap_or_default();
+                        ["sh", "bash", "dash"].contains(&name)
+                    })
+                })
         })
         .map(|file| file.path.clone())
         .collect()
@@ -485,6 +487,32 @@ mod tests {
                 ("deploy/tasks/common.sh".to_owned(), 1),
                 ("deploy/tasks/common.sh".to_owned(), 2),
                 ("deploy/deploy.sh".to_owned(), 4),
+            ]
+        );
+    }
+
+    #[test]
+    fn code_07_a_script_whose_shebang_gives_its_shell_an_option_is_read() {
+        let repo = Repo::of(&[
+            ("deploy/bin/strict", "#!/bin/sh -eu\ntrue\n"),
+            (
+                "deploy/bin/through-env",
+                "#!/usr/bin/env -S bash -e\ntrue\n",
+            ),
+            ("deploy/bin/plain", "#!/usr/bin/env bash\ntrue\n"),
+            ("deploy/bin/python", "#!/usr/bin/env python3 -u\nprint()\n"),
+            ("deploy/bin/fish", "#!/usr/bin/fish\ntrue\n"),
+        ]);
+
+        let mut found = scripts(&repo);
+        found.sort();
+
+        assert_eq!(
+            found,
+            [
+                "deploy/bin/plain",
+                "deploy/bin/strict",
+                "deploy/bin/through-env"
             ]
         );
     }

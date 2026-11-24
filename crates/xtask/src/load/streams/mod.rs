@@ -215,31 +215,46 @@ fn measure(
         report_step(&step, memory_of(root, hub));
         steps.push(step);
     }
-    let Some(capacity) = steps
-        .iter()
-        .filter(|step| step.passed())
-        .max_by_key(|step| step.rate)
-    else {
+    let Some(lines) = closing(&steps, per_stream, (cpus, memory)) else {
         return fail("the hub delivered no rate the search tried");
     };
+    for line in lines {
+        report(&line);
+    }
+    ExitCode::SUCCESS
+}
+
+/// The lines that end the report of `steps`, on a replica with the limits `(cpus, memory)`
+/// whose open streams each held `per_stream` KiB, the last of them the one that starts
+/// `Hub capacity: ` (OPS-16), or `None` when no step passed.
+fn closing(
+    steps: &[HubStep],
+    per_stream: f64,
+    (cpus, memory): (&str, &str),
+) -> Option<Vec<String>> {
+    let capacity = steps
+        .iter()
+        .filter(|step| step.passed())
+        .max_by_key(|step| step.rate)?;
+    let mut lines = Vec::new();
     // When the hub kept up at every step, the publishing replica's limit ended the search, and
     // the hub's capacity is higher than the highest rate it was given.
     let bound = if steps.iter().all(HubStep::kept_up) {
+        lines.push(
+            "The hub kept up at every step: the steps that failed failed to publish.".to_owned(),
+        );
         "at least "
     } else {
         ""
     };
-    report(&format!(
+    lines.push(format!(
         "Hub capacity: {bound}{} events a second, each to the 10 streams of one user, {} frames a second to {} open streams, on one replica with {cpus} CPU and {memory} of memory, with none lost and the 99th percentile of their lag within {} ms. Each open stream holds about {per_stream:.1} KiB.",
         capacity.rate,
         capacity.rate * STREAMS_PER_USER as u64,
         USERS * STREAMS_PER_USER,
         capacity.objective_ms
     ));
-    if !bound.is_empty() {
-        report("The hub kept up at every step: the steps that failed failed to publish.");
-    }
-    ExitCode::SUCCESS
+    Some(lines)
 }
 
 /// Waits for both replicas to be ready, and returns the address on the host that reaches the
@@ -460,6 +475,54 @@ mod tests {
         ] {
             assert!(!failing.passed(), "{failing:?}");
         }
+    }
+
+    #[test]
+    fn ops_16_the_streams_task_ends_with_the_line_of_the_hub_s_capacity() {
+        let passing = HubStep {
+            rate: 100,
+            requests: 3000,
+            failed: 0,
+            dropped: 0,
+            p99_ms: 20.0,
+            lag_p99_ms: Some(40.0),
+            delivered: 3000,
+            consistent: true,
+            ended: 0,
+            objective_ms: 500.0,
+        };
+        // A step whose publishing replica failed requests, while the hub kept up.
+        let unpublished = HubStep {
+            rate: 200,
+            failed: 100,
+            delivered: 2900,
+            ..passing.clone()
+        };
+        let late = HubStep {
+            lag_p99_ms: Some(501.0),
+            ..unpublished.clone()
+        };
+
+        let kept_up = closing(&[passing.clone(), unpublished], 9.5, ("1", "512m"));
+        let fell_behind = closing(&[passing.clone(), late], 9.5, ("1", "512m"));
+        let none_passed = closing(&[], 9.5, ("1", "512m"));
+
+        let last = |lines: &Option<Vec<String>>| lines.as_ref()?.last().cloned();
+        assert!(
+            last(&kept_up).is_some_and(|line| line.starts_with("Hub capacity: at least 100 ")),
+            "{kept_up:?}"
+        );
+        assert_eq!(kept_up.as_ref().map(Vec::len), Some(2), "{kept_up:?}");
+        assert!(
+            last(&fell_behind).is_some_and(|line| line.starts_with("Hub capacity: 100 ")),
+            "{fell_behind:?}"
+        );
+        assert_eq!(
+            fell_behind.as_ref().map(Vec::len),
+            Some(1),
+            "{fell_behind:?}"
+        );
+        assert_eq!(none_passed, None);
     }
 
     #[test]

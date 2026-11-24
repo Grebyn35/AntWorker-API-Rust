@@ -1,7 +1,8 @@
-//! `check-openapi`, for the schemas: IDs are `format: uuid`, timestamps `format: date-time`, and
-//! closed sets `snake_case` strings (API-11). Of the places that it reads, it gives the schema of
-//! each request body of JSON, `application/json` or a type that ends in `+json`, to
-//! [`lengths`], and each header to [`headers`] (API-17).
+//! `check-openapi`, for the schemas: properties' names are `snake_case` (API-05), IDs are
+//! `format: uuid`, timestamps `format: date-time`, and closed sets `snake_case` strings (API-11).
+//! Of the places that it reads, it gives the schema of each request body of JSON,
+//! `application/json` or a type that ends in `+json`, to [`lengths`], and each header to
+//! [`headers`] (API-17).
 //!
 //! An ID is a property or a parameter named `id` or `<name>_id`, but `trace_id`, `device_id`
 //! and `client_id`, the IDs that API-11 excepts, and a timestamp a property named `<event>_at`,
@@ -10,12 +11,12 @@
 //! The check reads the schema of each place of the document that holds one, where it stands: a
 //! member of `components/schemas`, the `schema` of a parameter and of a header, and the `schema`
 //! and the `x-itemSchema` of each content type of the `content` of a parameter, a header, a
-//! request body and a response, but a problem's, with the headers of the content type's
-//! `encoding`. It finds those in the members of `components/parameters`, `requestBodies`,
-//! `responses`, `headers`, `pathItems` and `callbacks`, and in the path items of `paths` and
-//! `webhooks`: a path item's parameters and operations, an operation's parameters, request body,
-//! responses and callbacks, a response's headers, and a callback's path items. A reference at one
-//! of those places isn't followed: it names a component of the place's kind,
+//! request body and a response, a problem's for its properties' names alone, with the headers of
+//! the content type's `encoding`. It finds those in the members of `components/parameters`,
+//! `requestBodies`, `responses`, `headers`, `pathItems` and `callbacks`, and in the path items of
+//! `paths` and `webhooks`: a path item's parameters and operations, an operation's parameters,
+//! request body, responses and callbacks, a response's headers, and a callback's path items. A
+//! reference at one of those places isn't followed: it names a component of the place's kind,
 //! `#/components/<kind>/<name>`, which the check reads where it stands, or the check refuses it.
 //! It reads the IDs among the parameters of each operation there, with the names in the template
 //! of an operation's path of `paths`, and, inside a schema, the schemas that [`formats`] names. Of
@@ -87,8 +88,8 @@ pub fn resolve<'a>(document: &'a Value, value: &'a Value) -> &'a Value {
     value
 }
 
-/// Every way the document's schemas break API-11, and its request bodies API-17: those of each
-/// place that [`Places`] reads, the IDs among each operation's parameters among them.
+/// Every way the document's schemas break API-05 and API-11, and its request bodies API-17: those
+/// of each place that [`Places`] reads, the IDs among each operation's parameters among them.
 pub fn problems(document: &Value) -> Vec<Problem> {
     let mut places = Places {
         document,
@@ -176,9 +177,10 @@ impl Places<'_> {
         }
     }
 
-    /// Checks `schema`, which findings name as `at`, with [`formats`].
+    /// Checks `schema`, which findings name as `at`, with [`formats`] and [`properties`].
     fn schema(&mut self, schema: &Value, at: &str, needle: &str) {
         formats(self.document, schema, at, needle, &mut self.problems);
+        properties(at, schema, &mut self.problems);
     }
 
     /// Checks the parameters of `item`, a path item, and those of each of its operations, with
@@ -228,8 +230,8 @@ impl Places<'_> {
     }
 
     /// Checks of each content type of `content` its `schema` and its `x-itemSchema`, the schema of
-    /// a stream's items, where the type isn't a problem's, the headers of its `encoding`, and, in a
-    /// request body of JSON, that each string has a `maxLength` or an `enum`.
+    /// a stream's items, those of a problem's for their properties' names alone, the headers of its
+    /// `encoding`, and, in a request body of JSON, that each string has a `maxLength` or an `enum`.
     fn content(&mut self, content: &Value, at: &str, needle: &str, request: bool) {
         for (media, of_media) in members(content) {
             let owner = if request {
@@ -237,9 +239,11 @@ impl Places<'_> {
             } else {
                 format!("{at} {media}")
             };
-            // A problem's codes are ERR-02's, not closed sets of API-11.
-            if media != "application/problem+json" {
-                for key in ["schema", "x-itemSchema"] {
+            for key in ["schema", "x-itemSchema"] {
+                // A problem's codes are ERR-02's, not closed sets of API-11.
+                if media == "application/problem+json" {
+                    properties(&owner, &of_media[key], &mut self.problems);
+                } else {
                     self.schema(&of_media[key], &owner, needle);
                 }
             }
@@ -395,6 +399,25 @@ fn formats(
         } else {
             formats(document, part, owner, needle, problems);
         }
+    }
+}
+
+/// API-05: every property of `schema`, and of the schemas inside it, those of its properties and
+/// those that [`inside`] gives, is `snake_case`. A reference isn't followed.
+fn properties(owner: &str, schema: &Value, problems: &mut Vec<Problem>) {
+    if let Some(members) = schema["properties"].as_object() {
+        for (name, property) in members {
+            if !is_snake_case(name) {
+                problems.push((
+                    quoted(name),
+                    format!("{owner}: the property {name} isn't snake_case (API-05)"),
+                ));
+            }
+            properties(&format!("{owner}.{name}"), property, problems);
+        }
+    }
+    for (_, part) in inside(schema) {
+        properties(owner, part, problems);
     }
 }
 

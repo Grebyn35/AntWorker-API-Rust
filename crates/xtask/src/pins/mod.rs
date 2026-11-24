@@ -261,11 +261,12 @@ fn dockerfile_pins(path: &str, text: &str, findings: &mut Vec<Finding>) {
                 }
             }
             Some("COPY" | "RUN") => {
-                // The image of a `COPY --from=` or of a `RUN --mount=` option's `from=`, among
-                // the options before the instruction's arguments, unless it names a stage.
+                // The image of a `COPY --from=` or of a `RUN --mount=` option's key `from=`,
+                // first or not, among the options before the instruction's arguments, unless it
+                // names a stage.
                 let options = words[1..].iter().take_while(|word| word.starts_with("--"));
                 let named = options
-                    .flat_map(|option| option.split(','))
+                    .flat_map(|option| option.strip_prefix("--mount=").unwrap_or(option).split(','))
                     .filter_map(|part| {
                         part.strip_prefix("--from=")
                             .or_else(|| part.strip_prefix("from="))
@@ -307,13 +308,14 @@ fn dockerfile_pins(path: &str, text: &str, findings: &mut Vec<Finding>) {
 }
 
 /// The instructions of the Dockerfile `text`, each with the line it starts on, as BuildKit reads
-/// them: a line that ends in `\` goes on over the next, past comment lines and empty ones.
+/// them: a comment line, which starts with `#` after any whitespace, belongs to none, and a line
+/// that ends in `\` goes on over the next, past comment lines and empty ones.
 fn instructions(text: &str) -> Vec<(usize, String)> {
     let mut instructions = Vec::new();
     let mut open: Option<(usize, String)> = None;
     for (number, line) in numbered(text) {
         let line = line.trim();
-        if open.is_some() && (line.is_empty() || line.starts_with('#')) {
+        if line.starts_with('#') || (open.is_some() && line.is_empty()) {
             continue;
         }
         let (start, mut joined) = open.take().unwrap_or((number, String::new()));
@@ -363,23 +365,26 @@ fn names_stage(image: &str, stages: &[String]) -> bool {
     }
 }
 
-/// The packages that each `apt-get install` or `apt install` among `words`, with any words that
-/// start with `-` before its `install`, names without a version.
+/// The packages that each `apt-get` or `apt` among `words` installs without a version: each word
+/// after the first `install` among the words of its command, which ends at `&&`, `;`, `\` or
+/// `||`, that neither starts with `-` nor holds a `=`.
 fn unpinned_packages<'a>(words: &[&'a str]) -> Vec<&'a str> {
     let mut packages = Vec::new();
     for (at, word) in words.iter().enumerate() {
-        let rest = &words[at + 1..];
-        let options = rest.iter().take_while(|word| word.starts_with('-')).count();
-        if !matches!(*word, "apt-get" | "apt") || rest.get(options) != Some(&"install") {
+        if !matches!(*word, "apt-get" | "apt") {
             continue;
         }
-        packages.extend(
-            rest[options + 1..]
-                .iter()
-                .take_while(|word| !["&&", ";", "\\", "||"].contains(word))
-                .filter(|word| !word.starts_with('-') && !word.contains('='))
-                .copied(),
-        );
+        let mut command = words[at + 1..]
+            .iter()
+            .take_while(|word| !["&&", ";", "\\", "||"].contains(word))
+            .skip_while(|word| **word != "install");
+        if command.next().is_some() {
+            packages.extend(
+                command
+                    .filter(|word| !word.starts_with('-') && !word.contains('='))
+                    .copied(),
+            );
+        }
     }
     packages
 }
@@ -419,8 +424,9 @@ fn cargo_install_problem(args: &[&str]) -> Option<String> {
     (!problems.is_empty()).then(|| format!("{} (OPS-11)", problems.join("; ")))
 }
 
-/// Whether three words are `rustup toolchain install <toolchain>` or `rustup default
-/// <toolchain>`, which would pick a toolchain other than rust-toolchain.toml's.
+/// Whether three words are `rustup default` and another, or `toolchain install` and a word other
+/// than `&&`, `;` and `\`, as `rustup toolchain install <toolchain>` ends, which would pick a
+/// toolchain other than rust-toolchain.toml's.
 fn toolchain_named(words: &[&str]) -> bool {
     match words {
         ["rustup", "default", _] => true,
@@ -581,6 +587,24 @@ mod tests {
     }
 
     #[test]
+    fn ops_11_an_image_that_a_mount_s_first_key_names_is_pinned_by_digest() {
+        // A mount of the default type, bind, whose first key is `from=`.
+        let dockerfile = format!(
+            "# syntax=docker/dockerfile:1.27.1@sha256:{DIGEST}\nFROM alpine:3.24.3@sha256:{DIGEST} AS base\n\
+             RUN --mount=from=base,target=/a true\n\
+             RUN --mount=from=golang:1.26@sha256:{DIGEST},target=/b true\n\
+             RUN --mount=from=golang:1.26,target=/c true\n"
+        );
+
+        let findings = findings_with(DOCKERFILE, &dockerfile);
+
+        assert_eq!(
+            findings,
+            ["Dockerfile:5: the image golang:1.26 is pinned by digest (OPS-11)"]
+        );
+    }
+
+    #[test]
     fn ops_11_a_compose_image_from_a_required_variable_passes_and_one_with_a_default_fails() {
         let findings = findings_with(
             "deploy/compose.yaml",
@@ -613,6 +637,24 @@ mod tests {
     }
 
     #[test]
+    fn ops_11_a_package_after_an_option_s_own_value_is_pinned_by_version() {
+        let findings = findings_with(
+            "deploy/postgres/Dockerfile",
+            &format!(
+                "# syntax=docker/dockerfile:1@sha256:{DIGEST}\nFROM postgres:18.6@sha256:{DIGEST}\nRUN apt-get -o Acquire::Retries=3 install curl && apt -t stable install jq && apt-get update\n"
+            ),
+        );
+
+        assert_eq!(
+            findings,
+            [
+                "deploy/postgres/Dockerfile:3: the package curl is pinned by version, as curl=<version> (OPS-11)",
+                "deploy/postgres/Dockerfile:3: the package jq is pinned by version, as jq=<version> (OPS-11)",
+            ]
+        );
+    }
+
+    #[test]
     fn ops_11_a_package_or_a_crate_on_a_continuation_line_is_pinned_by_version() {
         let findings = findings_with(
             "deploy/postgres/Dockerfile",
@@ -629,6 +671,23 @@ mod tests {
                 "deploy/postgres/Dockerfile:3: the package wget is pinned by version, as wget=<version> (OPS-11)",
                 "deploy/postgres/Dockerfile:3: the package less is pinned by version, as less=<version> (OPS-11)",
                 "deploy/postgres/Dockerfile:3: the package vim is pinned by version, as vim=<version> (OPS-11)",
+            ]
+        );
+    }
+
+    #[test]
+    fn ops_11_a_comment_that_ends_in_a_backslash_ends_at_its_line() {
+        let dockerfile = format!(
+            "# syntax=docker/dockerfile:1.27.1@sha256:{DIGEST}\n# RUN apt-get install -y \\\nFROM alpine:3.24\n  # ADD a.tar.xz \\\nADD https://example.org/b.tar.xz /b.tar.xz\n"
+        );
+
+        let findings = findings_with(DOCKERFILE, &dockerfile);
+
+        assert_eq!(
+            findings,
+            [
+                "Dockerfile:3: the image alpine:3.24 is pinned by digest (OPS-11)",
+                "Dockerfile:5: a download is pinned by its checksum, with --checksum=sha256: (OPS-11)",
             ]
         );
     }
@@ -816,9 +875,10 @@ mod tests {
 
     #[test]
     fn ops_11_the_sqlx_cli_pin_is_the_version_of_the_locked_sqlx() {
-        let lock = "[[package]]\nname = \"sqlx\"\nversion = \"0.9.1\"\n\n\
-                    [[package]]\nname = \"sqlx-core\"\nversion = \"0.9.0\"\n";
-        let with_pin = |pin: &str| {
+        let one = "[[package]]\nname = \"sqlx\"\nversion = \"0.9.1\"\n\n\
+                   [[package]]\nname = \"sqlx-core\"\nversion = \"0.9.0\"\n";
+        let two = format!("{one}\n[[package]]\nname = \"sqlx\"\nversion = \"0.9.0\"\n");
+        let with = |pin: &str, lock: &str| {
             let mut files = pinned();
             files[0]
                 .1
@@ -835,13 +895,22 @@ mod tests {
                 .collect::<Vec<_>>()
         };
 
-        assert_eq!(with_pin("0.9.1"), Vec::<String>::new());
+        assert_eq!(with("0.9.1", one), Vec::<String>::new());
         assert_eq!(
-            with_pin("0.9.0"),
+            with("0.9.0", one),
             [
                 "justfile:3: sqlx_cli_version is 0.9.0, and Cargo.lock holds sqlx 0.9.1: sqlx-cli \
                  writes the query cache that the locked sqlx reads, so it takes that version \
                  (OPS-11)"
+            ]
+        );
+        // A pin that one of two locked versions names, but not the other.
+        assert_eq!(
+            with("0.9.0", &two),
+            [
+                "justfile:3: sqlx_cli_version is 0.9.0, and Cargo.lock holds sqlx 0.9.1 and 0.9.0: \
+                 sqlx-cli writes the query cache that the locked sqlx reads, so it takes that \
+                 version (OPS-11)"
             ]
         );
     }

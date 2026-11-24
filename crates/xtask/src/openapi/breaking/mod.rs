@@ -62,7 +62,7 @@ pub fn check(repo: &Repo) -> (Vec<String>, Vec<Finding>) {
     };
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let failed = |error: String| (Vec::new(), vec![Finding::new(DOCUMENT, 1, error)]);
-    let (version, text) = match release::in_last_final_release(&root, DOCUMENT) {
+    let (version, text) = match release::openapi_in_last_final_release(&root) {
         Ok(Some(release)) => release,
         Ok(None) => {
             let report = "check-openapi: no final release holds a document yet.".to_owned();

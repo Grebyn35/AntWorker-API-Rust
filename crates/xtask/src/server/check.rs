@@ -64,9 +64,9 @@ fn address_finding(name: &str, resolved: &[IpAddr], server: &[IpAddr]) -> Findin
     }
 }
 
-/// Whether the server's port `port` answered at `address`: a connection, or its refusal, comes
-/// from the server, while no answer at all means a firewall drops the port, or the server is
-/// down.
+/// Whether the server answered at `address`, on its port, as `connected`, the attempt to connect
+/// there, tells: a connection, or its refusal, comes from the server, while no answer at all means
+/// a firewall drops the port, or the server is down.
 fn port_finding(address: SocketAddr, connected: &io::Result<TcpStream>) -> Finding {
     match connected {
         Ok(_) => Finding::Passed(format!("port {} of the server answers", address.port())),

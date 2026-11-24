@@ -299,9 +299,9 @@ pub fn check(version: &str) -> ExitCode {
     }
 }
 
-/// The file at `path`, from the repository's root, as the newest final release holds it, with
-/// that release's version, or `None` before the first final release.
-pub fn in_last_final_release(root: &Path, path: &str) -> Result<Option<(Version, String)>, String> {
+/// The committed OpenAPI document as the newest final release holds it, with that release's
+/// version, or `None` before the first final release.
+pub fn openapi_in_last_final_release(root: &Path) -> Result<Option<(Version, String)>, String> {
     let git = Git { root };
     let finals = git
         .releases()?
@@ -310,7 +310,7 @@ pub fn in_last_final_release(root: &Path, path: &str) -> Result<Option<(Version,
     let Some(newest) = finals.max() else {
         return Ok(None);
     };
-    let text = git.run(&["show", &format!("v{newest}:{path}")])?;
+    let text = git.run(&["show", &format!("v{newest}:{OPENAPI}")])?;
     Ok(Some((newest, text)))
 }
 

@@ -4,9 +4,9 @@
 //! that platform's image, such as its provenance, which a server's Docker pulls with the image.
 //! The servers pull those images from `mirror`, which has no upstream, and the API's and the
 //! deployment's Postgres from Compose's registry, so no test reaches a registry outside
-//! (TEST-06). It reads the images from the reference deployment's Compose files, the tools' that
-//! a deploy runs from deploy/tools/compose.yaml, and the stand-ins' for the bucket and the mail
-//! server from compose.yaml.
+//! (TEST-06). It reads the images from the reference deployment's Compose files, those of curl
+//! and yq, the tools of a deploy's import into a managed Grafana, from deploy/tools/compose.yaml,
+//! and the stand-ins' for the bucket and the mail server from compose.yaml.
 //!
 //! It fetches them through `mirror-fill`, a cache of Docker Hub on the same store, which it
 //! starts for the fill and removes after it. The store holds what one list of images filled it

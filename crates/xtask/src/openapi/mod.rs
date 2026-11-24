@@ -1,13 +1,13 @@
 //! `check-openapi`: the committed `openapi.json` follows the rules for the HTTP contract. Each
 //! operation's scope, method and statuses are in `operations`, the shape of lists and their
-//! `search` in `lists`, the fields that a response always holds in `presence`, the formats in
-//! `schemas`, request strings' lengths in `lengths`, headers' schemas in `headers`, the forms of
-//! the document that the check doesn't read in `forms`, the event catalog in `events`, the action
-//! catalog in `actions`, the codes that no route lists in `codes`, and the names the document keys
-//! its operations and schemas by in `names`, each with the rules it reads, the schema names it
-//! reads in the code in `schema_names`, and what the document breaks of the last final release's
-//! in `breaking`. This file reads the paths' shape, each operation's access level and responses'
-//! descriptions, the codes of the error responses, the properties' names, and the references.
+//! `search` in `lists`, the fields that a response always holds in `presence`, the formats and the
+//! properties' names in `schemas`, request strings' lengths in `lengths`, headers' schemas in
+//! `headers`, the forms of the document that the check doesn't read in `forms`, the event catalog
+//! in `events`, the action catalog in `actions`, the codes that no route lists in `codes`, and the
+//! names the document keys its operations and schemas by in `names`, each with the rules it reads,
+//! the schema names it reads in the code in `schema_names`, and what the document breaks of the
+//! last final release's in `breaking`. This file reads the paths' shape, each operation's access
+//! level and responses' descriptions, the codes of the error responses, and the references.
 
 pub mod actions;
 mod breaking;
@@ -116,8 +116,8 @@ pub fn check(repo: &Repo) -> Outcome {
     }
 }
 
-/// API-17, ERR-13 and API-05: of `document`'s components, each response has a description and
-/// lists its codes, and each schema's properties are `snake_case`.
+/// API-17 and ERR-13: of `document`'s components, each response has a description and lists its
+/// codes.
 fn components(document: &Value, problems: &mut Vec<Problem>) {
     let empty = Map::new();
     let responses = document["components"]["responses"]
@@ -139,12 +139,6 @@ fn components(document: &Value, problems: &mut Vec<Problem>) {
             response,
             description,
         ));
-    }
-    let schemas = document["components"]["schemas"]
-        .as_object()
-        .unwrap_or(&empty);
-    for (name, schema) in schemas {
-        properties(&format!("schema {name}"), schema, problems);
     }
 }
 
@@ -197,24 +191,7 @@ fn operation_problems(path: &str, method: &str, operation: &Value) -> Vec<Proble
         )),
     }
     let empty = Map::new();
-    for (media, content) in operation["requestBody"]["content"]
-        .as_object()
-        .unwrap_or(&empty)
-    {
-        properties(
-            &format!("{here} {media} request"),
-            &content["schema"],
-            &mut problems,
-        );
-    }
     for (status, response) in operation["responses"].as_object().unwrap_or(&empty) {
-        for content in response["content"].as_object().unwrap_or(&empty).values() {
-            properties(
-                &format!("{here} {status}"),
-                &content["schema"],
-                &mut problems,
-            );
-        }
         let description = response["description"].as_str().unwrap_or_default();
         if description.trim().is_empty() {
             problems.push((
@@ -260,7 +237,7 @@ fn listed_codes(response: &Value) -> Vec<&str> {
 }
 
 /// ERR-02 and ERR-13: an error response is a problem that lists its codes, each once and named
-/// `<namespace>.<snake_case_name>`, and its description gives each code's meaning.
+/// `<namespace>.<snake_case_name>`, and its description holds each code between backticks.
 fn error_codes(
     here: &str,
     needle: &str,
@@ -296,30 +273,14 @@ fn error_codes(
         if !description.contains(&format!("`{code}`")) {
             problems.push((
                 needle.to_owned(),
-                format!("{here}: the {status} response doesn't say what {code} means (ERR-13)"),
+                format!(
+                    "{here}: the {status} response's description doesn't hold {code} between \
+                     backticks (ERR-13)"
+                ),
             ));
         }
     }
     problems
-}
-
-/// API-05: every property of `schema`, and of the schemas inside it, those of its properties and
-/// those that [`schemas::inside`] gives, is `snake_case`.
-fn properties(owner: &str, schema: &Value, problems: &mut Vec<Problem>) {
-    if let Some(members) = schema["properties"].as_object() {
-        for (name, property) in members {
-            if !is_snake_case(name) {
-                problems.push((
-                    quoted(name),
-                    format!("{owner}: the property {name} isn't snake_case (API-05)"),
-                ));
-            }
-            properties(&format!("{owner}.{name}"), property, problems);
-        }
-    }
-    for (_, part) in schemas::inside(schema) {
-        properties(owner, part, problems);
-    }
 }
 
 /// API-17: every `$ref` in `value` points at something inside `document`, so a route can't
@@ -497,7 +458,70 @@ mod tests {
         let messages = findings(&document("/v1/things", inline, json!({})));
         assert_eq!(
             messages,
-            ["GET /v1/things 200: the property nextCursor isn't snake_case (API-05)"]
+            [
+                "GET /v1/things 200 application/json: the property nextCursor isn't snake_case (API-05)"
+            ]
+        );
+    }
+
+    #[test]
+    fn api_05_the_properties_of_each_place_that_holds_a_schema_are_snake_case() {
+        // At each place, a schema whose one property is named after the place, in camelCase.
+        let camel = |name: &str| json!({ "properties": { name: {} } });
+        let mut get = operation();
+        get["parameters"] = json!([
+            { "$ref": "#/components/parameters/Shared" },
+            { "name": "filter", "in": "query", "content": {
+                "application/json": { "schema": camel("inParameterContent") },
+            } },
+        ]);
+        get["responses"]["200"]["headers"] =
+            json!({ "X-Thing": { "schema": camel("inResponseHeader") } });
+        get["responses"]["200"]["content"] = json!({
+            "text/event-stream": { "x-itemSchema": camel("inItemSchema") },
+            "multipart/mixed": { "schema": {}, "encoding": { "part": { "headers": {
+                "X-Part": { "schema": camel("inEncodingHeader") },
+            } } } },
+        });
+        let mut everywhere = document("/v1/things", get, json!({}));
+        everywhere["components"]["parameters"] = json!({ "Shared": {
+            "name": "q", "in": "query", "schema": camel("inParameter"),
+        } });
+        everywhere["components"]["headers"] =
+            json!({ "X-Shared": { "schema": camel("inHeader") } });
+        everywhere["components"]["requestBodies"] = json!({ "Body": { "content": {
+            "application/json": { "schema": camel("inRequestBody") },
+        } } });
+        everywhere["components"]["responses"] = json!({ "TimedOut": {
+            "description": "`request.timed_out`: Request timed out.",
+            "content": { "application/problem+json": { "schema": { "allOf": [
+                { "properties": { "code": { "enum": ["request.timed_out"] } } },
+                camel("inProblem"),
+            ] } } },
+        } });
+
+        let mut found: Vec<String> = findings(&everywhere)
+            .into_iter()
+            .filter(|message| message.ends_with("(API-05)"))
+            .filter_map(|message| {
+                let (_, rest) = message.split_once("the property ")?;
+                Some(rest.split_once(' ')?.0.to_owned())
+            })
+            .collect();
+        found.sort();
+
+        assert_eq!(
+            found,
+            [
+                "inEncodingHeader",
+                "inHeader",
+                "inItemSchema",
+                "inParameter",
+                "inParameterContent",
+                "inProblem",
+                "inRequestBody",
+                "inResponseHeader",
+            ]
         );
     }
 
@@ -571,7 +595,7 @@ mod tests {
     }
 
     #[test]
-    fn err_13_every_error_response_lists_its_codes_and_their_meaning() {
+    fn err_13_every_error_response_lists_its_codes_and_its_description_holds_each() {
         let mut undocumented = operation();
         undocumented["responses"]["503"]["description"] = json!("Unavailable.");
         undocumented["responses"]["404"] = json!({ "description": "Not found." });
@@ -580,7 +604,8 @@ mod tests {
             messages,
             [
                 "GET /v1/things answers 404 without a problem that lists its codes (ERR-13)",
-                "GET /v1/things: the 503 response doesn't say what request.timed_out means (ERR-13)",
+                "GET /v1/things: the 503 response's description doesn't hold request.timed_out \
+                 between backticks (ERR-13)",
             ]
         );
     }

@@ -11,7 +11,9 @@
 //! on the text `Action::<` in such a file, a comment's included. Another spelling that doesn't
 //! hold the constructor's text, as through an alias of the type, isn't read either, and review
 //! keeps the declarations to the form the check reads.
-//! AUDIT-014: each action's component gives its entries' `action` as the action's name alone.
+//! AUDIT-014: of each action's component, one member of `allOf` or more gives its entries'
+//! `action`, under `properties`, and each that does gives it as an `enum` of the action's name
+//! alone.
 //! AUDIT-009: each action is named as a log's filter takes it: two words joined by a dot, each
 //! of lowercase ASCII letters, digits and underscores that starts with a letter, in at most 100
 //! characters.
@@ -39,9 +41,9 @@ pub(super) const MARK: &str = "x-audit-action";
 /// follows, for each name that follows one and that no component of `document`'s catalog is
 /// marked with or that an earlier one gives, and for each component of `document` marked as an
 /// action's that the catalog doesn't refer to, whose action isn't named as a log's filter takes
-/// it, or that gives its entries' `action` as anything but the action's name. `document` is the
-/// JSON of `repo`'s `openapi.json`, whose lines the findings about components name: a `repo`
-/// without that file gets none of them.
+/// it, or whose `allOf` doesn't give its entries' `action` as the module's comment says.
+/// `document` is the JSON of `repo`'s `openapi.json`, whose lines the findings about components
+/// name: a `repo` without that file gets none of them.
 pub fn check(repo: &Repo, document: &Value) -> Vec<Finding> {
     let catalog = referred(document, CATALOG);
     let schemas = &document["components"]["schemas"];
@@ -104,7 +106,8 @@ pub fn check(repo: &Repo, document: &Value) -> Vec<Finding> {
 
 /// A finding for each component in `document` marked as an action's that `catalog`, the
 /// components that the document's catalog refers to, lacks, whose action isn't named as a log's
-/// filter takes it, or that gives its entries' `action` as anything but the action's name.
+/// filter takes it, or whose `allOf` doesn't give its entries' `action` as the module's comment
+/// says.
 fn components(repo: &Repo, document: &Value, catalog: &BTreeSet<&str>) -> Vec<Finding> {
     let Some(file) = repo.file(super::DOCUMENT) else {
         return Vec::new();
@@ -144,11 +147,14 @@ fn components(repo: &Repo, document: &Value, catalog: &BTreeSet<&str>) -> Vec<Fi
                 ),
             ));
         }
-        let named = schema["allOf"]
+        // The members of `allOf` that give `action`.
+        let mut given = schema["allOf"]
             .as_array()
             .into_iter()
             .flatten()
-            .any(|part| part["properties"]["action"]["enum"] == json!([name]));
+            .filter_map(|part| part["properties"].get("action"))
+            .peekable();
+        let named = given.peek().is_some() && given.all(|action| action["enum"] == json!([name]));
         if !named {
             findings.push(Finding::new(
                 super::DOCUMENT,
@@ -231,6 +237,58 @@ mod tests {
             messages[1..]
                 .iter()
                 .all(|message| message.ends_with("(AUDIT-009)"))
+        );
+    }
+
+    #[test]
+    fn audit_014_an_action_s_component_with_a_second_member_that_gives_another_action_fails() {
+        let mut twice = component("thing.made", "thing.made");
+        twice["allOf"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({ "properties": { "action": { "enum": ["thing.kept"] } } }));
+        let document = json!({ "components": { "schemas": {
+            "A": twice,
+            "AuditEntry": catalog_of(&["A"]),
+        } } });
+        let repo = Repo::of(&[("openapi.json", &document.to_string())]);
+
+        let messages: Vec<String> = check(&repo, &document)
+            .into_iter()
+            .map(|finding| finding.message)
+            .collect();
+
+        assert_eq!(
+            messages,
+            [
+                "the component A of the action thing.made doesn't give its entries' `action` as \
+                 `thing.made` alone (AUDIT-014)"
+            ]
+        );
+    }
+
+    #[test]
+    fn audit_014_an_action_s_component_whose_members_give_no_action_fails() {
+        let document = json!({ "components": { "schemas": {
+            "A": {
+                "allOf": [{ "$ref": "#/components/schemas/LoggedEntry" }],
+                "x-audit-action": "thing.made",
+            },
+            "AuditEntry": catalog_of(&["A"]),
+        } } });
+        let repo = Repo::of(&[("openapi.json", &document.to_string())]);
+
+        let messages: Vec<String> = check(&repo, &document)
+            .into_iter()
+            .map(|finding| finding.message)
+            .collect();
+
+        assert_eq!(
+            messages,
+            [
+                "the component A of the action thing.made doesn't give its entries' `action` as \
+                 `thing.made` alone (AUDIT-014)"
+            ]
         );
     }
 
