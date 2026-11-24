@@ -319,7 +319,7 @@
     {
       "type": "timeseries",
       "title": "Are background jobs keeping up?",
-      "description": "How long the longest-waiting runnable job has waited past its time to run, as each instance last recorded it (PLATFORM-020). It stays near 0 while the dispatchers keep up; JobsDelayed pages when it passes 10 minutes for 5.",
+      "description": "How long the longest-waiting runnable job has waited past its time to run, as each instance last recorded it (the platform spec's job queue). It stays near 0 while the dispatchers keep up; JobsDelayed pages when it passes 10 minutes for 5.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"

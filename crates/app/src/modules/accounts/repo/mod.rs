@@ -228,8 +228,9 @@ const MEMBERSHIP_OF_USER: &str = "workspace_memberships_user_id_fkey";
 
 /// Deletes the row of the user `id`, which deletes, or sets to null, through the foreign keys,
 /// every row that still names them, as the last step of deleting their account, in a unit of
-/// work that waits for no lock. `Interrupted` is a lock that another request holds, or a
-/// membership that a request of theirs added meanwhile (ACCOUNTS-013, ACCOUNTS-016, ERR-05).
+/// work that waits at most [`NO_WAIT`] for a lock. `Interrupted` is a lock that another request
+/// holds, or a membership that a request of theirs added meanwhile (ACCOUNTS-013, ACCOUNTS-016,
+/// ERR-05).
 pub(super) async fn delete(uow: &mut UnitOfWork, id: UserId) -> Result<(), ErasureError> {
     sqlx::query!("DELETE FROM users WHERE id = $1", id.uuid())
         .execute(uow.executor())

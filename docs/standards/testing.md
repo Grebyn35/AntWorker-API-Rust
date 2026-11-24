@@ -10,7 +10,7 @@ Every behavior in `docs/spec/` has at least one test whose name starts with the 
 - Check: `ci: check-test-map`, `ci: test`, plus `review`, each for what its item below says.
   - `ci: check-test-map`: every test's ID exists, every behavior has a test, with the migration's exception in DOC-09, and a rule that its `Check` line gives to a test has one, as the doc of [the check's `rules.rs`](../../crates/xtask/src/test_map/rules.rs) says how it reads that line.
   - `ci: test`: once the tests pass, each route that a spec's Routes table lists a behavior for was sent a request by an integration test named for the behavior, as the doc of [the check's `sent.rs`](../../crates/xtask/src/test_map/sent.rs) says which behaviors it reads.
-  - `review`: the tests cover every clause, one that gives a number, such as 60 seconds or 2,048 characters, by a test on each side of the number, or by one that moves the clock by it, and a field that a behavior names, by a test of its value.
+  - `review`: the tests cover every clause, one that gives a number, such as 60 seconds or 2,048 characters, by a test at the number and one just past it, or by one that moves the clock by it, and a field that a behavior names, by a test of its value.
 
 ### TEST-02 Security behaviors are tested from both sides
 Each permission is tested twice: a role that has it succeeds, and a role without it is refused. Each pre-authentication path is tested for the absence of enumeration, except the paths where SEC-05 accepts it.

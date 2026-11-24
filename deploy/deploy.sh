@@ -100,9 +100,9 @@
 #   deploy.sh check-images <API image> <Postgres image>
 #       Checks what a deploy of the release <version>, or of the two images, each named by
 #       digest, needs, and changes nothing of the deployment but an object that it writes to
-#       each bucket and deletes (OPS-22), though it pulls the tools' images and the Postgres
-#       image, as a deploy does. Prints a line for each check that it runs, and fails if any
-#       fails.
+#       each bucket and deletes (OPS-22), though it pulls the tools' images, the API's image,
+#       and the Postgres image whatever the database, which a deploy pulls only with the bundled
+#       one. Prints a line for each check that it runs, and fails if any fails.
 #
 # A deploy restarts a service that runs once, such as Postgres or Caddy, only with
 # --allow-restart, because restarting one interrupts requests.

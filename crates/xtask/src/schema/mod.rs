@@ -1,10 +1,11 @@
 //! `check-schema`: the schema that the migrations build, as a database's catalog shows it,
-//! follows the data rules: the names of tables, columns, constraints and indexes (DATA-01), the
-//! standard columns (DATA-02), no check constraint that reads a single column (DATA-04), no
-//! function but the one that maintains `updated_at` and `version` (DATA-07), foreign keys with an
-//! explicit `ON DELETE` and an index (DATA-05), no soft-delete column (DATA-06), no constraint
-//! that the catalog marks as not valid (DATA-10), and what the roles own, hold and have set
-//! (DATA-12, DATA-19).
+//! follows the data rules: the names of tables and views, of timestamp and foreign-key columns,
+//! of primary keys, of unique, foreign-key and check constraints, and of the indexes that back no
+//! constraint (DATA-01), the standard columns (DATA-02), no check constraint that reads a single
+//! column (DATA-04), no function but the one that maintains `updated_at` and `version`
+//! (DATA-07), foreign keys with an explicit `ON DELETE` and an index (DATA-05), no soft-delete
+//! column (DATA-06), no constraint that the catalog marks as not valid (DATA-10), and what the
+//! roles own, hold and have set (DATA-12, DATA-19).
 //!
 //! It reads the catalog of a database that the API binary's own `bootstrap` and `migrate` build
 //! (`catalog`), rather than parsing the migrations' SQL, so it sees what Postgres made of them,

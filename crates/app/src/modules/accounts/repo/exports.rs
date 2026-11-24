@@ -129,9 +129,9 @@ pub(in crate::modules::accounts) async fn lock(
     state.as_deref().map(ExportState::from_name).transpose()
 }
 
-/// Locks every export of `user`'s, `FOR UPDATE`, in a unit of work that waits for no lock, and
-/// returns whether it did: `false` when another holds one, such as a running job of one of them,
-/// which ends the unit of work (ACCOUNTS-016).
+/// Locks every export of `user`'s, `FOR UPDATE`, in a unit of work that waits at most a
+/// millisecond for a lock, and returns whether it did: `false` when another holds one, such as a
+/// running job of one of them, which ends the unit of work (ACCOUNTS-016).
 pub(in crate::modules::accounts) async fn hold_all(
     uow: &mut UnitOfWork,
     user: UserId,

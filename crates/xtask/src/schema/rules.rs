@@ -259,8 +259,9 @@ fn unvalidated(catalog: &Value) -> Vec<Problem> {
         .collect()
 }
 
-/// DATA-01: constraints and indexes are named `<table>_<columns>_<kind>`, and a foreign key's
-/// columns end in `_id`. A check may name some of the columns it reads.
+/// DATA-01: primary keys, unique, foreign-key and check constraints, and the indexes that back no
+/// constraint, are named `<table>_<columns>_<kind>`, a primary key `<table>_pkey`, and a foreign
+/// key's columns end in `_id`. A check may name some of the columns it reads.
 fn names(catalog: &Value) -> Vec<Problem> {
     let mut problems = Vec::new();
     for constraint in list(catalog, "constraints") {

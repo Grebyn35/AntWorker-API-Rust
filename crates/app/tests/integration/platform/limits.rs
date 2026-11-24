@@ -1,6 +1,7 @@
-//! The client IP and the rate limits (PLATFORM-011, PLATFORM-053 to PLATFORM-057), the bound of
-//! the IP limit's count (OPS-07), and the budgets, through a route of the tests' own that counts
-//! the bytes its request names in its caller's budget (PLATFORM-089).
+//! The client IP and the rate limits (PLATFORM-011, PLATFORM-053 to PLATFORM-057), which the
+//! health probes bypass (PLATFORM-038), the bound of the IP limit's count (OPS-07), and the
+//! budgets, through a route of the tests' own that counts the bytes its request names in its
+//! caller's budget (PLATFORM-089).
 
 use std::{sync::Arc, time::Duration};
 

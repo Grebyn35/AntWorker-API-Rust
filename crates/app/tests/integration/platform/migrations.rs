@@ -275,12 +275,15 @@ const RELEASE_MIGRATIONS: &str = "RELEASE_MIGRATIONS";
 /// aren't Postgres's own, a line holds: a table, view or sequence with its owner, its row
 /// security, its privileges, its options, whether it is logged, the identity that replication
 /// reads, and its partitions' key and bound; a column with its place among its table's, its
-/// type, its default, its privileges, its collation and how it is stored; a constraint, an
-/// index, a trigger and a view as Postgres writes its definition; a function or procedure with
-/// its owner, its privileges and its definition; an enum, domain or range type; a collation;
-/// and the schema with its owner and privileges. Of the whole database, a line holds: a
-/// policy, a rule, a sequence's bounds, the statistics that a migration asks for, the default
-/// privileges, an extension with its version, and a comment on what isn't Postgres's own.
+/// type, whether it is `NOT NULL`, its default, its identity, how it is generated, its
+/// privileges, its collation, how it is stored and compressed, and its statistics target; a
+/// constraint and a view as Postgres writes its definition; an index with whether it is valid,
+/// and a trigger with whether it is enabled, each as Postgres writes its definition; a function
+/// or procedure with its owner, its privileges and its definition; an enum, domain or range
+/// type; a collation; and the schema with its owner and privileges. Of the whole database, a
+/// line holds: a policy, a rule, a sequence's bounds, the statistics that a migration asks for,
+/// the default privileges, an extension with its version, and a comment on what isn't
+/// Postgres's own.
 const SCHEMA: &str = r"
 WITH own AS (
   SELECT oid FROM pg_namespace WHERE nspname <> 'information_schema' AND nspname NOT LIKE 'pg\_%'

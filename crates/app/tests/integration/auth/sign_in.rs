@@ -128,6 +128,66 @@ async fn auth_004_signing_in_creates_a_session() {
 }
 
 #[tokio::test]
+async fn auth_004_a_presented_password_holds_1_to_128_characters() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let presenting = [
+        (
+            "/v1/sessions",
+            json!({ "email": "ada@example.com" }),
+            "password",
+            None,
+            401_u16,
+        ),
+        (
+            "/v1/users/me/sessions/current/reauthenticate",
+            json!({}),
+            "password",
+            Some(&ada.access),
+            403,
+        ),
+        (
+            "/v1/users/me/password/change",
+            json!({ "password": PASSWORD }),
+            "current_password",
+            Some(&ada.access),
+            403,
+        ),
+    ];
+
+    for (path, mut body, field, access, checked) in presenting {
+        let mut answers = Vec::new();
+        for password in [
+            String::new(),
+            "é".repeat(129),
+            "é".to_owned(),
+            "é".repeat(128),
+        ] {
+            body[field] = json!(password);
+            let mut call = api.post_raw(path, &body);
+            if let Some(access) = access {
+                call = call.bearer(access);
+            }
+            answers.push(call.send().await);
+        }
+
+        let pointer = format!("/{field}");
+        assert_eq!(
+            answers[0].refused_fields(),
+            [(pointer.clone(), "required".to_owned())],
+            "{path}"
+        );
+        assert_eq!(
+            answers[1].refused_fields(),
+            [(pointer, "too_long".to_owned())],
+            "{path}"
+        );
+        assert_eq!(answers[2].status, checked, "{path}");
+        assert_eq!(answers[3].status, checked, "{path}");
+    }
+}
+
+#[tokio::test]
 async fn auth_005_every_failed_sign_in_answers_the_same_401() {
     let api = Api::new().await;
     users::register(&api, "ada@example.com").await;

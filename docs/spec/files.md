@@ -26,8 +26,7 @@ What `accounts` uses to serve an export's archive (Design: Exports):
 
 What the composition root runs as the subcommand `restore-files` (Design: Restoring bytes):
 
-- `restore(&Storage, Timestamp)`: writes again each object of the bucket whose version at the moment isn't its current one, and gives how many objects it saw, wrote again and left, as `Restored`, or, as `Stopped`, what it had done when it stopped, and why (FILES-028, FILES-029).
-- `LARGEST_UPLOAD_BYTES`: the most that `FILE_MAX_BYTES` may be, with which the composition root reads the setting (FILES-004).
+- `restore(&Storage, Timestamp)`: writes again each object of the bucket whose version at the moment isn't its current one, and gives how many objects it saw, wrote again and left, as `Restored`, or, as `Stopped`, what it had done when it stopped, and why (FILES-028, FILES-029). It leaves an object of more than `LARGEST_UPLOAD_BYTES`, the most that `FILE_MAX_BYTES` may be (FILES-004).
 
 What `accounts` uses to keep a user's avatar (Design: Avatars):
 
