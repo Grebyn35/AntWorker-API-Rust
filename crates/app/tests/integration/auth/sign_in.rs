@@ -765,21 +765,19 @@ async fn auth_008_signing_in_again_on_a_device_ends_its_old_session() {
 async fn auth_008_concurrent_sign_ins_on_one_device_leave_it_one_session() {
     let api = Api::new().await;
     users::register(&api, "ada@example.com").await;
-    let body = json!({ "email": "ada@example.com", "password": PASSWORD, "device_id": "laptop-1" });
+    let body = json!({ "email": "ada@example.com", "password": PASSWORD, "device_id": "laptop" });
+    let first = api.post("/v1/sessions", &body).send().await;
+    assert_eq!(first.status, 201, "{}", first.json());
+    let first = first.json()["id"].as_str().unwrap().to_owned();
 
-    let (first, second) = tokio::join!(
-        api.post("/v1/sessions", &body).send(),
-        api.post("/v1/sessions", &body).send(),
-    );
+    let answers = users::at_once(
+        &api,
+        &first,
+        [("/v1/sessions", body.clone()), ("/v1/sessions", body)],
+    )
+    .await;
 
-    assert_eq!(first.status, 201);
-    assert_eq!(second.status, 201);
-    assert_eq!(
-        api.database()
-            .owner_reads("SELECT count(*)::text FROM sessions WHERE device_id = 'laptop-1'")
-            .await,
-        ["1"]
-    );
+    users::one_session_on_the_laptop(&api, &answers).await;
 }
 
 #[tokio::test]

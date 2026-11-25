@@ -348,6 +348,46 @@ pub async fn sign_in_from_browser(api: &Api, email: &str, cookies: &str) -> Resp
     call.send().await
 }
 
+/// What two sign-ins on the device of the session `session`, each a path and its body, answer
+/// once both are in their units of work at once: the test holds that session's row locked until
+/// two queries wait on a lock, the sign-in that holds the user's turn for the row, which it
+/// deletes to end the session, and the other for the turn, or, where the two take no turn, each
+/// for the row (AUTH-008).
+pub async fn at_once(
+    api: &Api,
+    session: &str,
+    sign_ins: [(&'static str, Value); 2],
+) -> [Response; 2] {
+    let db = api.database();
+    let mut held = db
+        .holding(&format!(
+            "SELECT 1 FROM sessions WHERE id = '{session}' FOR UPDATE"
+        ))
+        .await;
+    let [first, second] = sign_ins.map(|(path, body)| {
+        let api = api.clone();
+        tokio::spawn(async move { api.post(path, &body).send().await })
+    });
+    queries_wait_on_locks(db, 2).await;
+    execute_on(&mut held, "COMMIT").await;
+    [first.await.unwrap(), second.await.unwrap()]
+}
+
+/// Asserts that each of `answers` started a session, and that the device `laptop` holds one
+/// session, one of those that they started (AUTH-008).
+pub async fn one_session_on_the_laptop(api: &Api, answers: &[Response; 2]) {
+    for answer in answers {
+        assert_eq!(answer.status, 201, "{}", answer.json());
+    }
+    let started = answers.each_ref().map(|answer| answer.json()["id"].clone());
+    let on_device = api
+        .database()
+        .owner_reads("SELECT id::text FROM sessions WHERE device_id = 'laptop'")
+        .await;
+    assert_eq!(on_device.len(), 1, "{on_device:?}");
+    assert!(started.contains(&json!(on_device[0])), "{on_device:?}");
+}
+
 /// Registers ada@example.com, then signs her in from a browser at [`WEB`], which takes the
 /// session's tokens as cookies, and returns the sign-in's response.
 pub async fn browser_sign_in(api: &Api) -> Response {

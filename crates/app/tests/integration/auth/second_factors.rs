@@ -6,8 +6,7 @@ use serde_json::{Value, json};
 
 use crate::support::{
     Api,
-    api::Response,
-    api::reads,
+    api::{OTHER_HMAC_KEY, Response, reads},
     audit, mailbox, password_reset,
     providers::{self, gives, identity},
     second_factors::{
@@ -836,12 +835,9 @@ async fn auth_062_a_recovery_code_outlives_a_change_of_hmac_key() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     let app = add_app(&api, &ada).await;
-    // A replica with another HMAC_KEY, 32 bytes of 8, as after the key's change.
+    // A replica with another HMAC_KEY, as after the key's change.
     let other = api
-        .instance(
-            crate::support::Options::default()
-                .set("HMAC_KEY", "CAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg="),
-        )
+        .instance(crate::support::Options::default().set("HMAC_KEY", OTHER_HMAC_KEY))
         .await;
 
     let response = reauthenticate(
