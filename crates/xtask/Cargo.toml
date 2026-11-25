@@ -11,7 +11,8 @@ proc-macro2.workspace = true
 pulldown-cmark.workspace = true
 rpassword.workspace = true
 # check-metrics, check-telemetry-config and alert-rules read the observability stack's
-# configuration with it, and mirror and mirror-images the Compose files of the deployment.
+# configuration with it, mirror and mirror-images the Compose files of the deployment, and
+# check-pins the workflows, through the events of its parser.
 # part: removal
 # The removal's subcommands read the list of parts with it, and the workflow's matrix.
 # end part: removal

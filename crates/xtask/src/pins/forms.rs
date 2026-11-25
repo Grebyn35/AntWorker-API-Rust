@@ -1,12 +1,23 @@
 //! The forms of a pin that `check-pins` reads: an image's digest, an exact version, a runner's
-//! versioned label, and a variable that the deploy sets.
+//! versioned label, and a variable that the deploy sets to a digest.
 
-/// Whether `value` is one variable, `${NAME}`, `${NAME?message}` or `${NAME:?message}`, with no
-/// default it could fall back to, which `check-pins` takes for a variable that the deploy sets.
+/// The variables of the images that `write_deploy_env` in `deploy/tasks/apply.sh` writes into
+/// `state/deploy.env`.
+pub(super) const DEPLOY_IMAGES: [&str; 4] = [
+    "API_IMAGE_BLUE",
+    "API_IMAGE_GREEN",
+    "API_IMAGE_NEW",
+    "POSTGRES_IMAGE",
+];
+
+/// Whether `value` is one variable of [`DEPLOY_IMAGES`], `${NAME}`, `${NAME?message}` or
+/// `${NAME:?message}`, with no default it could fall back to, whose first `}` is its last
+/// character, which `check-pins` takes for a variable that the deploy sets to a digest.
 pub(super) fn is_deploy_variable(value: &str) -> bool {
     let Some(inner) = value
         .strip_prefix("${")
         .and_then(|rest| rest.strip_suffix('}'))
+        .filter(|inner| !inner.contains('}'))
     else {
         return false;
     };
@@ -15,7 +26,8 @@ pub(super) fn is_deploy_variable(value: &str) -> bool {
             .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
             .unwrap_or(inner.len()),
     );
-    !name.is_empty() && (rest.is_empty() || rest.starts_with(":?") || rest.starts_with('?'))
+    DEPLOY_IMAGES.contains(&name)
+        && (rest.is_empty() || rest.starts_with(":?") || rest.starts_with('?'))
 }
 
 /// Whether `image` names its digest: `@sha256:` and 64 hexadecimal digits.

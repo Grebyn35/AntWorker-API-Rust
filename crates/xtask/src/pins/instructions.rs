@@ -2,9 +2,10 @@
 
 use super::numbered;
 
-/// The instructions of the Dockerfile `text`, each with the line it starts on, as BuildKit reads
-/// them: a comment line, which starts with `#` after any whitespace, belongs to none, and a line
-/// that ends in `\` goes on over the next, past comment lines and empty ones.
+/// The instructions of the Dockerfile `text`, each with the line it starts on: a comment line,
+/// which starts with `#` after any whitespace, belongs to none, and a line that ends in `\`, and
+/// in no other character, goes on over the next, past comment lines and empty ones;
+/// [`escape_directives`] finds the lines that would name another character.
 pub(super) fn instructions(text: &str) -> Vec<(usize, String)> {
     let mut instructions = Vec::new();
     let mut open: Option<(usize, String)> = None;
@@ -28,6 +29,19 @@ pub(super) fn instructions(text: &str) -> Vec<(usize, String)> {
     }
     instructions.extend(open);
     instructions
+}
+
+/// The number of each comment line of the Dockerfile `text` whose text, without its white space
+/// and in lower case, starts with `#escape=`: a parser directive `escape`, which `check-pins`
+/// refuses, since [`instructions`] goes on over a line only after a `\`.
+pub(super) fn escape_directives(text: &str) -> Vec<usize> {
+    numbered(text)
+        .filter(|(_, line)| {
+            let compact: String = line.chars().filter(|c| !c.is_whitespace()).collect();
+            compact.to_ascii_lowercase().starts_with("#escape=")
+        })
+        .map(|(number, _)| number)
+        .collect()
 }
 
 /// Whether the instruction `line` is a `RUN` or an `ADD`, in any case, whose text after its

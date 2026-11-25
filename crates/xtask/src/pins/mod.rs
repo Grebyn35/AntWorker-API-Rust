@@ -1,17 +1,19 @@
-//! `check-pins`: what a build or a check uses is pinned as docs/operations/ci.md's row of the check
-//! says (OPS-11), and the toolchain and the edition are the ones `rust-toolchain.toml` and the
-//! workspace name (CODE-01).
+//! `check-pins`: what a build or a check uses is pinned as docs/operations/ci.md's rows of the
+//! check say (OPS-11), and the toolchain and the edition are the ones `rust-toolchain.toml` and
+//! the workspace name (CODE-01).
 
 mod commands;
 mod forms;
 mod instructions;
 mod locked;
+mod workflows;
 
-use commands::command_problems;
-use forms::{has_digest, is_deploy_variable, is_exact_version, is_versioned_runner};
-use instructions::instructions;
+use commands::{bare, command_problems, picks_toolchain};
+use forms::{has_digest, is_deploy_variable, is_exact_version};
+use instructions::{escape_directives, instructions};
+use workflows::workflow_pins;
 
-use crate::{Finding, Outcome, repo::Repo};
+use crate::{Finding, Outcome, repo::Repo, shell};
 
 const WORKFLOWS: &str = ".github/workflows/";
 const COMPOSE: &str = "compose.yaml";
@@ -24,6 +26,7 @@ const WORKSPACE: &str = "Cargo.toml";
 pub fn check(repo: &Repo) -> Outcome {
     let mut findings = Vec::new();
     let just_version = justfile(repo, &mut findings);
+    justfiles_toolchain(repo, &mut findings);
     locked::sqlx_cli(repo, &mut findings);
     for file in repo.files() {
         let workflow = file.path.starts_with(WORKFLOWS)
@@ -91,136 +94,27 @@ fn justfile(repo: &Repo, findings: &mut Vec<Finding>) -> Option<String> {
     just
 }
 
-fn workflow_pins(path: &str, text: &str, just_version: Option<&str>, findings: &mut Vec<Finding>) {
-    let mut job = Job::default();
-    for (number, raw) in numbered(text) {
-        if is_job_start(raw) {
-            findings.extend(job.finding(path));
-            job = Job::default();
-        }
-        let line = raw.trim_start().trim_start_matches("- ");
-        if let Some(action) = value_of(line, "uses:") {
-            if let Some(problem) = action_problem(action) {
-                findings.push(Finding::new(path, number, problem));
-            }
-        } else if let Some(runner) =
-            value_of(line, "runs-on:").or_else(|| value_of(line, "runner:"))
-        {
-            // A job that runs on a runner for each value of its matrix names it from the matrix,
-            // whose `runner:` values are checked as labels.
-            if runner == MATRIX_RUNNER {
-                job.matrix_runner = Some(number);
-            } else if line.starts_with("runner:") {
-                job.runners = true;
-            }
-            if runner != MATRIX_RUNNER && !is_versioned_runner(runner) {
+/// Refuses each line of the justfile, and of each file that its `import` lines name, that
+/// [`picks_toolchain`] reads, the lines read as [`instructions()`] reads a Dockerfile's, each
+/// without the `@` and `-` that start it.
+fn justfiles_toolchain(repo: &Repo, findings: &mut Vec<Finding>) {
+    for file in shell::justfiles(repo) {
+        for (number, line) in instructions(&file.text) {
+            let line = line.trim_start_matches(['@', '-']);
+            let words: Vec<&str> = line.split_whitespace().collect();
+            if picks_toolchain(line, &words) {
                 findings.push(Finding::new(
-                    path,
+                    &file.path,
                     number,
-                    format!(
-                        "the runner {runner} is a versioned label, such as ubuntu-24.04 (OPS-11)"
-                    ),
+                    "the tasks build with the toolchain rust-toolchain.toml pins (CODE-01)",
                 ));
             }
-        } else if let Some(image) = value_of(line, "image:") {
-            // A key with no value, such as a job named `image`, names no image.
-            if !image.is_empty() && !has_digest(image) {
-                findings.push(Finding::new(
-                    path,
-                    number,
-                    format!("the image {image} is pinned by digest (OPS-11)"),
-                ));
-            }
-        } else if let Some(tools) = value_of(line, "tool:") {
-            // Each tool of the list, split at commas and whitespace, that is `just` or starts
-            // with `just@`.
-            for tool in tools.split(|c: char| c == ',' || c.is_whitespace()) {
-                let problem = match tool.strip_prefix("just@") {
-                    _ if tool == "just" => format!(
-                        "just names no version: the workflows install the justfile's \
-                         just_version, as just@{} (OPS-11)",
-                        just_version.unwrap_or("<version>")
-                    ),
-                    Some(version) if Some(version) != just_version => {
-                        format!("just@{version} differs from the justfile's just_version (OPS-11)")
-                    }
-                    _ => continue,
-                };
-                findings.push(Finding::new(path, number, problem));
-            }
-        }
-        if line.contains("rustup") || line.contains("cargo +") {
-            findings.push(Finding::new(
-                path,
-                number,
-                "a workflow installs or picks no toolchain: `just setup` installs the one \
-                 rust-toolchain.toml pins (CODE-01)",
-            ));
         }
     }
-    findings.extend(job.finding(path));
 }
 
-/// The `runs-on:` of a job that runs on a runner for each value of its matrix.
-const MATRIX_RUNNER: &str = "${{ matrix.runner }}";
-
-/// What `check-pins` reads of the workflow's job it is in: the line of its `runs-on:` that names
-/// its matrix's runner, if it has one, and whether its matrix names a `runner:`.
-#[derive(Default)]
-struct Job {
-    matrix_runner: Option<usize>,
-    runners: bool,
-}
-
-impl Job {
-    /// The finding of a job that runs on its matrix's runner, while its matrix names none.
-    fn finding(&self, path: &str) -> Option<Finding> {
-        let number = self.matrix_runner.filter(|_| !self.runners)?;
-        Some(Finding::new(
-            path,
-            number,
-            "the job's matrix names each runner as `runner:`, a versioned label (OPS-11)",
-        ))
-    }
-}
-
-/// Whether `line` starts a job, or another key of a workflow's top-level sections, which holds
-/// no job's `runs-on:`: a key indented by two spaces, with no value on its line.
-fn is_job_start(line: &str) -> bool {
-    line.strip_prefix("  ").is_some_and(|key| {
-        !key.starts_with([' ', '#']) && key.trim_end().ends_with(':') && !key.contains(": ")
-    })
-}
-
-/// What is wrong with the action a step uses, if anything.
-fn action_problem(action: &str) -> Option<String> {
-    if action.starts_with("./") {
-        return None;
-    }
-    if let Some(image) = action.strip_prefix("docker://") {
-        return (!has_digest(image))
-            .then(|| format!("the image {image} is pinned by digest (OPS-11)"));
-    }
-    let pinned = action
-        .rsplit_once('@')
-        .is_some_and(|(_, sha)| sha.len() == 40 && sha.bytes().all(|b| b.is_ascii_hexdigit()));
-    if !pinned {
-        return Some(format!(
-            "the action {action} is pinned by the SHA of a commit (OPS-11)"
-        ));
-    }
-    let name = action.split('@').next().unwrap_or_default();
-    name.contains("toolchain").then(|| {
-        format!(
-            "the action {name} installs a toolchain: `just setup` installs the one \
-             rust-toolchain.toml pins (CODE-01)"
-        )
-    })
-}
-
-/// Checks the images that the compose file at `path` names. An image that is one variable with
-/// no default, such as `${API_IMAGE_BLUE:?...}`, passes as a variable that the deploy sets to a
-/// digest.
+/// Checks the images that the compose file at `path` names. An image that
+/// [`is_deploy_variable`] reads passes as a variable that the deploy sets to a digest.
 fn compose_pins(path: &str, text: &str, findings: &mut Vec<Finding>) {
     for (number, line) in numbered(text) {
         if let Some(image) = value_of(line.trim_start(), "image:")
@@ -236,8 +130,9 @@ fn compose_pins(path: &str, text: &str, findings: &mut Vec<Finding>) {
     }
 }
 
-/// Checks the frontend, the images, the downloads, the packages, the crates and the toolchain of
-/// the Dockerfile at `path`, each instruction whole, at the line it starts on.
+/// Checks the frontend, the parser directives, the images, the downloads, the packages, the
+/// crates and the toolchain of the Dockerfile at `path`, each instruction whole, at the line it
+/// starts on.
 fn dockerfile_pins(path: &str, text: &str, findings: &mut Vec<Finding>) {
     let mut stages: Vec<String> = Vec::new();
     let first = text.lines().next().unwrap_or_default().trim();
@@ -249,10 +144,18 @@ fn dockerfile_pins(path: &str, text: &str, findings: &mut Vec<Finding>) {
         });
         findings.push(Finding::new(path, 1, format!("{problem} (OPS-11)")));
     }
+    for number in escape_directives(text) {
+        findings.push(Finding::new(
+            path,
+            number,
+            "check-pins reads a Dockerfile whose lines go on after a `\\`: remove the parser \
+             directive escape (OPS-11)",
+        ));
+    }
     for (number, line) in &instructions(text) {
         let (number, line) = (*number, line.as_str());
         let words: Vec<&str> = line.split_whitespace().collect();
-        match words
+        let mut problems = match words
             .first()
             .map(|word| word.to_ascii_uppercase())
             .as_deref()
@@ -260,64 +163,102 @@ fn dockerfile_pins(path: &str, text: &str, findings: &mut Vec<Finding>) {
             Some("FROM") => {
                 let mut rest = words[1..].iter().skip_while(|word| word.starts_with("--"));
                 let image = rest.next().copied().unwrap_or_default();
-                if !has_digest(image) && !names_stage(image, &stages) {
-                    findings.push(Finding::new(
-                        path,
-                        number,
-                        format!("the image {image} is pinned by digest (OPS-11)"),
-                    ));
-                }
+                let problem = image_problem(image, &stages);
                 if let (Some(as_), Some(stage)) = (rest.next(), rest.next())
                     && as_.eq_ignore_ascii_case("as")
                 {
                     stages.push((*stage).to_owned());
                 }
+                problem.into_iter().collect()
             }
-            Some("COPY" | "RUN") => {
-                // The image of a `COPY --from=` or of a `RUN --mount=` option's key `from=`,
-                // first or not, among the options before the instruction's arguments, unless it
-                // names a stage.
-                let options = words[1..].iter().take_while(|word| word.starts_with("--"));
-                let named = options
-                    .flat_map(|option| option.strip_prefix("--mount=").unwrap_or(option).split(','))
-                    .filter_map(|part| {
-                        part.strip_prefix("--from=")
-                            .or_else(|| part.strip_prefix("from="))
-                    });
-                for image in named.filter(|image| {
-                    !has_digest(image)
-                        && !names_stage(image, &stages)
-                        && image.parse::<usize>().is_err()
-                }) {
-                    findings.push(Finding::new(
-                        path,
-                        number,
-                        format!("the image {image} is pinned by digest (OPS-11)"),
-                    ));
-                }
-            }
-            Some("ADD") => {
-                let remote = words
-                    .iter()
-                    .any(|word| word.starts_with("https://") || word.starts_with("http://"));
-                if remote
-                    && !words
-                        .iter()
-                        .any(|word| word.starts_with("--checksum=sha256:"))
-                {
-                    findings.push(Finding::new(
-                        path,
-                        number,
-                        "a download is pinned by its checksum, with --checksum=sha256: (OPS-11)",
-                    ));
-                }
-            }
-            _ => {}
-        }
-        for problem in command_problems(line, &words) {
+            Some("COPY" | "RUN") => option_problems(&words, &stages),
+            Some("ADD") => add_problem(&words).into_iter().collect(),
+            _ => Vec::new(),
+        };
+        problems.extend(command_problems(line, &words));
+        for problem in problems {
             findings.push(Finding::new(path, number, problem));
         }
     }
+}
+
+/// What is wrong with `image`, if it names neither its digest nor one of `stages`.
+fn image_problem(image: &str, stages: &[String]) -> Option<String> {
+    (!has_digest(image) && !names_stage(image, stages))
+        .then(|| format!("the image {image} is pinned by digest (OPS-11)"))
+}
+
+/// What is wrong with the options of the `COPY` or `RUN` split into `words`, the words that
+/// start with `--` before its arguments: the image that a `--from=` names, or the key `from`, in
+/// any case, of a `--mount=`, unless it names a stage or is a whole number; and an option
+/// whose name, before any `=`, is `--from` or `--mount` in any case, unless it starts with
+/// `--from=` or `--mount=` and its value holds no quote.
+fn option_problems(words: &[&str], stages: &[String]) -> Vec<String> {
+    let mut problems = Vec::new();
+    for option in words[1..].iter().take_while(|word| word.starts_with("--")) {
+        let (name, value) = option.split_once('=').unwrap_or((option, ""));
+        let lower = name.to_ascii_lowercase();
+        if lower != "--from" && lower != "--mount" {
+            continue;
+        }
+        if name != lower || !option.contains('=') || value.contains(['"', '\'']) {
+            problems.push(
+                "check-pins reads a --from= or a --mount= in lower case, with no quote in its \
+                 value (OPS-11)"
+                    .to_owned(),
+            );
+            continue;
+        }
+        let images: Vec<&str> = if name == "--from" {
+            vec![value]
+        } else {
+            value
+                .split(',')
+                .filter_map(|part| {
+                    let (key, image) = part.split_once('=')?;
+                    key.eq_ignore_ascii_case("from").then_some(image)
+                })
+                .collect()
+        };
+        problems.extend(
+            images
+                .into_iter()
+                .filter(|image| image.parse::<usize>().is_err())
+                .filter_map(|image| image_problem(image, stages)),
+        );
+    }
+    problems
+}
+
+/// What is wrong with the `ADD` split into `words`, if anything: one of its words whose
+/// [`bare`] form starts with `http://` or `https://`, in any case, or one of its words after
+/// its options, those that start with `--`, that holds a `$`, while none of its words starts
+/// with `--checksum=sha256:`.
+fn add_problem(words: &[&str]) -> Option<String> {
+    if words
+        .iter()
+        .any(|word| word.starts_with("--checksum=sha256:"))
+    {
+        return None;
+    }
+    let remote = words.iter().any(|word| {
+        let word = bare(word).to_ascii_lowercase();
+        word.starts_with("https://") || word.starts_with("http://")
+    });
+    if remote {
+        return Some(
+            "a download is pinned by its checksum, with --checksum=sha256: (OPS-11)".to_owned(),
+        );
+    }
+    let variable = words[1..]
+        .iter()
+        .skip_while(|word| word.starts_with("--"))
+        .any(|word| word.contains('$'));
+    variable.then(|| {
+        "check-pins doesn't read a variable in an ADD: pin it by its checksum, with \
+         --checksum=sha256:, or write its source out (OPS-11)"
+            .to_owned()
+    })
 }
 
 /// Whether `image` names an earlier stage, such as `tools`, or one per platform, such as
@@ -528,13 +469,13 @@ mod tests {
     {
         let findings = findings_with(
             "deploy/compose.yaml",
-            "services:\n  a:\n    image: ${API_IMAGE:?the image, from the deploy}\n  b:\n    image: ${OTHER}\n  c:\n    image: ${FALLBACK:-postgres:18}\n  d:\n    image: ${SET?the image}\n",
+            "services:\n  a:\n    image: ${API_IMAGE_BLUE:?the image, from the deploy}\n  b:\n    image: ${API_IMAGE_NEW}\n  c:\n    image: ${API_IMAGE_GREEN:-postgres:18}\n  d:\n    image: ${POSTGRES_IMAGE?the image}\n",
         );
 
         assert_eq!(
             findings,
             [
-                "deploy/compose.yaml:7: the image ${FALLBACK:-postgres:18} is pinned by digest (OPS-11)"
+                "deploy/compose.yaml:7: the image ${API_IMAGE_GREEN:-postgres:18} is pinned by digest (OPS-11)"
             ]
         );
     }
@@ -757,6 +698,41 @@ mod tests {
     }
 
     #[test]
+    fn ops_11_the_image_that_a_job_s_container_names_as_a_scalar_is_pinned_by_digest() {
+        let digest = "a".repeat(64);
+        let findings = findings_with(
+            ".github/workflows/ci.yml",
+            &format!(
+                "jobs:
+  tagged:
+    runs-on: ubuntu-24.04
+    container: golang:1.26
+  pinned:
+    runs-on: ubuntu-24.04
+    container: golang:1.26@sha256:{digest}
+  mapped:
+    runs-on: ubuntu-24.04
+    container:
+      image: node:24
+    steps:
+      - uses: actions/checkout@{sha}
+        with:
+          container: an-input-of-the-action
+",
+                sha = "b".repeat(40)
+            ),
+        );
+
+        assert_eq!(
+            findings,
+            [
+                ".github/workflows/ci.yml:4: the image golang:1.26 is pinned by digest (OPS-11)",
+                ".github/workflows/ci.yml:11: the image node:24 is pinned by digest (OPS-11)"
+            ]
+        );
+    }
+
+    #[test]
     fn ops_11_the_workflows_install_the_justfile_s_version_of_just() {
         let findings = findings_with(
             ".github/workflows/ci.yml",
@@ -935,5 +911,265 @@ mod tests {
             workspace,
             ["Cargo.toml:1: the workspace's edition is 2024 (CODE-01)"]
         );
+    }
+
+    #[test]
+    fn ops_11_a_workflow_is_read_as_yaml() {
+        let workflow = format!(
+            "jobs:\n  a:\n    runs-on: ubuntu-24.04\n    steps:\n      -   uses: actions/checkout@v7\n      - \"uses\": actions/cache@v5\n      - {{uses: actions/setup-node@v6}}\n      - uses : actions/upload-artifact@v6\n      - uses: actions/checkout@{SHA}\n  b:\n    runs-on: ${{{{ matrix.runner }}}}\n    strategy:\n      matrix:\n        include:\n          - runner: ubuntu-24.04\n          -   runner: ubuntu-latest\n"
+        );
+
+        let findings = findings_with(".github/workflows/ci.yml", &workflow);
+
+        assert_eq!(
+            findings,
+            [
+                ".github/workflows/ci.yml:5: the action actions/checkout@v7 is pinned by the SHA of a commit (OPS-11)",
+                ".github/workflows/ci.yml:6: the action actions/cache@v5 is pinned by the SHA of a commit (OPS-11)",
+                ".github/workflows/ci.yml:7: the action actions/setup-node@v6 is pinned by the SHA of a commit (OPS-11)",
+                ".github/workflows/ci.yml:8: the action actions/upload-artifact@v6 is pinned by the SHA of a commit (OPS-11)",
+                ".github/workflows/ci.yml:16: the runner ubuntu-latest is a versioned label, such as ubuntu-24.04 (OPS-11)",
+            ]
+        );
+    }
+
+    #[test]
+    fn ops_11_a_workflow_s_list_mapping_or_alias_that_the_check_doesn_t_read_and_text_that_isn_t_yaml_are_refused()
+     {
+        let workflow = format!(
+            "jobs:\n  a:\n    runs-on: [ubuntu-24.04]\n    steps:\n      - uses: &checkout actions/checkout@{SHA}\n      - uses: *checkout\n      - uses: {{name: actions/cache}}\n"
+        );
+
+        let read = findings_with(".github/workflows/ci.yml", &workflow);
+        let unread = findings_with(".github/workflows/ci.yml", "jobs: [\n");
+
+        assert_eq!(
+            read,
+            [
+                ".github/workflows/ci.yml:3: `runs-on:` holds a list or a mapping, which check-pins doesn't read: write one value (OPS-11)",
+                ".github/workflows/ci.yml:6: check-pins doesn't read a YAML alias in a workflow: write the value out (OPS-11)",
+                ".github/workflows/ci.yml:7: `uses:` holds a list or a mapping, which check-pins doesn't read: write one value (OPS-11)",
+            ]
+        );
+        assert_eq!(unread.len(), 1, "{unread:?}");
+        assert!(
+            unread[0].starts_with(".github/workflows/ci.yml:1: not YAML: "),
+            "{unread:?}"
+        );
+    }
+
+    #[test]
+    fn ops_11_a_workflow_s_key_of_a_pin_in_another_case_is_refused() {
+        let workflow = format!(
+            "jobs:\n  a:\n    Runs-On: ubuntu-latest\n    steps:\n      - Uses: actions/checkout@v7\n      - uses: actions/checkout@{SHA}\n"
+        );
+
+        let findings = findings_with(".github/workflows/ci.yml", &workflow);
+
+        assert_eq!(
+            findings,
+            [
+                ".github/workflows/ci.yml:3: check-pins reads `runs-on:` in lower case (OPS-11)",
+                ".github/workflows/ci.yml:5: check-pins reads `uses:` in lower case (OPS-11)",
+            ]
+        );
+    }
+
+    #[test]
+    fn code_01_a_workflow_names_rustup_in_no_case_and_cargo_with_no_toolchain() {
+        let workflow = "jobs:\n  a:\n    runs-on: ubuntu-24.04\n    env:\n      RUSTUP_TOOLCHAIN: 1.98.0\n      \"Rustup_Toolchain\": 1.98.0\n    steps:\n      - {run: cargo  +nightly build}\n      - run: cargo build\n";
+
+        let findings = findings_with(".github/workflows/ci.yml", workflow);
+
+        let refused = "a workflow installs or picks no toolchain: `just setup` installs the one rust-toolchain.toml pins (CODE-01)";
+        assert_eq!(
+            findings,
+            [5, 6, 8].map(|line| format!(".github/workflows/ci.yml:{line}: {refused}"))
+        );
+    }
+
+    #[test]
+    fn code_01_a_dockerfile_picks_no_toolchain_through_rustup_s_variable_run_override_or_default() {
+        let dockerfile = format!(
+            "# syntax=docker/dockerfile:1.27.1@sha256:{DIGEST}\nENV RUSTUP_TOOLCHAIN=1.98.0\nARG rustup_toolchain\nRUN rustup run 1.98.0 cargo build\nRUN rustup override set 1.98.0\nRUN rustup -q +stable run nightly cargo build\nRUN \"rustup\" --verbose default nightly\nRUN rustup 'run' nightly cargo build\nRUN rustup default && rustup show && rustup toolchain install || true\n"
+        );
+
+        let findings = findings_with(DOCKERFILE, &dockerfile);
+
+        let refused = "the image builds with the toolchain rust-toolchain.toml pins (CODE-01)";
+        assert_eq!(
+            findings,
+            [2, 3, 4, 5, 6, 7, 8].map(|line| format!("Dockerfile:{line}: {refused}"))
+        );
+    }
+
+    #[test]
+    fn code_01_the_justfile_and_the_files_it_imports_pick_no_toolchain() {
+        let mut files = pinned();
+        files[0].1.push_str(
+            "import 'just/build.just'\nexport RUSTUP_TOOLCHAIN := \"nightly\"\n\ntest:\n    cargo +nightly test\n\nsetup:\n    rustup show active-toolchain > /dev/null || rustup toolchain install\n    for tool in rustup git docker; do command -v \"$tool\"; done\n    rustup show active-toolchain | Out-Null; if ($LASTEXITCODE -ne 0) { rustup toolchain install }\n",
+        );
+        files.push((
+            "just/build.just".to_owned(),
+            "build:\n    @rustup run nightly cargo build\n    -rustup \\\n        override set nightly\n    # rustup run nightly, a comment\n".to_owned(),
+        ));
+        let files: Vec<(&str, &str)> = files
+            .iter()
+            .map(|(path, text)| (path.as_str(), text.as_str()))
+            .collect();
+
+        let findings: Vec<String> = check(&Repo::of(&files))
+            .findings
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+
+        let refused = "the tasks build with the toolchain rust-toolchain.toml pins (CODE-01)";
+        assert_eq!(
+            findings,
+            [
+                format!("justfile:4: {refused}"),
+                format!("justfile:7: {refused}"),
+                format!("just/build.just:2: {refused}"),
+                format!("just/build.just:3: {refused}"),
+            ]
+        );
+    }
+
+    #[test]
+    fn ops_11_an_add_of_a_variable_or_of_a_quoted_address_is_pinned_by_its_checksum() {
+        let dockerfile = format!(
+            "# syntax=docker/dockerfile:1.27.1@sha256:{DIGEST}\nARG ZIG_URL=https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz\nADD $ZIG_URL /zig.tar.xz\nADD ${{ZIG_URL}} /zig.tar.xz\nADD \"https://example.org/a.tar.xz\" /a\nADD HTTPS://example.org/b.tar.xz /b\nADD --checksum=sha256:{DIGEST} $ZIG_URL /zig.tar.xz\nADD --chown=$USER local.tar.xz /c\n"
+        );
+
+        let findings = findings_with(DOCKERFILE, &dockerfile);
+
+        let variable = "check-pins doesn't read a variable in an ADD: pin it by its checksum, with --checksum=sha256:, or write its source out (OPS-11)";
+        let download = "a download is pinned by its checksum, with --checksum=sha256: (OPS-11)";
+        assert_eq!(
+            findings,
+            [
+                format!("Dockerfile:3: {variable}"),
+                format!("Dockerfile:4: {variable}"),
+                format!("Dockerfile:5: {download}"),
+                format!("Dockerfile:6: {download}"),
+            ]
+        );
+    }
+
+    #[test]
+    fn ops_11_a_from_or_a_mount_in_quotes_or_in_another_case_is_refused_and_a_mount_s_key_has_no_case()
+     {
+        let dockerfile = format!(
+            "# syntax=docker/dockerfile:1.27.1@sha256:{DIGEST}\nFROM alpine:3.24.3@sha256:{DIGEST} AS base\nRUN --mount=\"from=golang:1.26,target=/go\" true\nRUN --mount=type=bind,FROM=golang:1.26,target=/go true\nRUN --MOUNT=from=golang:1.26 true\nRUN --mount from=golang:1.26 true\nCOPY --from='busybox:1.37' /a /a\nCOPY --From=busybox:1.37 /b /b\nRUN --mount=type=cache,From=base,target=/c true\n"
+        );
+
+        let findings = findings_with(DOCKERFILE, &dockerfile);
+
+        let unread = "check-pins reads a --from= or a --mount= in lower case, with no quote in its value (OPS-11)";
+        assert_eq!(
+            findings,
+            [
+                format!("Dockerfile:3: {unread}"),
+                "Dockerfile:4: the image golang:1.26 is pinned by digest (OPS-11)".to_owned(),
+                format!("Dockerfile:5: {unread}"),
+                format!("Dockerfile:6: {unread}"),
+                format!("Dockerfile:7: {unread}"),
+                format!("Dockerfile:8: {unread}"),
+            ]
+        );
+    }
+
+    #[test]
+    fn ops_11_a_crate_that_cargo_installs_after_cargo_s_own_options_is_pinned_by_version() {
+        let dockerfile = format!(
+            "# syntax=docker/dockerfile:1.27.1@sha256:{DIGEST}\nRUN cargo -q install cargo-chef\nRUN cargo --color never install --locked cargo-zigbuild\nRUN cargo --locked install cargo-auditable@0.7.7\n"
+        );
+
+        let findings = findings_with(DOCKERFILE, &dockerfile);
+
+        assert_eq!(
+            findings,
+            [
+                "Dockerfile:2: cargo-chef names an exact version, as name@1.2.3; cargo install takes --locked (OPS-11)",
+                "Dockerfile:3: cargo-zigbuild names an exact version, as name@1.2.3 (OPS-11)",
+            ]
+        );
+    }
+
+    #[test]
+    fn ops_11_a_command_s_words_end_at_each_word_that_ends_a_command() {
+        for end in ["&&", "||", "|", ";", "&", "\\", ")", "}"] {
+            let dockerfile = format!(
+                "# syntax=docker/dockerfile:1.27.1@sha256:{DIGEST}\nRUN apt-get install --yes jq=1.7.1-6 {end} true && cargo install --locked cargo-chef@0.1.78 {end} true && rustup toolchain install {end} true\n"
+            );
+
+            let findings = findings_with(DOCKERFILE, &dockerfile);
+
+            assert_eq!(findings, Vec::<String>::new(), "{end}");
+        }
+    }
+
+    #[test]
+    fn ops_11_a_dockerfile_s_parser_directive_escape_is_refused() {
+        let dockerfile = format!(
+            "# syntax=docker/dockerfile:1.27.1@sha256:{DIGEST}\n# escape=`\nFROM alpine:3.24.3@sha256:{DIGEST}\nRUN apt-get install --yes jq=1.7.1-6`\n    curl\n#ESCAPE=`\n\t#  Escape =  `\n# escaped=no, and the escape character\n"
+        );
+
+        let findings = findings_with(DOCKERFILE, &dockerfile);
+
+        let refused = "check-pins reads a Dockerfile whose lines go on after a `\\`: remove the parser directive escape (OPS-11)";
+        assert_eq!(
+            findings,
+            [2, 6, 7].map(|line| format!("Dockerfile:{line}: {refused}"))
+        );
+    }
+
+    #[test]
+    fn ops_11_a_compose_image_from_a_variable_the_deploy_doesn_t_set_or_with_text_after_it_is_pinned_by_digest()
+     {
+        let images = [
+            "${REGISTRY:?}/api:${TAG:?}",
+            "${API_IMAGE_BLUE:?the image}${TAG}",
+            "${OTHER}",
+            "${TAG?the image}",
+            "${api_image_blue}",
+            "${API_IMAGE_BLUE_2:?the image}",
+        ];
+        let compose: String = std::iter::once("services:\n".to_owned())
+            .chain(
+                images
+                    .iter()
+                    .enumerate()
+                    .map(|(at, image)| format!("  s{at}:\n    image: {image}\n")),
+            )
+            .collect();
+
+        let findings = findings_with("deploy/compose.yaml", &compose);
+
+        let expected: Vec<String> = images
+            .iter()
+            .enumerate()
+            .map(|(at, image)| {
+                format!(
+                    "deploy/compose.yaml:{}: the image {image} is pinned by digest (OPS-11)",
+                    2 * at + 3
+                )
+            })
+            .collect();
+        assert_eq!(findings, expected);
+    }
+
+    #[test]
+    fn ops_11_the_deploy_writes_each_variable_that_a_compose_image_may_name() {
+        let repo = Repo::load().unwrap();
+        let apply = repo.file("deploy/tasks/apply.sh").unwrap();
+
+        for name in forms::DEPLOY_IMAGES {
+            assert!(
+                apply.text.contains(&format!("printf '%s\\n' \"{name}=$")),
+                "{name}"
+            );
+        }
     }
 }
