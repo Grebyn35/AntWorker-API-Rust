@@ -18,7 +18,6 @@ use super::{
     hub::{Command, Registered, StreamId, SubscribeError},
     subscription::{Audience, Closed, Event},
 };
-#[cfg(feature = "test-support")]
 use crate::errors;
 use crate::{
     authn::Principal,
@@ -153,9 +152,12 @@ impl Streams {
         match command {
             Command::Register { principal, reply } => {
                 let registered = self.register(principal);
-                // A subscription that stopped waiting has gone; the stream goes with it.
-                if let Err(Ok(registered)) = reply.send(registered) {
-                    self.remove(registered.id);
+                match reply.send(registered) {
+                    Ok(()) => {}
+                    // A subscription that stopped waiting has gone; the stream goes with it.
+                    Err(Ok(registered)) => self.remove(registered.id),
+                    // One that stopped waiting for a refusal leaves no stream to remove.
+                    Err(Err(refusal)) => errors::ignore(&refusal, "refusal_reader_gone"),
                 }
             }
             Command::Activate {

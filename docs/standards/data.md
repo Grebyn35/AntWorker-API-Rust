@@ -164,6 +164,7 @@ A list query filters by the cursor's sort key, with the ID as tiebreaker, and ne
 
 ### DATA-18 Optimistic updates check the version
 An update made with `If-Match` keeps its `WHERE` to the versions the header names, such as `version = ANY($2)`. Zero rows updated becomes `PreconditionFailed`.
+A request to invite whose refresh updates no row becomes `PreconditionFailed` only where INVITATIONS-002 and INVITATIONS-014 don't refuse it first ([invitations spec](../spec/invitations.md#inviting)). <!-- part: invitations -->
 - Why: lost updates are detected in the same statement that would cause them (API-13).
 - Check: `test` (PLATFORM-071, and each update that takes `If-Match` has a test of a stale version's 412, such as ACCOUNTS-007's and WORKSPACES-013's), plus `review` (that the update's own `WHERE` names the versions, where a read before it would pass the same tests).
 

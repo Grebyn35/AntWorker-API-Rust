@@ -39,7 +39,12 @@ pub enum Operation {
     // part: workspace_setup
     /// Creates a workspace, owned by the account that holds an address, and, with email on,
     /// creates that account when no account holds the address, and tells the address. Exits 1,
-    /// changing nothing, when an earlier run was given the name, or the account may not own it.
+    /// changing nothing, when the name, the address or the owner's name given isn't one; with
+    /// email on, when the account that holds the address has a password or a sign-in provider
+    /// and hasn't proved the address, when no account holds it and no owner's name was given, or
+    /// when an account takes the address while the run creates one; with email off, when no
+    /// account holds the address, or the account has no password and no sign-in provider; and
+    /// when an earlier run was given the name.
     SetupWorkspace {
         /// The workspace's name.
         name: String,

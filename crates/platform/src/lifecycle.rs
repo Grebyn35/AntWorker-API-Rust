@@ -594,8 +594,14 @@ mod tests {
 
     #[test]
     fn platform_109_without_the_variable_the_runtime_is_built() {
+        // A runtime that tokio's builder builds with no count of worker threads given.
+        let tokio_s = tokio::runtime::Builder::new_multi_thread().build().unwrap();
+
         let built = runtime(None).unwrap();
 
-        assert!(built.metrics().num_workers() > 0);
+        assert_eq!(
+            built.metrics().num_workers(),
+            tokio_s.metrics().num_workers()
+        );
     }
 }

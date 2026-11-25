@@ -84,8 +84,8 @@
 #       Creates the workspace <name>, owned by the account that holds <email>, through the API's
 #       subcommand of the same name, with the image of the color that serves. With email on, it
 #       creates that account, named <owner's name>, when no account holds the address, and tells
-#       the address. Fails, changing nothing, when an earlier run was given the name, or the
-#       account may not own the workspace.
+#       the address. Fails, changing nothing, when the subcommand sets nothing up, for a reason
+#       that its help gives (WORKSPACES-028).
 # end part: workspace_setup
 # part: superadmins
 #   deploy.sh superadmin <add|remove> <email>

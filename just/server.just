@@ -122,9 +122,9 @@ restore-files host moment:
 # holds `email` (WORKSPACES-023, D65). With email on, it creates that account, named
 # `owner_name`, when no account holds the address, and tells the address how its owner signs in;
 # with email off, the owner registers first. It runs the API's subcommand `setup-workspace` with
-# the image of the color that serves, and exits 1, changing nothing, when an earlier run was given
-# the name, or the account may not own the workspace. docs/operations/deploy.md says when to run
-# it.
+# the image of the color that serves, and exits 1, changing nothing, when the subcommand sets
+# nothing up, for a reason that its help gives (WORKSPACES-028). docs/operations/deploy.md says
+# when to run it.
 [doc("Sets up a workspace for its owner on a server")]
 [group('server')]
 setup-workspace host name email owner_name="":

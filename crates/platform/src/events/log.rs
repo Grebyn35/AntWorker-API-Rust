@@ -108,8 +108,8 @@ pub(super) async fn position(
 
 /// The events after `after`, up to `through`, that `user` with `memberships` may receive, in
 /// order: their own, and those of each of their workspaces whose permission their role holds
-/// there, committed after their membership (SEC-19). At most [`REPLAY_LIMIT`] and one more, which
-/// tells that the replay would be cut short.
+/// there, committed with their membership or after it (SEC-19). At most [`REPLAY_LIMIT`] and one
+/// more, which tells that the replay would be cut short.
 pub(super) async fn replay(
     uow: &mut UnitOfWork,
     user: UserId,

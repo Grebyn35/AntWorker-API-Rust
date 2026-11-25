@@ -42,9 +42,8 @@ end_sessions() {
 # part: workspace_setup
 # Creates the workspace named $1, owned by the account that holds the address $2, through the
 # API's subcommand setup-workspace, which, with email on, creates that account, named $3, when no
-# account holds the address, and tells the address. It exits 1, changing nothing, when an earlier
-# run was given the name, or the account may not own the workspace (WORKSPACES-023 to
-# WORKSPACES-028, D65).
+# account holds the address, and tells the address. It exits 1, changing nothing, when the
+# subcommand sets nothing up (WORKSPACES-023 to WORKSPACES-028, D65).
 setup_workspace() {
     operate setup-workspace "$@"
 }

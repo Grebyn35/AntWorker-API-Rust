@@ -1401,3 +1401,38 @@ async fn invitations_018_an_invitation_at_a_role_the_caller_may_not_offer_answer
         .await;
     assert_eq!(row, ["admin 1"]);
 }
+
+#[tokio::test]
+async fn invitations_018_a_keyed_retry_answers_the_first_answer_whatever_its_if_match_names() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let workspace = acme(&api, &ada, &[]).await;
+    let read = invite(&api, &ada, &workspace, "carol@example.com", "member").await;
+    let path = format!("/v1/workspaces/{workspace}/invitations");
+    let body = json!({ "email": "carol@example.com", "role": "admin" });
+    // A keyed refresh that names the version the client read, which the first one moves past.
+    let refresh = || {
+        api.post(&path, &body)
+            .bearer(&ada.access)
+            .header("idempotency-key", "\"refresh-carol\"")
+            .header("if-match", read.header("etag"))
+            .send()
+    };
+    let first = refresh().await;
+    let before = written(&api).await;
+
+    let retry = refresh().await;
+
+    assert_eq!(read.header("etag"), "\"1\"");
+    assert_eq!(first.status, 200);
+    assert_eq!(first.header("etag"), "\"2\"");
+    assert_eq!(retry.status, 200);
+    assert_eq!(retry.json(), first.json());
+    assert_eq!(retry.header("etag"), first.header("etag"));
+    let version = api
+        .database()
+        .owner_reads("SELECT version::text FROM invitations")
+        .await;
+    assert_eq!(version, ["2"]);
+    assert_eq!(written(&api).await, before);
+}

@@ -1,6 +1,6 @@
 //! The workspaces a user belongs to, as the hub reads them for its streams, and the transactions
 //! that had committed when an event did, by which a stream receives only the events that
-//! committed after its caller's membership (SEC-19).
+//! committed with its caller's membership or after it (SEC-19).
 
 use std::collections::BTreeMap;
 
@@ -9,7 +9,7 @@ use crate::types::WorkspaceId;
 /// The workspaces a user belongs to, each with the names of the permissions their role holds
 /// there and the transaction that added them, which `AccessPolicy::memberships` reads for the
 /// hub, so a stream receives only the workspace events its caller may, and of those only the ones
-/// that committed after their membership did (SEC-19).
+/// that committed with their membership or after it (SEC-19).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Memberships {
     workspaces: BTreeMap<WorkspaceId, Membership>,

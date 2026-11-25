@@ -27,7 +27,8 @@ pub(crate) const EVENT_EXTENSION: &str = "x-event";
 pub enum FrameId {
     /// Every frame has one: an event's ID.
     Always,
-    /// Some frames have one, such as the `stream.opened` of a stream that a reconnect resumes.
+    /// Some frames have one, such as the `stream.opened` of a stream that starts with what
+    /// commits next, which names where a reconnect resumes it.
     Sometimes,
     /// No frame has one.
     Never,
