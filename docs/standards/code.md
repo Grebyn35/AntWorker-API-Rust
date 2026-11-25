@@ -57,7 +57,7 @@ Code outside `platform` doesn't create its own random number generators.
 ### CODE-07 Shell passes shellcheck
 Every recipe of the justfile and the files it imports that runs on Linux and macOS, and every shell script under `deploy/`, passes shellcheck with no finding, a script together with the files it sources. A finding is disabled only by a directive on the line before the command it concerns, with a comment that states the reason. A script under `deploy/` writes a value with `printf '%s\n'`, never with `echo`, and no function of it, or of a file it sources, assigns a variable that its top level sets.
 - Why: in shell, a quoting slip runs a different command than the one written, and a script that deploys or restores runs where a mistake costs the most (D21). A server's `sh`, such as Ubuntu's dash, reads a backslash in `echo`'s arguments as an escape, and `\c` ends its output, while the tests' server, on Alpine, writes it as it is. Every variable of `sh` is global, so a function that assigns one the top level sets changes what the rest of the script reads.
-- Check: `ci: check-shell`, which reads a script's `echo` and its functions as the doc of [`scripts.rs`](../../crates/xtask/src/shell/scripts.rs) says.
+- Check: `ci: check-shell`, which reads a script's `echo` and its functions as the doc of [`scripts.rs`](../../crates/xtask/src/shell/scripts.rs) says, plus `review` (an `echo` in a form that the doc doesn't name, such as one with a quote between its letters, or a command that an expansion names).
 
 ## Size
 

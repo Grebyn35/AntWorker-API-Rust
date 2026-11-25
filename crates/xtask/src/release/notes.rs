@@ -134,14 +134,17 @@ mod tests {
         \n\
         Apply the migrations.\n";
 
-    /// [`WRITTEN`] with each line that `changes` names replaced, or left out where the
-    /// replacement is empty.
+    /// [`WRITTEN`] with the first line equal to each line that `changes` names replaced, or left
+    /// out where the replacement is empty: a change of `### Upgrade notes` changes 1.4.0's alone.
     fn written(changes: &[(&str, &str)]) -> String {
         let mut text = String::new();
+        let mut left: Vec<&(&str, &str)> = changes.iter().collect();
         for line in WRITTEN.lines() {
-            match changes.iter().find(|(from, _)| *from == line) {
-                Some((_, "")) => {}
-                Some((_, to)) => text.extend([to, "\n"]),
+            match left.iter().position(|(from, _)| *from == line) {
+                Some(at) => match left.remove(at) {
+                    (_, "") => {}
+                    (_, to) => text.extend([to, "\n"]),
+                },
                 None => text.extend([line, "\n"]),
             }
         }
@@ -243,5 +246,23 @@ mod tests {
             lacks_line(&[("### Capacity", "### Capacity\n\n### Notes")]),
             "`Capacity:` and the one that starts with `Hub capacity:`"
         );
+    }
+
+    #[test]
+    fn ops_16_a_final_release_needs_the_load_tests_lines_in_its_own_section() {
+        // The section of 1.4.0 without its capacity, above a section of 1.3.0 that holds one.
+        let earlier_alone = format!(
+            "{}\n### Capacity\n\n- Capacity: 800 requests a second.\n- Hub capacity: 300 events \
+             a second.\n",
+            written(&[("### Capacity", "")])
+        );
+
+        let lack = lacks(&earlier_alone, v("1.4.0"));
+
+        assert_eq!(
+            lack.map(|lack| lack.contains("lacks what one replica serves")),
+            Some(true)
+        );
+        assert_eq!(lacks(&earlier_alone, v("1.3.0")), None);
     }
 }

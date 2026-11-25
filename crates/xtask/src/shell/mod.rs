@@ -13,10 +13,12 @@
 //!
 //! `just` lists only the recipes of the platform it runs on, so the check reads the justfile and
 //! the files it imports itself, and checks the same recipes on every platform. Each recipe
-//! becomes a script whose lines stand where they stand in its file, so a finding's line is the
-//! file's. An
+//! becomes a script whose body's lines stand where they stand in its file, so a finding's line
+//! there is the file's, but its shebang, which stands on the script's first line. An
 //! interpolation becomes a word of its own, since `just` writes its value into the line before
-//! the shell reads it. shellcheck runs from the image that `compose.yaml` pins. The check reads
+//! the shell reads it. The check refuses a recipe whose script has no line on which to declare
+//! the parameters it exports, as the doc of `recipes::crowded` says. shellcheck runs from the
+//! image that `compose.yaml` pins. The check reads
 //! the directives itself, since shellcheck applies any directive it finds, in the one form that
 //! the doc of `directive_problems` names, and refuses a comment that looks like one in another.
 
@@ -59,16 +61,7 @@ pub fn check(repo: &Repo) -> Outcome {
             return outcome(findings);
         }
     };
-    for file in &justfiles {
-        for recipe in recipes::recipes(&file.text)
-            .iter()
-            .filter(|recipe| recipe.unix)
-        {
-            for (line, message) in directive_problems(&recipes::render(recipe)) {
-                findings.push(Finding::new(&file.path, line, message));
-            }
-        }
-    }
+    findings.extend(recipe_problems(&justfiles));
     let scripts = scripts::scripts(repo);
     let tables: Vec<String> = tenancy::tables(repo).into_keys().collect();
     for path in &scripts {
@@ -128,6 +121,31 @@ pub fn check(repo: &Repo) -> Outcome {
         Err(error) => findings.push(Finding::new(JUSTFILE, 1, error)),
     }
     outcome(findings)
+}
+
+/// What the check refuses itself in each recipe of `justfiles` that runs on Linux and macOS: a
+/// recipe that `recipes::crowded` finds, and each directive of its script that
+/// [`directive_problems`] refuses.
+fn recipe_problems(justfiles: &[&repo::File]) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    for file in justfiles {
+        for recipe in recipes::recipes(&file.text)
+            .iter()
+            .filter(|recipe| recipe.unix)
+        {
+            if recipes::crowded(recipe) {
+                findings.push(Finding::new(
+                    &file.path,
+                    1,
+                    "the recipe exports a parameter, and its body's first line, the file's line 2, is no shebang, so check-shell has no line on which to declare the parameters in the script it checks: put a line, such as a comment, above the recipe (CODE-07)",
+                ));
+            }
+            for (line, message) in directive_problems(&recipes::render(recipe)) {
+                findings.push(Finding::new(&file.path, line, message));
+            }
+        }
+    }
+    findings
 }
 
 fn outcome(findings: Vec<Finding>) -> Outcome {
@@ -307,6 +325,28 @@ mod tests {
 
         assert_eq!(directive_problems(read), []);
         assert_eq!(lines, [3, 5, 7, 9, 10, 12]);
+    }
+
+    #[test]
+    fn code_07_a_recipe_whose_script_can_t_declare_its_exported_parameters_is_refused() {
+        let repo = Repo::of(&[
+            (
+                "justfile",
+                "dev $mode:\n    true\n\nimport 'just/check.just'\n",
+            ),
+            ("just/check.just", "# Checks.\ncheck $mode:\n    true\n"),
+        ]);
+        let justfiles = justfiles(&repo);
+
+        let found: Vec<(String, usize, bool)> = recipe_problems(&justfiles)
+            .into_iter()
+            .map(|finding| {
+                let declares = finding.message.contains("declare the parameters");
+                (finding.path, finding.line, declares)
+            })
+            .collect();
+
+        assert_eq!(found, [("justfile".to_owned(), 1, true)]);
     }
 
     #[test]

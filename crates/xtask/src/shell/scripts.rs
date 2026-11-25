@@ -6,31 +6,25 @@
 
 use crate::repo::Repo;
 
-/// Each line of `script` whose `echo` writes a value: an argument with an expansion, as
-/// [`writes_expansion`] reads it on the `echo`'s line, or whose arguments go on past the line,
-/// which the check doesn't read. An `echo` is the text `echo ` at the line's start, or after
-/// white space or one of `(`, `;`, `|`, `&` and `{`, on a line whose first character other than
-/// white space isn't `#`: so the word in a string or in a comment after a command reads as one,
-/// and an `echo ` after a backtick doesn't. A server's sh, such as Ubuntu's dash, reads a
-/// backslash in echo's arguments as an escape, and `\c` ends the output, while printf's `%s`
-/// writes the value as it is. Alpine's sh, the tests' server's, writes it as it is, so no test
-/// would find one.
+/// Each line of `script` whose `echo` writes a value, or whose arguments go on past the line,
+/// which the check doesn't read, as [`echoed`] reads them. An `echo` is the text `echo` on a
+/// line whose first character other than white space isn't `#`, with before it the line's
+/// start, white space, a backslash, a quote, a backtick or one of `(`, `;`, `|`, `&` and `{`, and
+/// after it the line's end, white space, a backslash, a quote, a backtick, a `<` or a `>`: so
+/// the word in a string or in a comment after a command reads as one. A server's sh, such as
+/// Ubuntu's dash, reads a backslash in echo's arguments as an escape, and `\c` ends the output,
+/// while printf's `%s` writes the value as it is. Alpine's sh, the tests' server's, writes it as
+/// it is, so no test would find one.
 pub fn echo_problems(script: &str) -> Vec<(usize, &'static str)> {
     let mut problems = Vec::new();
     for (index, line) in script.lines().enumerate() {
         if line.trim_start().starts_with('#') {
             continue;
         }
-        let written = line.match_indices("echo ").map(|(start, _)| {
-            let command = start == 0
-                || line[..start].ends_with(|c: char| c.is_whitespace() || "(;|&{".contains(c));
-            if command {
-                writes_expansion(&line[start + 5..])
-            } else {
-                Echoed::Text
-            }
-        });
-        let written: Vec<Echoed> = written.collect();
+        let written: Vec<Echoed> = line
+            .match_indices("echo")
+            .filter_map(|(start, _)| echoed(line, start))
+            .collect();
         if written.contains(&Echoed::Expansion) {
             problems.push((
                 index + 1,
@@ -57,11 +51,63 @@ enum Echoed {
     Unread,
 }
 
-/// Whether `arguments`, the text after an `echo `, holds a `$` or a backtick outside single
-/// quotes, which no backslash escapes, before the command ends at a `;`, `|`, `&`, `)` or a `#`
-/// that starts a word, outside quotes; or whether, with neither before the line ends, a quote
-/// that the line doesn't close, or a backslash that ends the line, carries them on to the next.
-/// The `&` of a redirection, as in `>&2`, ends nothing, and the word after a `>` or a `<` is the
+/// What the `echo` at `start` of `line` writes, or `None` where the text there is no `echo`, as
+/// [`echo_problems`] reads one. Where a quote stands before it and the same quote after it, as
+/// in `"echo" "$x"`, its arguments are the text after that second quote. Where a quote stands
+/// before it alone, they are the text of the string that the quote opens, up to the next `'`
+/// after a `'`, or after a `"` up to the next `"` that no backslash escapes: they write a value
+/// where that text holds a `$` or a backtick, and go on past the line where no quote closes the
+/// string. Where a backtick stands before it, they are the text up to the next backtick that no
+/// backslash escapes, and go on past the line where none comes, and a backtick that a backslash
+/// escapes in them starts a command substitution, which writes a value. Elsewhere they are the
+/// text after the `echo`. [`writes_expansion`] reads the arguments but a string's.
+fn echoed(line: &str, start: usize) -> Option<Echoed> {
+    let before = line[..start].chars().next_back();
+    let after = &line[start + "echo".len()..];
+    let starts = before.is_none_or(|c| c.is_whitespace() || "\\\"'`(;|&{".contains(c));
+    let ends = after
+        .chars()
+        .next()
+        .is_none_or(|c| c.is_whitespace() || "\\\"'`<>".contains(c));
+    if !(starts && ends) {
+        return None;
+    }
+    Some(match before {
+        Some(quote @ ('"' | '\'')) => match after.strip_prefix(quote) {
+            Some(arguments) => writes_expansion(arguments),
+            None => match closed(after, quote) {
+                None => Echoed::Unread,
+                Some(text) if text.contains(['$', '`']) => Echoed::Expansion,
+                Some(_) => Echoed::Text,
+            },
+        },
+        Some('`') => match closed(after, '`') {
+            None => Echoed::Unread,
+            Some(text) if text.contains("\\`") => Echoed::Expansion,
+            Some(text) => writes_expansion(text),
+        },
+        _ => writes_expansion(after),
+    })
+}
+
+/// The text of `rest` before its next `close` that no backslash escapes, where a backslash
+/// escapes nothing when `close` is `'`, or `None` where `rest` holds none.
+fn closed(rest: &str, close: char) -> Option<&str> {
+    let mut escaped = false;
+    for (at, c) in rest.char_indices() {
+        if c == close && !escaped {
+            return Some(&rest[..at]);
+        }
+        escaped = close != '\'' && c == '\\' && !escaped;
+    }
+    None
+}
+
+/// Whether `arguments`, an `echo`'s as [`echoed`] cuts them, hold a `$` or a backtick outside
+/// single quotes, which no backslash escapes, before the command ends at a `;`, `|`, `&`, `)` or
+/// a `#` that starts a word, outside quotes; or whether, with neither before they end, a quote
+/// that they don't close, or a backslash that ends them, carries them on to the next line. The
+/// `&` of a redirection, as in `>&2`, ends nothing, and the word after a `>` or a `<` is the
 /// redirection's, no argument.
 fn writes_expansion(arguments: &str) -> Echoed {
     let mut quote = None;
@@ -287,8 +333,9 @@ fn defined(code: &str) -> Option<(&str, Option<&str>)> {
 /// The variables that `line` assigns: each word `name=...` where a command starts, before its
 /// command word; the `name` of `for name in`; the names that `read`, `export`, `readonly`,
 /// `local` and `unset` take, and the variable of `getopts`; and each `${name:=...}` or
-/// `${name=...}` outside single quotes. Words are split outside quotes, and a command starts at
-/// the line's start, after `;`, `&`, `|` and `(`, and after a keyword such as `then`.
+/// `${name=...}` that [`expansions`] reads. Words are split as [`tokens`] splits them, and a
+/// command starts at the line's start, after `;`, `&`, `|` and `(`, and after a keyword such as
+/// `then`.
 fn assigned(line: &str) -> Vec<String> {
     const KEYWORDS: [&str; 10] = [
         "if", "then", "else", "elif", "do", "while", "until", "!", "{", "time",
@@ -345,68 +392,108 @@ fn assigned(line: &str) -> Vec<String> {
     names
 }
 
-/// The variables that `${name:=...}` and `${name=...}` assign in `line`, outside single quotes
-/// and before a comment.
+/// The variables that `${name:=...}` and `${name=...}` assign in `line`: each whose `$` [`read`]
+/// takes outside single quotes, with no backslash before it, and before the line's comment.
 fn expansions(line: &str) -> Vec<String> {
-    let mut names = Vec::new();
-    let mut quoted = false;
-    let bytes = line.as_bytes();
-    let mut index = 0;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'\'' => quoted = !quoted,
-            b'#' if !quoted && (index == 0 || bytes[index - 1].is_ascii_whitespace()) => break,
-            b'$' if !quoted && bytes.get(index + 1) == Some(&b'{') => {
-                let rest = &line[index + 2..];
-                let end = rest
-                    .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
-                    .unwrap_or(rest.len());
-                let (name, after) = rest.split_at(end);
-                if !name.is_empty() && (after.starts_with(":=") || after.starts_with('=')) {
-                    names.push(name.to_owned());
-                }
-            }
-            _ => {}
-        }
-        index += 1;
-    }
-    names
+    let read = read(line);
+    read.windows(2)
+        .filter(|pair| pair[0].1 == '$' && pair[0].2 != Taken::AsItIs && pair[1].1 == '{')
+        .filter_map(|pair| {
+            let rest = &line[pair[1].0 + 1..];
+            let end = rest
+                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                .unwrap_or(rest.len());
+            let (name, after) = rest.split_at(end);
+            (!name.is_empty() && (after.starts_with(":=") || after.starts_with('=')))
+                .then(|| name.to_owned())
+        })
+        .collect()
 }
 
 /// The words of `line` and its separators `;`, `&`, `|`, `(` and `)`, each a token of its own,
-/// split outside quotes, up to a comment.
+/// split where [`read`] takes them outside quotes, before the line's comment.
 fn tokens(line: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut word = String::new();
-    let mut quote: Option<char> = None;
-    for c in line.chars() {
-        match quote {
-            Some(open) => {
-                word.push(c);
-                if c == open {
-                    quote = None;
-                }
+    for (_, c, taken) in read(line) {
+        if taken == Taken::Outside && (c.is_whitespace() || ";&|()".contains(c)) {
+            if !word.is_empty() {
+                tokens.push(std::mem::take(&mut word));
             }
-            None if c == '\'' || c == '"' => {
-                word.push(c);
-                quote = Some(c);
+            if !c.is_whitespace() {
+                tokens.push(c.to_string());
             }
-            None if c == '#' && word.is_empty() => break,
-            None if c.is_whitespace() || ";&|()".contains(c) => {
-                if !word.is_empty() {
-                    tokens.push(std::mem::take(&mut word));
-                }
-                if !c.is_whitespace() {
-                    tokens.push(c.to_string());
-                }
-            }
-            None => word.push(c),
+        } else {
+            word.push(c);
         }
     }
     if !word.is_empty() {
         tokens.push(word);
     }
     tokens
+}
+
+/// How sh takes a character of a line, as [`read`] reads it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Taken {
+    /// Outside quotes, with no backslash before it.
+    Outside,
+    /// Inside double quotes, with no backslash before it.
+    InDoubleQuotes,
+    /// As it is: a quote that opens or closes a string, a backslash outside single quotes and
+    /// the character after it, and each character inside single quotes.
+    AsItIs,
+}
+
+/// Each character of `line` before its comment, with its byte offset and how sh takes it. A `'`
+/// outside quotes opens single quotes, up to the next `'`; a `"` outside quotes opens double
+/// quotes, up to the next `"` that no backslash escapes; outside single quotes, a backslash
+/// takes the character after it as it is; and the comment starts at a `#` outside quotes and
+/// with no backslash before it, at the line's start or after white space or one of `;`, `&`,
+/// `|`, `(` and `)` that stands so too.
+fn read(line: &str) -> Vec<(usize, char, Taken)> {
+    let mut read = Vec::new();
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+    // Whether a word starts at the character being read.
+    let mut word_starts = true;
+    for (at, c) in line.char_indices() {
+        let taken = if escaped {
+            escaped = false;
+            Taken::AsItIs
+        } else {
+            match quote {
+                Some('\'') => {
+                    if c == '\'' {
+                        quote = None;
+                    }
+                    Taken::AsItIs
+                }
+                Some(_) if c == '"' => {
+                    quote = None;
+                    Taken::AsItIs
+                }
+                Some(_) if c == '\\' => {
+                    escaped = true;
+                    Taken::AsItIs
+                }
+                Some(_) => Taken::InDoubleQuotes,
+                None if c == '\'' || c == '"' => {
+                    quote = Some(c);
+                    Taken::AsItIs
+                }
+                None if c == '\\' => {
+                    escaped = true;
+                    Taken::AsItIs
+                }
+                None if c == '#' && word_starts => break,
+                None => Taken::Outside,
+            }
+        };
+        word_starts = taken == Taken::Outside && (c.is_whitespace() || ";&|()".contains(c));
+        read.push((at, c, taken));
+    }
+    read
 }
 
 #[cfg(test)]
@@ -454,6 +541,38 @@ mod tests {
             .collect();
 
         assert_eq!(lines, [3, 4, 5, 6]);
+    }
+
+    #[test]
+    fn code_07_a_function_s_assignment_is_read_as_sh_reads_quotes_backslashes_and_comments() {
+        let script = "#!/bin/sh\n\
+                      state=/var/lib\n\
+                      ask() {\n\
+                      \x20   : \"it's ${state:=a}\"\n\
+                      \x20   : \"a #b\" \"${state:=a}\"\n\
+                      \x20   : it\\'s ${state:=a}\n\
+                      \x20   : \"a\\\"'\" ${state:=a}\n\
+                      \x20   : \\#${state:=a}\n\
+                      \x20   : a\\ #${state:=a}\n\
+                      \x20   : '${state:=a}'\n\
+                      \x20   : \"\\${state:=a}\"\n\
+                      \x20   : \\${state:=a}\n\
+                      \x20   :;#${state:=a}\n\
+                      \x20   : x # ${state:=a}\n\
+                      \x20   message=a\\ state=1\n\
+                      }\n";
+
+        let lines: Vec<usize> = scope_problems(script)
+            .into_iter()
+            .map(|(line, _)| line)
+            .collect();
+
+        assert_eq!(lines, [3, 4, 5, 6, 7, 8]);
+    }
+
+    #[test]
+    fn code_07_a_text_that_starts_with_a_comment_assigns_nothing() {
+        assert_eq!(assigned("#; state=1 ${moment:=a}"), Vec::<String>::new());
     }
 
     #[test]
@@ -553,7 +672,62 @@ mod tests {
             .map(|(line, _)| line)
             .collect();
 
-        assert_eq!(problems, [2, 3, 6]);
+        assert_eq!(problems, [2, 3, 4, 6]);
+    }
+
+    #[test]
+    fn code_07_an_echo_is_read_beside_a_backtick_a_backslash_a_quote_or_any_white_space() {
+        let script = "#!/bin/sh\n\
+            v=`echo \"$y\"`\n\
+            \\echo \"$v\"\n\
+            \"echo\" \"$v\"\n\
+            'echo' \"$v\"\n\
+            echo\t\"$v\"\n\
+            echo>&2 \"$v\"\n\
+            echo\\\n\
+            \x20 \"$v\"\n\
+            echo\n\
+            \"echo\" done\n";
+
+        let problems: Vec<usize> = echo_problems(script)
+            .into_iter()
+            .map(|(line, _)| line)
+            .collect();
+
+        assert_eq!(problems, [2, 3, 4, 5, 6, 7, 8]);
+    }
+
+    #[test]
+    fn code_07_an_echo_after_a_quote_or_a_backtick_reads_its_arguments_up_to_the_closing_one() {
+        let script = "#!/bin/sh\n\
+            v=`echo done` \"$x\"\n\
+            sh -c 'echo \"$1\"' _ \"$x\"\n\
+            sh -c 'echo done' && printf '%s\\n' \"$x\"\n\
+            printf '%s\\n' \"echo done\" \"$x\"\n\
+            eval \"echo \\\"$x\\\"\"\n\
+            sh -c 'echo \\' \"$x\"\n\
+            v=`echo \\`date\\``\n\
+            sh -c 'echo; ls $x'\n\
+            sh -c 'echo \"$1\"\n\
+            sh -c 'echo\n\
+            v=`echo done\n";
+
+        let problems: Vec<(usize, bool)> = echo_problems(script)
+            .into_iter()
+            .map(|(line, problem)| (line, problem.contains("writes a value")))
+            .collect();
+
+        assert_eq!(
+            problems,
+            [
+                (3, true),
+                (6, true),
+                (8, true),
+                (10, false),
+                (11, false),
+                (12, false)
+            ]
+        );
     }
 
     #[test]

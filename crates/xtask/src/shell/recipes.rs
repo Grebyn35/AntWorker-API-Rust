@@ -1,5 +1,6 @@
-//! The justfile's recipes, each written as a script whose lines stand where they stand in the
-//! justfile, so that a finding of shellcheck names the justfile's line.
+//! The justfile's recipes, each written as a script whose body's lines stand where they stand in
+//! the justfile, so that a finding of shellcheck there names the justfile's line, but its
+//! shebang, which [`render`] writes on the script's first line.
 
 use std::{collections::BTreeMap, io};
 
@@ -100,22 +101,42 @@ fn exported(line: &str) -> Vec<String> {
         .collect()
 }
 
-/// The script that `recipe` runs on Linux and macOS, with each line of its body on the line
-/// where the justfile holds it. A recipe without a shebang runs each line with `sh`, `just`'s
-/// shell there, after the `@` and `-` that start a line are taken off.
-pub fn render(recipe: &Recipe) -> String {
-    let shebang = recipe
+/// The line of `recipe`'s body that is its shebang: its first line that isn't blank, where that
+/// line starts with `#!`.
+fn shebang(recipe: &Recipe) -> Option<&(usize, String)> {
+    recipe
         .body
         .iter()
         .find(|(_, line)| !line.trim().is_empty())
-        .filter(|(_, line)| line.trim_start().starts_with("#!"));
+        .filter(|(_, line)| line.trim_start().starts_with("#!"))
+}
+
+/// Whether `recipe` exports a parameter, and the first line of its body stands on its file's
+/// line 2 and isn't its shebang, as where its header is its file's first line: [`render`] keeps
+/// line 2 for the parameters' `export`, so the script it writes declares none of them, and
+/// check-shell refuses the recipe.
+pub fn crowded(recipe: &Recipe) -> bool {
+    !recipe.exported.is_empty()
+        && recipe.body.first().is_some_and(|(number, _)| {
+            *number == 2 && shebang(recipe).is_none_or(|(at, _)| at != number)
+        })
+}
+
+/// The script that `recipe` runs on Linux and macOS: its shebang, or `#!/bin/sh` where it has
+/// none, on line 1; on line 2, where the recipe isn't [`crowded`], the `export` of the
+/// parameters it exports; and each other line of its body on the line where the justfile holds
+/// it. A recipe without a shebang runs each line with `sh`, `just`'s shell there, after the `@`
+/// and `-` that start a line are taken off.
+pub fn render(recipe: &Recipe) -> String {
+    let shebang = shebang(recipe);
     let mut script = vec![match shebang {
         Some((_, line)) => line.trim().to_owned(),
         None => "#!/bin/sh".to_owned(),
     }];
     // `just` sets the exported parameters in the shell's environment, so the script declares
-    // them on a line the body leaves empty: the recipe's header is always above the body.
-    if !recipe.exported.is_empty() {
+    // them on line 2, which a line of the body other than the shebang takes only in a recipe
+    // that is crowded.
+    if !recipe.exported.is_empty() && !crowded(recipe) {
         let values: Vec<String> = recipe
             .exported
             .iter()
@@ -271,6 +292,29 @@ publish repository commit:
         assert_eq!(found[1].exported, ["mode", "rest"]);
         assert_eq!(dev[1], "export mode=just_value rest=just_value");
         assert_eq!(dev[4], "    case \"$mode\" in *) ;; esac");
+    }
+
+    #[test]
+    fn code_07_a_rendered_recipe_on_its_file_s_first_line_keeps_each_line_of_its_body_there() {
+        let found = recipes("dev $mode=\"\":\n    case \"$mode\" in *) ;; esac\n    true\n");
+
+        let dev: Vec<String> = render(&found[0]).lines().map(str::to_owned).collect();
+
+        assert_eq!(dev[1], "    case \"$mode\" in *) ;; esac");
+        assert_eq!(dev[2], "    true");
+    }
+
+    #[test]
+    fn code_07_a_recipe_whose_exported_parameters_its_script_can_t_declare_is_crowded() {
+        let crowded_by = |justfile: &str| crowded(&recipes(justfile)[0]);
+
+        assert!(crowded_by("dev $mode=\"\":\n    true\n"));
+        assert!(crowded_by("dev +$rest:\n    true\n"));
+        assert!(crowded_by("dev $mode:\n\n    #!/bin/sh\n    true\n"));
+        assert!(!crowded_by("dev $mode:\n    #!/bin/sh\n    true\n"));
+        assert!(!crowded_by("dev mode:\n    true\n"));
+        assert!(!crowded_by("# Runs.\ndev $mode:\n    true\n"));
+        assert!(!crowded_by("dev $mode:\nfmt:\n    true\n"));
     }
 
     #[test]
