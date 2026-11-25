@@ -226,6 +226,7 @@ async fn accounts_022_the_caller_lists_and_reads_their_own_exports_and_no_other_
         .bearer(&ada.access)
         .send()
         .await;
+    let archive = download(&api, &ada, &first, &[]).await.body;
 
     assert_eq!(list.status, 200);
     assert_eq!(list.json()["items"][0]["id"], second.as_str());
@@ -237,6 +238,8 @@ async fn accounts_022_the_caller_lists_and_reads_their_own_exports_and_no_other_
     let export = read.json();
     assert_eq!(export["state"], "ready");
     assert!(export["size_bytes"].as_u64().unwrap() > 0);
+    // Its archive's size in bytes.
+    assert_eq!(export["size_bytes"], archive.len());
     assert!(export["ready_at"].is_string());
     for missing in [theirs.as_str(), "not-a-uuid"] {
         let response = api
@@ -331,7 +334,8 @@ async fn accounts_022_an_export_expires_7_days_after_it_became_ready_or_after_it
 #[tokio::test]
 async fn accounts_023_the_job_builds_the_archive_makes_the_export_ready_and_publishes_it() {
     let api = Api::new().await;
-    let ada = users::register(&api, "ada@example.com").await;
+    let address = mailbox::address("ada");
+    let ada = users::register(&api, &address).await;
     let mut stream = streams::opened(&api, &ada).await;
     let id = request(&api, &ada).await.json()["id"]
         .as_str()
@@ -362,6 +366,10 @@ async fn accounts_023_the_job_builds_the_archive_makes_the_export_ready_and_publ
         event_users(&api, "export.completed").await,
         std::slice::from_ref(&ada.user_id)
     );
+    // The email of ACCOUNTS-025, which the run enqueued, and which the run of its job sent.
+    let emails = mailbox::to(&address).await;
+    assert_eq!(emails.len(), 1);
+    assert_eq!(emails[0].subject, "Your AntWorker data export is ready");
     let documents = one(
         &api,
         &format!("SELECT count(*)::text FROM export_entries WHERE export_id = '{id}'"),
@@ -515,14 +523,21 @@ async fn accounts_023_the_archive_holds_every_module_s_data_as_of_one_moment() {
     assert_eq!(sessions[0]["device_name"], Value::Null);
 }
 
-/// Ada, with a workspace of her own and one of Grace's, an entry of her own log that Grace acted
-/// in, and an entry of each workspace's log, among what each workspace holds; returns Ada, Grace
-/// and both workspaces' IDs.
-async fn arranged(api: &Api) -> (SignedIn, SignedIn, String, String) {
+/// The names of the workspaces whose only member is Ada that [`arranged`] creates, in their order.
+const OWN: [&str; 2] = ["Ada's notes", "Ada's drafts"];
+
+/// Ada, with two workspaces of her own, named [`OWN`], and one of Grace's, an entry of her own
+/// log that Grace acted in, and an entry of each workspace's log, among what each workspace
+/// holds; returns Ada, Grace, her own workspaces' IDs, in the order of [`OWN`], and Grace's
+/// workspace's ID.
+async fn arranged(api: &Api) -> (SignedIn, SignedIn, Vec<String>, String) {
     let ada = users::register(api, "ada@example.com").await;
     let grace = users::register(api, "grace@example.com").await;
     let db = api.database();
-    let own = workspaces::arrange(db, "Ada's notes", &[(&ada.user_id, "owner")]).await;
+    let mut own = Vec::new();
+    for name in OWN {
+        own.push(workspaces::arrange(db, name, &[(&ada.user_id, "owner")]).await);
+    }
     let shared = workspaces::arrange(
         db,
         "Grace's team",
@@ -536,32 +551,54 @@ async fn arranged(api: &Api) -> (SignedIn, SignedIn, String, String) {
         agent: "Grace's browser",
     };
     audit::in_own_log(db, &ada.user_id, &grace.user_id, client).await;
-    for workspace in [&own, &shared] {
+    for workspace in own.iter().chain([&shared]) {
         audit::in_workspace_log(db, workspace, &ada.user_id).await;
     }
     // part: invitations
     // An invitation of each workspace.
-    let mine = invitations::invite(api, &ada, &own, "lin@example.com", "member").await;
-    assert_eq!(mine.status, 201);
+    for (workspace, email) in own.iter().zip(INVITED) {
+        let mine = invitations::invite(api, &ada, workspace, email, "member").await;
+        assert_eq!(mine.status, 201);
+    }
     let theirs = invitations::invite(api, &grace, &shared, "max@example.com", "member").await;
     assert_eq!(theirs.status, 201);
     // end part: invitations
     (ada, grace, own, shared)
 }
 
-/// The workspaces and the memberships that `archive`, Ada's, holds: her own workspace, and both
-/// memberships, with their roles.
-fn assert_workspaces(archive: &[u8], own: &str, shared: &str) {
+// part: invitations
+/// The address that [`arranged`] invites to each of Ada's own workspaces, in the order of [`OWN`].
+const INVITED: [&str; 2] = ["lin@example.com", "joan@example.com"];
+// end part: invitations
+
+/// The strings of `items`, sorted.
+fn sorted<'a>(items: impl IntoIterator<Item = &'a str>) -> Vec<&'a str> {
+    let mut items: Vec<&str> = items.into_iter().collect();
+    items.sort_unstable();
+    items
+}
+
+/// The workspaces and the memberships that `archive`, Ada's, holds: each of her own workspaces,
+/// `own`, named as in [`OWN`], with its `id`, `name`, `created_at` and `updated_at` alone, and
+/// her three memberships, with their roles.
+fn assert_workspaces(archive: &[u8], own: &[String], shared: &str) {
     let workspaces = document(archive, "workspaces/workspaces.json");
-    assert_eq!(
-        workspaces,
-        [json!({
-            "id": own,
-            "name": "Ada's notes",
-            "created_at": workspaces[0]["created_at"],
-            "updated_at": workspaces[0]["updated_at"],
-        })]
-    );
+    let mut held: Vec<(String, String)> = workspaces
+        .iter()
+        .map(|workspace| {
+            let keys = sorted(workspace.as_object().unwrap().keys().map(String::as_str));
+            assert_eq!(keys, ["created_at", "id", "name", "updated_at"]);
+            (
+                workspace["id"].as_str().unwrap().to_owned(),
+                workspace["name"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect();
+    held.sort();
+    let mut named: Vec<(String, String)> =
+        own.iter().cloned().zip(OWN.map(str::to_owned)).collect();
+    named.sort();
+    assert_eq!(held, named);
     let mut roles: Vec<(String, String)> = document(archive, "access/memberships.json")
         .iter()
         .map(|membership| {
@@ -572,17 +609,18 @@ fn assert_workspaces(archive: &[u8], own: &str, shared: &str) {
         })
         .collect();
     roles.sort();
-    let mut expected = vec![
-        (own.to_owned(), "owner".to_owned()),
-        (shared.to_owned(), "member".to_owned()),
-    ];
+    let mut expected: Vec<(String, String)> = own
+        .iter()
+        .map(|workspace| (workspace.clone(), "owner".to_owned()))
+        .collect();
+    expected.push((shared.to_owned(), "member".to_owned()));
     expected.sort();
     assert_eq!(roles, expected);
 }
 
 /// The logs that `archive`, Ada's, holds: her own, with no client of an entry Grace acted in, and
-/// her own workspace's alone.
-fn assert_logs(archive: &[u8], grace: &SignedIn, own: &str) {
+/// those of her own workspaces, `own`, alone, each of which has an entry there.
+fn assert_logs(archive: &[u8], grace: &SignedIn, own: &[String]) {
     let log = document(archive, "audit/log.json");
     let removed = log
         .iter()
@@ -597,14 +635,40 @@ fn assert_logs(archive: &[u8], grace: &SignedIn, own: &str) {
         .unwrap();
     assert!(requested["client_ip"].is_string(), "{requested}");
     let workspace_logs = document(archive, "audit/workspace_logs.json");
-    assert!(!workspace_logs.is_empty());
-    assert!(
+    let mut logged = sorted(
         workspace_logs
             .iter()
-            .all(|entry| entry["workspace_id"] == own),
+            .map(|entry| entry["workspace_id"].as_str().unwrap()),
+    );
+    logged.dedup();
+    assert_eq!(
+        logged,
+        sorted(own.iter().map(String::as_str)),
         "{workspace_logs:?}"
     );
 }
+
+// part: invitations
+/// The invitations that `archive`, Ada's, holds: the one of each of her own workspaces, `own`, to
+/// its address in [`INVITED`], and nothing of the invitation of Grace's workspace.
+fn assert_invitations(archive: &[u8], own: &[String]) {
+    let invited = document(archive, "invitations/invitations.json");
+    let mut held: Vec<(&str, &str)> = invited
+        .iter()
+        .map(|invitation| {
+            (
+                invitation["workspace_id"].as_str().unwrap(),
+                invitation["email"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    held.sort_unstable();
+    let mut sent: Vec<(&str, &str)> = own.iter().map(String::as_str).zip(INVITED).collect();
+    sent.sort_unstable();
+    assert_eq!(held, sent, "{invited:?}");
+    assert!(!holds(archive, "max@example.com"));
+}
+// end part: invitations
 
 /// Whether any entry of `archive` holds `text`.
 fn holds(archive: &[u8], text: &str) -> bool {
@@ -680,11 +744,7 @@ async fn accounts_024_the_archive_holds_the_user_s_data_and_only_the_content_of_
     assert!(codes[0].get("code_hash").is_none());
     assert_logs(&archive, &grace, &own);
     // part: invitations
-    let invited = document(&archive, "invitations/invitations.json");
-    assert_eq!(invited.len(), 1, "{invited:?}");
-    assert_eq!(invited[0]["workspace_id"], own.as_str());
-    assert_eq!(invited[0]["email"], "lin@example.com");
-    assert!(!holds(&archive, "max@example.com"));
+    assert_invitations(&archive, &own);
     // end part: invitations
     // No hash of a password or a token, of either user's, and nothing of Grace's but her ID.
     for absent in ["$argon2", "Grace's team", "grace@example.com", "192.0.2.7"] {
@@ -800,6 +860,15 @@ async fn accounts_026_a_download_serves_the_archive_by_ranges_the_same_bytes_eac
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     let id = built(&api, &ada).await;
+    // Ready two days ago, from a request three days ago, so the day it became ready is neither
+    // its request's nor today's.
+    api.database()
+        .owner_executes(&format!(
+            "UPDATE exports SET created_at = created_at - interval '3 days', \
+             ready_at = ready_at - interval '2 days', expires_at = expires_at - interval '2 days' \
+             WHERE id = '{id}'"
+        ))
+        .await;
 
     let whole = download(&api, &ada, &id, &[]).await;
     // A change since the export was built changes none of its bytes.
@@ -902,9 +971,14 @@ async fn accounts_027_the_expiry_deletes_expired_exports_and_fails_those_pending
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
     let grace = users::register(&api, "grace@example.com").await;
+    let lin = users::register(&api, "lin@example.com").await;
     let alan = users::register(&api, "alan@example.com").await;
     let expired = built(&api, &ada).await;
     let stale = request(&api, &grace).await.json()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let older = request(&api, &lin).await.json()["id"]
         .as_str()
         .unwrap()
         .to_owned();
@@ -918,11 +992,13 @@ async fn accounts_027_the_expiry_deletes_expired_exports_and_fails_those_pending
         "UPDATE exports SET expires_at = now() - interval '1 second' WHERE id = '{expired}'"
     ))
     .await;
-    // Grace's export was requested 24 hours ago, and Alan's a minute later.
+    // Grace's export was requested 24 hours ago, Lin's 2 days ago, and Alan's 23 hours and 59
+    // minutes ago.
     db.owner_executes(&format!(
         "UPDATE exports SET created_at = now() - CASE id WHEN '{stale}' \
-         THEN interval '24 hours' ELSE interval '23 hours 59 minutes' END \
-         WHERE id IN ('{stale}', '{young}')"
+         THEN interval '24 hours' WHEN '{older}' THEN interval '2 days' \
+         ELSE interval '23 hours 59 minutes' END \
+         WHERE id IN ('{stale}', '{older}', '{young}')"
     ))
     .await;
     let mut stream = streams::opened(&api, &grace).await;
@@ -935,7 +1011,11 @@ async fn accounts_027_the_expiry_deletes_expired_exports_and_fails_those_pending
         .await;
     assert_eq!(
         left,
-        [format!("{stale} failed"), format!("{young} pending")]
+        [
+            format!("{older} failed"),
+            format!("{stale} failed"),
+            format!("{young} pending")
+        ]
     );
     let documents = one(
         &api,
@@ -944,9 +1024,57 @@ async fn accounts_027_the_expiry_deletes_expired_exports_and_fails_those_pending
     )
     .await;
     assert_eq!(documents, "0 0");
+    // Each failed export's event, published to its own user, once.
+    let mut published = db
+        .owner_reads(
+            "SELECT user_id || ' ' || (payload->>'export_id') FROM events \
+             WHERE name = 'export.failed'",
+        )
+        .await;
+    published.sort_unstable();
+    let mut expected = vec![
+        format!("{} {stale}", grace.user_id),
+        format!("{} {older}", lin.user_id),
+    ];
+    expected.sort_unstable();
+    assert_eq!(published, expected);
     let event = stream.event().await;
     assert_eq!(event.event.as_deref(), Some("export.failed"));
     assert_eq!(event.payload(), &json!({ "export_id": stale }));
+}
+
+#[tokio::test]
+async fn accounts_027_a_run_fails_and_deletes_more_exports_than_one_batch_holds() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    // More than two batches of 1,000 of each kind: exports whose job failed, whose `expires_at`,
+    // 7 days after their request, passed a second ago, and exports still pending a second past
+    // 24 hours after their request.
+    api.database()
+        .owner_executes(&format!(
+            "INSERT INTO exports (user_id, state, created_at, expires_at) \
+             SELECT '{0}', 'failed', now() - interval '7 days 1 second', \
+             now() - interval '1 second' FROM generate_series(1, 2500); \
+             INSERT INTO exports (user_id, created_at, expires_at) \
+             SELECT '{0}', now() - interval '24 hours 1 second', now() + interval '6 days' \
+             FROM generate_series(1, 2500)",
+            ada.user_id
+        ))
+        .await;
+
+    api.run_periodic("accounts.expire_exports").await;
+
+    // The expired exports that are left, the pending ones, the failed ones that haven't expired,
+    // and the events of those that failed.
+    let left = one(
+        &api,
+        "SELECT (SELECT count(*) FROM exports WHERE expires_at <= now()) || ' ' || \
+         (SELECT count(*) FROM exports WHERE state = 'pending') || ' ' || \
+         (SELECT count(*) FROM exports WHERE state = 'failed' AND expires_at > now()) || ' ' || \
+         (SELECT count(*) FROM events WHERE name = 'export.failed')",
+    )
+    .await;
+    assert_eq!(left, "0 0 2500 2500");
 }
 
 #[tokio::test]

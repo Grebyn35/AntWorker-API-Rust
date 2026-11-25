@@ -58,6 +58,7 @@ async fn files_026_an_export_holds_the_user_s_files_their_avatar_and_their_own_w
     let grace = users::register(&api, "grace@example.com").await;
     let db = api.database();
     let own_workspace = workspaces::arrange(db, "Mine", &[(&ada.user_id, "owner")]).await;
+    let drafts = workspaces::arrange(db, "Drafts", &[(&ada.user_id, "owner")]).await;
     let shared = workspaces::arrange(
         db,
         "Theirs",
@@ -70,12 +71,15 @@ async fn files_026_an_export_holds_the_user_s_files_their_avatar_and_their_own_w
     let avatar = avatars::set(&api, &ada, files::PNG).await;
     assert_eq!(avatar.status, 200);
     let mine = files::arrange(db, &own_workspace, "notes.md").await;
+    let draft = files::arrange(db, &drafts, "draft.md").await;
     // A file Ada uploaded to a workspace that has another member is the workspace's, and so is
     // that workspace's picture.
     files::arrange_uploaded(db, &shared, "shared.txt", &ada.user_id).await;
     let gif = files::GIF;
     let picture = workspace_pictures::set(&api, &ada, &own_workspace, gif).await;
     assert_eq!(picture.status, 200);
+    let drafts_picture = workspace_pictures::set(&api, &ada, &drafts, files::PNG).await;
+    assert_eq!(drafts_picture.status, 200);
     let theirs = workspace_pictures::set(&api, &grace, &shared, files::PNG).await;
     assert_eq!(theirs.status, 200);
 
@@ -90,44 +94,63 @@ async fn files_026_an_export_holds_the_user_s_files_their_avatar_and_their_own_w
     let avatars = document(&archive, "files/avatar.json");
     let avatar_id = avatars[0]["id"].as_str().unwrap();
     assert_eq!(avatars[0]["path"], format!("files/avatar/{avatar_id}.png"));
-    let held = document(&archive, "files/workspace_files.json");
-    assert_eq!(held.len(), 1);
-    assert_eq!(held[0]["id"], mine.as_str());
-    assert_eq!(held[0]["workspace_id"], own_workspace.as_str());
-    assert_eq!(held[0]["uploader_id"], json!(null));
-    let pictures = document(&archive, "files/workspace_pictures.json");
-    assert_eq!(pictures.len(), 1);
-    let picture_id = pictures[0]["id"].as_str().unwrap();
-    assert_eq!(pictures[0]["workspace_id"], own_workspace.as_str());
-    assert_eq!(pictures[0]["media_type"], "image/gif");
-    assert_eq!(pictures[0]["size_bytes"], gif.len());
-    assert!(pictures[0]["created_at"].as_str().unwrap().ends_with('Z'));
-    assert_eq!(
-        pictures[0]["path"],
-        format!("files/workspace_pictures/{own_workspace}/{picture_id}.gif")
+    let held = workspaces_held(
+        &archive,
+        [
+            (&own_workspace, &mine, "notes.md", "gif", gif),
+            (&drafts, &draft, "draft.md", "png", files::PNG),
+        ],
     );
     let bytes: Vec<(String, Vec<u8>)> = entries(&archive)
         .into_iter()
         .filter(|(path, _)| !path.ends_with(".json"))
         .collect();
-    assert_eq!(
-        bytes,
-        [
-            (
-                format!("files/own/{own_id}/a_b_ c.txt"),
-                b"my own words".to_vec()
-            ),
-            (format!("files/avatar/{avatar_id}.png"), files::PNG.to_vec()),
-            (
-                format!("files/workspaces/{own_workspace}/{mine}/notes.md"),
-                files::BYTES.to_vec()
-            ),
-            (
-                format!("files/workspace_pictures/{own_workspace}/{picture_id}.gif"),
-                gif.to_vec()
-            ),
-        ]
-    );
+    let mut expected = vec![
+        (
+            format!("files/own/{own_id}/a_b_ c.txt"),
+            b"my own words".to_vec(),
+        ),
+        (format!("files/avatar/{avatar_id}.png"), files::PNG.to_vec()),
+    ];
+    expected.extend(held);
+    assert_eq!(bytes, expected);
+}
+
+/// A workspace whose only member is the user, as [`workspaces_held`] takes it: its ID, the ID and
+/// the name of its one file, and the extension and the bytes of its picture.
+type Sole<'a> = (&'a str, &'a str, &'a str, &'a str, &'a [u8]);
+
+/// What `archive` holds of the workspaces `sole`: the records of their files, then those of their
+/// pictures, each in the order of the workspaces' IDs; returns the path and the bytes of each such
+/// file and picture, in that order.
+fn workspaces_held<const N: usize>(
+    archive: &[u8],
+    mut sole: [Sole<'_>; N],
+) -> Vec<(String, Vec<u8>)> {
+    sole.sort_unstable_by_key(|(workspace, ..)| *workspace);
+    let mut held = Vec::new();
+    let records = document(archive, "files/workspace_files.json");
+    assert_eq!(records.len(), N);
+    for (record, (workspace, file, name, ..)) in records.iter().zip(sole) {
+        assert_eq!(record["id"], file);
+        assert_eq!(record["workspace_id"], workspace);
+        assert_eq!(record["uploader_id"], json!(null));
+        let path = format!("files/workspaces/{workspace}/{file}/{name}");
+        held.push((path, files::BYTES.to_vec()));
+    }
+    let pictures = document(archive, "files/workspace_pictures.json");
+    assert_eq!(pictures.len(), N);
+    for (record, (workspace, _, _, extension, image)) in pictures.iter().zip(sole) {
+        let picture_id = record["id"].as_str().unwrap();
+        assert_eq!(record["workspace_id"], workspace);
+        assert_eq!(record["media_type"], format!("image/{extension}"));
+        assert_eq!(record["size_bytes"], image.len());
+        assert!(record["created_at"].as_str().unwrap().ends_with('Z'));
+        let path = format!("files/workspace_pictures/{workspace}/{picture_id}.{extension}");
+        assert_eq!(record["path"], path.as_str());
+        held.push((path, image.to_vec()));
+    }
+    held
 }
 
 #[tokio::test]
