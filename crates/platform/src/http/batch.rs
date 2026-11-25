@@ -142,7 +142,8 @@ pub struct Batch {
     /// isn't a number Rust can hold.
     declared: Option<Option<usize>>,
     content_type: Option<HeaderValue>,
-    content_encoding: Option<HeaderValue>,
+    /// The request's `Content-Encoding` lines, which a batch holds one of at most.
+    content_encodings: Vec<HeaderValue>,
 }
 
 impl<S: Send + Sync> FromRequest<S> for Batch {
@@ -162,7 +163,12 @@ impl<S: Send + Sync> FromRequest<S> for Batch {
             declared,
             turns,
             content_type: request.headers().get(header::CONTENT_TYPE).cloned(),
-            content_encoding: request.headers().get(header::CONTENT_ENCODING).cloned(),
+            content_encodings: request
+                .headers()
+                .get_all(header::CONTENT_ENCODING)
+                .iter()
+                .cloned()
+                .collect(),
             body: request.into_body(),
         })
     }
@@ -210,13 +216,14 @@ impl Batch {
     }
 
     /// Whether the batch came as gzip, which its `Content-Encoding` says: 400
-    /// `request.invalid_body` for another coding than `gzip` or `identity`.
+    /// `request.invalid_body` for another coding than `gzip` or `identity`, and for a request
+    /// that holds the header on more than one line.
     fn is_gzip(&self) -> Result<bool, RequestError> {
-        match &self.content_encoding {
-            None => Ok(false),
-            Some(coding) if is_coding(coding, "identity") => Ok(false),
-            Some(coding) if is_coding(coding, "gzip") => Ok(true),
-            Some(_) => Err(RequestError::InvalidBody(BodyFault::ContentEncoding)),
+        match self.content_encodings.as_slice() {
+            [] => Ok(false),
+            [coding] if is_coding(coding, "identity") => Ok(false),
+            [coding] if is_coding(coding, "gzip") => Ok(true),
+            _ => Err(RequestError::InvalidBody(BodyFault::ContentEncoding)),
         }
     }
 
@@ -403,6 +410,23 @@ mod tests {
             let refusal = read(headers, vec![], 10).await.unwrap_err();
 
             assert_eq!(refusal.code(), "request.invalid_body", "{headers:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn platform_090_a_content_encoding_on_more_than_one_line_is_refused() {
+        const IDENTITY: (&str, &str) = ("content-encoding", "identity");
+        // Each body is one that the header's first line alone would take.
+        for (lines, body) in [
+            ([GZIP, GZIP], gzip(b"spans")),
+            ([GZIP, IDENTITY], gzip(b"spans")),
+            ([IDENTITY, IDENTITY], b"spans".to_vec()),
+        ] {
+            let refusal = read(&[PROTOBUF, lines[0], lines[1]], body, 100)
+                .await
+                .unwrap_err();
+
+            assert_eq!(refusal.code(), "request.invalid_body", "{lines:?}");
         }
     }
 

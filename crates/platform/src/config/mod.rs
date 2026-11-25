@@ -53,7 +53,7 @@ impl FromStr for Environment {
     type Err = ();
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value.to_ascii_lowercase().as_str() {
+        match value {
             "development" => Ok(Self::Development),
             "test" => Ok(Self::Test),
             "production" => Ok(Self::Production),
@@ -78,7 +78,7 @@ impl FromStr for LogLevel {
     type Err = ();
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value.to_ascii_lowercase().as_str() {
+        match value {
             "info" => Ok(Self::Info),
             "debug" => Ok(Self::Debug),
             "trace" => Ok(Self::Trace),
@@ -685,11 +685,15 @@ mod tests {
     }
 
     #[test]
-    fn ops_01_closed_sets_are_case_insensitive_but_closed() {
-        assert_eq!("Production".parse(), Ok(Environment::Production));
-        assert_eq!("prod".parse::<Environment>(), Err(()));
-        assert_eq!("DEBUG".parse(), Ok(LogLevel::Debug));
-        assert_eq!("verbose".parse::<LogLevel>(), Err(()));
+    fn ops_01_a_closed_set_s_value_is_read_in_its_one_spelling() {
+        assert_eq!("production".parse(), Ok(Environment::Production));
+        for other in ["Production", "PRODUCTION", "prod"] {
+            assert_eq!(other.parse::<Environment>(), Err(()), "{other}");
+        }
+        assert_eq!("debug".parse(), Ok(LogLevel::Debug));
+        for other in ["Debug", "DEBUG", "verbose"] {
+            assert_eq!(other.parse::<LogLevel>(), Err(()), "{other}");
+        }
     }
 
     #[test]

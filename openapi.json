@@ -19662,7 +19662,7 @@
             }
           },
           {
-            "description": "The Unix time, in seconds, at which the signed URL stops working.",
+            "description": "The Unix time, in seconds, at which the signed URL stops working, in digits alone, with no sign and no leading zero.",
             "in": "query",
             "name": "expires",
             "required": false,
@@ -32882,7 +32882,7 @@
             }
           },
           {
-            "description": "The Unix time, in seconds, at which the signed URL stops working.",
+            "description": "The Unix time, in seconds, at which the signed URL stops working, in digits alone, with no sign and no leading zero.",
             "in": "query",
             "name": "expires",
             "required": false,

@@ -43,9 +43,7 @@ pub(crate) fn presented(parts: &Parts) -> Presented {
     match (expires, session, tag) {
         (None, None, None) => Presented::None,
         (Some(expires), Some(session), Some(tag)) => {
-            let parsed = expires
-                .parse::<i64>()
-                .ok()
+            let parsed = time(&expires)
                 .zip(crate::types::read_id(&session))
                 .zip(URL_SAFE_NO_PAD.decode(tag.as_bytes()).ok());
             match parsed {
@@ -59,6 +57,16 @@ pub(crate) fn presented(parts: &Parts) -> Presented {
         }
         _ => Presented::Malformed,
     }
+}
+
+/// The time that `text` writes as a signed URL does: in ASCII digits alone, with no sign and no
+/// leading zero (PLATFORM-080).
+fn time(text: &str) -> Option<i64> {
+    let leading_zero = text.len() > 1 && text.starts_with('0');
+    let digits = text.bytes().all(|byte| byte.is_ascii_digit());
+    (digits && !leading_zero)
+        .then(|| text.parse().ok())
+        .flatten()
 }
 
 #[cfg(test)]
@@ -145,5 +153,26 @@ mod tests {
             query_of("/v1/a?expires=1&session=00000000-0000-0000-0000-000000000007&signature=%%%"),
             Presented::Malformed
         );
+    }
+
+    #[test]
+    fn platform_080_a_time_written_with_a_sign_or_a_leading_zero_is_malformed() {
+        let signed = signer(1).sign("/v1/a/content", session(), until());
+        assert!(signer(1).matches("/v1/a/content", &signature_of(&signed.url)));
+
+        // `%2B` is a `+`, which a query's own `+` isn't: that one reads as a space.
+        for written in [
+            "%2B1800000000",
+            "01800000000",
+            "-1800000000",
+            "+1800000000",
+            "",
+        ] {
+            let other = signed
+                .url
+                .replace("expires=1800000000", &format!("expires={written}"));
+
+            assert_eq!(query_of(&other), Presented::Malformed, "{written}");
+        }
     }
 }

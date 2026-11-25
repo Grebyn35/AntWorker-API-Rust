@@ -10,7 +10,8 @@ Configuration, background jobs, runtime behavior, CI, releases, deploys, backups
 - A setting can be read from a file named by `<NAME>_FILE` (SEC-01).
 - Each of these numbers is written in digits alone, with no sign and no leading zero, and is range-checked: a setting that `.env.example` types as a whole number, `ENCRYPTION_KEY_VERSION`, a version of `ENCRYPTION_KEYS`, and the port of `LISTEN_ADDR`.
   So is the port of `CLAMD_ADDRESS`. <!-- part: files -->
-- A number that another setting bounds is refused beyond it, such as an access token's lifetime beyond its refresh token's (AUTH-007), and unknown values for a closed set are errors.
+- A number that another setting bounds is refused beyond it, such as an access token's lifetime beyond its refresh token's (AUTH-007).
+- A value of a closed set, such as `ENVIRONMENT`'s, is written in its one spelling, in lower case, as `.env.example` gives it, and any other value is an error.
 - Required settings have no defaults. `ENVIRONMENT` is required.
 - Why: a misconfiguration fails at startup, never in the middle of a request (D9).
 - Check: `test`, plus `review`, each for what its item below says.

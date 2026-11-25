@@ -80,7 +80,8 @@ async fn ops_03_a_logged_startup_failure_is_one_error_line_and_exit_code_1() {
 }
 
 #[tokio::test]
-async fn ops_03_a_count_of_worker_threads_that_tokio_panics_on_fails_startup_with_exit_code_1() {
+async fn platform_109_a_subcommand_refuses_to_start_while_tokio_s_variable_of_worker_threads_is_set()
+ {
     // A database that `migrate` never reaches: the runtime it would connect on isn't built.
     let settings = [
         ("ENVIRONMENT", "production"),
@@ -88,7 +89,8 @@ async fn ops_03_a_count_of_worker_threads_that_tokio_panics_on_fails_startup_wit
             "DATABASE_OWNER_URL",
             "postgres://owner:secret@127.0.0.1:9/api",
         ),
-        ("TOKIO_WORKER_THREADS", "0"),
+        // A count that tokio would take.
+        ("TOKIO_WORKER_THREADS", "4"),
     ];
 
     let output = run_binary(&["migrate"], &settings).await;
@@ -105,7 +107,8 @@ async fn ops_03_a_count_of_worker_threads_that_tokio_panics_on_fails_startup_wit
     assert_eq!(errors[0]["startup.area"], "runtime");
     assert_eq!(
         errors[0]["exception.message"],
-        "TOKIO_WORKER_THREADS must be a whole number above 0, or unset"
+        "TOKIO_WORKER_THREADS must be unset: no setting of the API gives the runtime its worker \
+         threads"
     );
 }
 

@@ -335,8 +335,11 @@ fn joined(result: Result<io::Result<()>, JoinError>) -> io::Result<()> {
 /// Why the async runtime of a subcommand wasn't built.
 #[derive(Debug, thiserror::Error)]
 pub enum RuntimeError {
-    /// `TOKIO_WORKER_THREADS` names no count of worker threads that tokio takes.
-    #[error("TOKIO_WORKER_THREADS must be a whole number above 0, or unset")]
+    /// `TOKIO_WORKER_THREADS` is set, which tokio would read by itself.
+    #[error(
+        "TOKIO_WORKER_THREADS must be unset: no setting of the API gives the runtime its worker \
+         threads"
+    )]
     WorkerThreads,
     /// The runtime didn't start.
     #[error(transparent)]
@@ -344,21 +347,17 @@ pub enum RuntimeError {
 }
 
 /// The multi-threaded async runtime that a subcommand runs on, with as many worker threads as
-/// `worker_threads`, the value of `TOKIO_WORKER_THREADS`, names, as tokio reads that variable,
-/// or as many as tokio gives a runtime without it when it is `None`. A value on which tokio's
-/// own reading of the variable panics fails the runtime instead: one that isn't Unicode, or that
-/// `usize`'s parser reads as no whole number above 0, such as an empty one (OPS-03).
+/// tokio gives a runtime without `TOKIO_WORKER_THREADS`. `worker_threads` is that variable's
+/// value: tokio reads it by itself for a runtime's worker threads, and panics on one that it
+/// can't read, so while the variable is set, to any value, an empty one too, the runtime isn't
+/// built (PLATFORM-109).
 pub fn runtime(worker_threads: Option<&OsStr>) -> Result<Runtime, RuntimeError> {
-    let mut builder = tokio::runtime::Builder::new_multi_thread();
-    if let Some(value) = worker_threads {
-        let count = value
-            .to_str()
-            .and_then(|text| text.parse::<usize>().ok())
-            .filter(|count| *count > 0)
-            .ok_or(RuntimeError::WorkerThreads)?;
-        builder.worker_threads(count);
+    if worker_threads.is_some() {
+        return Err(RuntimeError::WorkerThreads);
     }
-    Ok(builder.enable_all().build()?)
+    Ok(tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?)
 }
 
 /// Logs a startup failure through the logging setup: one `ERROR` event with the message
@@ -579,10 +578,11 @@ mod tests {
     }
 
     #[test]
-    fn ops_03_a_count_of_worker_threads_that_tokio_panics_on_fails_the_runtime_without_a_panic() {
-        let refused = ["", "0", "-1", "x", " 4", "4.0"].map(std::ffi::OsString::from);
+    fn platform_109_no_runtime_is_built_while_tokio_s_variable_of_worker_threads_is_set() {
+        // A count that tokio takes, values that it panics on, and an empty one.
+        let set = ["4", "0", "x", ""].map(std::ffi::OsString::from);
 
-        for value in refused.into_iter().chain([not_unicode()]) {
+        for value in set.into_iter().chain([not_unicode()]) {
             let built = runtime(Some(&value));
 
             assert!(
@@ -593,11 +593,9 @@ mod tests {
     }
 
     #[test]
-    fn ops_03_a_count_of_worker_threads_that_tokio_takes_is_the_runtime_s() {
-        for (value, count) in [("4", 4), ("+2", 2), ("03", 3)] {
-            let built = runtime(Some(OsStr::new(value))).unwrap();
+    fn platform_109_without_the_variable_the_runtime_is_built() {
+        let built = runtime(None).unwrap();
 
-            assert_eq!(built.metrics().num_workers(), count, "{value}");
-        }
+        assert!(built.metrics().num_workers() > 0);
     }
 }

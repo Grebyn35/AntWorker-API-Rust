@@ -35,7 +35,8 @@ pub(in crate::http) fn signed(paths: &mut Paths) {
         (
             EXPIRES,
             ObjectBuilder::new().schema_type(Type::Integer).build(),
-            "The Unix time, in seconds, at which the signed URL stops working.",
+            "The Unix time, in seconds, at which the signed URL stops working, in digits alone, \
+             with no sign and no leading zero.",
         ),
         (
             SESSION,

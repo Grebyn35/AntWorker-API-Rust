@@ -158,6 +158,37 @@ fn auth_006_startup_refuses_a_limit_from_one_address_above_half_the_limit_from_e
     api::configuration(&half);
 }
 
+/// Each setting that `serve` reads as one of a closed set refuses a value of the set written in
+/// upper case; `ENVIRONMENT` and `LOG_LEVEL`, which every subcommand that logs reads, have their
+/// test in `platform::config`.
+#[test]
+fn ops_01_each_closed_set_refuses_a_value_of_its_in_another_case() {
+    let refused = [
+        ("EMAIL", "OFF", "EMAIL must be smtp or off"),
+        (
+            "SMTP_SECURITY",
+            "TLS",
+            "SMTP_SECURITY must be tls, starttls or none",
+        ),
+        (
+            "SECOND_FACTOR_REQUIRED",
+            "TRUE",
+            "SECOND_FACTOR_REQUIRED must be true or false",
+        ),
+        // part: files
+        ("S3_URI_STYLE", "PATH", "S3_URI_STYLE must be host or path"),
+        // end part: files
+    ];
+
+    for (name, value, refusal) in refused {
+        assert_eq!(
+            api::refusal(&Options::default().set(name, value)),
+            refusal,
+            "{name}={value}"
+        );
+    }
+}
+
 #[test]
 fn ops_01_each_number_setting_is_refused_just_outside_its_range() {
     for (name, low, high) in &ranged_settings() {
