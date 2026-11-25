@@ -590,14 +590,7 @@ async fn auth_015_a_browser_s_completion_of_a_sign_in_takes_its_tokens_in_cookie
     let api = browsers_api().await;
     let ada = users::register(&api, "ada@example.com").await;
     let app = second_factors::add_app(&api, &ada).await;
-    let challenged = api
-        .post(
-            "/v1/sessions",
-            &json!({ "email": "ada@example.com", "password": PASSWORD }),
-        )
-        .header("origin", WEB)
-        .send()
-        .await;
+    let challenged = users::sign_in_from_browser(&api, "ada@example.com", "").await;
     assert_eq!(challenged.status, 200, "{}", challenged.json());
     let challenge = cookie(&challenged, "sign_in_challenge");
 

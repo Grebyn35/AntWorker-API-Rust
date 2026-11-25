@@ -12,7 +12,9 @@ use crate::support::{
     operator::{self, EMAIL_OFF, SENDS_EMAIL, printed},
     providers::{self, gives, grant, identity},
     query_waits_on_a_lock,
-    second_factors::{self, add_app, code, confirm, start_setup},
+    second_factors::{
+        self, add_app, code, confirm, second_factor_rows, start_setup, with_a_challenge,
+    },
     upstream::Upstream,
     users::{self, PASSWORD, SignedIn},
     verification, with_fields, workspaces,
@@ -394,32 +396,14 @@ async fn auth_072_the_subcommand_removes_the_app_and_the_codes_and_ends_every_se
     );
 }
 
-/// The rows of the app, the recovery codes, the sign-in challenges and the sessions that
-/// `filter`, a `WHERE` clause or nothing, keeps, each as its table's name and its ID.
-async fn second_factor_rows(api: &Api, filter: &str) -> Vec<String> {
-    let mut rows = Vec::new();
-    for table in [
-        "totp_factors",
-        "recovery_codes",
-        "sign_in_challenges",
-        "sessions",
-    ] {
-        let sql = format!("SELECT '{table} ' || id FROM {table} {filter} ORDER BY id");
-        rows.extend(reads(api, &sql).await);
-    }
-    rows
-}
-
 #[tokio::test]
 async fn auth_072_the_removal_leaves_another_account_s_app_codes_challenges_and_sessions() {
     let api = Api::new().await;
     let address = mailbox::address("ada");
     let ada = users::register(&api, &address).await;
     add_app(&api, &ada).await;
-    let bob = users::register(&api, "bob@example.com").await;
-    add_app(&api, &bob).await;
-    // A sign-in of Bob's that waits for its second factor.
-    second_factors::challenge(&api, "bob@example.com").await;
+    // Bob's app, and a sign-in of his that waits for its second factor.
+    let bob = with_a_challenge(&api, "bob@example.com").await;
     let bobs = second_factor_rows(&api, &format!("WHERE user_id = '{}'", bob.user_id)).await;
 
     let removed = remove(&api, &address).await;

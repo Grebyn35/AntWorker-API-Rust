@@ -12,7 +12,7 @@ use crate::support::{
     providers::{self, gives, identity},
     second_factors::{
         self, App, add_app, code, confirm, forget_steps, new_codes, other_code, read,
-        reauthenticate, remove, start_setup,
+        reauthenticate, remove, second_factor_rows, start_setup, with_a_challenge,
     },
     upstream::Upstream,
     users::{self, PASSWORD, SignedIn},
@@ -430,6 +430,7 @@ async fn auth_063_new_recovery_codes_need_a_recent_proof_and_an_app_and_replace_
 async fn auth_064_removing_the_app_deletes_it_with_its_codes_and_challenges_once_proved() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;
+    let other = users::new_session(&api, "ada@example.com").await;
     let nothing = remove(&api, &ada).await;
     assert_eq!(nothing.status, 204);
     assert!(
@@ -448,33 +449,48 @@ async fn auth_064_removing_the_app_deletes_it_with_its_codes_and_challenges_once
 
     add_app(&api, &ada).await;
     let challenge = second_factors::challenge(&api, "ada@example.com").await;
+    // A second challenge of hers, and another account's app, codes and challenge.
+    second_factors::challenge(&api, "ada@example.com").await;
+    let bob = with_a_challenge(&api, "bob@example.com").await;
     users::authenticated_ago(&api, &ada, 10).await;
     let refused = remove(&api, &ada).await;
     assert_eq!(refused.status, 403);
     assert_eq!(refused.json()["code"], "request.reauthentication_required");
 
     users::authenticated_ago(&api, &ada, 0).await;
-    let app = reads(&api, "SELECT id::text FROM totp_factors")
-        .await
-        .remove(0);
+    let (ada_id, bobs) = (&ada.user_id, format!("WHERE user_id = '{}'", bob.user_id));
+    let app = reads(
+        &api,
+        &format!("SELECT id::text FROM totp_factors WHERE user_id = '{ada_id}'"),
+    )
+    .await
+    .remove(0);
+    let others = second_factor_rows(&api, &bobs).await;
     let response = remove(&api, &ada).await;
 
     assert_eq!(response.status, 204);
     for table in ["totp_factors", "recovery_codes", "sign_in_challenges"] {
         assert!(
-            reads(&api, &format!("SELECT id::text FROM {table}"))
-                .await
-                .is_empty(),
+            reads(
+                &api,
+                &format!("SELECT id::text FROM {table} WHERE user_id = '{ada_id}'")
+            )
+            .await
+            .is_empty(),
             "{table}"
         );
     }
-    let ada_id = &ada.user_id;
+    assert_eq!(second_factor_rows(&api, &bobs).await, others);
     assert_eq!(
         audit::entries(api.database(), "second_factor.removed").await,
         [format!("{ada_id} {ada_id} second_factor {app}")]
     );
-    // Her session stays, and a sign-in needs the password alone.
+    // Her sessions stay, and a sign-in needs the password alone.
     assert_eq!(read(&api, &ada).await.status, 200);
+    assert!(
+        users::authenticates(&api, &other).await,
+        "her other session"
+    );
     let completed = second_factors::complete(&api, &challenge, json!({ "code": "123456" })).await;
     assert_eq!(completed.json()["code"], "auth.invalid_challenge");
     assert_eq!(

@@ -3,7 +3,6 @@
 
 use serde_json::json;
 
-use super::held;
 use crate::support::{
     Api, Options,
     api::{PEER, Response, hmac_key, refusal},
@@ -352,7 +351,9 @@ async fn auth_019_a_browser_s_sign_in_reads_its_device_token_from_its_cookie_whi
         .header("cookie", &cookies)
         .send()
         .await;
-    let signed_in = held::sign_in(&api, "ada@example.com", &format!("__Host-{name}={token}")).await;
+    let signed_in =
+        users::sign_in_from_browser(&api, "ada@example.com", &format!("__Host-{name}={token}"))
+            .await;
 
     assert_eq!(signed_out.status, 204);
     assert!(
@@ -522,7 +523,7 @@ async fn auth_015_a_browser_keeps_a_device_token_for_each_account_it_signs_in_to
         names.push(name);
     }
 
-    let signed_in = held::sign_in(&api, "ada@example.com", &jar.join("; ")).await;
+    let signed_in = users::sign_in_from_browser(&api, "ada@example.com", &jar.join("; ")).await;
 
     assert_ne!(
         names[0], names[1],

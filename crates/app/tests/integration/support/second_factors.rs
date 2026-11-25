@@ -178,6 +178,31 @@ pub async fn challenge(api: &Api, email: &str) -> String {
     response.json()["challenge"].as_str().unwrap().to_owned()
 }
 
+/// Registers `email`, with an app and a sign-in of the account's that waits for its second
+/// factor, and returns the user.
+pub async fn with_a_challenge(api: &Api, email: &str) -> SignedIn {
+    let user = super::users::register(api, email).await;
+    add_app(api, &user).await;
+    challenge(api, email).await;
+    user
+}
+
+/// The rows of the app, the recovery codes, the sign-in challenges and the sessions that
+/// `filter`, a `WHERE` clause or nothing, keeps, each as its table's name and its ID.
+pub async fn second_factor_rows(api: &Api, filter: &str) -> Vec<String> {
+    let mut rows = Vec::new();
+    for table in [
+        "totp_factors",
+        "recovery_codes",
+        "sign_in_challenges",
+        "sessions",
+    ] {
+        let sql = format!("SELECT '{table} ' || id FROM {table} {filter} ORDER BY id");
+        rows.extend(super::api::reads(api, &sql).await);
+    }
+    rows
+}
+
 /// Completes the sign-in of `challenge` with `body`'s code, and returns the response.
 pub async fn complete(api: &Api, challenge: &str, body: Value) -> Response {
     let mut body = body;

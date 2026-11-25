@@ -12,13 +12,28 @@ use crate::support::{
     children, execute_on, is_the_request_s, limited_while_holding, mailbox,
     operator::printed,
     password_reset, providers,
-    second_factors::{self, add_app, challenge, code, code_at, complete, forget_steps, other_code},
-    users::{self, PASSWORD, WEB},
+    second_factors::{
+        self, add_app, challenge, code, code_at, complete, forget_steps, other_code,
+        second_factor_rows, with_a_challenge,
+    },
+    users::{self, PASSWORD, SignedIn, WEB},
 };
 
 /// The base64 of 32 bytes of `byte`, a key of the key ring.
 fn key(byte: u8) -> String {
     data_encoding::BASE64.encode(&[byte; 32])
+}
+
+/// The IDs of `user`'s sign-in challenges.
+async fn challenges_of(api: &Api, user: &SignedIn) -> Vec<String> {
+    reads(
+        api,
+        &format!(
+            "SELECT id::text FROM sign_in_challenges WHERE user_id = '{}'",
+            user.user_id
+        ),
+    )
+    .await
 }
 
 #[tokio::test]
@@ -133,14 +148,7 @@ async fn auth_058_a_browser_takes_the_challenge_in_a_cookie() {
     let ada = users::register(&api, "ada@example.com").await;
     add_app(&api, &ada).await;
 
-    let response = api
-        .post(
-            "/v1/sessions",
-            &json!({ "email": "ada@example.com", "password": PASSWORD }),
-        )
-        .header("origin", WEB)
-        .send()
-        .await;
+    let response = users::sign_in_from_browser(&api, "ada@example.com", "").await;
 
     assert_eq!(response.status, 200);
     assert!(response.json().get("challenge").is_none());
@@ -362,14 +370,7 @@ async fn auth_059_a_browser_s_cookie_carries_the_challenge_and_the_completion_cl
     let api = users::browsers_api().await;
     let ada = users::register(&api, "ada@example.com").await;
     let app = add_app(&api, &ada).await;
-    let challenged = api
-        .post(
-            "/v1/sessions",
-            &json!({ "email": "ada@example.com", "password": PASSWORD }),
-        )
-        .header("origin", WEB)
-        .send()
-        .await;
+    let challenged = users::sign_in_from_browser(&api, "ada@example.com", "").await;
     let cookie = users::cookie(&challenged, "sign_in_challenge");
 
     // The body holds no challenge.
@@ -389,6 +390,37 @@ async fn auth_059_a_browser_s_cookie_carries_the_challenge_and_the_completion_cl
         .into_iter()
         .any(|set| set.starts_with("__Host-sign_in_challenge=;") && set.contains("Max-Age=0"));
     assert!(cleared, "{:?}", completed.headers("set-cookie"));
+}
+
+#[tokio::test]
+async fn auth_059_a_completion_whose_body_holds_a_challenge_completes_it_and_not_the_cookie_s() {
+    let api = users::browsers_api().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let app = add_app(&api, &ada).await;
+    let challenged = users::sign_in_from_browser(&api, "ada@example.com", "").await;
+    let in_cookie = users::cookie(&challenged, "sign_in_challenge");
+    let in_body = challenge(&api, "ada@example.com").await;
+
+    let completed = api
+        .post(
+            "/v1/sessions/second-factor",
+            &json!({ "challenge": in_body, "code": code(&api, &app.secret).await }),
+        )
+        .header("origin", WEB)
+        .header("cookie", &format!("__Host-sign_in_challenge={in_cookie}"))
+        .send()
+        .await;
+
+    assert_eq!(completed.status, 201, "{}", completed.json());
+    // The body's challenge completed, and the cookie's still waits.
+    assert_eq!(
+        reads(
+            &api,
+            "SELECT encode(token_hash, 'hex') FROM sign_in_challenges"
+        )
+        .await,
+        [hex_sha256(&in_cookie)]
+    );
 }
 
 #[tokio::test]
@@ -473,6 +505,28 @@ async fn auth_060_a_challenge_that_is_empty_or_longer_than_64_characters_answers
     }
     assert_eq!(unknown.status, 401);
     assert_eq!(unknown.json()["code"], "auth.invalid_challenge");
+}
+
+#[tokio::test]
+async fn auth_060_an_empty_challenge_and_a_malformed_code_answer_400_with_both_fields() {
+    let api = Api::new().await;
+
+    let refused = api
+        .post_raw(
+            "/v1/sessions/second-factor",
+            &json!({ "challenge": "", "code": "12345" }),
+        )
+        .send()
+        .await;
+
+    assert_eq!(
+        refused.refused_fields(),
+        [
+            ("/challenge", "invalid_challenge"),
+            ("/code", "invalid_code")
+        ]
+        .map(|(field, code)| (field.to_owned(), code.to_owned()))
+    );
 }
 
 #[tokio::test]
@@ -990,6 +1044,11 @@ async fn auth_069_a_change_of_the_password_deletes_the_challenges_issued_before_
     let ada = users::register(&api, "ada@example.com").await;
     let app = add_app(&api, &ada).await;
     let before = challenge(&api, "ada@example.com").await;
+    // A second challenge of hers, and another account's app, codes and challenge.
+    challenge(&api, "ada@example.com").await;
+    let bob = with_a_challenge(&api, "bob@example.com").await;
+    let bobs = format!("WHERE user_id = '{}'", bob.user_id);
+    let others = second_factor_rows(&api, &bobs).await;
 
     let changed = second_factors::change_password(
         &api,
@@ -1000,6 +1059,8 @@ async fn auth_069_a_change_of_the_password_deletes_the_challenges_issued_before_
     .await;
 
     assert_eq!(changed.status, 200, "{}", changed.json());
+    assert!(challenges_of(&api, &ada).await.is_empty());
+    assert_eq!(second_factor_rows(&api, &bobs).await, others);
     forget_steps(&api, &ada.user_id).await;
     let stale = complete(
         &api,
@@ -1017,15 +1078,17 @@ async fn auth_069_a_removal_of_the_app_deletes_the_challenges_issued_before_it()
     let app = add_app(&api, &ada).await;
     let before = challenge(&api, "ada@example.com").await;
     let code_before = code(&api, &app.secret).await;
+    // A second challenge of hers, and another account's app, codes and challenge.
+    challenge(&api, "ada@example.com").await;
+    let bob = with_a_challenge(&api, "bob@example.com").await;
+    let bobs = format!("WHERE user_id = '{}'", bob.user_id);
+    let others = second_factor_rows(&api, &bobs).await;
 
     let removed = second_factors::remove(&api, &ada).await;
 
     assert_eq!(removed.status, 204, "{}", removed.json());
-    assert!(
-        reads(&api, "SELECT id::text FROM sign_in_challenges")
-            .await
-            .is_empty()
-    );
+    assert!(challenges_of(&api, &ada).await.is_empty());
+    assert_eq!(second_factor_rows(&api, &bobs).await, others);
     let stale = complete(&api, &before, json!({ "code": code_before })).await;
     assert_eq!(stale.status, 401);
     assert_eq!(stale.json()["code"], "auth.invalid_challenge");
@@ -1039,11 +1102,19 @@ async fn auth_069_a_reset_deletes_the_challenges_and_leaves_the_app_that_the_nex
     let ada = users::register(&api, &address).await;
     let app = add_app(&api, &ada).await;
     challenge(&api, &address).await;
+    // A second challenge of hers, and another account's app, codes and challenge.
+    challenge(&api, &address).await;
+    let bob = with_a_challenge(&api, "bob@example.com").await;
+    let bobs = format!("WHERE user_id = '{}'", bob.user_id);
+    let others = second_factor_rows(&api, &bobs).await;
     let asked = password_reset::ask(&api, &address).await;
     assert_eq!(asked.status, 202);
     let reset_code = password_reset::code_sent(&api, &address).await;
-    let codes = "SELECT encode(code_hash, 'hex') FROM recovery_codes ORDER BY 1";
-    let recovery_codes = reads(&api, codes).await;
+    let codes = format!(
+        "SELECT encode(code_hash, 'hex') FROM recovery_codes WHERE user_id = '{}' ORDER BY 1",
+        ada.user_id
+    );
+    let recovery_codes = reads(&api, &codes).await;
 
     let reset = api
         .post(
@@ -1055,13 +1126,10 @@ async fn auth_069_a_reset_deletes_the_challenges_and_leaves_the_app_that_the_nex
         .await;
 
     assert_eq!(reset.status, 204, "{}", reset.json());
-    assert!(
-        reads(&api, "SELECT id::text FROM sign_in_challenges")
-            .await
-            .is_empty()
-    );
+    assert!(challenges_of(&api, &ada).await.is_empty());
+    assert_eq!(second_factor_rows(&api, &bobs).await, others);
     // The app and the recovery codes stay, so the next sign-in asks for one (ASVS 6.4.3).
-    assert_eq!(reads(&api, codes).await, recovery_codes);
+    assert_eq!(reads(&api, &codes).await, recovery_codes);
     assert_eq!(recovery_codes.len(), 10);
     assert_eq!(
         users::sign_in(&api, &address, "violet-harbor-73-brisk")
@@ -1074,9 +1142,12 @@ async fn auth_069_a_reset_deletes_the_challenges_and_leaves_the_app_that_the_nex
 #[tokio::test]
 async fn auth_069_a_deletion_of_the_account_deletes_every_row_of_its_second_factors() {
     let api = Api::new().await;
-    let ada = users::register(&api, "ada@example.com").await;
-    add_app(&api, &ada).await;
+    let ada = with_a_challenge(&api, "ada@example.com").await;
+    // A second challenge of hers, and another account's app, codes and challenge.
     challenge(&api, "ada@example.com").await;
+    let bob = with_a_challenge(&api, "bob@example.com").await;
+    let bobs = format!("WHERE user_id = '{}'", bob.user_id);
+    let others = second_factor_rows(&api, &bobs).await;
     users::authenticated_ago(&api, &ada, 0).await;
     let setup = second_factors::start_setup(&api, &ada).await;
     assert_eq!(setup.status, 200);
@@ -1091,12 +1162,19 @@ async fn auth_069_a_deletion_of_the_account_deletes_every_row_of_its_second_fact
         "sign_in_challenges",
     ] {
         assert!(
-            reads(&api, &format!("SELECT id::text FROM {table}"))
-                .await
-                .is_empty(),
+            reads(
+                &api,
+                &format!(
+                    "SELECT id::text FROM {table} WHERE user_id = '{}'",
+                    ada.user_id
+                )
+            )
+            .await
+            .is_empty(),
             "{table}"
         );
     }
+    assert_eq!(second_factor_rows(&api, &bobs).await, others);
 }
 
 #[tokio::test]
@@ -1209,7 +1287,7 @@ async fn send(server: &Server, path: &str, headers: &[(&str, &str)], body: &str)
 }
 
 /// A `serve` on `database` that exports to `collector`, without email, so that an account is
-/// served without proving its address (PLATFORM-022), and the bearer of Ada, who registered
+/// served without proving its address (AUTH-025), and the bearer of Ada, who registered
 /// there, with the code of the app whose setup she has started.
 async fn set_up_through_serve(
     collector: &Collector,

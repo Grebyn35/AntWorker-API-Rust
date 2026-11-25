@@ -13,7 +13,7 @@ use crate::support::{
     query_waits_on_a_lock,
     second_factors::{self, add_app},
     upstream::Upstream,
-    users::{self, PASSWORD, SignedIn, WEB},
+    users::{self, PASSWORD, SignedIn, WEB, sign_in_from_browser as sign_in},
 };
 
 /// Sends `body` to `path` from a browser at [`WEB`] that holds the cookies `cookies`.
@@ -23,18 +23,6 @@ async fn from_browser(api: &Api, path: &str, body: &Value, cookies: &str) -> Res
         .header("cookie", cookies)
         .send()
         .await
-}
-
-/// Signs `email` in with [`PASSWORD`] from a browser at [`WEB`] that holds the cookies
-/// `cookies`.
-pub(super) async fn sign_in(api: &Api, email: &str, cookies: &str) -> Response {
-    from_browser(
-        api,
-        "/v1/sessions",
-        &json!({ "email": email, "password": PASSWORD }),
-        cookies,
-    )
-    .await
 }
 
 /// Registers `email`, and signs it in from a browser that holds no cookie: the user, and the

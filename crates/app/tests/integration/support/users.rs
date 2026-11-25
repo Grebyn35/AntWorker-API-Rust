@@ -331,17 +331,28 @@ pub async fn browsers_api() -> Api {
     Api::with(Options::default().set("CORS_ALLOWED_ORIGINS", WEB)).await
 }
 
+/// Signs `email` in with [`PASSWORD`] from a browser at [`WEB`] that holds the cookies `cookies`,
+/// a `Cookie` header that the request sends unless it is empty, and returns the response.
+pub async fn sign_in_from_browser(api: &Api, email: &str, cookies: &str) -> Response {
+    let call = api
+        .post(
+            "/v1/sessions",
+            &json!({ "email": email, "password": PASSWORD }),
+        )
+        .header("origin", WEB);
+    let call = if cookies.is_empty() {
+        call
+    } else {
+        call.header("cookie", cookies)
+    };
+    call.send().await
+}
+
 /// Registers ada@example.com, then signs her in from a browser at [`WEB`], which takes the
 /// session's tokens as cookies, and returns the sign-in's response.
 pub async fn browser_sign_in(api: &Api) -> Response {
     register(api, "ada@example.com").await;
-    api.post(
-        "/v1/sessions",
-        &json!({ "email": "ada@example.com", "password": PASSWORD }),
-    )
-    .header("origin", WEB)
-    .send()
-    .await
+    sign_in_from_browser(api, "ada@example.com", "").await
 }
 
 /// The cookie `__Host-<name>` that `response` sets, whole.

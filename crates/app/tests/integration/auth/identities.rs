@@ -195,6 +195,7 @@ async fn auth_086_adding_a_password_needs_a_recent_proof_then_the_password_signs
     let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
     let ada = signed_in(&api).await;
+    let other = signed_in(&api).await;
     users::authenticated_ago(&api, &ada, 10).await;
 
     let refused = add_password(&api, &ada, PASSWORD).await;
@@ -228,10 +229,12 @@ async fn auth_086_adding_a_password_needs_a_recent_proof_then_the_password_signs
             .status,
         201
     );
-    assert!(
-        users::authenticates(&api, &ada).await,
-        "the account's sessions stay"
-    );
+    for session in [&ada, &other] {
+        assert!(
+            users::authenticates(&api, session).await,
+            "the account's sessions stay"
+        );
+    }
 }
 
 #[tokio::test]
@@ -308,6 +311,7 @@ async fn auth_086_adding_a_password_whose_session_ended_once_it_was_authenticate
 async fn auth_087_linking_needs_a_recent_proof_then_the_provider_signs_in_to_the_account() {
     let (upstream, api) = providers::standing().await;
     let ada = users::register(&api, "ada@example.com").await;
+    let other = users::new_session(&api, "ada@example.com").await;
     // The provider gives another address than the account's.
     gives(
         &upstream,
@@ -351,10 +355,12 @@ async fn auth_087_linking_needs_a_recent_proof_then_the_provider_signs_in_to_the
         reads(&api, "SELECT email FROM users").await,
         ["ada@example.com"]
     );
-    assert!(
-        users::authenticates(&api, &ada).await,
-        "the account's sessions stay"
-    );
+    for session in [&ada, &other] {
+        assert!(
+            users::authenticates(&api, session).await,
+            "the account's sessions stay"
+        );
+    }
 }
 
 #[tokio::test]
@@ -430,6 +436,28 @@ async fn auth_087_a_code_that_the_provider_refuses_answers_403_and_the_session_s
     assert_eq!(response.status, 403);
     assert_eq!(response.json()["code"], "auth.provider_proof_rejected");
     assert!(users::authenticates(&api, &ada).await);
+}
+
+#[tokio::test]
+async fn auth_087_a_link_whose_proof_is_stale_answers_the_exchange_s_refusal_first() {
+    let (upstream, api) = providers::standing().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    users::authenticated_ago(&api, &ada, 10).await;
+
+    // A code that the provider refuses, then a provider that fails.
+    upstream.set("POST", "/token", 400, json!({ "error": "invalid_grant" }));
+    let refused = link(&api, &ada, &grant()).await;
+    upstream.set("POST", "/token", 500, json!({}));
+    let failing = link(&api, &ada, &grant()).await;
+
+    assert_eq!(refused.status, 403);
+    assert_eq!(refused.json()["code"], "auth.provider_proof_rejected");
+    assert_eq!(failing.status, 503);
+    assert_eq!(failing.json()["code"], "auth.provider_unavailable");
+    assert_eq!(
+        reads(&api, "SELECT count(*)::text FROM provider_identities").await,
+        ["0"]
+    );
 }
 
 #[tokio::test]

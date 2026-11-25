@@ -977,7 +977,7 @@ async fn obs_08_the_relay_s_span_exports_the_collector_s_status_as_a_number() {
     let collector = Collector::start().await.unwrap();
     let database = TestDatabase::migrated().await;
     let endpoint = collector.endpoint();
-    // Without email, an account is served without proving its address (PLATFORM-022), and the
+    // Without email, an account is served without proving its address (AUTH-025), and the
     // stand-in collector takes the batches too.
     let server = database
         .serve(&[
