@@ -78,6 +78,10 @@ enum Act {
     FailForGood,
     /// Waits until the test releases it, then succeeds.
     Wait,
+    /// Waits until the test releases it, then fails.
+    WaitThenFail,
+    /// Waits until the test releases it, then fails for good.
+    WaitThenFailForGood,
 }
 
 /// The test's side of a registry's probes: what each run does, in order, then succeeds; what
@@ -110,16 +114,20 @@ impl Steering {
             .unwrap_or(Act::Succeed);
         self.contexts.lock().unwrap().push(context);
         self.started.send(label).unwrap();
+        if matches!(
+            act,
+            Act::Wait | Act::WaitThenFail | Act::WaitThenFailForGood
+        ) {
+            self.release.acquire().await.unwrap().forget();
+        }
         match act {
-            Act::Succeed => Ok(()),
-            Act::Fail => Err(JobFailure::Transient(Internal::new("the probe failed"))),
-            Act::FailForGood => Err(JobFailure::Permanent(Internal::new(
-                "the probe failed for good",
-            ))),
-            Act::Wait => {
-                self.release.acquire().await.unwrap().forget();
-                Ok(())
+            Act::Succeed | Act::Wait => Ok(()),
+            Act::Fail | Act::WaitThenFail => {
+                Err(JobFailure::Transient(Internal::new("the probe failed")))
             }
+            Act::FailForGood | Act::WaitThenFailForGood => Err(JobFailure::Permanent(
+                Internal::new("the probe failed for good"),
+            )),
         }
     }
 }
@@ -1051,6 +1059,38 @@ impl Job for Forgotten {
     const KIND: &'static str = "tests.counted_forgotten";
 }
 
+/// A job that only the test of the line of a stale run that fails for good enqueues.
+#[derive(Serialize, Deserialize)]
+struct ContestedDoomed;
+
+impl Job for ContestedDoomed {
+    const KIND: &'static str = "tests.logged_contested_doomed";
+}
+
+/// A job that only the test of the line of a stale run that fails enqueues.
+#[derive(Serialize, Deserialize)]
+struct ContestedFlaky;
+
+impl Job for ContestedFlaky {
+    const KIND: &'static str = "tests.logged_contested_flaky";
+}
+
+/// A job that only the test of the lines of failures that the queue records enqueues.
+#[derive(Serialize, Deserialize)]
+struct Failing;
+
+impl Job for Failing {
+    const KIND: &'static str = "tests.logged_failing";
+}
+
+/// A job that only the test of the lines of failures that the queue can't record enqueues.
+#[derive(Serialize, Deserialize)]
+struct FailingUnrecorded;
+
+impl Job for FailingUnrecorded {
+    const KIND: &'static str = "tests.logged_failing_unrecorded";
+}
+
 /// A registry whose one queued job is `J`, whose runs `steering` steers, beside `platform`'s
 /// sweeps.
 fn steered<J: Job>(database: &Database, steering: &Arc<Steering>) -> Jobs {
@@ -1074,6 +1114,37 @@ fn counted(kind: &str) -> Vec<String> {
         .collect();
     runs.sort();
     runs
+}
+
+/// The lines that the runs of `kind` wrote, each as its level, its message and its failure, such
+/// as `WARN job failed, and runs again later: internal error: the probe failed`, in the order of
+/// those texts: the runs run on the test's thread, and the kind is the test's own (TEST-06).
+fn lines_of(kind: &str) -> Vec<String> {
+    let mut lines: Vec<String> = testing::logged_on_this_thread()
+        .into_iter()
+        .filter(|line| line[names::JOB_KIND] == kind)
+        .map(|line| {
+            format!(
+                "{} {}: {}",
+                line["level"].as_str().unwrap_or("-"),
+                line["message"].as_str().unwrap_or("-"),
+                line[names::EXCEPTION_MESSAGE].as_str().unwrap_or("-"),
+            )
+        })
+        .collect();
+    lines.sort();
+    lines
+}
+
+/// Inserts a job of `J` at its last attempt, whose replica stopped during it: its lease ran out.
+async fn lost_last_attempt<J: Job>(db: &TestDatabase) {
+    db.owner_executes(&format!(
+        "INSERT INTO jobs (kind, payload, attempts, claim_id, lease_expires_at) \
+         VALUES ('{}', 'null', {}, gen_random_uuid(), now() - interval '1 second')",
+        J::KIND,
+        J::MOST_ATTEMPTS
+    ))
+    .await;
 }
 
 #[tokio::test]
@@ -1233,6 +1304,160 @@ async fn platform_020_a_stale_run_isn_t_counted() {
     running.await.unwrap();
 
     assert_eq!(counted(Contested::KIND), ["retried 1"]);
+}
+
+#[tokio::test]
+async fn platform_020_a_stale_run_that_fails_for_good_writes_no_dead_letter_line() {
+    testing::install(Service {
+        name: "api",
+        version: "0.0.0",
+    })
+    .unwrap();
+    let db = TestDatabase::migrated().await;
+    let database = db.app().await;
+    let (stale, mut stale_starts) = Steering::new(&[Act::WaitThenFailForGood]);
+    let (fresh, _fresh_starts) = Steering::new(&[Act::Fail]);
+    enqueue(&database, JobScope::for_tests(), &ContestedDoomed).await;
+    let clock = Arc::new(TestClock::default());
+    let (stop, running) = start(
+        steered::<ContestedDoomed>(&database, &stale),
+        &database,
+        &clock,
+    );
+    stale_starts.recv().await.unwrap();
+    // As if the first replica stopped without ending or releasing the run: once its lease ran
+    // out, another replica runs the job again, and that run fails, and is retried.
+    db.owner_executes("UPDATE jobs SET lease_expires_at = now() - interval '1 second'")
+        .await;
+    let other: SharedClock = Arc::new(TestClock::default());
+    steered::<ContestedDoomed>(&database, &fresh)
+        .run_pending(&database, &other)
+        .await;
+
+    // The stale run fails for good.
+    stale.release.add_permits(1);
+    stop.send_replace(true);
+    running.await.unwrap();
+
+    assert_eq!(
+        lines_of(ContestedDoomed::KIND),
+        [
+            "WARN job failed after its run lost its claim, so the failure changes nothing: \
+             internal error: the probe failed for good",
+            "WARN job failed, and runs again later: internal error: the probe failed",
+        ]
+    );
+}
+
+#[tokio::test]
+async fn platform_020_a_stale_run_that_fails_writes_no_retry_line() {
+    testing::install(Service {
+        name: "api",
+        version: "0.0.0",
+    })
+    .unwrap();
+    let db = TestDatabase::migrated().await;
+    let database = db.app().await;
+    let (stale, mut stale_starts) = Steering::new(&[Act::WaitThenFail]);
+    let (fresh, _fresh_starts) = Steering::new(&[Act::FailForGood]);
+    enqueue(&database, JobScope::for_tests(), &ContestedFlaky).await;
+    let clock = Arc::new(TestClock::default());
+    let (stop, running) = start(
+        steered::<ContestedFlaky>(&database, &stale),
+        &database,
+        &clock,
+    );
+    stale_starts.recv().await.unwrap();
+    // As if the first replica stopped without ending or releasing the run: once its lease ran
+    // out, another replica runs the job again, and that run fails for good.
+    db.owner_executes("UPDATE jobs SET lease_expires_at = now() - interval '1 second'")
+        .await;
+    let other: SharedClock = Arc::new(TestClock::default());
+    steered::<ContestedFlaky>(&database, &fresh)
+        .run_pending(&database, &other)
+        .await;
+
+    // The stale run fails.
+    stale.release.add_permits(1);
+    stop.send_replace(true);
+    running.await.unwrap();
+
+    assert_eq!(
+        lines_of(ContestedFlaky::KIND),
+        [
+            "ERROR job dead-lettered: internal error: the probe failed for good",
+            "WARN job failed after its run lost its claim, so the failure changes nothing: \
+             internal error: the probe failed",
+        ]
+    );
+}
+
+#[tokio::test]
+async fn platform_020_a_failure_that_the_queue_records_writes_the_line_of_its_outcome() {
+    testing::install(Service {
+        name: "api",
+        version: "0.0.0",
+    })
+    .unwrap();
+    let db = TestDatabase::migrated().await;
+    let database = db.app().await;
+    // A run that fails, and runs again later; one that fails for good; and a job whose last
+    // attempt's replica stopped, which moves to the dead-letter state without running.
+    let (steering, _starts) = Steering::new(&[Act::Fail, Act::FailForGood]);
+    enqueue(&database, JobScope::for_tests(), &Failing).await;
+    enqueue(&database, JobScope::for_tests(), &Failing).await;
+    lost_last_attempt::<Failing>(&db).await;
+
+    let clock: SharedClock = Arc::new(TestClock::default());
+    steered::<Failing>(&database, &steering)
+        .run_pending(&database, &clock)
+        .await;
+
+    assert_eq!(
+        lines_of(Failing::KIND),
+        [
+            "ERROR job dead-lettered: internal error: the probe failed for good",
+            "ERROR job dead-lettered: the replica of its last attempt stopped during it",
+            "WARN job failed, and runs again later: internal error: the probe failed",
+        ]
+    );
+}
+
+#[tokio::test]
+async fn platform_020_a_failure_whose_outcome_the_queue_can_t_record_writes_only_that_warning() {
+    testing::install(Service {
+        name: "api",
+        version: "0.0.0",
+    })
+    .unwrap();
+    let db = TestDatabase::migrated().await;
+    let database = db.app().await;
+    // A run that fails; one that fails for good; and a job whose last attempt's replica stopped.
+    let (steering, _starts) = Steering::new(&[Act::Fail, Act::FailForGood]);
+    enqueue(&database, JobScope::for_tests(), &FailingUnrecorded).await;
+    enqueue(&database, JobScope::for_tests(), &FailingUnrecorded).await;
+    lost_last_attempt::<FailingUnrecorded>(&db).await;
+    // The statements that record a failure set columns that `app` then may not update, while a
+    // claim sets only those it still may.
+    db.owner_executes("REVOKE UPDATE ON jobs FROM app").await;
+    db.owner_executes("GRANT UPDATE (claim_id, lease_expires_at, attempts) ON jobs TO app")
+        .await;
+
+    let clock: SharedClock = Arc::new(TestClock::default());
+    let runs = steered::<FailingUnrecorded>(&database, &steering)
+        .run_pending(&database, &clock)
+        .await;
+
+    assert_eq!(runs, 3);
+    assert_eq!(lines_of(FailingUnrecorded::KIND), Vec::<String>::new());
+    let unrecorded = testing::logged_on_this_thread()
+        .into_iter()
+        .filter(|line| {
+            line["message"]
+                == "can't record a job's outcome, so it runs again once its lease runs out"
+        })
+        .count();
+    assert_eq!(unrecorded, 3);
 }
 
 #[tokio::test]

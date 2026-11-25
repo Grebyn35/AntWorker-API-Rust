@@ -106,9 +106,9 @@ pub(super) async fn dispatch(
 /// Runs `job` in a span of its own, linked to the span that enqueued it (OBS-07), renewing its
 /// lease while it runs and cancelling it at its time limit (PLATFORM-017), then writes its
 /// outcome by its claim, so a run whose lease ran out, while another replica claimed the job,
-/// changes nothing, and counts it only when that write found the job under the claim. The span of
-/// a run that fails, or that moves its job to the dead-letter state, ends with an error status
-/// (PLATFORM-020).
+/// changes nothing, and counts it, and writes the line of a failure's outcome, only when that
+/// write found the job under the claim, as [`log_failure`] says. The span of a run that fails, or
+/// that moves its job to the dead-letter state, ends with an error status (PLATFORM-020).
 pub(super) async fn run_job(
     queued: Queued,
     job: ClaimedJob,
@@ -146,14 +146,10 @@ async fn run(
         // The replica that ran its last attempt stopped before the attempt ended.
         let failure = "the replica of its last attempt stopped during it";
         failed();
-        tracing::error!(
-            { names::JOB_KIND } = queued.kind,
-            { names::EXCEPTION_MESSAGE } = failure,
-            "job dead-lettered"
-        );
         database
             .kill_job(id, claim, failure)
             .await
+            .inspect(|recorded| log_failure(queued.kind, failure, Outcome::DeadLettered, *recorded))
             .map(|recorded| (Outcome::DeadLettered, recorded))
     } else {
         let context = JobContext {
@@ -190,8 +186,9 @@ async fn run(
     }
 }
 
-/// Writes the outcome of a run that ended with `result` (PLATFORM-014), and gives it, with
-/// whether the statement that wrote it found the job under `claim`.
+/// Writes the outcome of a run that ended with `result` (PLATFORM-014), then a failure's line
+/// once the statement that wrote it has returned without an error, as [`log_failure`] says, and
+/// gives the outcome, with whether that statement found the job under `claim`.
 async fn end(
     queued: &Queued,
     id: Uuid,
@@ -210,22 +207,39 @@ async fn end(
     };
     let failure = errors::chain(&error);
     if permanent || attempt >= queued.most_attempts {
-        tracing::error!(
-            { names::JOB_KIND } = queued.kind,
-            { names::EXCEPTION_MESSAGE } = failure,
-            "job dead-lettered"
-        );
         let recorded = database.kill_job(id, claim, &failure).await?;
+        log_failure(queued.kind, &failure, Outcome::DeadLettered, recorded);
         return Ok((Outcome::DeadLettered, recorded));
     }
     let delay = backoff(attempt)?;
-    tracing::warn!(
-        { names::JOB_KIND } = queued.kind,
-        { names::EXCEPTION_MESSAGE } = failure,
-        "job failed, and runs again later"
-    );
     let recorded = database.retry_job(id, claim, delay, &failure).await?;
+    log_failure(queued.kind, &failure, Outcome::Retried, recorded);
     Ok((Outcome::Retried, recorded))
+}
+
+/// Writes the line of a run of the job `kind` that failed with `failure`, once the statement that
+/// records its `outcome`, a dead letter or a retry, has returned without an error: the outcome's
+/// line when `recorded`, when the statement found the job under the run's claim, and otherwise
+/// the line of a run that lost its claim, as a stale run has, whose failure changes nothing
+/// (PLATFORM-020).
+fn log_failure(kind: &'static str, failure: &str, outcome: Outcome, recorded: bool) {
+    match (recorded, outcome) {
+        (true, Outcome::DeadLettered) => tracing::error!(
+            { names::JOB_KIND } = kind,
+            { names::EXCEPTION_MESSAGE } = failure,
+            "job dead-lettered"
+        ),
+        (true, _) => tracing::warn!(
+            { names::JOB_KIND } = kind,
+            { names::EXCEPTION_MESSAGE } = failure,
+            "job failed, and runs again later"
+        ),
+        (false, _) => tracing::warn!(
+            { names::JOB_KIND } = kind,
+            { names::EXCEPTION_MESSAGE } = failure,
+            "job failed after its run lost its claim, so the failure changes nothing"
+        ),
+    }
 }
 
 /// The wait before the retry that follows attempt `attempt`: a random time between half of and
