@@ -484,7 +484,7 @@
             "description": "One member per feature a deployment can turn off, `true` while the feature is on, and one\nper part of the template that changes what a client offers, `true` while the fork keeps it. A\nfeature or a part this API doesn't have is absent."
           },
           "sign_in_providers": {
-            "description": "The OAuth providers that a user signs in through, each of which the deployment\nconfigures, by their keys, with what a client builds the authorization request from\n(AUTH-081).",
+            "description": "The OAuth providers that a user signs in through, each of which the deployment\nconfigures, ordered by key, with what a client builds the authorization request from\n(AUTH-081).",
             "items": {
               "$ref": "#/components/schemas/SignInProvider"
             },

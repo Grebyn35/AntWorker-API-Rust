@@ -7,14 +7,14 @@ use serde_json::{Value, json};
 use crate::support::{
     Api, TestDatabase,
     api::{self, Options, Response},
-    counts,
+    counts, execute_on,
     providers::{
         self, VERIFIER, gives, grant, identity, kept_token_logged, reauthenticate, sign_in,
         signed_in,
     },
-    second_factors,
+    queries_wait_on_locks, second_factors,
     upstream::Upstream,
-    users::{self, SignedIn},
+    users::{self, PASSWORD, SignedIn},
     with_fields,
 };
 
@@ -623,13 +623,18 @@ async fn auth_100_a_malformed_code_verifier_or_redirect_uri_answers_400_before_t
         "API-10"
     );
 
-    for code in [String::new(), "c".repeat(2_049)] {
+    let outside = codes_outside_visible_ascii();
+    for code in [String::new(), "c".repeat(2_049)]
+        .into_iter()
+        .chain(outside)
+    {
         let mut body = grant();
         body["code"] = json!(code);
         let response = api.post_raw("/v1/sessions/provider", &body).send().await;
         assert_eq!(
             response.refused_fields(),
-            [("/code".to_owned(), "invalid_code".to_owned())]
+            [("/code".to_owned(), "invalid_code".to_owned())],
+            "{code:?}"
         );
     }
     // 42 characters, 129, and 43 with one that RFC 7636 doesn't allow.
@@ -947,8 +952,9 @@ async fn auth_081_startup_refuses_a_redirect_uri_that_clients_of_two_providers_l
 
     let refusal = api::refusal(&both("https://app.example.com/callback"));
 
+    // The registry reads the other stand-in first, so the stand-in's client lists the URI second.
     assert!(
-        refusal.starts_with("STAND_IN_OTHER_REDIRECT_URIS must be"),
+        refusal.starts_with("STAND_IN_REDIRECT_URIS must be"),
         "{refusal}"
     );
     api::configuration(&both("https://app.example.com/callback/other"));
@@ -976,6 +982,66 @@ async fn auth_081_the_capabilities_list_each_provider_that_the_deployment_config
     let unconfigured = Api::new().await;
     let capabilities = unconfigured.get("/v1/capabilities").send().await.json();
     assert_eq!(capabilities["sign_in_providers"], json!([]));
+}
+
+/// The two providers are the stand-in, with both of its clients, and the other stand-in, which
+/// every build of the tests holds, whichever other providers it has, and which the registry reads
+/// against the order of their keys, so the list holds them in that order only once it is sorted.
+#[tokio::test]
+async fn auth_081_the_capabilities_list_two_providers_that_are_on_each_with_each_of_its_clients() {
+    let upstream = Upstream::start().await;
+    let api = Api::with(
+        both_clients(&upstream)
+            .set("STAND_IN_OTHER_CLIENT_ID", "other-client")
+            .set("STAND_IN_OTHER_CLIENT_SECRET", "other-secret")
+            .set(
+                "STAND_IN_OTHER_REDIRECT_URIS",
+                "https://other.example.com/callback",
+            ),
+    )
+    .await;
+
+    let capabilities = api.get("/v1/capabilities").send().await.json();
+
+    let provider = |key: &str, name: &str, clients: Value| {
+        json!({
+            "provider": key,
+            "name": name,
+            "authorization_endpoint": "https://provider.test/authorize",
+            "scopes": ["identity"],
+            "clients": clients,
+        })
+    };
+    assert_eq!(
+        capabilities["sign_in_providers"],
+        json!([
+            provider(
+                "stand_in",
+                "Stand-in",
+                json!([
+                    {
+                        "client_id": "stand-in-client",
+                        "redirect_uris": [
+                            "https://app.example.com/callback",
+                            "http://127.0.0.1/callback"
+                        ],
+                    },
+                    {
+                        "client_id": "second-client",
+                        "redirect_uris": [SECOND_REDIRECT_URI],
+                    },
+                ])
+            ),
+            provider(
+                "stand_in_other",
+                "Other stand-in",
+                json!([{
+                    "client_id": "other-client",
+                    "redirect_uris": ["https://other.example.com/callback"],
+                }])
+            ),
+        ])
+    );
 }
 
 #[tokio::test]
@@ -1088,12 +1154,23 @@ async fn auth_080_a_code_the_provider_refuses_answers_403_since_the_session_stil
 async fn auth_101_an_account_without_an_identity_of_the_provider_answers_403() {
     let (upstream, api) = providers::standing().await;
     let ada = users::register(&api, "ada@example.com").await;
+    users::authenticated_ago(&api, &ada, 10).await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
 
     let response = reauthenticate(&api, &ada, json!({})).await;
 
     assert_eq!(response.status, 403);
     assert_eq!(response.json()["code"], "auth.wrong_identity");
+    let id = &ada.user_id;
+    assert_eq!(
+        entries(&api, "identity.check_failed").await,
+        [format!(
+            "user {id} {id} user {id} {{\"provider\": \"stand_in\"}}"
+        )]
+    );
+    let deleted = users::end_others(&api, &ada).await;
+    assert_eq!(deleted.status, 403, "no proof");
+    assert_eq!(deleted.json()["code"], "request.reauthentication_required");
 }
 
 #[tokio::test]
@@ -1107,7 +1184,9 @@ async fn auth_080_re_authenticating_counts_in_the_bucket_of_the_user_s_checks() 
         assert_eq!(reauthenticate(&api, &ada, json!({})).await.status, 403);
     }
     let counted = users::counted_in(&api, "password_check", &ada).await;
+    let received = upstream.received().len();
     let limited = reauthenticate(&api, &ada, json!({})).await;
+    let exchanged = upstream.received().len();
 
     assert_eq!(counted, Some(5), "the bucket of her password's checks");
     assert_eq!(limited.status, 429, "AUTH-022's 5 checks in 15 minutes");
@@ -1117,6 +1196,10 @@ async fn auth_080_re_authenticating_counts_in_the_bucket_of_the_user_s_checks() 
             .starts_with("\"password_check\";q=5;w=900"),
         "{}",
         limited.header("ratelimit-policy")
+    );
+    assert_eq!(
+        exchanged, received,
+        "it counts before it exchanges the code, so beyond the limit the provider receives nothing"
     );
 }
 
@@ -1538,6 +1621,91 @@ async fn auth_008_a_sign_in_through_a_provider_on_a_device_replaces_its_session(
         [second.json()["id"].as_str().unwrap()]
     );
     assert_ne!(first.json()["id"], second.json()["id"]);
+}
+
+/// What two sign-ins on the device of the session `session`, each a path and its body, answer
+/// once both are in their units of work at once: the test holds that session's row locked until
+/// two queries wait on a lock, the sign-in that holds the user's turn for the row, which it
+/// deletes to end the session, and the other for the turn, or, where the two take no turn, each
+/// for the row (AUTH-008).
+async fn at_once(api: &Api, session: &str, sign_ins: [(&'static str, Value); 2]) -> [Response; 2] {
+    let db = api.database();
+    let mut held = db
+        .holding(&format!(
+            "SELECT 1 FROM sessions WHERE id = '{session}' FOR UPDATE"
+        ))
+        .await;
+    let [first, second] = sign_ins.map(|(path, body)| {
+        let api = api.clone();
+        tokio::spawn(async move { api.post(path, &body).send().await })
+    });
+    queries_wait_on_locks(db, 2).await;
+    execute_on(&mut held, "COMMIT").await;
+    [first.await.unwrap(), second.await.unwrap()]
+}
+
+/// Asserts that each of `answers` started a session, and that the device `laptop` holds one
+/// session, one of those that they started (AUTH-008).
+async fn one_session_on_the_laptop(api: &Api, answers: &[Response; 2]) {
+    for answer in answers {
+        assert_eq!(answer.status, 201, "{}", answer.json());
+    }
+    let started = answers.each_ref().map(|answer| answer.json()["id"].clone());
+    let on_device = api
+        .database()
+        .owner_reads("SELECT id::text FROM sessions WHERE device_id = 'laptop'")
+        .await;
+    assert_eq!(on_device.len(), 1, "{on_device:?}");
+    assert!(started.contains(&json!(on_device[0])), "{on_device:?}");
+}
+
+#[tokio::test]
+async fn auth_008_two_sign_ins_through_a_provider_at_once_on_one_device_leave_it_one_session() {
+    let (upstream, api) = providers::standing().await;
+    gives(&upstream, identity("subject-1", "ada@example.com", true));
+    let on_device = with_fields(grant(), json!({ "device_id": "laptop" }));
+    let first = sign_in(&api, &on_device).await;
+    assert_eq!(first.status, 201, "{}", first.json());
+    let first = first.json()["id"].as_str().unwrap().to_owned();
+
+    let answers = at_once(
+        &api,
+        &first,
+        [
+            ("/v1/sessions/provider", on_device.clone()),
+            ("/v1/sessions/provider", on_device),
+        ],
+    )
+    .await;
+
+    one_session_on_the_laptop(&api, &answers).await;
+}
+
+#[tokio::test]
+async fn auth_008_a_sign_in_with_the_password_and_one_through_a_provider_at_once_on_one_device_leave_it_one_session()
+ {
+    let (upstream, api) = providers::standing().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    gives(&upstream, identity("subject-1", "ada@example.com", true));
+    assert_eq!(providers::link(&api, &ada, &grant()).await.status, 200);
+    let through_provider = with_fields(grant(), json!({ "device_id": "laptop" }));
+    let first = sign_in(&api, &through_provider).await;
+    assert_eq!(first.status, 201, "{}", first.json());
+    let first = first.json()["id"].as_str().unwrap().to_owned();
+    let with_password =
+        json!({ "email": "ada@example.com", "password": PASSWORD, "device_id": "laptop" });
+
+    let answers = at_once(
+        &api,
+        &first,
+        [
+            ("/v1/sessions", with_password),
+            ("/v1/sessions/provider", through_provider),
+        ],
+    )
+    .await;
+
+    one_session_on_the_laptop(&api, &answers).await;
 }
 
 #[tokio::test]
@@ -1997,21 +2165,23 @@ const REAUTHENTICATE: &str = "/v1/users/me/sessions/current/reauthenticate/provi
 /// The path of a link of a provider.
 const LINK: &str = "/v1/users/me/identities/provider";
 
-/// What `path`, a re-authentication's or a link's, answers `caller` for each key outside the
-/// schema of `provider`, as the fields that each answer refuses, once each answered 400.
-async fn refusals_of_keys_outside_the_schema(
+/// What `path`, a re-authentication's or a link's, answers `caller` for each of `values` in the
+/// grant's `field`, such as each key outside the schema of `provider`, as the fields that each
+/// answer refuses, once each answered 400.
+async fn refusals_of(
     api: &Api,
     path: &str,
     caller: &SignedIn,
+    (field, values): (&str, Vec<String>),
 ) -> Vec<Vec<(String, String)>> {
     let mut refusals = Vec::new();
-    for key in providers::keys_outside_the_schema() {
+    for value in values {
         let response = api
-            .post_raw(path, &with_fields(grant(), json!({ "provider": key })))
+            .post_raw(path, &with_fields(grant(), json!({ field: value })))
             .bearer(&caller.access)
             .send()
             .await;
-        assert_eq!(response.status, 400, "{key:?}: {}", response.json());
+        assert_eq!(response.status, 400, "{value:?}: {}", response.json());
         refusals.push(response.refused_fields());
     }
     refusals
@@ -2022,7 +2192,8 @@ async fn auth_100_a_re_authentication_refuses_a_provider_outside_its_schema_at_i
     let (upstream, api) = providers::standing().await;
     let bob = users::register(&api, "bob@example.com").await;
 
-    let refusals = refusals_of_keys_outside_the_schema(&api, REAUTHENTICATE, &bob).await;
+    let keys = ("provider", providers::keys_outside_the_schema());
+    let refusals = refusals_of(&api, REAUTHENTICATE, &bob, keys).await;
 
     let provider = vec![("/provider".to_owned(), "invalid_provider".to_owned())];
     assert_eq!(
@@ -2037,13 +2208,48 @@ async fn auth_100_a_link_refuses_a_provider_outside_its_schema_at_its_field() {
     let (upstream, api) = providers::standing().await;
     let bob = users::register(&api, "bob@example.com").await;
 
-    let refusals = refusals_of_keys_outside_the_schema(&api, LINK, &bob).await;
+    let keys = ("provider", providers::keys_outside_the_schema());
+    let refusals = refusals_of(&api, LINK, &bob, keys).await;
 
     let provider = vec![("/provider".to_owned(), "invalid_provider".to_owned())];
     assert_eq!(
         refusals,
         vec![provider; providers::keys_outside_the_schema().len()]
     );
+    assert!(upstream.received().is_empty(), "before the exchange");
+}
+
+/// Codes that each hold one character outside visible ASCII other than a space: a control
+/// character, DEL and a letter outside ASCII (AUTH-100).
+fn codes_outside_visible_ascii() -> Vec<String> {
+    ["a-\u{1}-code", "a-\u{7f}-code", "a-c\u{f6}de"]
+        .map(str::to_owned)
+        .into()
+}
+
+#[tokio::test]
+async fn auth_100_a_re_authentication_refuses_a_code_outside_visible_ascii_at_its_field() {
+    let (upstream, api) = providers::standing().await;
+    let bob = users::register(&api, "bob@example.com").await;
+
+    let codes = ("code", codes_outside_visible_ascii());
+    let refusals = refusals_of(&api, REAUTHENTICATE, &bob, codes).await;
+
+    let code = vec![("/code".to_owned(), "invalid_code".to_owned())];
+    assert_eq!(refusals, vec![code; codes_outside_visible_ascii().len()]);
+    assert!(upstream.received().is_empty(), "before the exchange");
+}
+
+#[tokio::test]
+async fn auth_100_a_link_refuses_a_code_outside_visible_ascii_at_its_field() {
+    let (upstream, api) = providers::standing().await;
+    let bob = users::register(&api, "bob@example.com").await;
+
+    let codes = ("code", codes_outside_visible_ascii());
+    let refusals = refusals_of(&api, LINK, &bob, codes).await;
+
+    let code = vec![("/code".to_owned(), "invalid_code".to_owned())];
+    assert_eq!(refusals, vec![code; codes_outside_visible_ascii().len()]);
     assert!(upstream.received().is_empty(), "before the exchange");
 }
 

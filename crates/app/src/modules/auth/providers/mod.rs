@@ -48,9 +48,12 @@ const REGISTRY: &[Entry] = &[
     // end part: openid_connect
 ];
 
-/// The tests' stand-in provider, and the other stand-in, in the tests' build alone.
+/// The tests' stand-in provider, and the other stand-in, in the tests' build alone. The other
+/// stand-in comes first, against the order of their keys, so that the registry's order isn't the
+/// order of the keys, by which the capabilities list the providers, and a test of the list fails
+/// unless [`Providers::listed`] sorts them (AUTH-081).
 #[cfg(feature = "test-support")]
-const STAND_IN: &[Entry] = &[stand_in::ENTRY, stand_in::OTHER];
+const STAND_IN: &[Entry] = &[stand_in::OTHER, stand_in::ENTRY];
 #[cfg(not(feature = "test-support"))]
 const STAND_IN: &[Entry] = &[];
 
@@ -424,8 +427,8 @@ impl Providers {
         }
     }
 
-    /// Each provider that the deployment configures, by its key, as `sign_in_providers` lists
-    /// it (AUTH-081).
+    /// Each provider that the deployment configures, ordered by key, as `sign_in_providers`
+    /// lists them (AUTH-081).
     pub(crate) fn listed(&self) -> Vec<Listed> {
         let mut listed: Vec<Listed> = self
             .on

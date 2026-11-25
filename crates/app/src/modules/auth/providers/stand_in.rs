@@ -7,8 +7,10 @@
 //! a setting that a provider reads beside its clients' (AUTH-081). The tokens of its second
 //! client don't lapse, as those of a provider's client of another kind: the stand-in deletes
 //! one, so the tests prove what the registry does with a deletion (AUTH-079). A second entry,
-//! the other stand-in, is the same provider under a key of its own, so the tests prove what
-//! startup does with one redirect URI that the clients of two providers list (AUTH-081).
+//! the other stand-in, is the same provider under a key of its own, which the registry reads
+//! before the first, against the order of their keys, so the tests prove what startup does with
+//! one redirect URI that the clients of two providers list, and that the capabilities list the
+//! providers ordered by key (AUTH-081).
 
 use futures_util::future::BoxFuture;
 use platform::{
