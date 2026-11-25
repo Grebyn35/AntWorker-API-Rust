@@ -1,11 +1,12 @@
 //! `check-telemetry-config`: the collector's tail sampling keeps every trace OBS-08 says it
 //! keeps, with a managed backend as with the self-hosted stack, and the latency objective is the
-//! same in the sampling, the latency alerts' rules and the dashboard that lists the slow traces.
+//! same in the sampling, in each bound of the requests' buckets that the rules select, as
+//! [`bucket_bounds`] reads one, and in the dashboards, as [`dashboards_share`] reads them.
 
 use serde_json::Value;
 
 use crate::{
-    Finding, Outcome,
+    Finding, Outcome, promql,
     repo::Repo,
     stack::{self, Store},
     text,
@@ -286,11 +287,20 @@ fn policy_inverts(policy: &Value) -> bool {
         .any(|settings| settings["invert_match"] == true)
 }
 
-/// Checks that every rule that selects the requests within the objective uses its bucket.
+/// Checks that each bound that [`bucket_bounds`] reads in a rule's expression is the objective,
+/// and that one rule's expression holds one; fails on each part of a rule's expression that
+/// [`bucket_bounds`] can't read.
 fn alerts_share(repo: &Repo, objective: f64, findings: &mut Vec<Finding>) {
     let mut measured = false;
     for rule in stack::rules(repo, findings) {
         for bound in bucket_bounds(&rule.expr) {
+            let bound = match bound {
+                Ok(bound) => bound,
+                Err(unread) => {
+                    findings.push(Finding::new(stack::RULES, rule.line, unread));
+                    continue;
+                }
+            };
             measured = true;
             if !bound
                 .parse::<f64>()
@@ -315,17 +325,79 @@ fn alerts_share(repo: &Repo, objective: f64, findings: &mut Vec<Finding>) {
     }
 }
 
-/// The values of `le` that `expression` selects in the request metric's buckets.
-fn bucket_bounds(expression: &str) -> Vec<String> {
-    expression
-        .match_indices(BUCKET)
-        .filter_map(|(at, _)| {
-            let rest = expression[at + BUCKET.len()..].strip_prefix('{')?;
-            let matchers = &rest[..rest.find('}')?];
-            let value = matchers.split("le=\"").nth(1)?;
-            Some(value[..value.find('"')?].to_owned())
-        })
-        .collect()
+/// The bounds of the request metric's buckets that `expression`, a rule's, selects, with an
+/// `Err` for each part that the check can't read. It reads each selector, as
+/// [`promql::selectors`] reads one, by the name before its braces, and can't read one without a
+/// name. Of a selector named [`BUCKET`], it reads each matcher as a label's name, an identifier
+/// or a string, then `=`, `!=`, `=~` or `!~`, then a string, spaces aside, each string in double
+/// quotes, single quotes or backticks and without a backslash: a matcher of the label `le` gives
+/// its string as a bound when its operator is `=`, and the check can't read another matcher of
+/// `le`, nor a matcher that it doesn't read so.
+fn bucket_bounds(expression: &str) -> Vec<Result<String, String>> {
+    let mut bounds = Vec::new();
+    for selector in promql::selectors(expression) {
+        let Some(name) = selector.name else {
+            bounds.push(Err(format!(
+                "the rule's selector {{{}}} has no metric's name before its braces, by which \
+                 check-telemetry-config reads what it selects (OBS-08)",
+                selector.matchers.join(", ")
+            )));
+            continue;
+        };
+        if name != BUCKET {
+            continue;
+        }
+        for text in &selector.matchers {
+            match matcher(text) {
+                Some((label, _, _)) if label != "le" => {}
+                Some((_, "=", bound)) => bounds.push(Ok(bound)),
+                _ => bounds.push(Err(format!(
+                    "the rule selects {BUCKET} with the matcher {text}, which \
+                     check-telemetry-config reads only as a label's name, `=`, `!=`, `=~` or \
+                     `!~` and a string without a backslash, and of the label `le` only with `=` \
+                     (OBS-08)"
+                ))),
+            }
+        }
+    }
+    bounds
+}
+
+/// The label's name, the operator and the string of `text`, a matcher, as [`bucket_bounds`]
+/// reads one.
+fn matcher(text: &str) -> Option<(String, &'static str, String)> {
+    let (label, rest) = match string(text) {
+        Some(quoted) => quoted,
+        None => {
+            let end = text
+                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                .unwrap_or(text.len());
+            let label = &text[..end];
+            if !label.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_') {
+                return None;
+            }
+            (label.to_owned(), &text[end..])
+        }
+    };
+    let rest = rest.trim_start();
+    let operator = ["=~", "!~", "!=", "="]
+        .into_iter()
+        .find(|operator| rest.starts_with(operator))?;
+    let (value, rest) = string(rest[operator.len()..].trim_start())?;
+    rest.trim().is_empty().then_some((label, operator, value))
+}
+
+/// The text of the string that `text` starts with, in double quotes, single quotes or
+/// backticks, if it holds no backslash, and what follows it.
+fn string(text: &str) -> Option<(String, &str)> {
+    let quote = text
+        .chars()
+        .next()
+        .filter(|c| matches!(c, '"' | '\'' | '`'))?;
+    let inner = &text[quote.len_utf8()..];
+    let end = inner.find(quote)?;
+    let value = &inner[..end];
+    (!value.contains('\\')).then(|| (value.to_owned(), &inner[end + quote.len_utf8()..]))
 }
 
 /// Checks that the slow-trace list's queries keep the objective as their threshold, and that a
@@ -651,6 +723,72 @@ mod tests {
 
         assert_eq!(latency_objective(&repo), Ok(500.0));
         assert!(latency_objective(&without).is_err());
+    }
+
+    /// The findings of the check where the rules hold [`RULES`]'s, and a second, whose expression
+    /// is `expression`.
+    fn beside_a_rule(expression: &str) -> Vec<String> {
+        let rules = format!(
+            "{RULES}      - record: job:other:ratio\n        expr: |\n          {expression}\n"
+        );
+        findings(
+            &collector(POLICIES),
+            &rules,
+            &dashboard("{ duration > 500ms }"),
+        )
+    }
+
+    #[test]
+    fn obs_08_a_rule_s_bucket_is_read_by_its_le_matcher() {
+        // Another label whose name ends in `le`, spaces, the other two quotes, a quoted label name,
+        // a `}` and a `,` in a string, and spaces before the braces.
+        let expressions = [
+            r#"sum(rate(http_server_request_duration_seconds_bucket{handle="0.5", le="1"}[5m]))"#,
+            r#"sum(rate(http_server_request_duration_seconds_bucket{le = "1"}[5m]))"#,
+            r#"sum(rate(http_server_request_duration_seconds_bucket{le='1'}[5m]))"#,
+            r#"sum(rate(http_server_request_duration_seconds_bucket{le=`1`}[5m]))"#,
+            r#"sum(rate(http_server_request_duration_seconds_bucket{"le"="1"}[5m]))"#,
+            r#"sum(rate(http_server_request_duration_seconds_bucket{route="},", le="1"}[5m]))"#,
+            r#"sum(rate(http_server_request_duration_seconds_bucket {le="1"}[5m]))"#,
+        ];
+
+        let found = expressions.map(beside_a_rule);
+
+        let wrong =
+            "the rule selects the bucket le=\"1\", but the latency objective is 500 ms (OBS-08)";
+        let missed: Vec<(&str, &Vec<String>)> = expressions
+            .iter()
+            .copied()
+            .zip(&found)
+            .filter(|(_, found)| *found != &[wrong])
+            .collect();
+        assert!(missed.is_empty(), "{missed:#?}");
+    }
+
+    #[test]
+    fn obs_08_a_bucket_s_matcher_that_the_check_can_t_read_as_le_equal_to_a_bound_fails() {
+        // Another operator, a value the check would read otherwise than Prometheus, a matcher
+        // without a value, and the bucket's name inside the braces.
+        let expressions = [
+            r#"sum(rate(http_server_request_duration_seconds_bucket{le=~"0.5"}[5m]))"#,
+            r#"sum(rate(http_server_request_duration_seconds_bucket{le!="0.5"}[5m]))"#,
+            r#"sum(rate(http_server_request_duration_seconds_bucket{le="0\x2e5"}[5m]))"#,
+            r#"sum(rate(http_server_request_duration_seconds_bucket{le}[5m]))"#,
+            r#"sum(rate({__name__="http_server_request_duration_seconds_bucket", le="1"}[5m]))"#,
+            r#"sum(rate({"http_server_request_duration_seconds_bucket", le="1"}[5m]))"#,
+        ];
+
+        let found = expressions.map(beside_a_rule);
+
+        let missed: Vec<(&str, &Vec<String>)> = expressions
+            .iter()
+            .copied()
+            .zip(&found)
+            .filter(|(_, found)| {
+                !(found.len() == 1 && found[0].contains("check-telemetry-config reads"))
+            })
+            .collect();
+        assert!(missed.is_empty(), "{missed:#?}");
     }
 
     #[test]

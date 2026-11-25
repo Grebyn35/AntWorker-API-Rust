@@ -267,8 +267,9 @@ fn check_use(repo: &Repo, catalog: &Catalog, findings: &mut Vec<Finding>) {
 }
 
 /// Fails each `increase(` of a panel's Prometheus query or of a rule's expression, read with its
-/// whitespace collapsed to single spaces, whose argument, the text up to the first `)` outside a
-/// string, in double quotes, single quotes or backticks, as [`promql::past_string`] reads one,
+/// whitespace collapsed to single spaces, then each `increase (` read as `increase(`, whose
+/// argument, the text up to the first `)` outside a string, in double quotes, single quotes or
+/// backticks, as [`promql::past_string`] reads one,
 /// names a series of a metric that the API declares before its first `{` or `[`, spaces aside,
 /// unless the argument is `S[W]` and the text from the `(` before the `increase(` is
 /// `(increase(S[W]) and S offset W) or (S unless S offset W)`, between a `(`, a `,` or the
@@ -294,7 +295,11 @@ fn first_values(
         .iter()
         .map(|rule| (stack::RULES, rule.line, rule.expr.as_str()));
     for (path, line, query) in panels.chain(expressions) {
-        let text = query.split_whitespace().collect::<Vec<_>>().join(" ");
+        let text = query
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .replace("increase (", "increase(");
         for (start, _) in text.match_indices("increase(") {
             let argument = argument(&text[start + "increase(".len()..]);
             let name = argument.split(['{', '[']).next().unwrap_or_default().trim();
@@ -631,6 +636,32 @@ mod tests {
 
         for (selector, found) in selectors.iter().zip(&found) {
             assert!(found.is_empty(), "{selector}: {found:?}");
+        }
+    }
+
+    #[test]
+    fn obs_13_an_increase_with_spaces_before_its_parenthesis_is_read_too() {
+        let rules =
+            "groups:\n  - name: a\n    rules:\n      - alert: Down\n        expr: up == 0\n";
+        let x = "platform_panics_total";
+        let counted =
+            format!("(increase ({x}[5m]) and {x} offset 5m) or ({x} unless {x} offset 5m)");
+        let missed = [
+            format!("increase ({x}[5m])"),
+            format!("sum(increase\n  ({x}[5m]))"),
+        ];
+
+        let taken = findings(&dashboard("Did anything panic?", &counted), rules);
+        let refused = missed
+            .each_ref()
+            .map(|query| findings(&dashboard("Did anything panic?", query), rules));
+
+        assert!(taken.is_empty(), "{taken:?}");
+        for (query, found) in missed.iter().zip(&refused) {
+            assert!(
+                found.len() == 1 && found[0].contains("counts nothing of the first value"),
+                "{query}: {found:?}"
+            );
         }
     }
 

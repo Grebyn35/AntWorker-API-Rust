@@ -133,7 +133,7 @@ struct Constants {
 }
 
 impl<'ast> Visit<'ast> for Constants {
-    /// Skips an item that only tests compile, with what it holds.
+    /// Skips an item that carries `#[cfg(test)]`, with what it holds.
     fn visit_item(&mut self, item: &'ast Item) {
         if !only_tests(attributes(item)) {
             visit::visit_item(self, item);
@@ -155,7 +155,7 @@ impl<'ast> Visit<'ast> for Constants {
 }
 
 impl<'ast> Visit<'ast> for Codes {
-    /// Skips an item that only tests compile, with what it holds, whose errors no route answers.
+    /// Skips an item that carries `#[cfg(test)]`, with what it holds, whose errors no route answers.
     fn visit_item(&mut self, item: &'ast Item) {
         if !only_tests(attributes(item)) {
             visit::visit_item(self, item);

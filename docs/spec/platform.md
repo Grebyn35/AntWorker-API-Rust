@@ -586,7 +586,7 @@ With `OTEL_EXPORTER_OTLP_ENDPOINT` set, every subcommand that logs exports its s
 
 A name that a semantic convention defines is declared through `convention`, as the telemetry names are (OBS-05). The metric names come from `opentelemetry-semantic-conventions`' `metric` module, which holds the conventions' metric names.
 
-`check-metrics` reads the declarations that [its row in ci.md](../operations/ci.md#checks-that-exist) names. It fails on an own name that isn't `<module>.<name>` for the module that declares it, and on a label name that isn't one of the list's constants. `just metrics` writes the catalog, [metrics.md](../operations/metrics.md), from the declarations, and `check-metrics` fails while the committed catalog differs from it (OBS-12).
+`check-metrics` reads the declarations that [its row in ci.md](../operations/ci.md#checks-that-exist) names. It fails on an own name that isn't `<module>.<name>` for the module that declares it, and on a label other than `names::X` for `X` one of the list's constants. `just metrics` writes the catalog, [metrics.md](../operations/metrics.md), from the declarations, and `check-metrics` fails while the committed catalog differs from it (OBS-12).
 
 The metrics `platform` records are in the catalog, each with the file that declares it and what it measures, from its declaration. Two of them leave something out:
 - `http.server.request.duration`, which the request log records for every request it logs, with the boundaries the conventions advise (PLATFORM-067), leaves out `url.scheme`, which the conventions require: the API receives every request over plain HTTP, behind the proxy that ends TLS, so the label would hold one value.
@@ -661,8 +661,9 @@ The list in `platform::telemetry` holds one constant per name (OBS-05). A name t
 The list holds the names from the conventions; `trace_id` and `span_id`, the top-level fields of JSON logs (OBS-05), which the conventions' crate has no constant for, so the list declares them without `convention`; the bridge's fields, `otel.name`, `otel.kind` and `otel.status_code`, which `tracing-opentelemetry` reads to name a span and set its kind and status, and which no JSON log line carries; and the own names. Two of them a span carries only once a proof exists: `user.id`, once `Principal` has verified its caller, and `workspace.id`, once `Authorized<P>` has proven its caller a member (OBS-09). A name joins the list with the first code that writes it.
 
 `check-instrument` reads the list's names, then the code that [its row in ci.md](../operations/ci.md#checks-that-exist) names. It fails on:
-- a name the list doesn't hold, or a `{ CONST }` name that isn't one of the list's constants
-- a `record` name that is neither a listed name nor one of the list's constants
+- a name the list doesn't hold, or a `{ }` name other than `names::X` for `X` one of the list's constants
+- a `record` name that is neither a listed name in a string nor `names::X` for such an `X`
+- what would give `names` another meaning, as [the doc of `bindings.rs`](../../crates/xtask/src/instrument/bindings.rs) says it reads one
 - a message that isn't constant (OBS-01)
 - an `#[instrument]` without `skip_all` (OBS-04)
 

@@ -1,6 +1,7 @@
-//! The metric names a PromQL expression reads. It reads the names, not the expression's
-//! meaning: a name is an identifier outside label matchers and label lists, that isn't a
-//! keyword, an aggregation or a function. Prometheus itself checks the syntax (`alert-rules`).
+//! The metric names a PromQL expression reads, and its selectors. It reads the names, not the
+//! expression's meaning: a name is an identifier outside label matchers and label lists, that
+//! isn't a keyword, an aggregation or a function. Prometheus itself checks the syntax
+//! (`alert-rules`).
 
 /// The words of PromQL that aren't metric names: operators, modifiers and literals.
 const KEYWORDS: [&str; 10] = [
@@ -85,6 +86,82 @@ pub fn metric_names(expression: &str) -> Vec<String> {
         }
     }
     names
+}
+
+/// A selector of a PromQL expression, as [`selectors`] reads one.
+#[derive(Debug, PartialEq)]
+pub struct Selector {
+    /// The word that ends right before its `{`, spaces aside, as [`metric_names`] reads a word,
+    /// if one does.
+    pub name: Option<String>,
+    /// The text between its braces, split at its commas outside a string, each part trimmed,
+    /// but an empty one.
+    pub matchers: Vec<String>,
+}
+
+/// Each selector of `expression`: the text from a `{` outside a string, one in double quotes,
+/// single quotes or backticks as [`past_string`] reads one, to the next `}` outside a string.
+pub fn selectors(expression: &str) -> Vec<Selector> {
+    let chars: Vec<char> = expression.chars().collect();
+    let mut found = Vec::new();
+    let mut word: Option<String> = None;
+    let mut i = 0;
+    while let Some(&c) = chars.get(i) {
+        match c {
+            '{' => {
+                let (matchers, end) = matchers(&chars, i + 1);
+                found.push(Selector {
+                    name: word.take(),
+                    matchers,
+                });
+                i = end;
+            }
+            c if c.is_whitespace() => i += 1,
+            c if c.is_ascii_alphabetic() || c == '_' || c == ':' => {
+                let end = past_word(&chars, i);
+                word = Some(chars[i..end].iter().collect());
+                i = end;
+            }
+            '"' | '\'' | '`' => {
+                word = None;
+                i = past_string(&chars, i);
+            }
+            _ => {
+                word = None;
+                i += 1;
+            }
+        }
+    }
+    found
+}
+
+/// The matchers of the selector whose `{` stands right before `start`, as
+/// [`Selector::matchers`] holds them, and the index after the `}` that ends them.
+fn matchers(chars: &[char], start: usize) -> (Vec<String>, usize) {
+    let mut parts = Vec::new();
+    let mut part = String::new();
+    let mut i = start;
+    while let Some(&c) = chars.get(i) {
+        match c {
+            '"' | '\'' | '`' => {
+                let end = past_string(chars, i).min(chars.len());
+                part.extend(&chars[i..end]);
+                i = end;
+                continue;
+            }
+            ',' => parts.push(std::mem::take(&mut part)),
+            '}' => break,
+            c => part.push(c),
+        }
+        i += 1;
+    }
+    parts.push(part);
+    let parts = parts
+        .iter()
+        .map(|part| part.trim().to_owned())
+        .filter(|part| !part.is_empty())
+        .collect();
+    (parts, i + 1)
 }
 
 fn next_is_digit(chars: &[char], i: usize) -> bool {

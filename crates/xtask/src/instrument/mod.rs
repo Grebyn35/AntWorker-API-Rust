@@ -1,13 +1,17 @@
 //! `check-instrument`: logs and spans name their fields only from the list in
-//! `platform::telemetry::names`, their messages are constant, every `#[instrument]` skips its
-//! arguments, and `app` outside `main.rs` writes only `DEBUG` events and opens no spans (OBS-01,
-//! OBS-03 to OBS-06). It also fails on an exception to a print lint outside the places CODE-03
-//! allows printing, and on the system clock's name outside the file that defines it and the
-//! binary's `main.rs` (CODE-06), as [`system_clock`] says.
+//! `platform::telemetry::names`, by a name that it holds or by `names::X` for one of its
+//! constants, as [`Scan::listed`] and [`bindings`] read that path, their messages are constant,
+//! every `#[instrument]` skips its arguments, and `app` outside `main.rs` writes only `DEBUG`
+//! events and opens no spans (OBS-01, OBS-03 to OBS-06). It also fails on an exception to a
+//! print lint outside the places CODE-03 allows printing, as [`printing`] says, and on the
+//! system clock's name outside the file that defines it and the binary's `main.rs` (CODE-06), as
+//! [`system_clock`] says.
 //!
 //! It reads token streams rather than syntax trees, so it also finds the calls inside other
 //! macros, such as `tokio::select!`.
 
+pub mod bindings;
+mod printing;
 mod system_clock;
 
 use std::collections::BTreeMap;
@@ -27,20 +31,6 @@ const APP: &str = "crates/app/src/";
 
 /// The binary's entry point, which writes events at any level, as `platform` does.
 const MAIN: &str = "crates/app/src/main.rs";
-
-/// Where an exception to a print lint is allowed, with the lints it may name (CODE-03): the
-/// binary's startup line before logging exists, on stderr, and the accounts `seed` reports, on
-/// stdout; and the output of the checks and the other tasks.
-const PRINTING: [(&str, &[&str]); 2] = [
-    (MAIN, &["print_stdout", "print_stderr"]),
-    ("crates/xtask/src/", &["print_stdout", "print_stderr"]),
-];
-
-/// The print lints.
-const PRINT_LINTS: [&str; 2] = ["print_stdout", "print_stderr"];
-
-/// The lint group that holds the print lints: an exception to it excepts them both.
-const PRINT_GROUP: &str = "restriction";
 
 /// The event macros, with the level each writes at, or `None` for `event!`, which takes it.
 const EVENTS: [(&str, Option<&str>); 6] = [
@@ -78,9 +68,13 @@ pub fn check(repo: &Repo) -> Outcome {
         match file.text.parse::<TokenStream>() {
             Ok(tokens) => {
                 system_clock::check(&file.path, tokens.clone(), &mut findings);
+                let traced = CODE.iter().any(|root| file.path.starts_with(root));
+                if traced {
+                    bindings::check(&file.path, tokens.clone(), &mut findings);
+                }
                 let mut scan = Scan {
                     path: &file.path,
-                    traced: CODE.iter().any(|root| file.path.starts_with(root)),
+                    traced,
                     outside_platform: file.path.starts_with(APP) && file.path != MAIN,
                     names: &names,
                     findings: &mut findings,
@@ -267,21 +261,42 @@ impl Scan<'_> {
         }
     }
 
-    /// The name before a field's `=`: dotted identifiers, a string, or `{ CONSTANT }`.
+    /// The name before a field's `=`: dotted identifiers, a string, or `{ names::X }`, as
+    /// [`Self::listed`] reads one.
     fn field_name(&self, tokens: &[TokenTree]) -> Option<String> {
         match tokens {
             [TokenTree::Group(group)] if group.delimiter() == Delimiter::Brace => {
                 let inner: Vec<TokenTree> = group.stream().into_iter().collect();
-                let constant = last_ident(&inner)?;
-                self.names.get(&constant).cloned()
+                self.listed(&inner)
             }
             [TokenTree::Literal(literal)] => string(literal),
             _ => dotted(tokens),
         }
     }
 
-    /// `.record(name, value)`: the name is a listed name in a string, or one of the list's
-    /// constants (OBS-05).
+    /// The name that `tokens` give when they are the path `names::X`, written so, neither
+    /// identifier raw, for `X` one of the list's constants; [`bindings`] says what the check
+    /// refuses that would give `names` another meaning.
+    fn listed(&self, tokens: &[TokenTree]) -> Option<String> {
+        match tokens {
+            [
+                TokenTree::Ident(module),
+                TokenTree::Punct(a),
+                TokenTree::Punct(b),
+                TokenTree::Ident(constant),
+            ] if module == "names"
+                && a.as_char() == ':'
+                && a.spacing() == Spacing::Joint
+                && b.as_char() == ':' =>
+            {
+                self.names.get(&constant.to_string()).cloned()
+            }
+            _ => None,
+        }
+    }
+
+    /// `.record(name, value)`: the name is a listed name in a string, or `names::X`, as
+    /// [`Self::listed`] reads one (OBS-05).
     fn record(&mut self, group: &Group) {
         let line = group.span().start().line;
         let segments = segments(group.stream());
@@ -290,7 +305,7 @@ impl Scan<'_> {
         };
         let name = match first.as_slice() {
             [TokenTree::Literal(literal)] => string(literal),
-            tokens => last_ident(tokens).and_then(|constant| self.names.get(&constant).cloned()),
+            tokens => self.listed(tokens),
         };
         if !name.is_some_and(|name| self.names.values().any(|listed| *listed == name)) {
             self.find(
@@ -357,49 +372,6 @@ impl Scan<'_> {
                 let segments = segments(fields.stream());
                 let segments: Vec<&[TokenTree]> = segments.iter().map(Vec::as_slice).collect();
                 self.fields(line, &segments, false);
-            }
-        }
-    }
-
-    /// An `expect` attribute that names `print_stdout` or `print_stderr` outside the places
-    /// CODE-03 allows them, whether written alone or inside a `cfg_attr`.
-    fn printing(&mut self, tokens: &[TokenTree], line: usize) {
-        let (Some(TokenTree::Ident(kind)), Some(TokenTree::Group(lints))) =
-            (tokens.first(), tokens.get(1))
-        else {
-            return;
-        };
-        if kind == "cfg_attr" {
-            // `cfg_attr(condition, attribute, ...)`: the attributes follow the condition.
-            for attribute in segments(lints.stream()).iter().skip(1) {
-                self.printing(attribute, line);
-            }
-            return;
-        }
-        if kind != "expect" {
-            return;
-        }
-        let allowed: &[&str] = PRINTING
-            .iter()
-            .find(|(place, _)| self.path.starts_with(place))
-            .map_or(&[], |(_, lints)| lints);
-        for token in lints.stream() {
-            if let TokenTree::Ident(lint) = token {
-                let lint = lint.to_string();
-                if lint.starts_with("print_") && !allowed.contains(&lint.as_str()) {
-                    self.find(
-                        line,
-                        format!("an exception to `{lint}` outside the places CODE-03 allows printing (CODE-03)"),
-                    );
-                } else if lint == PRINT_GROUP
-                    && let Some(excepted) =
-                        PRINT_LINTS.iter().find(|print| !allowed.contains(print))
-                {
-                    self.find(
-                        line,
-                        format!("an exception to `{lint}`, the group that holds `{excepted}`, outside the places CODE-03 allows printing (CODE-03)"),
-                    );
-                }
             }
         }
     }
@@ -554,6 +526,28 @@ mod tests {
     fn obs_05_record_names_come_from_the_list() {
         let code = r#"fn f() { span.record("route", 1); span.record(name, 1); }"#;
         assert_eq!(findings(PLATFORM, code).len(), 2);
+    }
+
+    #[test]
+    fn obs_05_a_field_or_a_record_names_a_constant_of_the_list_only_as_names_and_the_constant() {
+        // A constant of another module, or none, that bears the name of one of the list's.
+        let code = r#"
+            fn f() {
+                tracing::info!({ other::HTTP_ROUTE } = 1, "x");
+                tracing::info!({ HTTP_ROUTE } = 1, "x");
+                tracing::info!({ crate::telemetry::names::HTTP_ROUTE } = 1, "x");
+                let span = tracing::info_span!("x", { r#names::HTTP_ROUTE } = 1);
+                span.record(other::HTTP_ROUTE, 1);
+                span.record(HTTP_ROUTE, 1);
+            }
+        "#;
+
+        let found = findings(PLATFORM, code);
+
+        let field = "a field name that isn't a name or one of the list's constants (OBS-05)";
+        let record =
+            "a record name that isn't a listed name or one of the list's constants (OBS-05)";
+        assert_eq!(found, [field, field, field, field, record, record]);
     }
 
     #[test]
