@@ -61,6 +61,35 @@ async fn auth_095_a_reauthentication_gives_the_session_new_tokens_as_a_refresh_d
 }
 
 #[tokio::test]
+async fn auth_095_the_refresh_expiry_slides_by_the_refresh_lifetime_when_the_session_ends_later() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    // A session whose refresh token would expire in a day, and which ends in the 90 days of
+    // `SESSION_LIFETIME_SECONDS`' default, past the 30 of `REFRESH_TOKEN_SECONDS`'.
+    api.database()
+        .owner_executes(&format!(
+            "UPDATE sessions SET refresh_token_expires_at = now() + interval '1 day' \
+             WHERE id = '{}'",
+            ada.session_id
+        ))
+        .await;
+
+    let response = users::reauthenticate(&api, &ada, PASSWORD).await;
+
+    renewed(&api, &ada, &response).await;
+    // In how many days, rounded, the refresh token expires, and the session ends.
+    assert_eq!(
+        reads(
+            &api,
+            "SELECT round(extract(epoch FROM refresh_token_expires_at - now()) / 86400)::text \
+             || ' ' || round(extract(epoch FROM expires_at - now()) / 86400)::text FROM sessions"
+        )
+        .await,
+        ["30 90"]
+    );
+}
+
+#[tokio::test]
 async fn auth_095_the_refresh_token_that_a_proof_replaced_ends_the_session_when_presented() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;

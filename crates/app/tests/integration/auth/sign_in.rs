@@ -886,6 +886,28 @@ async fn auth_014_a_sign_in_rehashes_a_password_stored_with_other_parameters() {
 }
 
 #[tokio::test]
+async fn auth_014_a_sign_in_rehashes_no_password_stored_with_the_current_parameters() {
+    let api = Api::new().await;
+    users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    let registered = db.owner_reads("SELECT password_hash FROM identities").await;
+
+    users::new_session(&api, "ada@example.com").await;
+
+    assert_eq!(
+        db.owner_reads("SELECT password_hash FROM identities").await,
+        registered
+    );
+    assert_eq!(
+        db.owner_reads(
+            "SELECT count(*)::text FROM audit_entries WHERE action = 'password.rehashed'"
+        )
+        .await,
+        ["0"]
+    );
+}
+
+#[tokio::test]
 async fn auth_017_a_device_id_is_1_to_64_ascii_letters_digits_underscores_and_hyphens() {
     let api = Api::new().await;
     users::register(&api, "ada@example.com").await;

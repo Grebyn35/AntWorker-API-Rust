@@ -119,6 +119,28 @@ async fn auth_084_the_provider_that_the_settings_name_signs_in_through_their_add
 }
 
 #[tokio::test]
+async fn auth_103_an_account_holds_the_address_and_the_name_of_its_userinfo_and_no_proof_of_the_address()
+ {
+    let (upstream, api) = named().await;
+    gives(
+        &upstream,
+        json!({ "sub": "7", "email": "ada@example.com", "email_verified": true, "name": "Ada" }),
+    );
+
+    let response = sign_in(&api).await;
+
+    assert_eq!(response.status, 201, "{}", response.json());
+    assert_eq!(
+        api.database()
+            .owner_reads("SELECT email || ' ' || name || ' ' || email_verified::text FROM users")
+            .await,
+        ["ada@example.com Ada false"],
+        "the userinfo's address and name, and the address unproved, whatever it marks verified"
+    );
+    assert_eq!(response.json()["email_verification_required"], true);
+}
+
+#[tokio::test]
 async fn auth_103_a_token_whose_answer_doesn_t_say_that_it_lapses_answers_503() {
     let (upstream, api) = named().await;
     upstream.set(

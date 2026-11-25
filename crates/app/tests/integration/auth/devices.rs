@@ -6,8 +6,8 @@ use serde_json::json;
 use super::held;
 use crate::support::{
     Api, Options,
-    api::{PEER, Response},
-    email_change, execute_on, mailbox,
+    api::{PEER, Response, hmac_key, refusal},
+    email_change, execute_on, hex, mailbox,
     providers::{self, gives, grant, identity},
     queries_wait_on_locks, second_factors,
     upstream::Upstream,
@@ -70,6 +70,28 @@ async fn auth_019_a_registration_and_a_sign_in_issue_a_device_token_stored_only_
 }
 
 #[tokio::test]
+async fn auth_019_a_device_token_lasts_1_day_to_5_years() {
+    let api = Api::with(Options::default().set("DEVICE_TOKEN_SECONDS", 157_680_000)).await;
+
+    let registered = api
+        .post("/v1/users", &users::registration("ada@example.com"))
+        .send()
+        .await;
+
+    assert_eq!(
+        stored(&api, &[&device_token(&registered)]).await,
+        ["157680000"]
+    );
+    for seconds in [86_399, 157_680_001] {
+        assert_eq!(
+            refusal(&Options::default().set("DEVICE_TOKEN_SECONDS", seconds)),
+            "DEVICE_TOKEN_SECONDS must be a whole number from 86400 to 157680000",
+            "{seconds}"
+        );
+    }
+}
+
+#[tokio::test]
 async fn auth_019_a_sign_in_with_a_valid_token_ends_it_and_the_account_s_expired_ones() {
     let api = Api::new().await;
     let registered = api
@@ -84,6 +106,13 @@ async fn auth_019_a_sign_in_with_a_valid_token_ends_it_and_the_account_s_expired
              WHERE token_hash = sha256(convert_to('{expired}', 'UTF8'))"
         ))
         .await;
+    // Another account's expired token.
+    let grace = api
+        .post("/v1/users", &users::registration("grace@example.com"))
+        .send()
+        .await;
+    let graces = device_token(&grace);
+    expire(&api, &graces).await;
 
     let next = sign_in_from(&api, PEER, "ada@example.com", PASSWORD, Some(&used)).await;
     let again = sign_in_from(&api, PEER, "ada@example.com", PASSWORD, Some(&used)).await;
@@ -94,6 +123,11 @@ async fn auth_019_a_sign_in_with_a_valid_token_ends_it_and_the_account_s_expired
     assert_eq!(
         stored(&api, &[&used, &expired, &issued]).await,
         ["none", "none", "31536000"]
+    );
+    assert_ne!(
+        stored(&api, &[&graces]).await,
+        ["none"],
+        "another account's expired token stays"
     );
     assert_eq!(again.status, 201);
     assert_eq!(bucket(&again), "sign_in", "an ended token counts as none");
@@ -249,14 +283,16 @@ async fn auth_019_a_token_of_another_email_an_expired_or_an_unknown_one_counts_a
     // An unknown token of 64 characters, the most that the field takes.
     let longest = "x".repeat(64);
 
-    let other_email = sign_in_from(&api, PEER, "ada@example.com", PASSWORD, Some(&grace)).await;
+    // Ada's expired token is brought first, while it is still stored: the first sign-in of hers
+    // that succeeds ends it.
     let expired = sign_in_from(&api, PEER, "ada@example.com", PASSWORD, Some(&ada)).await;
+    let other_email = sign_in_from(&api, PEER, "ada@example.com", PASSWORD, Some(&grace)).await;
     let unknown = sign_in_from(&api, PEER, "ada@example.com", PASSWORD, Some(&longest)).await;
     let grace_own = sign_in_from(&api, PEER, "grace@example.com", PASSWORD, Some(&grace)).await;
 
     for (response, what) in [
-        (&other_email, "another email's"),
         (&expired, "an expired one"),
+        (&other_email, "another email's"),
         (&unknown, "an unknown one"),
     ] {
         assert_eq!(response.status, 201, "{what}");
@@ -468,9 +504,10 @@ async fn auth_019_a_sign_in_through_a_provider_issues_a_token_and_ends_the_one_i
 #[tokio::test]
 async fn auth_015_a_browser_keeps_a_device_token_for_each_account_it_signs_in_to() {
     let api = users::browsers_api().await;
+    let emails = ["ada@example.com", "bob@example.com"];
     let mut names = Vec::new();
     let mut jar = Vec::new();
-    for email in ["ada@example.com", "bob@example.com"] {
+    for email in emails {
         let registered = api
             .post("/v1/users", &users::registration(email))
             .header("origin", WEB)
@@ -496,6 +533,16 @@ async fn auth_015_a_browser_keeps_a_device_token_for_each_account_it_signs_in_to
             .iter()
             .all(|name| name.len() == "device_token_".len() + 16)
     );
+    // The first 16 hexadecimal digits of the email's keyed hash under the tests' `HMAC_KEY`, of
+    // the kind that names a device token's cookie.
+    let keyed: Vec<String> = emails
+        .iter()
+        .map(|email| {
+            let hash = hex(&hmac_key().hash("device_token_cookie", email.as_bytes()));
+            format!("device_token_{}", &hash[..16])
+        })
+        .collect();
+    assert_eq!(names, keyed, "a keyed hash of each email");
     assert_eq!(signed_in.status, 201);
     assert_eq!(
         bucket(&signed_in),
