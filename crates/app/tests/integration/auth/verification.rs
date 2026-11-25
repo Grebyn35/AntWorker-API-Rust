@@ -4,10 +4,11 @@
 use serde_json::json;
 
 use crate::support::{
-    Api, Options, closed_port, execute_on, limited_while_holding, mailbox, queries_wait_on_locks,
-    second_factors,
+    Api, Options,
+    api::OTHER_HMAC_KEY,
+    closed_port, execute_on, limited_while_holding, mailbox, queries_wait_on_locks, second_factors,
     users::{self, SignedIn},
-    verification::{ask, code_sent, confirm},
+    verification::{ask, code_hash, code_sent, confirm},
     workspaces,
 };
 
@@ -431,6 +432,9 @@ async fn auth_029_asking_for_codes_counts_in_a_bucket_of_the_address() {
             .await,
         ["3"]
     );
+    // The bucket is the address's: another address's account still asks.
+    let bob = users::register_unverified(&api, &mailbox::address("bob")).await;
+    assert_eq!(ask(&api, &bob).await.status, 202);
 }
 
 #[tokio::test]
@@ -479,6 +483,23 @@ async fn auth_029_registering_counts_in_the_bucket_of_its_address() {
         "{}",
         refused.header("ratelimit-policy")
     );
+    // The bucket is the address's: another address still registers.
+    let grace = users::registration(&mailbox::address("grace"));
+    assert_eq!(api.post("/v1/users", &grace).send().await.status, 201);
+}
+
+#[tokio::test]
+async fn auth_029_requests_for_codes_by_an_account_that_proved_its_address_count_in_no_bucket() {
+    let api = Api::new().await;
+    let ada = users::register(&api, &mailbox::address("ada")).await;
+    for _ in 0..3 {
+        assert_eq!(ask(&api, &ada).await.status, 409);
+    }
+
+    let asked = ask(&api, &ada).await;
+
+    assert_eq!(asked.status, 409, "{}", asked.json());
+    assert_eq!(asked.json()["code"], "auth.email_already_verified");
 }
 
 #[tokio::test]
@@ -517,6 +538,10 @@ async fn auth_030_the_job_stores_only_the_code_s_hmac_and_sends_the_code() {
     assert_eq!(fields[0], "email_verification");
     assert_eq!(fields[1].len(), 64);
     assert!(!fields[1].contains(&code));
+    assert_eq!(
+        fields[1],
+        code_hash(&ada.user_id, "email_verification", &address, &code)
+    );
     assert_eq!(fields[2], "00:10:00");
     let id = api
         .database()
@@ -733,6 +758,25 @@ async fn auth_030_an_attempt_after_a_failed_send_issues_a_new_code_in_place_of_i
             .await,
         ["2"]
     );
+}
+
+#[tokio::test]
+async fn sec_03_rotating_the_hmac_key_invalidates_outstanding_codes() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let ada = users::register_unverified(&api, &address).await;
+    let code = code_sent(&api, &address).await;
+    // A replica with another HMAC_KEY, as once the key is rotated.
+    let rotated = api
+        .instance(Options::default().set("HMAC_KEY", OTHER_HMAC_KEY))
+        .await;
+
+    let refused = confirm(&rotated, &ada, &code).await;
+
+    assert_eq!(refused.status, 422, "{}", refused.json());
+    assert_eq!(refused.json()["code"], "auth.wrong_code");
+    // The code is the account's under the key that issued it.
+    assert_eq!(confirm(&api, &ada, &code).await.status, 200);
 }
 
 #[tokio::test]

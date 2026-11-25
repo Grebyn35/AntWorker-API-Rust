@@ -41,6 +41,10 @@ pub fn hmac_key() -> HmacKey {
     HmacKey::new(&bytes).unwrap()
 }
 
+/// The base64 of an `HMAC_KEY` other than the tests': 32 bytes of 8, as a replica's is once the
+/// key is rotated.
+pub const OTHER_HMAC_KEY: &str = "CAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg=";
+
 /// The tests' `ENCRYPTION_KEYS`: one key, version 1, of 32 bytes of 7.
 pub const ENCRYPTION_KEYS: &str = "1:BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=";
 

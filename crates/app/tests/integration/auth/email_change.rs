@@ -235,6 +235,11 @@ async fn auth_050_the_job_stores_only_the_code_s_hmac_and_sends_the_code_to_the_
     assert_eq!(fields[1], "email_change");
     assert_eq!(fields[2].len(), 64);
     assert!(!fields[2].contains(&code.replace('-', "").to_lowercase()));
+    // The hash covers the address asked for.
+    assert_eq!(
+        fields[2],
+        verification::code_hash(&ada.user_id, "email_change", &new, &code.replace('-', ""))
+    );
     assert_eq!(fields[3], "00:10:00");
     assert_eq!(
         entries(&api, &ada.user_id, "email_change_code.issued").await,
@@ -445,6 +450,10 @@ async fn auth_051_a_session_that_another_request_ended_meanwhile_answers_401_and
     assert_eq!(body["code"], "request.unauthenticated");
     assert_eq!(address_of(&api, &ada).await, format!("{address}|true"));
     assert_eq!(codes_of(&api, &ada).await, ["email_change"]);
+    // No email tells the proved address of the change that never happened (AUTH-053): none is
+    // enqueued, and none was sent.
+    assert!(jobs(&api).await.is_empty(), "{:?}", jobs(&api).await);
+    assert!(mailbox::to(&address).await.is_empty());
 }
 
 #[tokio::test]

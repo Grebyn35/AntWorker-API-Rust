@@ -294,6 +294,15 @@ async fn auth_036_the_job_stores_only_the_reset_code_s_hmac_and_sends_the_code()
     assert_eq!(fields[0], "password_reset");
     assert_eq!(fields[1].len(), 64);
     assert!(!fields[1].contains(&code.replace('-', "").to_lowercase()));
+    assert_eq!(
+        fields[1],
+        verification::code_hash(
+            &ada.user_id,
+            "password_reset",
+            &address,
+            &code.replace('-', "")
+        )
+    );
     assert_eq!(fields[2], "00:10:00");
     let id = api
         .database()
@@ -1288,6 +1297,42 @@ async fn auth_098_an_account_with_an_app_resets_only_with_the_app_s_code_too() {
     let signed_in = users::sign_in(&api, &address, NEW_PASSWORD).await;
     assert_eq!(signed_in.status, 200);
     assert!(signed_in.json()["challenge"].is_string());
+}
+
+#[tokio::test]
+async fn auth_098_a_wrong_reset_code_of_an_account_with_an_app_answers_as_without_an_app() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let grace_address = mailbox::address("grace");
+    let ada = users::register(&api, &address).await;
+    users::register(&api, &grace_address).await;
+    second_factors::add_app(&api, &ada).await;
+    ask(&api, &address).await;
+    let code = code_sent(&api, &address).await;
+    ask(&api, &grace_address).await;
+    let grace_code = code_sent(&api, &grace_address).await;
+
+    // Neither sends a second factor: the app's is checked once the reset code matched.
+    let with_app = confirm(&api, &address, &mailbox::other_grouped_code(&code)).await;
+    let without = confirm(
+        &api,
+        &grace_address,
+        &mailbox::other_grouped_code(&grace_code),
+    )
+    .await;
+
+    assert_eq!(with_app.status, 401);
+    assert_eq!(with_app.json()["code"], "auth.invalid_reset_code");
+    assert_eq!(without.status, 401);
+    assert_eq!(
+        without_trace(with_app.json()),
+        without_trace(without.json())
+    );
+    assert_eq!(
+        log(&api, &ada.user_id).await.last().unwrap(),
+        &format!("password_reset.failed - user {} {{}}", ada.user_id)
+    );
+    assert_eq!(reset_codes(&api, &ada.user_id).await, ["1"]);
 }
 
 #[tokio::test]

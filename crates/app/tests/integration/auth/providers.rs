@@ -1022,6 +1022,28 @@ async fn auth_029_a_registration_through_a_provider_that_sends_a_code_counts_in_
 }
 
 #[tokio::test]
+async fn auth_099_a_registration_through_a_provider_that_proves_its_address_counts_in_no_bucket() {
+    let (upstream, api) = providers::standing().await;
+    // Three registrations with a password fill the address's bucket of 3, and the account that
+    // the first one made goes, so that a registration of the address may follow.
+    let ada = users::register(&api, "ada@example.com").await;
+    for _ in 0..2 {
+        let again = api
+            .post("/v1/users", &users::registration("ada@example.com"))
+            .send()
+            .await;
+        assert_eq!(again.status, 409);
+    }
+    assert_eq!(users::delete(&api, &ada).await.status, 204);
+    gives(&upstream, identity("subject-1", "ada@example.com", true));
+
+    let registered = sign_in(&api, &grant()).await;
+
+    assert_eq!(registered.status, 201, "{}", registered.json());
+    assert_eq!(registered.json()["email_verification_required"], false);
+}
+
+#[tokio::test]
 async fn auth_099_a_linked_account_s_sign_ins_count_in_no_registration_bucket() {
     let (upstream, api) = providers::standing().await;
     gives(&upstream, identity("subject-1", "ada@example.com", false));
