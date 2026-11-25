@@ -7,7 +7,7 @@ mod retention;
 
 use platform::telemetry::testing;
 
-use crate::support::{Api, users, workspaces};
+use crate::support::{Api, audit, users, workspaces};
 
 #[tokio::test]
 async fn audit_001_an_entry_commits_or_rolls_back_with_its_change() {
@@ -169,6 +169,13 @@ async fn audit_006_deleting_a_user_deletes_their_log_and_anonymizes_the_entries_
     // her leaving adds one that names her as its target.
     let renamed = workspaces::rename(&api, &ada, &workspace, "Acme Inc", &[]).await;
     assert_eq!(renamed.status, 200);
+    // An entry of Bob's own log that Ada acted in, whose client is hers (the audit spec's Owns).
+    let client = audit::Client {
+        user: &ada.user_id,
+        ip: "203.0.113.1",
+        agent: "Ada/1",
+    };
+    let in_bob_s = audit::in_own_log(db, &bob.user_id, &ada.user_id, client).await;
     let entries_before = db
         .owner_reads("SELECT count(*)::text FROM audit_entries WHERE workspace_id IS NOT NULL")
         .await;
@@ -202,6 +209,17 @@ async fn audit_006_deleting_a_user_deletes_their_log_and_anonymizes_the_entries_
         )
         .await,
         "- -"
+    );
+    // Bob's own log keeps the entry that Ada acted in, without her as its actor or her client.
+    assert_eq!(
+        read(format!(
+            "SELECT coalesce(entry.actor_user_id::text, '-') || ' ' || count(client.id) \
+             FROM audit_entries entry \
+             LEFT JOIN audit_entry_clients client ON client.audit_entry_id = entry.id \
+             WHERE entry.id = '{in_bob_s}' GROUP BY entry.actor_user_id"
+        ))
+        .await,
+        "- 0"
     );
     // Bob's own log, and the clients of his entries, stay as they were.
     assert_eq!(

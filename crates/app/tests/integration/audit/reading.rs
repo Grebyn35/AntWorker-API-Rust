@@ -665,8 +665,9 @@ async fn audit_010_a_user_agent_is_kept_to_512_characters_and_none_that_holds_a_
 {
     let api = behind_a_proxy().await;
     let ada = users::register(&api, "ada@example.com").await;
-    let long = "A".repeat(600);
-    for user_agent in [long.as_str(), "Caf\u{e9}/1"] {
+    // Agents of 600 characters, of 512, which stays whole, and of 513, one past it.
+    let (long, at, past) = ("A".repeat(600), "B".repeat(512), "C".repeat(513));
+    for user_agent in [long.as_str(), at.as_str(), past.as_str(), "Caf\u{e9}/1"] {
         let attempt = api
             .post(
                 "/v1/sessions",
@@ -681,8 +682,12 @@ async fn audit_010_a_user_agent_is_kept_to_512_characters_and_none_that_holds_a_
 
     let own = listed(&api, &ada, OWN).await;
 
+    assert_eq!(own["items"][3]["action"], "sign_in.failed");
+    assert_eq!(own["items"][3]["client"]["user_agent"], "A".repeat(512));
+    assert_eq!(own["items"][2]["action"], "sign_in.failed");
+    assert_eq!(own["items"][2]["client"]["user_agent"], at);
     assert_eq!(own["items"][1]["action"], "sign_in.failed");
-    assert_eq!(own["items"][1]["client"]["user_agent"], "A".repeat(512));
+    assert_eq!(own["items"][1]["client"]["user_agent"], "C".repeat(512));
     assert_eq!(own["items"][0]["action"], "sign_in.failed");
     assert_eq!(
         own["items"][0]["client"],

@@ -201,6 +201,8 @@ async fn accounts_013_a_deletion_erases_the_account_and_the_workspaces_only_it_b
         bob.user_id, ada.user_id
     ))
     .await;
+    // A second workspace whose only member is Ada.
+    let labs = workspaces::arrange(db, "Labs", &[(&ada.user_id, "owner")]).await;
     let shared = workspaces::arrange(
         db,
         "Acme",
@@ -241,7 +243,7 @@ async fn accounts_013_a_deletion_erases_the_account_and_the_workspaces_only_it_b
             &api,
             &format!(
                 "SELECT (SELECT count(*) FROM users) || ' ' \
-                 || (SELECT count(*) FROM workspaces WHERE id = '{mine}') || ' ' \
+                 || (SELECT count(*) FROM workspaces WHERE id IN ('{mine}', '{labs}')) || ' ' \
                  || (SELECT count(*) FROM jobs WHERE workspace_id = '{mine}' OR user_id = '{ada_id}') \
                  || ' ' || (SELECT count(*) FROM jobs WHERE payload::text LIKE '%ada@example.com%') \
                  || ' ' || (SELECT count(*) FROM workspace_memberships WHERE workspace_id = '{shared}')"
@@ -275,6 +277,25 @@ async fn accounts_013_a_deletion_erases_the_account_and_the_workspaces_only_it_b
     }
     let again = users::sign_in(&api, "ada@example.com", users::PASSWORD).await;
     assert_eq!(again.status, 401);
+}
+
+#[tokio::test]
+async fn accounts_013_a_deletion_closes_the_streams_of_each_session_the_one_that_sends_it_too() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let other_device = users::new_session(&api, "ada@example.com").await;
+    // Ada belongs to no workspace, so no membership's end closes her streams: each session's own
+    // end closes its streams (PLATFORM-031).
+    let mut sending = streams::opened(&api, &ada).await;
+    let mut other = streams::opened(&api, &other_device).await;
+
+    let response = users::delete(&api, &ada).await;
+    let (_, sending_closed) = sending.closed().await;
+    let (_, other_closed) = other.closed().await;
+
+    assert_eq!(response.status, 204);
+    assert_eq!(sending_closed, "session_ended");
+    assert_eq!(other_closed, "session_ended");
 }
 
 /// Ada, an admin of Bob's workspace, who renamed it and removed Carol from it.
@@ -328,39 +349,59 @@ async fn accounts_014_leaving_a_shared_workspace_records_and_publishes_member_le
         api,
         ada,
         bob,
+        carol,
         workspace,
-        ..
     } = shared().await;
-    let mut stream = streams::opened(&api, &bob).await;
+    let db = api.database();
+    // A second workspace that Ada shares, Carol's.
+    let labs = workspaces::arrange(
+        db,
+        "Labs",
+        &[(&carol.user_id, "owner"), (&ada.user_id, "member")],
+    )
+    .await;
+    let bob_s = streams::opened(&api, &bob).await;
+    let carol_s = streams::opened(&api, &carol).await;
 
     let response = users::delete(&api, &ada).await;
-    let left = stream.event().await;
 
     assert_eq!(response.status, 204);
-    assert_eq!(left.event.as_deref(), Some("member.left"));
+    let mut both = [workspace.clone(), labs.clone()];
+    both.sort();
+    // Each workspace's log records her leaving.
     assert_eq!(
-        left.payload(),
-        &json!({ "workspace_id": workspace, "user_id": ada.user_id })
+        db.owner_reads(
+            "SELECT workspace_id::text FROM audit_entries WHERE action = 'member.left' ORDER BY 1"
+        )
+        .await,
+        both
     );
-    // Bob, the owner, holds every permission, so his stream would receive the event under any
-    // of them: the event's row gives the one it requires.
+    // Bob and Carol, the owners, hold every permission, so their streams would receive the event
+    // under any of them: the event's row gives the one it requires.
     assert_eq!(
-        api.database()
-            .owner_reads(&format!(
-                "SELECT coalesce(permission, '-') FROM events \
-                 WHERE name = 'member.left' AND workspace_id = '{workspace}'"
+        db.owner_reads(
+            "SELECT workspace_id::text || ' ' || coalesce(permission, '-') FROM events \
+             WHERE name = 'member.left' ORDER BY 1"
+        )
+        .await,
+        both.map(|id| format!("{id} members.read"))
+    );
+    // Each workspace's owner receives its event, and is its only member left.
+    for (mut stream, id, owner) in [(bob_s, &workspace, &bob), (carol_s, &labs, &carol)] {
+        let left = stream.event().await;
+        assert_eq!(left.event.as_deref(), Some("member.left"), "{id}");
+        assert_eq!(
+            left.payload(),
+            &json!({ "workspace_id": id, "user_id": ada.user_id })
+        );
+        assert_eq!(
+            db.owner_reads(&format!(
+                "SELECT user_id::text FROM workspace_memberships WHERE workspace_id = '{id}'"
             ))
             .await,
-        ["members.read"]
-    );
-    assert_eq!(
-        api.database()
-            .owner_reads(&format!(
-                "SELECT user_id::text FROM workspace_memberships WHERE workspace_id = '{workspace}'"
-            ))
-            .await,
-        std::slice::from_ref(&bob.user_id)
-    );
+            std::slice::from_ref(&owner.user_id)
+        );
+    }
 }
 
 #[tokio::test]

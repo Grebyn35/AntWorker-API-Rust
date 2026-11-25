@@ -360,6 +360,11 @@ async fn ada_and_an_outsider(api: &Api) -> (SignedIn, String) {
 async fn accounts_005_member_profiles_are_exactly_the_workspace_s_members() {
     let api = Api::new().await;
     let (ada, workspace) = ada_and_an_outsider(&api).await;
+    // A second member, with a name of her own, so the list asks `profiles` for two users.
+    let grace = users::register(&api, "grace@example.com").await;
+    workspaces::join(api.database(), &workspace, &grace.user_id, "member").await;
+    let renamed = users::rename(&api, &grace, "Grace Hopper", None).await;
+    assert_eq!(renamed.status, 200);
 
     let body = api
         .get(&format!("/v1/workspaces/{workspace}/members"))
@@ -368,7 +373,23 @@ async fn accounts_005_member_profiles_are_exactly_the_workspace_s_members() {
         .await
         .json();
 
-    assert_eq!(field(&body, "email"), ["ada@example.com"]);
+    // Each member with the email and the name of their own profile.
+    let mut shown: Vec<String> = body["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|member| {
+            let text = |key: &str| member[key].as_str().unwrap().to_owned();
+            format!("{} {} {}", text("user_id"), text("email"), text("name"))
+        })
+        .collect();
+    shown.sort();
+    let mut expected = [
+        format!("{} ada@example.com Ada Lovelace", ada.user_id),
+        format!("{} grace@example.com Grace Hopper", grace.user_id),
+    ];
+    expected.sort();
+    assert_eq!(shown, expected);
 }
 
 #[tokio::test]

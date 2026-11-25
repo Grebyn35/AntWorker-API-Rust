@@ -1040,6 +1040,76 @@ async fn access_008_erasable_refuses_while_a_workspace_the_user_owns_has_another
     assert_eq!(refused.status, StatusCode::CONFLICT);
 }
 
+#[tokio::test]
+async fn access_008_a_read_where_the_user_isn_t_owner_waits_while_erasable_waits_at_a_later_one() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let bob = users::register(&api, "bob@example.com").await;
+    let db = api.database();
+    // Two workspaces, in the order of their IDs, in which `erasable` locks Ada's memberships: Bob
+    // owns the first, of which Ada is a member, and Ada the second, of which Bob is a member.
+    let mut ids = [
+        workspaces::arrange(db, "Acme", &[]).await,
+        workspaces::arrange(db, "Mine", &[]).await,
+    ];
+    ids.sort();
+    let [bob_s, ada_s] = ids;
+    for (workspace, user, role) in [
+        (&bob_s, &bob, "owner"),
+        (&bob_s, &ada, "member"),
+        (&ada_s, &ada, "owner"),
+        (&ada_s, &bob, "member"),
+    ] {
+        workspaces::join(db, workspace, &user.user_id, role).await;
+    }
+    // Ada's deletion of her workspace holds her membership there, and waits at Bob's, which a
+    // request of his in it holds (the workspaces spec's "Deleting a workspace").
+    let mut bob_s_request = db.holding(&membership_of(&ada_s, &bob)).await;
+    let dissolving = api.spawn(
+        Method::DELETE,
+        &format!("/v1/workspaces/{ada_s}"),
+        &ada.access,
+        None,
+    );
+    queries_wait_on_locks(db, 1).await;
+
+    // The deletion of her account, whose `erasable` locks her membership in Bob's workspace, then
+    // waits at hers in her own, and her read of Bob's workspace while it waits.
+    let mut deleting = users::deleting(&api, &ada);
+    let deleted_first = tokio::select! {
+        deleted = &mut deleting => Some(deleted.unwrap()),
+        () = queries_wait_on_locks(db, 2) => None,
+    };
+    let mut reading = api.spawn(
+        Method::GET,
+        &format!("/v1/workspaces/{bob_s}"),
+        &ada.access,
+        None,
+    );
+    let read_first = tokio::select! {
+        read = &mut reading => Some(read.unwrap()),
+        () = queries_wait_on_locks(db, 3) => None,
+    };
+    execute_on(&mut bob_s_request, "ROLLBACK").await;
+    let dissolved = dissolving.await.unwrap();
+    let deleted = match deleted_first {
+        Some(deleted) => deleted,
+        None => deleting.await.unwrap(),
+    };
+    let read = match read_first {
+        Some(read) => read,
+        None => reading.await.unwrap(),
+    };
+
+    assert_eq!(dissolved.0, StatusCode::NO_CONTENT);
+    // `erasable` waited at her membership in her workspace, and found it gone with the workspace,
+    // so no workspace she owns has another member.
+    assert_eq!(deleted.status, StatusCode::NO_CONTENT);
+    // The read waited at her membership in Bob's workspace, which `erasable` held, and found it
+    // gone with her account.
+    assert_eq!(read.0, StatusCode::NOT_FOUND);
+}
+
 // part: invitations
 #[tokio::test]
 async fn access_008_erasable_waits_for_a_join_that_holds_the_owner_s_membership_and_counts_it() {
