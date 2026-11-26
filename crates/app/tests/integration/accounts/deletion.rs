@@ -585,6 +585,44 @@ async fn accounts_016_a_membership_that_a_request_added_while_the_deletion_ran_r
 }
 
 #[tokio::test]
+async fn accounts_016_a_membership_added_once_the_memberships_were_ended_refuses_the_deletion() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let bob = users::register(&api, "bob@example.com").await;
+    let db = api.database();
+    let own = workspaces::arrange(db, "Ada's", &[(&ada.user_id, "owner")]).await;
+    let joined = workspaces::arrange(db, "Acme", &[(&bob.user_id, "owner")]).await;
+    // Another request holds the workspace that Ada alone belongs to, so the contract of
+    // `workspaces` waits to delete it, once it has ended each membership that it read.
+    let mut holding = db
+        .holding(&format!(
+            "SELECT 1 FROM workspaces WHERE id = '{own}' FOR UPDATE"
+        ))
+        .await;
+
+    let (response, ()) = tokio::join!(users::delete(&api, &ada), async {
+        queries_wait_on_locks(db, 1).await;
+        // A request of Ada's that adds her to Bob's workspace, which commits meanwhile.
+        db.owner_executes(&format!(
+            "INSERT INTO workspace_memberships (workspace_id, user_id, role) \
+             VALUES ('{joined}', '{}', 'member')",
+            ada.user_id
+        ))
+        .await;
+        execute_on(&mut holding, "ROLLBACK").await;
+    });
+
+    assert_eq!(
+        response.status,
+        409,
+        "{}",
+        String::from_utf8_lossy(&response.body)
+    );
+    assert_eq!(response.json()["code"], "auth.account_changed");
+    assert_eq!(left_of(&api, &ada).await, "1|1|2");
+}
+
+#[tokio::test]
 async fn accounts_016_a_row_that_another_request_holds_locked_refuses_the_deletion_at_once() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;

@@ -251,15 +251,6 @@ pub(crate) async fn end_membership(
     Ok(end(uow, workspace, principal.user_id()).await?)
 }
 
-/// Deletes every membership of `user` that remains, signalling each (ACCESS-006): none, once the
-/// contract of `workspaces` has had them leave each workspace they belonged to.
-pub(super) async fn leave_all(uow: &mut UnitOfWork, user: UserId) -> Result<(), Internal> {
-    for workspace in repo::changes::delete_all(uow, user).await? {
-        changed(uow, workspace, user).await?;
-    }
-    Ok(())
-}
-
 /// A page of the caller's workspace's members, the latest joined first, kept to `filter`.
 pub(crate) async fn members(
     uow: &mut UnitOfWork,

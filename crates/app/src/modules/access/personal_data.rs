@@ -1,7 +1,7 @@
 //! The personal data contract of `workspace_memberships` (D31): it exports the user's memberships
-//! (the accounts spec's "What an export holds"), and deletes every membership of the user that
-//! remains once the contract of `workspaces` has deleted the workspaces whose only member they
-//! were, each with its access-change signal (the access spec's "Erasure").
+//! (the accounts spec's "What an export holds"), and erases nothing: the contract of `workspaces`
+//! ends each of the user's memberships, and one that remains keeps their row from going (the
+//! access spec's "Erasure").
 
 use platform::{
     authn::{BoxFuture, Principal},
@@ -10,7 +10,7 @@ use platform::{
     personal_data::{Column, ErasureError, ExportArchive, PersonalData, next_after},
 };
 
-use super::{repo, service};
+use super::repo;
 
 /// The contract.
 pub(crate) struct Contract;
@@ -43,9 +43,9 @@ impl PersonalData for Contract {
 
     fn erase<'a>(
         &'a self,
-        uow: &'a mut UnitOfWork,
-        principal: &'a Principal,
+        _: &'a mut UnitOfWork,
+        _: &'a Principal,
     ) -> BoxFuture<'a, Result<(), ErasureError>> {
-        Box::pin(async move { Ok(service::leave_all(uow, principal.user_id()).await?) })
+        Box::pin(async { Ok(()) })
     }
 }

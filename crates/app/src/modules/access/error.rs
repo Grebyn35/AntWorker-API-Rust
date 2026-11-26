@@ -1,31 +1,12 @@
 //! What `access` reports (ERR-01).
 
-use platform::errors::{Category, ErrorCode, Internal};
+use platform::errors::Internal;
 
-/// A failure of `access`.
+/// A failure of `access`, which no route answers: each module that calls `access` takes it as its
+/// own internal error.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum AccessError {
     /// A query failed, or a stored role isn't one `access` knows (ERR-04).
     #[error(transparent)]
     Internal(#[from] Internal),
-}
-
-impl ErrorCode for AccessError {
-    fn code(&self) -> &'static str {
-        match self {
-            Self::Internal(error) => error.code(),
-        }
-    }
-
-    fn title(&self) -> &'static str {
-        match self {
-            Self::Internal(error) => error.title(),
-        }
-    }
-
-    fn category(&self) -> Category {
-        match self {
-            Self::Internal(error) => error.category(),
-        }
-    }
 }

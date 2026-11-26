@@ -52,20 +52,6 @@ pub(in crate::modules::access) async fn delete(
     Ok(())
 }
 
-/// Deletes every membership of `user`, and returns their workspaces.
-pub(in crate::modules::access) async fn delete_all(
-    uow: &mut UnitOfWork,
-    user: UserId,
-) -> Result<Vec<WorkspaceId>, Internal> {
-    let ids = sqlx::query_scalar!(
-        "DELETE FROM workspace_memberships WHERE user_id = $1 RETURNING workspace_id",
-        user.uuid(),
-    )
-    .fetch_all(uow.executor())
-    .await?;
-    Ok(ids.into_iter().map(WorkspaceId::from_uuid).collect())
-}
-
 /// Deletes every membership of `workspace` at `role`, and returns their users.
 pub(in crate::modules::access) async fn delete_role(
     uow: &mut UnitOfWork,
