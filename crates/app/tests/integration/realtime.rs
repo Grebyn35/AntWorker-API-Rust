@@ -559,6 +559,10 @@ async fn realtime_006_a_user_holds_at_most_10_streams_on_a_replica() {
     let refused = eleventh.refused().expect("an eleventh stream is refused");
     assert_eq!(refused.status, StatusCode::CONFLICT);
     assert_eq!(refused.json()["code"], "realtime.too_many_streams");
+    assert_eq!(
+        refused.json()["detail"],
+        "Close a stream this account holds open before opening another."
+    );
     assert!(!refused.headers.contains_key("retry-after"));
     assert!(other_user.stream().is_some());
     assert!(after_one_closed.stream().is_some());

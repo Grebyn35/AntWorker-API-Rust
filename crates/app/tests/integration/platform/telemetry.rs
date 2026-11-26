@@ -176,6 +176,42 @@ async fn platform_067_a_5xx_records_its_error_code_as_its_error_type() {
     );
 }
 
+// part: superadmins
+#[tokio::test]
+async fn platform_067_a_5xx_of_a_module_whose_only_error_is_internal_records_the_internal_code() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    // The read of a caller's standing, whose error, `superadmins`', is only ever internal.
+    api.database()
+        .owner_executes("REVOKE SELECT ON superadmins FROM app")
+        .await;
+
+    let response = api
+        .get("/v1/users/me/superadmin")
+        .bearer(&ada.access)
+        .send()
+        .await;
+
+    assert_eq!(response.status, StatusCode::INTERNAL_SERVER_ERROR);
+    // The response's body shows no error's own code, since every internal error answers alike
+    // (ERR-08), so the duration's label is where the module's code shows.
+    let wanted: BTreeMap<String, String> = [
+        ("error.type", "request.internal_error"),
+        ("http.request.method", "GET"),
+        ("http.response.status_code", "500"),
+        ("http.route", "/v1/users/me/superadmin"),
+    ]
+    .into_iter()
+    .map(|(name, value)| (name.to_owned(), value.to_owned()))
+    .collect();
+    let recorded = durations();
+    assert!(
+        recorded.iter().any(|point| point.labels == wanted),
+        "{recorded:#?}"
+    );
+}
+// end part: superadmins
+
 #[tokio::test]
 async fn platform_067_a_503_of_a_feature_turned_off_records_its_code_as_its_error_type() {
     let collector = Collector::start().await.unwrap();

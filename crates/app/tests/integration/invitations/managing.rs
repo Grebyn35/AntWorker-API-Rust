@@ -386,6 +386,10 @@ async fn invitations_013_an_if_match_that_names_none_of_its_versions_answers_412
 
     assert_eq!(stale.status, 412);
     assert_eq!(stale.json()["code"], "request.precondition_failed");
+    assert_eq!(
+        stale.json()["detail"],
+        "If-Match names no current version of the resource: read it again, and send its ETag."
+    );
     assert_eq!(current.status, 200);
     assert_eq!(current.json()["role"], "admin");
     assert_eq!(current.header("etag"), "\"3\"");

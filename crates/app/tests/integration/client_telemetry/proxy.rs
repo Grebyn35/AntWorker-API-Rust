@@ -228,6 +228,10 @@ async fn client_telemetry_005_a_caller_who_doesn_t_consent_is_refused_on_each_ro
     for refused in [&never_chose, &logs, &metrics, &withdrew] {
         assert_eq!(refused.status, 403);
         assert_eq!(refused.json()["code"], "client_telemetry.consent_required");
+        assert_eq!(
+            refused.json()["detail"],
+            "The user hasn't consented to their clients' sending their telemetry."
+        );
     }
     assert_eq!(consenting.status, 200);
     assert_eq!(collector.received().len(), 1, "the consenting batch alone");
@@ -503,6 +507,12 @@ async fn client_telemetry_009_a_batch_that_the_collector_refuses_answers_400() {
 
             assert_eq!(refused.status, 400, "{route}: the collector's {status}");
             assert_eq!(refused.json()["code"], "client_telemetry.batch_refused");
+            assert_eq!(
+                refused.json()["detail"],
+                "The collector refused the batch: send the protocol's request."
+            );
+            // The API read no field of the batch (API-08), so its problem names none (API-07).
+            assert!(refused.json().get("errors").is_none(), "{}", refused.json());
         }
         // The three refused batches counted in the user's budget, which holds no fourth.
         collector.set("POST", at, 200, json!({}));

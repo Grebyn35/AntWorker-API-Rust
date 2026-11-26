@@ -174,6 +174,10 @@ async fn client_telemetry_002_a_choice_with_a_stale_etag_answers_412_and_changes
     for refused in [&stale, &unchosen] {
         assert_eq!(refused.status, 412);
         assert_eq!(refused.json()["code"], "request.precondition_failed");
+        assert_eq!(
+            refused.json()["detail"],
+            "If-Match names no current version of the resource: read it again, and send its ETag."
+        );
     }
     assert_eq!(current.status, 200);
     assert_eq!(current.header("etag"), "\"2\"");
@@ -301,6 +305,27 @@ async fn client_telemetry_002_a_choice_whose_row_an_erasure_deletes_meanwhile_an
     // The row's foreign key refused it once the user was gone.
     assert_eq!(status, 401);
     assert_eq!(body["code"], "request.unauthenticated");
+    assert!(rows(&api).await.is_empty());
+}
+
+#[tokio::test]
+async fn err_05_a_first_choice_that_a_constraint_no_repository_maps_refuses_answers_500() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    // A check that the row of Ada's choice no one made breaks, which the repository doesn't map,
+    // as it maps the foreign key that a deletion of her account trips.
+    api.database()
+        .owner_executes(&format!(
+            "ALTER TABLE telemetry_consents ADD CONSTRAINT telemetry_consents_not_ada \
+             CHECK (user_id <> '{}') NOT VALID",
+            ada.user_id
+        ))
+        .await;
+
+    let refused = choose(&api, &ada, true, None).await;
+
+    assert_eq!(refused.status, 500);
+    assert_eq!(refused.json()["code"], "request.internal_error");
     assert!(rows(&api).await.is_empty());
 }
 

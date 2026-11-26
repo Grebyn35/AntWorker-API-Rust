@@ -655,6 +655,10 @@ async fn invitations_006_an_expired_invitation_answers_422() {
 
     assert_eq!(response.status, 422);
     assert_eq!(response.json()["code"], "invitations.expired");
+    assert_eq!(
+        response.json()["detail"],
+        "Ask a member of the workspace to invite you again."
+    );
     let members = db
         .owner_reads("SELECT count(*)::text FROM workspace_memberships")
         .await;
@@ -1180,6 +1184,43 @@ async fn invitations_017_declining_deletes_the_invitation_records_and_publishes(
     );
     assert_eq!(again.status, 404);
     assert_eq!(again.json()["code"], "invitations.not_found");
+}
+
+#[tokio::test]
+async fn invitations_017_an_invitation_that_another_decline_deleted_while_this_one_waited_answers_404()
+ {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let carol = users::register(&api, "carol@example.com").await;
+    let workspace = acme(&api, &ada, &[]).await;
+    let invitation = invite(&api, &ada, &workspace, "carol@example.com", "member")
+        .await
+        .json();
+    let id = invitation["id"].as_str().unwrap();
+    let db = api.database();
+    db.owner_executes("DELETE FROM events").await;
+    // Another decline of hers, which has deleted the invitation and not yet committed: this one
+    // found the invitation, then waits for that delete.
+    let mut other = db
+        .holding(&format!("DELETE FROM invitations WHERE id = '{id}'"))
+        .await;
+    let release = async {
+        query_waits_on_a_lock(db, "DELETE FROM invitations").await;
+        execute_on(&mut other, "COMMIT").await;
+    };
+
+    let (declined, ()) = tokio::join!(decline(&api, &carol, id), release);
+
+    assert_eq!(declined.status, 404);
+    assert_eq!(declined.json()["code"], "invitations.not_found");
+    // The other decline's deletion went with no entry or event of its own here, and this one
+    // added none.
+    assert!(
+        db.owner_reads("SELECT id FROM audit_entries WHERE action = 'invitation.declined'")
+            .await
+            .is_empty()
+    );
+    assert!(db.owner_reads("SELECT id FROM events").await.is_empty());
 }
 
 #[tokio::test]
