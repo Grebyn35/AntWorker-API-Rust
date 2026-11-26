@@ -637,6 +637,23 @@ async fn accounts_016_an_export_that_its_job_holds_refuses_the_deletion_at_once(
 }
 
 #[tokio::test]
+async fn accounts_016_a_lock_of_the_user_s_exports_that_fails_but_for_a_held_lock_answers_500() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    // The lock of her exports fails for want of the privilege that it needs, where only a lock
+    // that another holds refuses the deletion as a change meanwhile.
+    api.database()
+        .owner_executes("REVOKE UPDATE ON exports FROM app")
+        .await;
+
+    let response = users::delete(&api, &ada).await;
+
+    assert_eq!(response.status, 500);
+    assert_eq!(response.json()["code"], "request.internal_error");
+    assert_eq!(left_of(&api, &ada).await, "1|1|0");
+}
+
+#[tokio::test]
 async fn accounts_016_a_running_export_job_that_holds_the_user_s_row_refuses_the_deletion_at_once()
 {
     let api = Api::new().await;

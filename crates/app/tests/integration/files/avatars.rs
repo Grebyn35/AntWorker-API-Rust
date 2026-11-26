@@ -172,6 +172,10 @@ async fn accounts_009_an_empty_body_or_one_that_is_no_such_image_answers_422() {
 
         assert_eq!(response.status, 422, "{bytes:?}");
         assert_eq!(response.json()["code"], "accounts.avatar_not_image");
+        assert_eq!(
+            response.json()["detail"],
+            "An avatar is a PNG, JPEG, GIF or WebP image, of at most 1 MiB."
+        );
     }
     assert!(rows(&api).await.is_empty());
     assert!(objects(&api).await.is_empty());
@@ -208,6 +212,10 @@ async fn accounts_009_an_avatar_in_which_the_scanner_finds_malware_answers_422()
 
     assert_eq!(response.status, 422);
     assert_eq!(response.json()["code"], "accounts.avatar_malware_detected");
+    assert_eq!(
+        response.json()["detail"],
+        "The malware scanner refused the image, so it wasn't stored."
+    );
     assert!(rows(&api).await.is_empty());
     assert!(objects(&api).await.is_empty());
 }

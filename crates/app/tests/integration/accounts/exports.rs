@@ -2,7 +2,10 @@
 
 use std::io::{Cursor, Read};
 
+use axum::{body::Body, extract::ConnectInfo};
+use platform::telemetry::testing;
 use serde_json::{Value, json};
+use tower::ServiceExt;
 
 use crate::support::{
     Api,
@@ -42,6 +45,64 @@ pub async fn download(api: &Api, user: &SignedIn, id: &str, headers: &[(&str, &s
         call = call.header(name, value);
     }
     call.send().await
+}
+
+/// Stores the document of the export `id` that holds the most deflated bytes again as three
+/// chunks, the thirds of the one chunk that held it, as a document of more bytes than a chunk
+/// holds is stored (PLATFORM-084), and returns its path, the length of a third and the offset of
+/// the third chunk among its deflated bytes.
+async fn in_thirds(api: &Api, id: &str) -> (String, usize, usize) {
+    let longest = one(
+        api,
+        &format!(
+            "SELECT position || ' ' || stored_bytes || ' ' || path FROM export_entries \
+             WHERE export_id = '{id}' ORDER BY stored_bytes DESC, position LIMIT 1"
+        ),
+    )
+    .await;
+    let mut fields = longest.splitn(3, ' ');
+    let (position, length, path) = (
+        fields.next().unwrap(),
+        fields.next().unwrap().parse::<usize>().unwrap(),
+        fields.next().unwrap().to_owned(),
+    );
+    let document = format!("export_id = '{id}' AND position = {position}");
+    let chunks = one(
+        api,
+        &format!("SELECT count(*)::text FROM export_chunks WHERE {document}"),
+    )
+    .await;
+    assert_eq!(chunks, "1", "{path} is one chunk");
+    let third = length / 3;
+    assert!(third >= 2, "{path} holds {length} deflated bytes");
+    api.database()
+        .owner_executes(&format!(
+            "INSERT INTO export_chunks (export_id, position, offset_bytes, bytes) \
+             SELECT export_id, position, {third}, substring(bytes FROM {third} + 1 FOR {third}) \
+             FROM export_chunks WHERE {document} \
+             UNION ALL \
+             SELECT export_id, position, 2 * {third}, substring(bytes FROM 2 * {third} + 1) \
+             FROM export_chunks WHERE {document}; \
+             UPDATE export_chunks SET bytes = substring(bytes FROM 1 FOR {third}) \
+             WHERE {document} AND offset_bytes = 0"
+        ))
+        .await;
+    (path, third, 2 * third)
+}
+
+/// Where the deflated bytes of the entry at `path` start in `archive`: after its local header,
+/// whose name and extra field have the lengths that the header's bytes 26 to 29 give (APPNOTE
+/// 4.3.7).
+fn entry_data(archive: &[u8], path: &str) -> usize {
+    let mut zip = zip::ZipArchive::new(Cursor::new(archive.to_vec())).unwrap();
+    let header = usize::try_from(zip.by_name(path).unwrap().header_start()).unwrap();
+    let length = |at: usize| {
+        usize::from(u16::from_le_bytes([
+            archive[header + at],
+            archive[header + at + 1],
+        ]))
+    };
+    header + 30 + length(26) + length(28)
 }
 
 /// Every entry of `archive`, by its path, with its bytes.
@@ -151,6 +212,10 @@ async fn accounts_020_a_session_that_proved_its_user_more_than_5_minutes_ago_is_
 
     assert_eq!(refused.status, 403);
     assert_eq!(refused.json()["code"], "request.reauthentication_required");
+    assert_eq!(
+        refused.json()["detail"],
+        "Prove who you are again, then send the request again."
+    );
     assert_eq!(one(&api, "SELECT count(*)::text FROM exports").await, "0");
     assert_eq!(
         one(
@@ -449,6 +514,52 @@ async fn accounts_023_a_last_attempt_that_fails_makes_the_export_failed_and_publ
     let content = download(&api, &ada, &id, &[]).await;
     assert_eq!(content.status, 409);
     assert_eq!(content.json()["code"], "accounts.export_not_ready");
+}
+
+#[tokio::test]
+async fn accounts_023_a_last_attempt_that_fails_once_another_made_the_export_failed_adds_nothing() {
+    let api = Api::new().await;
+    let db = api.database();
+    let ada = users::register(&api, "ada@example.com").await;
+    let id = request(&api, &ada).await.json()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    // The job's tenth attempt, the last.
+    db.owner_executes("UPDATE jobs SET attempts = 9 WHERE kind = 'accounts.export'")
+        .await;
+    // The expiry holds the export's row as it makes it failed (ACCOUNTS-027), and the run's
+    // first statement, its lock of the row, waits for it: the row then changed after the run's
+    // snapshot, which the lock refuses, so the run fails.
+    let mut expiry = db
+        .holding(&format!(
+            "SELECT 1 FROM exports WHERE id = '{id}' FOR UPDATE"
+        ))
+        .await;
+
+    let ((), runs) = tokio::join!(
+        async {
+            query_waits_on_a_lock(db, "FROM exports").await;
+            execute_on(
+                &mut expiry,
+                &format!("UPDATE exports SET state = 'failed' WHERE id = '{id}'"),
+            )
+            .await;
+            execute_on(&mut expiry, "COMMIT").await;
+        },
+        api.run_jobs(),
+    );
+
+    assert_eq!(runs, 1);
+    let state = one(
+        &api,
+        &format!("SELECT state::text FROM exports WHERE id = '{id}'"),
+    )
+    .await;
+    assert_eq!(state, "failed");
+    // The run found the export failed already, so it recorded and published nothing.
+    assert!(entries_of(&api, "export.failed").await.is_empty());
+    assert!(event_users(&api, "export.failed").await.is_empty());
 }
 
 #[tokio::test]
@@ -949,12 +1060,85 @@ async fn accounts_026_a_pending_export_answers_409() {
 
     assert_eq!(content.status, 409);
     assert_eq!(content.json()["code"], "accounts.export_not_ready");
+    assert_eq!(
+        content.json()["detail"],
+        "The export's archive isn't built yet, or its job failed and it never will be."
+    );
     let downloads = one(
         &api,
         "SELECT count(*)::text FROM audit_entries WHERE action = 'export.downloaded'",
     )
     .await;
     assert_eq!(downloads, "0");
+}
+
+#[tokio::test]
+async fn accounts_026_a_document_stored_in_chunks_serves_the_same_bytes_whole_and_from_inside_one()
+{
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let id = built(&api, &ada).await;
+    let whole = download(&api, &ada, &id, &[]).await;
+
+    let (path, third, last) = in_thirds(&api, &id).await;
+    let again = download(&api, &ada, &id, &[]).await;
+    // From the second byte of the first chunk to the second of the third.
+    let data = entry_data(&whole.body, &path);
+    let (start, end) = (data + 1, data + last + 1);
+    let range = download(
+        &api,
+        &ada,
+        &id,
+        &[("range", &format!("bytes={start}-{end}"))],
+    )
+    .await;
+
+    assert!(third >= 2);
+    assert_eq!(again.status, 200);
+    assert_eq!(again.body, whole.body);
+    assert_eq!(range.status, 206);
+    assert_eq!(range.body, whole.body[start..=end]);
+}
+
+#[tokio::test]
+async fn accounts_026_a_document_that_lacks_a_chunk_cuts_the_download_short() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let id = built(&api, &ada).await;
+    let (path, second, _) = in_thirds(&api, &id).await;
+    api.database()
+        .owner_executes(&format!(
+            "DELETE FROM export_chunks WHERE export_id = '{id}' AND offset_bytes = {second} \
+             AND position = (SELECT position FROM export_entries \
+                 WHERE export_id = '{id}' AND path = '{path}')"
+        ))
+        .await;
+
+    // Sent to the router itself, since the support's requests read a body to its end.
+    let mut request = http::Request::get(format!("/v1/users/me/exports/{id}/content"))
+        .header("authorization", format!("Bearer {}", ada.access))
+        .body(Body::empty())
+        .unwrap();
+    request.extensions_mut().insert(ConnectInfo(
+        crate::support::api::PEER
+            .parse::<std::net::SocketAddr>()
+            .unwrap(),
+    ));
+    let response = api.router().oneshot(request).await.unwrap();
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await;
+
+    assert_eq!(status, 200);
+    assert!(body.is_err(), "the body ended as one that held every byte");
+    let cut: Vec<_> = testing::logged_on_this_thread()
+        .into_iter()
+        .filter(|line| line["error.type"] == "download_cut")
+        .collect();
+    assert_eq!(cut.len(), 1, "{cut:#?}");
+    assert_eq!(
+        cut[0]["exception.message"],
+        "internal error: an export's document lacks a chunk of its bytes"
+    );
 }
 
 #[tokio::test]

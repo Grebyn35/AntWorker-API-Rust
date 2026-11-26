@@ -187,6 +187,10 @@ async fn accounts_007_a_rename_with_a_stale_etag_answers_412_and_changes_nothing
     assert_eq!(first.status, 200);
     assert_eq!(stale.status, 412);
     assert_eq!(stale.json()["code"], "request.precondition_failed");
+    assert_eq!(
+        stale.json()["detail"],
+        "If-Match names no current version of the resource: read it again, and send its ETag."
+    );
     assert_eq!(current.status, 200);
     assert_eq!(current.header("etag"), "\"4\"");
     let recorded = api

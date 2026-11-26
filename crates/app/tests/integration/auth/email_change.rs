@@ -629,6 +629,35 @@ async fn auth_052_an_address_that_another_account_took_meanwhile_answers_409_and
 }
 
 #[tokio::test]
+async fn err_05_a_change_of_address_that_a_constraint_no_repository_maps_refuses_answers_500() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let ada = users::register(&api, &address).await;
+    let new = mailbox::address("ada-new");
+    ask(&api, &ada, &new).await;
+    let code = code_sent(&api, &new).await;
+    // A check that the new address breaks, which accounts' update of the address doesn't map,
+    // as it maps the unique address's (ACCOUNTS-004).
+    api.database()
+        .owner_executes(&format!(
+            "ALTER TABLE users ADD CONSTRAINT users_email_not_new CHECK (email <> '{new}') NOT VALID"
+        ))
+        .await;
+
+    let refused = confirm(&api, &ada, &new, &code).await;
+
+    assert_eq!(refused.status, 500);
+    assert_eq!(refused.json()["code"], "request.internal_error");
+    assert_eq!(address_of(&api, &ada).await, format!("{address}|true"));
+    assert_eq!(codes_of(&api, &ada).await, ["email_change"]);
+    assert!(
+        entries(&api, &ada.user_id, "email.changed")
+            .await
+            .is_empty()
+    );
+}
+
+#[tokio::test]
 async fn auth_052_a_malformed_email_and_code_answer_400_with_both_fields() {
     let api = Api::new().await;
     let ada = users::register(&api, &mailbox::address("ada")).await;
