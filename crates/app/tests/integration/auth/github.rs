@@ -112,6 +112,8 @@ async fn auth_083_github_signs_in_with_its_numeric_id_and_primary_address_and_de
         "{deletion:?}"
     );
     assert_eq!(deletion.body, r#"{"access_token":"github-token"}"#);
+    // GitHub's 204 is a deletion that succeeded, which ERR-11 logs no line of.
+    assert!(!kept_token_logged(&response, ""), "a line of a token kept");
 }
 
 #[tokio::test]

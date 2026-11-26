@@ -161,12 +161,11 @@ fn is_one_repeated_character(value: &str) -> bool {
 }
 
 fn has_digit_run(value: &str) -> bool {
-    let digits: Vec<i32> = value
+    // A character that is no digit reads as -10: no run starts below 0, and no digit's step
+    // reaches it.
+    let digits: Vec<i64> = value
         .chars()
-        .map(|c| {
-            c.to_digit(10)
-                .map_or(-10, |digit| i32::try_from(digit).unwrap_or(-10))
-        })
+        .map(|c| c.to_digit(10).map_or(-10, i64::from))
         .collect();
     [1, -1].into_iter().any(|step| {
         let mut run = 1;
@@ -541,6 +540,8 @@ mod tests {
         assert_eq!(refusal("q98765432q"), "digit_run");
         assert!(Password::parse("x1234567y-sea".to_owned()).is_ok());
         assert!(Password::parse("13579246810-q".to_owned()).is_ok());
+        // Seven digits from 9 down, after a character that is no digit.
+        assert!(Password::parse("x9876543y-sea".to_owned()).is_ok());
     }
 
     #[test]

@@ -18,7 +18,8 @@ pub(in crate::modules::auth) struct Client {
 
 /// Whether `uri` is the redirect URI `listed`, compared as a string, but for a listed loopback
 /// one without a port, `http://127.0.0.1/<path>` or `http://[::1]/<path>`, which matches the
-/// same string with any port after its host, as RFC 8252 asks (AUTH-078).
+/// same string with any port after its host, digits that read as a number up to 65,535, as RFC
+/// 8252 asks (AUTH-078).
 pub(super) fn matches(listed: &str, uri: &str) -> bool {
     if listed == uri {
         return true;
@@ -194,6 +195,24 @@ mod tests {
             "http://127.0.0.1:80/callback",
             "http://127.0.0.1:81/callback"
         ));
+    }
+
+    #[test]
+    fn auth_078_a_loopback_port_is_digits_that_read_as_a_number_up_to_65_535() {
+        let listed = "http://127.0.0.1/callback";
+
+        let matched: Vec<_> = ["", "65536", "+80", "8o80"]
+            .into_iter()
+            .filter(|port| matches(listed, &format!("http://127.0.0.1:{port}/callback")))
+            .collect();
+
+        assert!(matched.is_empty(), "{matched:?}");
+        for port in ["65535", "0080"] {
+            assert!(
+                matches(listed, &format!("http://127.0.0.1:{port}/callback")),
+                "{port}"
+            );
+        }
     }
 
     #[test]

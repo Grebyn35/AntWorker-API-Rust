@@ -248,6 +248,10 @@ async fn auth_086_an_account_that_has_a_password_answers_409_and_keeps_it() {
     assert_eq!(response.status, 409);
     assert_eq!(response.json()["code"], "auth.password_already_set");
     assert_eq!(
+        response.json()["detail"],
+        "The account has a password: change it with the current one."
+    );
+    assert_eq!(
         users::sign_in(&api, "ada@example.com", PASSWORD)
             .await
             .status,
@@ -377,6 +381,11 @@ async fn auth_087_a_caller_with_an_identity_of_the_provider_answers_409_whatever
     for response in [&same, &another] {
         assert_eq!(response.status, 409);
         assert_eq!(response.json()["code"], "auth.provider_already_linked");
+        assert_eq!(
+            response.json()["detail"],
+            "An account at this provider signs in to the account already: remove it to link \
+             another."
+        );
     }
     assert_eq!(
         reads(&api, "SELECT subject FROM provider_identities").await,
@@ -396,6 +405,10 @@ async fn auth_087_a_subject_that_another_account_holds_answers_409() {
 
     assert_eq!(response.status, 409);
     assert_eq!(response.json()["code"], "auth.identity_in_use");
+    assert_eq!(
+        response.json()["detail"],
+        "The provider's account signs in to another account."
+    );
     assert_eq!(
         reads(&api, "SELECT user_id::text FROM provider_identities").await,
         [bob.user_id.as_str()]
@@ -935,6 +948,11 @@ async fn auth_088_the_account_s_last_identity_stays() {
     for response in [&password, &provider] {
         assert_eq!(response.status, 422);
         assert_eq!(response.json()["code"], "auth.last_identity");
+        assert_eq!(
+            response.json()["detail"],
+            "It is the only way the account signs in: add a password, or link a provider, \
+             before removing it."
+        );
     }
     assert_eq!(
         users::sign_in(&api, "ada@example.com", PASSWORD)

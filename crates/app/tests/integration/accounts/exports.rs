@@ -793,13 +793,15 @@ async fn accounts_024_the_archive_holds_the_user_s_data_and_only_the_content_of_
  {
     let api = Api::new().await;
     let (ada, grace, own, shared) = arranged(&api).await;
-    // A code of Ada's, which the job of a code issues no account that proved its address, as
-    // hers has (AUTH-030), so the export's document of codes has a record to show, and a name for
-    // her session's device, which is personal data the export holds (AUTH-042).
+    // A code of Ada's of each purpose, which the job of a code that proves an address issues no
+    // account that proved its address, as hers has (AUTH-030), so the export's document of codes
+    // has a record of each to show, and a name for her session's device, which is personal data
+    // the export holds (AUTH-042).
     api.database()
         .owner_executes(&format!(
             "INSERT INTO verification_codes (user_id, purpose, code_hash, expires_at) \
-             VALUES ('{}', 'email_verification', '\\x0123abcd', now() + interval '10 minutes'); \
+             SELECT '{}', purpose, '\\x0123abcd', now() + interval '10 minutes' \
+             FROM unnest(enum_range(NULL::verification_purpose)) AS purpose; \
              UPDATE sessions SET device_name = 'Ada''s laptop' WHERE user_id = '{}'",
             ada.user_id, ada.user_id
         ))
@@ -850,9 +852,12 @@ async fn accounts_024_the_archive_holds_the_user_s_data_and_only_the_content_of_
     }
     assert_eq!(document(&archive, "auth/device_tokens.json").len(), 1);
     let codes = document(&archive, "auth/verification_codes.json");
-    assert_eq!(codes.len(), 1);
-    assert_eq!(codes[0]["purpose"], "email_verification");
-    assert!(codes[0].get("code_hash").is_none());
+    let purposes: Vec<&Value> = codes.iter().map(|code| &code["purpose"]).collect();
+    assert_eq!(
+        purposes,
+        ["email_verification", "password_reset", "email_change"]
+    );
+    assert!(codes.iter().all(|code| code.get("code_hash").is_none()));
     assert_logs(&archive, &grace, &own);
     // part: invitations
     assert_invitations(&archive, &own);

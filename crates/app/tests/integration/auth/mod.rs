@@ -1,6 +1,7 @@
 //! Who a caller is (the auth spec).
 
 mod challenges;
+mod counted;
 mod devices;
 mod email_change;
 mod ending;

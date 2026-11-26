@@ -1039,6 +1039,72 @@ async fn auth_067_a_run_that_meets_a_row_that_a_request_holds_ends_there_and_the
 }
 
 #[tokio::test]
+async fn auth_067_a_run_deletes_more_expired_setups_than_a_batch_holds() {
+    let api = Api::new().await;
+    // 1,001 accounts, each with a setup that expired, one more than the job's batch of 1,000.
+    api.database()
+        .owner_executes(
+            "WITH added AS (INSERT INTO users (email, name) \
+             SELECT 'user' || n || '@example.com', 'User ' || n FROM generate_series(1, 1001) AS n \
+             RETURNING id) \
+             INSERT INTO totp_setups (user_id, key_version, secret, expires_at) \
+             SELECT id, 1, '\\x00', now() - interval '1 second' FROM added",
+        )
+        .await;
+
+    api.run_periodic("auth.expire_unfinished").await;
+
+    assert_eq!(
+        reads(&api, "SELECT count(*)::text FROM totp_setups").await,
+        ["0"]
+    );
+}
+
+#[tokio::test]
+async fn auth_067_a_run_deletes_more_expired_challenges_than_a_batch_holds() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    // 1,001 challenges of Ada's that expired, one more than the job's batch of 1,000.
+    api.database()
+        .owner_executes(&format!(
+            "INSERT INTO sign_in_challenges (user_id, token_hash, expires_at) \
+             SELECT '{}', sha256(('challenge ' || n)::bytea), now() - interval '1 second' \
+             FROM generate_series(1, 1001) AS n",
+            ada.user_id
+        ))
+        .await;
+
+    api.run_periodic("auth.expire_unfinished").await;
+
+    assert_eq!(
+        reads(&api, "SELECT count(*)::text FROM sign_in_challenges").await,
+        ["0"]
+    );
+}
+
+#[tokio::test]
+async fn auth_067_a_run_whose_batch_fails_but_for_a_held_row_fails() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    assert_eq!(second_factors::start_setup(&api, &ada).await.status, 200);
+    let db = api.database();
+    db.owner_executes("UPDATE totp_setups SET expires_at = now() - interval '1 second'")
+        .await;
+    // The deletion of a batch fails for want of the privilege that it needs, where only a row
+    // that a request holds ends a run as done.
+    db.owner_executes("REVOKE DELETE ON totp_setups FROM app")
+        .await;
+
+    let run = api.try_run_periodic("auth.expire_unfinished").await;
+
+    assert!(run.is_err(), "the run ended as done");
+    assert_eq!(
+        reads(&api, "SELECT user_id::text FROM totp_setups").await,
+        [ada.user_id.as_str()]
+    );
+}
+
+#[tokio::test]
 async fn auth_069_a_change_of_the_password_deletes_the_challenges_issued_before_it() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;

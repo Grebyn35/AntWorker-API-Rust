@@ -32,7 +32,7 @@ pub(crate) const SERVICE: Service = Service {
 };
 
 /// The base64 of the tests' `HMAC_KEY`: 32 bytes of 7.
-const HMAC_KEY: &str = "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=";
+pub const HMAC_KEY: &str = "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=";
 
 /// The key of the tests' `HMAC_KEY`, with which a test computes what an API with that setting
 /// derives by an HMAC, such as a rate-limit bucket's key (PLATFORM-057).

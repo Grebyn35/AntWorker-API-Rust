@@ -1357,6 +1357,8 @@ async fn auth_079_a_token_that_doesn_t_lapse_is_deleted_whether_or_not_the_ident
     assert_eq!(read.status, 201, "{}", read.json());
     let bearer = Some("Bearer a-provider-token".to_owned());
     assert_eq!(after_read, std::slice::from_ref(&bearer));
+    // The stand-in's 204 is a deletion that succeeded, which ERR-11 logs no line of.
+    assert!(!kept_token_logged(&read, ""), "a line of a token kept");
     assert_eq!(unread.status, 503);
     assert_eq!(deletions(&upstream), [bearer.clone(), bearer]);
 }

@@ -110,12 +110,17 @@ impl VerificationCode {
     }
 
     /// A new code, each of the million as likely, from the operating system's secure random source
-    /// (AUTH-030, SEC-03): a number of 32 random bits is drawn again while it is at or above the
-    /// largest multiple of a million that 32 bits hold, so its remainder is uniform.
+    /// (AUTH-030, SEC-03).
     pub(crate) fn generate() -> Result<Self, Internal> {
+        Self::drawn(|| Ok(u32::from_be_bytes(random::bytes::<4>()?)))
+    }
+
+    /// The code of the first number of 32 bits that `draw` gives below the largest multiple of a
+    /// million that 32 bits hold, so that its remainder is uniform when the numbers are.
+    fn drawn(mut draw: impl FnMut() -> Result<u32, Internal>) -> Result<Self, Internal> {
         const UNIFORM_BELOW: u32 = u32::MAX - u32::MAX % CODES;
         loop {
-            let value = u32::from_be_bytes(random::bytes::<4>()?);
+            let value = draw()?;
             if value < UNIFORM_BELOW {
                 return Ok(Self(Secret::new(format!("{:06}", value % CODES))));
             }
@@ -268,7 +273,12 @@ impl<P: LongKind> LongCode<P> {
     /// character as likely as any other (AUTH-036, AUTH-050, AUTH-062, SEC-03): the low bits of
     /// 16 random bytes, of which a character takes 5 at a time.
     pub(crate) fn generate() -> Result<Self, Internal> {
-        let value = u128::from_be_bytes(random::bytes::<16>()?);
+        Ok(Self::of_bits(u128::from_be_bytes(random::bytes::<16>()?)))
+    }
+
+    /// The code of `value`'s low bits, 5 to a character: its last character is the one of the
+    /// alphabet that the lowest 5 name, the one before it the next 5's, and so on.
+    fn of_bits(value: u128) -> Self {
         let code = (0..P::CHARS)
             .rev()
             .map(|place| {
@@ -276,7 +286,7 @@ impl<P: LongKind> LongCode<P> {
                 char::from(CROCKFORD[index])
             })
             .collect();
-        Ok(Self(Secret::new(code), PhantomData))
+        Self(Secret::new(code), PhantomData)
     }
 
     /// The code in groups of four characters, as its email or its answer shows it (AUTH-036,
@@ -340,6 +350,19 @@ mod tests {
     }
 
     #[test]
+    fn auth_030_a_number_at_or_above_the_last_multiple_of_a_million_is_drawn_again() {
+        // 4,294,000,000 is the largest multiple of a million that 32 bits hold: the numbers from
+        // it up would make the codes below 967,296 likelier than the rest.
+        let mut numbers = [4_294_000_000, u32::MAX, 4_293_999_999].into_iter();
+
+        let code =
+            VerificationCode::drawn(|| numbers.next().ok_or_else(|| Internal::new("no more")));
+
+        assert_eq!(code.unwrap().digits(), "999999");
+        assert_eq!(numbers.next(), None);
+    }
+
+    #[test]
     fn auth_032_a_typed_code_is_6_digits_once_trimmed() {
         assert_eq!(
             VerificationCode::parse(" 012345\t").unwrap().digits(),
@@ -389,6 +412,14 @@ mod tests {
                 "{character}"
             );
         }
+    }
+
+    #[test]
+    fn auth_036_each_character_of_a_reset_code_takes_5_bits_of_its_own() {
+        // The alphabet's indices 0 to 15, the first in the highest 5 of the code's 80 bits.
+        let value = (0..16_u128).fold(0, |value, index| (value << 5) | index);
+
+        assert_eq!(ResetCode::of_bits(value).characters(), "0123456789ABCDEF");
     }
 
     #[test]

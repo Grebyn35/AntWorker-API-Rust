@@ -65,9 +65,8 @@ impl Auth {
         input: ProviderSignIn,
     ) -> Result<SignedIn, AuthError> {
         let (provider, identity) = self.identify(&input.provider, &input.grant).await?;
-        let mut counted = self
-            .count_registration(limits, client, provider, &identity)
-            .await?;
+        // A registration that sends no code needs no count.
+        let mut counted = self.counted_address(&identity).is_none();
         loop {
             let mut uow = self.database.begin(client, None).await?;
             if let Some(user) = linked(&mut uow, provider, &identity).await? {
@@ -76,10 +75,11 @@ impl Auth {
             if counted {
                 return self.register_through(uow, provider, identity, input).await;
             }
-            // The account that the count read holds the subject no more: its deletion, or a
-            // removal of the identity, came first. The sign-in registers after all, so it counts
-            // as a registration does, before it writes anything, and reads again whether it
-            // registers (AUTH-099).
+            // The sign-in registers, sending a code to the address that the provider doesn't
+            // prove, so it counts in that address's bucket of registrations, as a registration
+            // with a password does (AUTH-029), with nothing written, since whether it registers
+            // decides whether the bucket counts it, so a linked account's sign-ins never fill it
+            // (ARCH-11). It then reads again in a new unit of work (AUTH-099).
             drop(uow);
             if let Some(email) = self.counted_address(&identity) {
                 limits
@@ -88,34 +88,6 @@ impl Auth {
             }
             counted = true;
         }
-    }
-
-    /// Counts a sign-in that registers, and sends a code to the address that the provider doesn't
-    /// prove, in that address's bucket of registrations, as a registration with a password counts
-    /// (AUTH-029). Whether it registers is read first, in a short transaction that writes nothing,
-    /// since it decides whether the bucket counts the request, so a linked account's sign-ins
-    /// never fill it (ARCH-11). Answers whether a registration that follows is counted, or needs
-    /// no count: it isn't when the read found the subject linked.
-    async fn count_registration(
-        &self,
-        limits: &RateLimits,
-        client: &Client,
-        provider: &On,
-        identity: &Identity,
-    ) -> Result<bool, AuthError> {
-        let Some(email) = self.counted_address(identity) else {
-            return Ok(true);
-        };
-        let mut read = self.database.begin(client, None).await?;
-        let linked = repo::user_of_subject(&mut read, provider.key, &identity.subject).await?;
-        drop(read);
-        if linked.is_some() {
-            return Ok(false);
-        }
-        limits
-            .check(buckets::REGISTRATION_EMAIL, email.as_str().as_bytes())
-            .await?;
-        Ok(true)
     }
 
     /// The address whose bucket of registrations a registration of `identity` counts in: the one
