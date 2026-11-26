@@ -232,3 +232,20 @@ async fn audit_011_a_run_that_meets_an_entry_that_another_transaction_holds_ends
     assert_eq!(during, ["400", "400", "400"]);
     assert!(ages(&api, "user.renamed").await.is_empty());
 }
+
+#[tokio::test]
+async fn audit_011_a_run_whose_batch_fails_but_for_a_held_entry_fails() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    arrange(&api, &ada.user_id, "400 days", 3).await;
+    // The deletion of a batch fails for want of the privilege that it needs, where only an entry
+    // that another transaction holds ends a run as done.
+    api.database()
+        .owner_executes("REVOKE DELETE ON deletable_audit_entries FROM app")
+        .await;
+
+    let run = api.try_run_periodic(JOB).await;
+
+    assert!(run.is_err(), "the run ended as done");
+    assert_eq!(ages(&api, "user.renamed").await, ["400", "400", "400"]);
+}

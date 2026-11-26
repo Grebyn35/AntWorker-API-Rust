@@ -447,7 +447,13 @@ impl Api {
 
     /// Runs the periodic job `name` once, now.
     pub async fn run_periodic(&self, name: &str) {
-        self.jobs.run_periodic(name).await.unwrap();
+        self.try_run_periodic(name).await.unwrap();
+    }
+
+    /// Runs the periodic job `name` once, now, and returns how its run ended: an error is a run
+    /// that failed, which the scheduler writes and counts, and runs again at its next interval.
+    pub async fn try_run_periodic(&self, name: &str) -> Result<(), platform::errors::Internal> {
+        self.jobs.run_periodic(name).await
     }
 
     /// The interval at which the scheduler runs the periodic job `name`, as its registration

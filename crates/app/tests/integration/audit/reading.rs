@@ -531,6 +531,12 @@ async fn audit_009_the_values_a_list_refuses_are_named_together() {
                 .await;
 
             assert_eq!(response.status, 400, "{path}?{query}");
+            assert_eq!(response.json()["code"], "request.invalid_query");
+            assert_eq!(response.json()["title"], "Invalid query");
+            assert_eq!(
+                response.json()["detail"],
+                "A query parameter isn't one the route takes, or has a value it refuses."
+            );
             let refused: Vec<String> = response
                 .refused_parameters()
                 .into_iter()
