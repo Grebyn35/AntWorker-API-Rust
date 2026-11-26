@@ -1006,6 +1006,10 @@ async fn platform_071_a_rename_with_a_stale_etag_answers_412_and_changes_nothing
     assert_eq!(first.header("etag"), "\"2\"");
     assert_eq!(stale.status, 412);
     assert_eq!(stale.json()["code"], "request.precondition_failed");
+    assert_eq!(
+        stale.json()["detail"],
+        "If-Match names no current version of the resource: read it again, and send its ETag."
+    );
     assert_eq!(stored_name(&api, &workspace).await, "Grace's");
     let recorded = db
         .owner_reads(
@@ -1761,6 +1765,10 @@ async fn workspaces_016_a_transfer_goes_only_to_a_member_who_is_an_admin() {
     for refused in [&to_member, &to_myself] {
         assert_eq!(refused.status, 422);
         assert_eq!(refused.json()["code"], "workspaces.transfer_requires_admin");
+        assert_eq!(
+            refused.json()["detail"],
+            "A workspace goes to one of its admins: name a member who is one."
+        );
     }
     assert_eq!(to_stranger.status, 404);
     assert_eq!(to_stranger.json()["code"], "workspaces.member_not_found");
