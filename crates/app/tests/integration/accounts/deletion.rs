@@ -850,6 +850,34 @@ async fn accounts_017_the_user_s_own_files_go_and_their_uploads_to_a_shared_work
 }
 
 #[tokio::test]
+async fn accounts_017_a_deletion_waits_for_a_request_that_holds_one_of_the_user_s_files() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    let file = files::arrange_own(db, &ada.user_id, "notes.txt").await;
+    // A request of Ada's that deletes the file and hasn't committed. The contract of `files`
+    // deletes her files before the last step, which would refuse the deletion at once.
+    let mut held = db
+        .holding(&format!("DELETE FROM user_files WHERE id = '{file}'"))
+        .await;
+
+    let mut deleting = users::deleting(&api, &ada);
+    let answered_first = tokio::select! {
+        answered = &mut deleting => Some(answered.unwrap().status),
+        () = queries_wait_on_locks(db, 1) => None,
+    };
+    assert_eq!(
+        answered_first, None,
+        "the deletion answered without waiting for the file"
+    );
+    execute_on(&mut held, "COMMIT").await;
+    let deleted = deleting.await.unwrap();
+
+    assert_eq!(deleted.status, 204, "{}", deleted.json());
+    assert_eq!(left_of(&api, &ada).await, "0|0|0");
+}
+
+#[tokio::test]
 async fn files_001_a_file_whose_uploader_s_account_is_deleted_has_no_uploader() {
     let Shared {
         api,

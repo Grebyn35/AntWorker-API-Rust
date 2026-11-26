@@ -322,6 +322,10 @@ async fn files_001_a_retry_with_the_key_stores_one_file() {
     assert_eq!(retry.header("location"), first.header("location"));
     assert_eq!(other.status, 422);
     assert_eq!(other.json()["code"], "request.idempotency_key_reused");
+    assert_eq!(
+        other.json()["detail"],
+        "The key was sent before with another request: send a new key for this one."
+    );
     assert_eq!(stored_names(&api, &workspace).await, ["a.txt"]);
     assert_eq!(entries(&api, "file.uploaded").await.len(), 1);
 }
@@ -356,6 +360,16 @@ async fn files_002_a_name_comes_from_content_disposition_normalized() {
         assert_eq!(refused.status, 400);
         assert_eq!(refused.json()["code"], "files.invalid_name");
     }
+    for unnamed in [&without, &unnamed] {
+        assert_eq!(
+            unnamed.json()["detail"],
+            "Name the file in `Content-Disposition`, such as `attachment; filename*=UTF-8''report.pdf`."
+        );
+    }
+    assert_eq!(
+        long.json()["detail"],
+        "A file's name has at most 255 characters."
+    );
     assert_eq!(stored_names(&api, &workspace).await.len(), 2);
 }
 
@@ -407,6 +421,10 @@ async fn files_003_a_file_whose_extension_or_bytes_are_of_no_accepted_kind_is_re
     for refused in [&page, &disguised, &bare, &binary, &office] {
         assert_eq!(refused.status, 422);
         assert_eq!(refused.json()["code"], "files.unsupported_type");
+        assert_eq!(
+            refused.json()["detail"],
+            "The file's extension must be one the API accepts, and its contents of that type."
+        );
     }
     assert!(stored_names(&api, &workspace).await.is_empty());
     assert!(objects(&api).await.is_empty());
@@ -489,6 +507,10 @@ async fn files_005_an_upload_in_which_the_scanner_finds_a_signature_is_refused()
 
     assert_eq!(response.status, 422);
     assert_eq!(response.json()["code"], "files.malware_detected");
+    assert_eq!(
+        response.json()["detail"],
+        "The malware scanner refused the file, so it wasn't stored."
+    );
     assert!(stored_names(&api, &workspace).await.is_empty());
     assert!(objects(&api).await.is_empty());
     assert!(entries(&api, "file.uploaded").await.is_empty());
@@ -1369,6 +1391,28 @@ async fn files_011_an_unreferenced_object_goes_once_its_delay_has_passed() {
     // A second run changes nothing more (OPS-09).
     api.run_periodic("files.delete_unreferenced_objects").await;
     assert_eq!(objects(&api).await, [kept]);
+}
+
+#[tokio::test]
+async fn files_011_a_run_deletes_more_recorded_objects_than_one_batch_holds() {
+    let api = Api::new().await;
+    let db = api.database();
+    // One more than a batch's 1,000, whose time has passed, of objects that the bucket doesn't
+    // hold, whose deletion succeeds as that of one a run before deleted does (OPS-09).
+    db.owner_executes(
+        "INSERT INTO object_deletions (object_key, deletable_at) \
+         SELECT 'workspaces/' || md5(n::text), now() - interval '1 second' \
+         FROM generate_series(1, 1001) AS n",
+    )
+    .await;
+
+    api.run_periodic("files.delete_unreferenced_objects").await;
+
+    assert!(
+        db.owner_reads("SELECT object_key FROM object_deletions")
+            .await
+            .is_empty()
+    );
 }
 
 #[tokio::test]

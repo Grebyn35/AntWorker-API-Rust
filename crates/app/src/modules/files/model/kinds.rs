@@ -229,6 +229,12 @@ mod tests {
 
     /// A ZIP archive whose entries are named `names`, each stored empty, with a comment.
     fn archive(names: &[&str]) -> Vec<u8> {
+        archive_with(names, b"", b"")
+    }
+
+    /// A ZIP archive whose entries are named `names`, each stored empty, whose central directory
+    /// gives each the extra field `extra` and the comment `comment`, with a comment of its own.
+    fn archive_with(names: &[&str], extra: &[u8], comment: &[u8]) -> Vec<u8> {
         let mut bytes = Vec::new();
         let mut directory = Vec::new();
         for name in names {
@@ -242,9 +248,13 @@ mod tests {
             directory.extend_from_slice(DIRECTORY_ENTRY);
             directory.extend_from_slice(&[0; 24]);
             directory.extend_from_slice(&length.to_le_bytes());
-            directory.extend_from_slice(&[0; 12]);
+            directory.extend_from_slice(&u16::try_from(extra.len()).unwrap().to_le_bytes());
+            directory.extend_from_slice(&u16::try_from(comment.len()).unwrap().to_le_bytes());
+            directory.extend_from_slice(&[0; 8]);
             directory.extend_from_slice(&offset.to_le_bytes());
             directory.extend_from_slice(name.as_bytes());
+            directory.extend_from_slice(extra);
+            directory.extend_from_slice(comment);
         }
         let offset = u32::try_from(bytes.len()).unwrap();
         let size = u32::try_from(directory.len()).unwrap();
@@ -256,9 +266,9 @@ mod tests {
         bytes.extend_from_slice(&count.to_le_bytes());
         bytes.extend_from_slice(&size.to_le_bytes());
         bytes.extend_from_slice(&offset.to_le_bytes());
-        let comment = b"made by a test";
-        bytes.extend_from_slice(&u16::try_from(comment.len()).unwrap().to_le_bytes());
-        bytes.extend_from_slice(comment);
+        let note = b"made by a test";
+        bytes.extend_from_slice(&u16::try_from(note.len()).unwrap().to_le_bytes());
+        bytes.extend_from_slice(note);
         bytes
     }
 
@@ -318,6 +328,18 @@ mod tests {
         // Truncated archives, and bytes that only start like one.
         assert!(!accepted("report.docx", &word[..word.len() - 30]));
         assert!(!accepted("report.docx", LOCAL_HEADER));
+    }
+
+    #[test]
+    fn files_003_an_office_document_whose_entries_hold_extra_fields_and_comments_is_read() {
+        // An extended timestamp, as many tools write, and a comment: the central directory holds
+        // each entry's after its name, before the next entry.
+        let word = archive_with(
+            &["_rels/.rels", "word/document.xml", "[Content_Types].xml"],
+            b"UT\x05\x00\x01\x00\x00\x00\x00",
+            b"an entry's comment",
+        );
+        assert!(accepted("report.docx", &word));
     }
 
     #[test]
