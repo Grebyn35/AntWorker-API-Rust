@@ -984,6 +984,12 @@ fn settings() -> BootstrapConfig {
 /// templates of other migrations, so two test runs whose migrations differ, such as the
 /// repository's and those of a copy that holds another module, fail each other's tests when they
 /// run at once.
+///
+/// The drop reads the templates named after the administrator's database, so a template that a
+/// run left under another name stays, as `_template_<hash>_building` did on a runner where a
+/// changed `platform` read no database's name in the URL, and the run was killed while it built:
+/// PLATFORM-003's test of a server that holds another database of the roles then fails until
+/// the database is dropped.
 async fn template(settings: &BootstrapConfig) -> &'static str {
     TEMPLATE
         .get_or_init(|| async {
