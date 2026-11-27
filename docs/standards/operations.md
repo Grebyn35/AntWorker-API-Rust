@@ -15,7 +15,7 @@ Configuration, background jobs, runtime behavior, CI, releases, deploys, backups
 - Required settings have no defaults. `ENVIRONMENT` is required.
 - Why: a misconfiguration fails at startup, never in the middle of a request (D9).
 - Check: `test`, plus `review`, each for what its item below says.
-  - `test`: a test reads each whole number's range from `.env.example`, and refuses the values just outside it; a test refuses each of the numbers above written with a sign, and with a leading zero; a test refuses a line of the sources of `platform::config` and of `encryption.rs` that parses an integer outside `numbers.rs`, where `whole_number` reads those numbers, as the doc of [`integer_parses`](../../crates/platform/src/config/numbers.rs) says it reads one; and the test of each bounded pair, such as AUTH-007's, refuses a value beyond its bound.
+  - `test`: a test reads each whole number's range from `.env.example`, and refuses the values just outside it; a test refuses each of the numbers above written with a sign, and with a leading zero; a test refuses a line of the sources of `platform::config` and of `encryption.rs` that parses an integer outside `numbers.rs`, where `whole_number` reads those numbers, as the doc of [`integer_parses`](../../crates/platform/src/config/numbers.rs) says it reads one; the test of each bounded pair, such as AUTH-007's, refuses a value beyond its bound; and a test reads a setting from the file that its `<NAME>_FILE` names.
   - `review`: which settings another bounds, and a reader of a number that the test of the sources doesn't read.
 
 ### OPS-02 Every setting earns its place and is documented

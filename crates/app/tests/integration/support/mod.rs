@@ -175,6 +175,10 @@ pub fn with_fields(mut body: Value, extra: Value) -> Value {
 /// owes (PLATFORM-033), as `platform::events` checks it.
 pub const CHECK_INTERVAL: Duration = Duration::from_secs(5);
 
+/// How long the listener's check waits for the database before it counts as failed, as
+/// `platform::db` waits.
+pub const CHECK_TIMEOUT: Duration = Duration::from_secs(2);
+
 /// The port of the tests' Postgres, whose data is in memory, as `compose.yaml` publishes it on
 /// the loopback address: the tests' databases are on that server, with the roles and the
 /// passwords that the settings name for the development Postgres.

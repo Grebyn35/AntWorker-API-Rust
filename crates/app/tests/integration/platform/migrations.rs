@@ -281,6 +281,33 @@ async fn platform_006_migrate_applies_nothing_while_an_applied_migration_differs
 }
 
 #[tokio::test]
+async fn platform_006_the_refusal_names_each_applied_migration_that_differs_from_its_file() {
+    let db = TestDatabase::migrated().await;
+    let versions: Vec<i64> = app::MIGRATIONS
+        .iter()
+        .map(|migration| migration.version)
+        .collect();
+    // The records of the first and the third migrations hold another checksum than their files
+    // give, and the record of the second, between them, its file's.
+    let (first, third) = (versions[0], versions[2]);
+    db.owner_executes(&format!(
+        "UPDATE _sqlx_migrations SET checksum = decode('00', 'hex') \
+         WHERE version IN ({first}, {third})"
+    ))
+    .await;
+
+    let refused = migrate(&db.owner_url(), &app::MIGRATIONS).await.err();
+
+    assert_eq!(
+        refused.map(|error| error.to_string()),
+        Some(format!(
+            "migrations {first}, {third} differ from the copies already applied; restore the \
+             files and put the change in a new migration"
+        ))
+    );
+}
+
+#[tokio::test]
 async fn platform_006_an_earlier_release_ignores_migrations_it_doesnt_contain() {
     let db = TestDatabase::empty().await;
     migrate(&db.owner_url(), &TWO_TABLES).await.unwrap();

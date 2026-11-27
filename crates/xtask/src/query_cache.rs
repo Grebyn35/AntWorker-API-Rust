@@ -2,12 +2,17 @@
 //! query changed, or a migration that changed what a query reads, without `just prepare`, fails
 //! here rather than building the image with the cache's stale description of a query. It runs
 //! sqlx-cli's own check against a database of its own (`migrated`), which every copy of the
-//! repository that a check makes builds from its own migrations.
+//! repository that a check makes builds from its own migrations. sqlx-cli's check fails on a
+//! query that the cache lacks or describes otherwise, and only warns, with [`UNUSED`], of a file
+//! of the cache that no source's query gives, so the check fails on that warning too.
 
 use crate::{Finding, Outcome, cargo, migrated};
 
 /// The directory of the query cache.
 const CACHE: &str = ".sqlx/";
+
+/// What the pinned sqlx-cli prints when the cache holds a file that no source's query gives.
+const UNUSED: &str = "potentially unused queries found in .sqlx";
 
 /// Compares the committed cache with what sqlx-cli writes from a migrated database.
 pub fn check() -> Outcome {
@@ -32,7 +37,7 @@ pub fn check() -> Outcome {
             .map_err(|error| {
                 format!("can't run sqlx-cli; `just setup` names the version to install: {error}")
             })?;
-        if output.status.success() {
+        if output.status.success() && !String::from_utf8_lossy(&output.stdout).contains(UNUSED) {
             Ok(())
         } else {
             Err(format!(

@@ -13,12 +13,18 @@ use crate::support::{
     second_factors::{self, other_code},
     upstream::Upstream,
     users::{self, PASSWORD},
-    verification,
+    verification, with_fields,
 };
 
 /// A code of the 16 characters of a reset code or a change code that no account was sent
 /// (AUTH-036, AUTH-050).
 const WRONG_LONG_CODE: &str = "0000-0000-0000-0000";
+
+/// A recovery code of the form that AUTH-062 reads, which no account holds.
+const NO_ONES_RECOVERY_CODE: &str = "7KQM-2XWD-9RTB-H4NP-1100-ABCD";
+
+/// A password that AUTH-003 allows, for a reset or a change of the password.
+const NEW_PASSWORD: &str = "lantern-orchard-58-brisk";
 
 /// Starts `serve` on `db` in the tests' environment, with the tests' keys, so that it reads the
 /// codes and the apps that a test's API issued (SEC-03, AUTH-066), exporting its telemetry to
@@ -104,6 +110,19 @@ async fn auth_104_exchanges_of_a_provider_s_code_are_counted_by_provider_and_by_
     let server = serving(&db, &collector, &options.env()).await;
     gives(&upstream, identity("subject-1", "ada@example.com", true));
 
+    // The other stand-in, which is off, a provider that the API doesn't have, a redirect URI
+    // that no client of the stand-in lists, and a verifier that the body's validation refuses
+    // (AUTH-100): none of them makes an exchange, and none counts.
+    let mut refused = Vec::new();
+    for fields in [
+        json!({ "provider": "stand_in_other" }),
+        json!({ "provider": "nobody" }),
+        json!({ "redirect_uri": "https://evil.example/callback" }),
+        json!({ "code_verifier": "too-short" }),
+    ] {
+        let body = with_fields(grant(), fields);
+        refused.push(post(&server, "/v1/sessions/provider", None, &body).await);
+    }
     let succeeded = post(&server, "/v1/sessions/provider", None, &grant()).await;
     upstream.set("POST", "/token", 400, json!({ "error": "invalid_grant" }));
     let rejected = post(&server, "/v1/sessions/provider", None, &grant()).await;
@@ -111,6 +130,7 @@ async fn auth_104_exchanges_of_a_provider_s_code_are_counted_by_provider_and_by_
     let unavailable = post(&server, "/v1/sessions/provider", None, &grant()).await;
     server.stop().await;
 
+    assert_eq!(refused, [503, 404, 400, 400]);
     assert_eq!([succeeded, rejected, unavailable], [201, 401, 503]);
     assert_eq!(
         counted(&collector, "auth.provider_exchanges"),
@@ -123,6 +143,33 @@ async fn auth_104_exchanges_of_a_provider_s_code_are_counted_by_provider_and_by_
             "auth.provider"
         ),
         ["stand_in 3"]
+    );
+}
+
+#[tokio::test]
+async fn auth_104_exchanges_at_a_link_and_a_re_authentication_are_counted_as_at_a_sign_in() {
+    let upstream = Upstream::start().await;
+    let api = Api::with(providers::stand_in(&upstream)).await;
+    // Registered just now, so that a link finds her session's proof recent (AUTH-087).
+    let ada = users::register(&api, "ada@example.com").await;
+    let collector = Collector::start().await.unwrap();
+    let options = providers::stand_in(&upstream);
+    let server = serving(api.database(), &collector, &options.env()).await;
+    gives(&upstream, identity("subject-1", "ada@example.com", true));
+    let adas = Some(ada.access.as_str());
+
+    // The link's exchange gives the identity, and the provider refuses the re-authentication's
+    // code.
+    let linked = post(&server, "/v1/users/me/identities/provider", adas, &grant()).await;
+    upstream.set("POST", "/token", 400, json!({ "error": "invalid_grant" }));
+    let reauthentication = "/v1/users/me/sessions/current/reauthenticate/provider";
+    let reauthenticated = post(&server, reauthentication, adas, &grant()).await;
+    server.stop().await;
+
+    assert_eq!([linked, reauthenticated], [200, 403]);
+    assert_eq!(
+        counted(&collector, "auth.provider_exchanges"),
+        ["rejected 1", "succeeded 1"]
     );
 }
 
@@ -189,13 +236,16 @@ async fn auth_105_confirmations_of_a_reset_are_counted_by_how_they_ended() {
     let code = password_reset::code_sent(&api, &address).await;
     let collector = Collector::start().await.unwrap();
     let server = serving(api.database(), &collector, &[]).await;
-    let confirmation = |code: &str| json!({ "email": address, "code": code, "password": "lantern-orchard-58-brisk" });
+    let confirmation =
+        |code: &str| json!({ "email": address, "code": code, "password": NEW_PASSWORD });
 
-    // Four wrong codes and the code fill the 5 confirmations of the email from one address
-    // (AUTH-039), which refuse the sixth.
+    // A code of 8 characters, which the body's validation refuses (AUTH-038), and which counts
+    // nowhere. Then four wrong codes and the code fill the 5 confirmations of the email from one
+    // address (AUTH-039), which refuse the sixth.
     let mut statuses = Vec::new();
-    for code in [WRONG_LONG_CODE; 4]
+    for code in ["0000-0000"]
         .into_iter()
+        .chain([WRONG_LONG_CODE; 4])
         .chain([code.as_str(), WRONG_LONG_CODE])
     {
         let body = confirmation(code);
@@ -203,10 +253,48 @@ async fn auth_105_confirmations_of_a_reset_are_counted_by_how_they_ended() {
     }
     server.stop().await;
 
-    assert_eq!(statuses, [401, 401, 401, 401, 204, 429]);
+    assert_eq!(statuses, [400, 401, 401, 401, 401, 204, 429]);
     assert_eq!(
         counted(&collector, "auth.password_resets"),
         ["invalid_reset_code 4", "rate_limited 1", "reset 1"]
+    );
+}
+
+#[tokio::test]
+async fn auth_105_a_reset_that_the_second_factor_s_limit_refuses_counts_as_rate_limited() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let ada = users::register(&api, &address).await;
+    let app = second_factors::add_app(&api, &ada).await;
+    let challenge = second_factors::challenge(&api, &address).await;
+    let code = second_factors::code(&api, &app.secret).await;
+    // Ten wrong completions of Ada's sign-in, through the test's API, fill her bucket of
+    // completions, in which a reset's second factor counts too (AUTH-061, AUTH-098).
+    for _ in 0..10 {
+        second_factors::complete(&api, &challenge, json!({ "code": other_code(&code) })).await;
+    }
+    assert_eq!(password_reset::ask(&api, &address).await.status, 202);
+    let reset_code = password_reset::code_sent(&api, &address).await;
+    let collector = Collector::start().await.unwrap();
+    let server = serving(api.database(), &collector, &[]).await;
+    let reset = json!({
+        "email": address,
+        "code": reset_code,
+        "password": NEW_PASSWORD,
+        "second_factor_code": code,
+    });
+
+    let limited = post(&server, "/v1/password-resets/confirm", None, &reset).await;
+    server.stop().await;
+
+    assert_eq!(limited, 429);
+    assert_eq!(
+        counted(&collector, "auth.password_resets"),
+        ["rate_limited 1"]
+    );
+    assert_eq!(
+        counted(&collector, "auth.second_factor_checks"),
+        ["rate_limited 1"]
     );
 }
 
@@ -234,6 +322,10 @@ async fn auth_105_confirmations_of_a_change_of_the_address_are_counted_by_how_th
     let path = "/v1/users/me/email/change/confirm";
     let body = |email: &str, code: &str| json!({ "email": email, "code": code });
 
+    // A code of 8 characters, which the body's validation refuses (AUTH-052), and which counts
+    // nowhere.
+    let short = body(&new[0], "0000-0000");
+    let refused = post(&server, path, Some(&ada.access), &short).await;
     let wrong = post(
         &server,
         path,
@@ -248,8 +340,8 @@ async fn auth_105_confirmations_of_a_change_of_the_address_are_counted_by_how_th
     server.stop().await;
 
     assert_eq!(
-        [wrong, changed, expired, in_use, limited],
-        [422, 200, 422, 409, 429]
+        [refused, wrong, changed, expired, in_use, limited],
+        [400, 422, 200, 422, 409, 429]
     );
     assert_eq!(
         counted(&collector, "auth.email_changes"),
@@ -301,5 +393,111 @@ async fn auth_104_checks_of_a_second_factor_are_counted_by_how_they_ended() {
     assert_eq!(
         counted(&collector, "auth.second_factor_checks"),
         ["passed 1", "rate_limited 1", "wrong_code 2"]
+    );
+}
+
+#[tokio::test]
+async fn auth_104_checks_at_a_change_of_the_password_a_re_authentication_and_a_reset_are_counted() {
+    let api = Api::new().await;
+    let address = mailbox::address("ada");
+    let ada = users::register(&api, &address).await;
+    let app = second_factors::add_app(&api, &ada).await;
+    assert_eq!(password_reset::ask(&api, &address).await.status, 202);
+    let reset_code = password_reset::code_sent(&api, &address).await;
+    let code = second_factors::code(&api, &app.secret).await;
+    let collector = Collector::start().await.unwrap();
+    let server = serving(api.database(), &collector, &[]).await;
+    let adas = Some(ada.access.as_str());
+    let change = json!({
+        "current_password": PASSWORD,
+        "password": NEW_PASSWORD,
+        "recovery_code": NO_ONES_RECOVERY_CODE,
+    });
+    let reauthentication = json!({ "password": PASSWORD, "code": code });
+    let reset = json!({
+        "email": address,
+        "code": reset_code,
+        "password": NEW_PASSWORD,
+        "recovery_code": app.recovery_codes[0],
+    });
+
+    // A change of the password with a recovery code that isn't Ada's, a re-authentication with
+    // the app's code, and, last, since it ends her sessions, a reset with one of her recovery
+    // codes.
+    let statuses = [
+        post(&server, "/v1/users/me/password/change", adas, &change).await,
+        post(
+            &server,
+            "/v1/users/me/sessions/current/reauthenticate",
+            adas,
+            &reauthentication,
+        )
+        .await,
+        post(&server, "/v1/password-resets/confirm", None, &reset).await,
+    ];
+    server.stop().await;
+
+    assert_eq!(statuses, [403, 200, 204]);
+    assert_eq!(
+        counted(&collector, "auth.second_factor_checks"),
+        ["passed 2", "wrong_code 1"]
+    );
+}
+
+#[tokio::test]
+async fn auth_104_checks_at_a_re_authentication_through_a_provider_are_counted() {
+    let (upstream, api) = providers::standing().await;
+    // Registered just now, so that a link finds her session's proof recent (AUTH-087).
+    let ada = users::register(&api, "ada@example.com").await;
+    let app = second_factors::add_app(&api, &ada).await;
+    gives(&upstream, identity("subject-1", "ada@example.com", true));
+    let linked = providers::link(&api, &ada, &grant()).await;
+    assert_eq!(linked.status, 200, "{}", linked.json());
+    let wrong = other_code(&second_factors::code(&api, &app.secret).await);
+    let collector = Collector::start().await.unwrap();
+    let options = providers::stand_in(&upstream);
+    let server = serving(api.database(), &collector, &options.env()).await;
+    let path = "/v1/users/me/sessions/current/reauthenticate/provider";
+    let body = with_fields(grant(), json!({ "second_factor_code": wrong }));
+
+    let reauthenticated = post(&server, path, Some(&ada.access), &body).await;
+    server.stop().await;
+
+    assert_eq!(reauthenticated, 403);
+    assert_eq!(
+        counted(&collector, "auth.second_factor_checks"),
+        ["wrong_code 1"]
+    );
+}
+
+#[tokio::test]
+async fn auth_104_a_second_factor_s_code_that_is_missing_unchecked_or_refused_counts_nowhere() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let app = second_factors::add_app(&api, &ada).await;
+    let code = second_factors::code(&api, &app.secret).await;
+    let collector = Collector::start().await.unwrap();
+    let server = serving(api.database(), &collector, &[]).await;
+    let path = "/v1/users/me/sessions/current/reauthenticate";
+    let adas = Some(ada.access.as_str());
+
+    // No code, which an account with an app needs, the app's code beside a wrong password, which
+    // leaves the code unchecked, and a code of 5 digits, which the body's validation refuses
+    // (AUTH-065): none of them counts. Then the app's code.
+    let mut statuses = Vec::new();
+    for body in [
+        json!({ "password": PASSWORD }),
+        json!({ "password": "wrong-password-123", "code": code }),
+        json!({ "password": PASSWORD, "code": &code[1..] }),
+        json!({ "password": PASSWORD, "code": code }),
+    ] {
+        statuses.push(post(&server, path, adas, &body).await);
+    }
+    server.stop().await;
+
+    assert_eq!(statuses, [403, 403, 400, 200]);
+    assert_eq!(
+        counted(&collector, "auth.second_factor_checks"),
+        ["passed 1"]
     );
 }

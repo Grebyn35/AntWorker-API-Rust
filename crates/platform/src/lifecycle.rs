@@ -228,7 +228,8 @@ impl Readiness {
             .store(!reachable, Ordering::Relaxed);
     }
 
-    fn status(&self) -> &'static str {
+    /// The status that the readiness probe answers.
+    pub(crate) fn status(&self) -> &'static str {
         if self.state.draining.load(Ordering::Relaxed) {
             "draining"
         } else if self.state.database_unavailable.load(Ordering::Relaxed) {

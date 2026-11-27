@@ -106,7 +106,7 @@ static PASSWORD_RESETS: Counter<1> = Counter::new(
     "auth.password_resets",
     "{confirmation}",
     "Confirmations of password resets, by how each ended: reset, invalid_reset_code or \
-     rate_limited (AUTH-037 to AUTH-039).",
+     rate_limited (AUTH-037 to AUTH-039, AUTH-061).",
     [names::AUTH_OUTCOME],
 );
 
@@ -117,7 +117,9 @@ pub(super) enum PasswordReset {
     Reset,
     /// The code reset no account's password (AUTH-038).
     InvalidResetCode,
-    /// The limit on the email's confirmations from the client's address refused it (AUTH-039).
+    /// The limit on the email's confirmations from the client's address refused it (AUTH-039),
+    /// or the user's bucket of completions of a sign-in, in which its second factor counts, did
+    /// (AUTH-061, AUTH-098).
     RateLimited,
 }
 

@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 // part: files
 use crate::support::bucket;
 // end part: files
-use crate::support::{Proxy, TestDatabase, cleanup::Backlog, client, execute_on};
+use crate::support::{Proxy, TestDatabase, cleanup::Backlog, client, closed_port, execute_on};
 
 /// Asserts that `serve` refuses to start as the role `url` connects as, for `problem`.
 async fn assert_refused(url: &DatabaseUrl, problem: &RoleProblem) {
@@ -258,21 +258,28 @@ async fn platform_002_after_bootstrap_the_roles_have_their_attributes_and_grants
 #[tokio::test]
 async fn platform_002_bootstrap_refuses_urls_that_don_t_all_name_one_database() {
     let db = TestDatabase::migrated().await;
+    // The administrator's URL reaches nothing, so a bootstrap that connected first would fail to
+    // connect instead.
+    let closed = closed_port();
     let config = db.bootstrap_config();
+    let config = platform::config::BootstrapConfig {
+        admin: config.admin.through(closed.port()),
+        ..config
+    };
     let other = format!("{}_other", db.name());
-    let mut owner_elsewhere = db.bootstrap_config();
-    owner_elsewhere.owner = config.owner.with_database(&other);
-    let mut app_elsewhere = db.bootstrap_config();
-    app_elsewhere.app = config.app.with_database(&other);
+    let owner_elsewhere = platform::config::BootstrapConfig {
+        owner: config.owner.with_database(&other),
+        ..config.clone()
+    };
+    let app_elsewhere = platform::config::BootstrapConfig {
+        app: config.app.with_database(&other),
+        ..config
+    };
 
-    let refused = db
-        .with_roles_locked(async {
-            [
-                platform::db::bootstrap(&owner_elsewhere, &Workers::new()).await,
-                platform::db::bootstrap(&app_elsewhere, &Workers::new()).await,
-            ]
-        })
-        .await;
+    let refused = [
+        platform::db::bootstrap(&owner_elsewhere, &Workers::new()).await,
+        platform::db::bootstrap(&app_elsewhere, &Workers::new()).await,
+    ];
 
     for refused in refused {
         assert!(

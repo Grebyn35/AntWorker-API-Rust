@@ -603,12 +603,7 @@ async fn accounts_016_a_membership_added_once_the_memberships_were_ended_refuses
     let (response, ()) = tokio::join!(users::delete(&api, &ada), async {
         queries_wait_on_locks(db, 1).await;
         // A request of Ada's that adds her to Bob's workspace, which commits meanwhile.
-        db.owner_executes(&format!(
-            "INSERT INTO workspace_memberships (workspace_id, user_id, role) \
-             VALUES ('{joined}', '{}', 'member')",
-            ada.user_id
-        ))
-        .await;
+        workspaces::join(db, &joined, &ada.user_id, "member").await;
         execute_on(&mut holding, "ROLLBACK").await;
     });
 

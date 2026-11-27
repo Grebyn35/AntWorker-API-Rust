@@ -1,6 +1,7 @@
 //! The telemetry of the tests, which compile with the `test-support` feature.
 
 pub mod collector;
+pub mod lines;
 pub mod spans;
 
 use std::{
@@ -29,12 +30,13 @@ use tracing_subscriber::{Layer, filter::LevelFilter, fmt::MakeWriter, layer::Sub
 use super::{Service, TelemetryError, names};
 use crate::{config::Environment, errors::Held};
 
-/// Every line the process's logger has written, and the watches of the tests that run. A lock
-/// that a panic poisoned still holds whole lines and watches, since each change of them is one
-/// call or one assignment, so it is taken as it is.
+/// Every line the process's logger has written, the watches of the tests that run, and the
+/// keepers of their lines. A lock that a panic poisoned still holds whole lines, watches and
+/// keepers, since each change of them is one call or one assignment, so it is taken as it is.
 static LOGGED: Mutex<Logged> = Mutex::new(Logged {
     lines: Vec::new(),
     watches: Vec::new(),
+    keepers: Vec::new(),
 });
 
 /// Numbers the watches.
@@ -48,6 +50,7 @@ struct Logged {
     /// Each write of the logger, which is one line, with the thread it was written on.
     lines: Vec<(ThreadId, String)>,
     watches: Vec<Watched>,
+    keepers: Vec<lines::Keeper>,
 }
 
 /// The test that a [`Watch`] watches.
@@ -230,7 +233,7 @@ impl Drop for Watch {
 /// does, and marks the watch as printing each line its test logs from now on.
 fn print_logged(watch: u64, after: Duration) -> io::Result<()> {
     let mut logged = LOGGED.lock().held();
-    let Logged { lines, watches } = &mut *logged;
+    let Logged { lines, watches, .. } = &mut *logged;
     let Some(index) = watches.iter().position(|watched| watched.watch == watch) else {
         return Ok(());
     };
@@ -349,7 +352,8 @@ fn points<T: Copy>(data: &MetricData<T>, value: impl Fn(T) -> f64) -> Vec<Point>
     }
 }
 
-/// Writes into [`LOGGED`], and prints each line that a watch prints.
+/// Writes into [`LOGGED`], gives each line to the [`lines::LinesWithReadiness`] of its thread,
+/// and prints each line that a watch prints.
 #[derive(Clone, Copy)]
 struct Memory;
 
@@ -358,6 +362,7 @@ impl io::Write for Memory {
         let thread = thread::current().id();
         let line = String::from_utf8_lossy(bytes).into_owned();
         let mut logged = LOGGED.lock().held();
+        lines::keep(&logged.keepers, thread, &line);
         // A line that can't be printed is still kept, and the logger reports the error.
         let printed = logged
             .watches

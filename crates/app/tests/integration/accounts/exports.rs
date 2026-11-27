@@ -1119,8 +1119,10 @@ async fn accounts_026_a_document_that_lacks_a_chunk_cuts_the_download_short() {
         ))
         .await;
 
-    // Sent to the router itself, since the support's requests read a body to its end.
-    let mut request = http::Request::get(format!("/v1/users/me/exports/{id}/content"))
+    // Sent to the router itself, since the support's requests read a body to its end; its status
+    // and headers are checked against the document as theirs are.
+    let content = format!("/v1/users/me/exports/{id}/content");
+    let mut request = http::Request::get(&content)
         .header("authorization", format!("Bearer {}", ada.access))
         .body(Body::empty())
         .unwrap();
@@ -1131,6 +1133,13 @@ async fn accounts_026_a_document_that_lacks_a_chunk_cuts_the_download_short() {
     ));
     let response = api.router().oneshot(request).await.unwrap();
     let status = response.status();
+    api.check(
+        &http::Method::GET,
+        &content,
+        status,
+        response.headers(),
+        &[],
+    );
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await;
 
     assert_eq!(status, 200);

@@ -1042,14 +1042,14 @@ async fn auth_067_a_run_that_meets_a_row_that_a_request_holds_ends_there_and_the
 async fn auth_067_a_run_deletes_more_expired_setups_than_a_batch_holds() {
     let api = Api::new().await;
     // 1,001 accounts, each with a setup that expired, one more than the job's batch of 1,000.
+    let users = users::many_with_a_session(api.database()).await;
     api.database()
-        .owner_executes(
-            "WITH added AS (INSERT INTO users (email, name) \
-             SELECT 'user' || n || '@example.com', 'User ' || n FROM generate_series(1, 1001) AS n \
-             RETURNING id) \
-             INSERT INTO totp_setups (user_id, key_version, secret, expires_at) \
-             SELECT id, 1, '\\x00', now() - interval '1 second' FROM added",
-        )
+        .owner_executes(&format!(
+            "INSERT INTO totp_setups (user_id, key_version, secret, expires_at) \
+             SELECT id, 1, '\\x00', now() - interval '1 second' \
+             FROM unnest('{{{}}}'::uuid[]) AS id",
+            users.join(",")
+        ))
         .await;
 
     api.run_periodic("auth.expire_unfinished").await;

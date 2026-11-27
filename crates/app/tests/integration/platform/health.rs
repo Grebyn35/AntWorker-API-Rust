@@ -7,10 +7,13 @@ use std::{
 };
 
 use http::StatusCode;
-use platform::telemetry::testing;
+use platform::telemetry::testing::lines::LinesWithReadiness;
 use serde_json::{Value, json};
 
-use crate::support::{Api, CHECK_INTERVAL, TestDatabase, closed_port, http_request, run_binary};
+use crate::support::{
+    Api, CHECK_INTERVAL, CHECK_TIMEOUT, Options, Proxy, TestDatabase, closed_port, http_request,
+    run_binary,
+};
 
 #[tokio::test]
 async fn platform_038_the_live_probe_answers_alive() {
@@ -43,6 +46,24 @@ async fn platform_061_a_draining_instance_is_not_ready() {
     assert_eq!(response.json(), json!({"status": "draining"}));
 }
 
+/// The lines about the database that `lines` kept, each with its level and the status that the
+/// readiness probe answered as it was written.
+fn database_lines(lines: &LinesWithReadiness) -> Vec<String> {
+    lines
+        .written()
+        .into_iter()
+        .filter(|line| line.message.starts_with("the database "))
+        .map(|line| format!("{} {}, {}", line.level, line.message, line.readiness))
+        .collect()
+}
+
+/// What the hub writes when the listener stops answering, then answers again, each line after
+/// readiness has changed.
+const STOPPED_THEN_ANSWERS: [&str; 2] = [
+    "WARN the database stopped answering, database_unavailable",
+    "INFO the database answers again, ready",
+];
+
 #[tokio::test]
 async fn platform_061_readiness_follows_the_instance_s_own_database_connection() {
     let api = Api::new().await;
@@ -50,12 +71,19 @@ async fn platform_061_readiness_follows_the_instance_s_own_database_connection()
     let clock = api.clock();
     clock.sleeping(CHECK_INTERVAL).await;
     let ready = api.get("/health/ready").send().await;
+    // The hub runs on the test's own thread, so its lines are written there (TEST-06).
+    let lines = LinesWithReadiness::of(api.readiness());
 
-    // Nothing can connect as app any more, and its open connections end.
+    // Nothing can connect as app any more, and its open connections end: the hub hears its own
+    // break, while no check is due.
     database.cut_off_app().await;
-    clock.advance(CHECK_INTERVAL);
-    clock.sleeping(CHECK_INTERVAL).await;
-    let unavailable = api.get("/health/ready").send().await;
+    let unavailable = loop {
+        let response = api.get("/health/ready").send().await;
+        if response.status != StatusCode::OK {
+            break response;
+        }
+        tokio::task::yield_now().await;
+    };
 
     database.let_app_in().await;
     clock.advance(CHECK_INTERVAL);
@@ -70,29 +98,42 @@ async fn platform_061_readiness_follows_the_instance_s_own_database_connection()
         json!({"status": "database_unavailable"})
     );
     assert_eq!(recovered.status, StatusCode::OK);
-    // The hub runs on the test's own thread, so its lines are the test's (TEST-06).
-    let changes: Vec<String> = testing::logged_on_this_thread()
-        .into_iter()
-        .filter(|line| {
-            line["message"]
-                .as_str()
-                .is_some_and(|message| message.starts_with("the database "))
-        })
-        .map(|line| {
-            format!(
-                "{} {}",
-                line["level"].as_str().unwrap_or("-"),
-                line["message"].as_str().unwrap_or("-")
-            )
-        })
-        .collect();
+    assert_eq!(database_lines(&lines), STOPPED_THEN_ANSWERS);
+}
+
+#[tokio::test]
+async fn platform_061_a_check_that_fails_while_the_connection_holds_changes_readiness_then_logs() {
+    let database = TestDatabase::migrated().await;
+    let proxy = Proxy::to(database.app_url().address()).await;
+    let api = Api::through(database, &proxy, Options::default()).await;
+    let clock = api.clock();
+    clock.sleeping(CHECK_INTERVAL).await;
+    // The hub runs on the test's own thread, so its lines are written there (TEST-06).
+    let lines = LinesWithReadiness::of(api.readiness());
+
+    // The database stops answering on the connections the instance holds, which stay open: the
+    // check waits out its timeout on the listener, and the connection that would replace it
+    // waits for the one it dropped, which still waits for the database.
+    proxy.freeze();
+    clock.advance(CHECK_INTERVAL);
+    clock.sleeping(CHECK_TIMEOUT).await;
+    clock.advance(CHECK_TIMEOUT);
+    clock.sleeping(CHECK_INTERVAL).await;
+    let unavailable = api.get("/health/ready").send().await;
+
+    proxy.thaw();
+    clock.advance(CHECK_INTERVAL);
+    clock.sleeping(CHECK_INTERVAL).await;
+    let recovered = api.get("/health/ready").send().await;
+
+    assert_eq!(unavailable.status, StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(
-        changes,
-        [
-            "WARN the database stopped answering",
-            "INFO the database answers again"
-        ]
+        unavailable.json(),
+        json!({"status": "database_unavailable"})
     );
+    assert_eq!(recovered.status, StatusCode::OK);
+    assert_eq!(recovered.json(), json!({"status": "ready"}));
+    assert_eq!(database_lines(&lines), STOPPED_THEN_ANSWERS);
 }
 
 #[tokio::test]

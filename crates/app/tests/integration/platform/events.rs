@@ -13,7 +13,7 @@ use serde_json::json;
 
 use super::spans::POSITION_LOCK;
 use crate::support::{
-    Api, CHECK_INTERVAL, Options, Proxy, TestDatabase,
+    Api, CHECK_INTERVAL, CHECK_TIMEOUT, Options, Proxy, TestDatabase,
     announcements::{self, Note, published::NOTED},
     client,
     events::{self, Event},
@@ -610,9 +610,6 @@ async fn platform_033_a_re_check_that_fails_is_tried_again_at_the_next_check() {
 
     assert_eq!(reason, "access_changed");
 }
-
-/// How long the listener's check waits for the database.
-const CHECK_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// The instance's connections to its database, as `pg_stat_activity` lists them.
 async fn connections(api: &Api) -> usize {
