@@ -14,7 +14,7 @@ The reference deployment gives no credential a value of its own choosing: its op
 
 The `Debug` of the configured client's `Request` prints its method and its URL's host alone, and that of its `Response` its status and its body's length alone, since either's body may hold a secret.
 - Why: the standard delivery paths for containers, and no accidental disclosure (D26).
-- Check: `compiler` (`Secret` has no way to print its value), plus `test` (the `Debug` of each type that a test named by this rule reads prints none of its secret, and the configured client's `Request` and `Response` print what this rule says), plus `review`.
+- Check: `compiler` (`Secret` has no way to print its value), plus `test` (the `Debug` of `Secret`, of `HmacKey`, of a keyring and a sealed value, of a database URL, and of a verification code, a reset code and an authenticator app's secret and code prints none of its secret, the error of a secret setting that is invalid names the setting and not its value, and the configured client's `Request` and `Response` print what this rule says), plus `review`.
 
 ### SEC-02 Secrets at rest are encrypted with associated data
 Secrets stored in the database that the API must read back, such as an authenticator app's secret, are encrypted with AES-256-GCM. The key is versioned: `ENCRYPTION_KEYS` holds each version, `ENCRYPTION_KEY_VERSION` names the one that encrypts, and each ciphertext records its own (PLATFORM-086). The associated data binds each ciphertext to its table, its column, and the ID of the row that owns the secret, which exists before the secret is written. No other column is encrypted at the application level.

@@ -136,6 +136,24 @@ async fn platform_061_a_check_that_fails_while_the_connection_holds_changes_read
     assert_eq!(database_lines(&lines), STOPPED_THEN_ANSWERS);
 }
 
+/// The lines that the tests above read: those of their own thread, and none of another test's.
+#[tokio::test]
+async fn test_06_the_lines_kept_with_readiness_hold_no_line_of_another_test() {
+    let api = Api::new().await;
+    let lines = LinesWithReadiness::of(api.readiness());
+
+    // As another test's hub, which runs on that test's thread, writes it, then as this test's.
+    std::thread::spawn(|| tracing::warn!("the database stopped answering"))
+        .join()
+        .unwrap();
+    tracing::info!("the database answers again");
+
+    assert_eq!(
+        database_lines(&lines),
+        ["INFO the database answers again, ready"]
+    );
+}
+
 #[tokio::test]
 async fn platform_061_a_pool_with_every_connection_in_use_stays_ready() {
     let api = Api::new().await;

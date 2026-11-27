@@ -418,6 +418,22 @@ pub(crate) fn client(ca_path: Option<&std::path::Path>) -> Result<reqwest::Clien
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::clock::TestClock;
+
+    /// A client of the bucket `files` at `endpoint`, on a test clock, for the tests of this
+    /// module's files (TEST-09).
+    pub(super) fn storage_at(endpoint: &str) -> Storage {
+        let config = StorageConfig {
+            endpoint: endpoint.parse().unwrap(),
+            region: "us-east-1".to_owned(),
+            bucket: "files".to_owned(),
+            access_key_id: "an-id".to_owned(),
+            secret_access_key: Secret::new("a-secret".to_owned()),
+            path_style: true,
+            ca_path: None,
+        };
+        Storage::new(&config, Arc::new(TestClock::default())).unwrap()
+    }
 
     #[test]
     fn platform_094_a_write_s_url_signs_its_media_type_and_lasts_a_minute() {

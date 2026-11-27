@@ -50,7 +50,7 @@ The errors of the libraries that reach other systems, such as the database drive
 ### ERR-05 Constraint violations are mapped explicitly
 A repository maps each unique, foreign-key or check constraint it relies on to a named domain outcome. A violation it doesn't map becomes `Internal`. Each mapped constraint has a test. A statement whose `ON CONFLICT` says what a conflict does raises no violation to map. One kind of violation the pipeline answers for every route, in the internal error's place: a foreign key's refusal of a row in a request whose caller's session lasts no more, as once a deletion took their account and the row that the request's insert names, answers 401 (PLATFORM-097).
 - Why: a duplicate is a 409 the client can act on, not a 500 (D24).
-- Check: `test` (PLATFORM-097, whose tests also show a foreign key's refusal that nothing maps staying `Internal`, and each mapped constraint has a test, such as ACCOUNTS-004's and AUDIT-004's), plus `review` (which constraints a repository relies on).
+- Check: `test` (PLATFORM-097, whose tests also show a foreign key's refusal that nothing maps staying `Internal`, a check constraint's refusal that no repository maps staying `Internal`, and each mapped constraint has a test, such as ACCOUNTS-004's and AUDIT-004's), plus `review` (which constraints a repository relies on).
 
 ### ERR-06 Errors cross module boundaries by conversion
 When a service calls another module, it converts that module's error into its own, either with a `From` implementation in its `error.rs` or at the call site. No module returns another module's error type.

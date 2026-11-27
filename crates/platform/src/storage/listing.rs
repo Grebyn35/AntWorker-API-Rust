@@ -121,12 +121,10 @@ pub(super) fn unread(call: Call, what: &str) -> StorageError {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
     use super::*;
-    use crate::{clock::TestClock, storage::StorageConfig, types::Secret};
+    use crate::storage::tests::storage_at;
 
     /// What the client reads of a page of the listing `call` that a bucket on the loopback
     /// address answers with `page`, after the request's head.
@@ -136,27 +134,23 @@ mod tests {
         tokio::spawn(async move {
             let (stream, _) = listener.accept().await.unwrap();
             let mut stream = BufReader::new(stream);
-            let mut line = String::new();
-            while stream.read_line(&mut line).await.unwrap_or(0) > 2 {
-                line.clear();
+            let answered: std::io::Result<()> = async {
+                let mut line = String::new();
+                while stream.read_line(&mut line).await? > 2 {
+                    line.clear();
+                }
+                let head = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", page.len());
+                let stream = stream.get_mut();
+                stream.write_all(head.as_bytes()).await?;
+                stream.write_all(&page).await
             }
-            let head = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", page.len());
-            let stream = stream.get_mut();
-            // A client that stops reading closes the connection, which ends the writes.
-            if stream.write_all(head.as_bytes()).await.is_ok() {
-                stream.write_all(&page).await.unwrap_or_default();
+            .await;
+            // A client that stops reading closes the connection, which fails the writes left.
+            if let Err(gone) = answered {
+                crate::errors::ignore(&gone, "test_client_gone");
             }
         });
-        let config = StorageConfig {
-            endpoint: endpoint.parse().unwrap(),
-            region: "us-east-1".to_owned(),
-            bucket: "files".to_owned(),
-            access_key_id: "an-id".to_owned(),
-            secret_access_key: Secret::new("a-secret".to_owned()),
-            path_style: true,
-            ca_path: None,
-        };
-        let storage = Storage::new(&config, Arc::new(TestClock::default())).unwrap();
+        let storage = storage_at(&endpoint);
         fetched(&storage, endpoint.parse().unwrap(), call).await
     }
 

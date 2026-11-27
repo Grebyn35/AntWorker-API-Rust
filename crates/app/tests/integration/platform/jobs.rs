@@ -1676,19 +1676,28 @@ async fn platform_020_a_runs_span_links_to_the_trace_that_enqueued_it() {
     assert_eq!(mailbox::to(&to).await.len(), 1);
 }
 
-/// The value of the gauge `platform.job_delay` in the last export of `received` that holds it.
-fn job_delay(received: &Received) -> Option<i64> {
-    let (_, delay) = received
-        .metrics()
-        .into_iter()
-        .find(|(_, metric)| metric.name == "platform.job_delay")?;
-    let Some(metric::Data::Gauge(gauge)) = &delay.data else {
-        return None;
-    };
-    match gauge.data_points.last()?.value {
-        Some(number_data_point::Value::AsInt(seconds)) => Some(seconds),
-        _ => None,
-    }
+/// The value of the gauge `platform.job_delay` in each export of `received` that holds it, in
+/// the order of the exports.
+fn job_delays(received: &Received) -> Vec<i64> {
+    received
+        .metrics
+        .iter()
+        .filter_map(|export| {
+            let delay = export
+                .resource_metrics
+                .iter()
+                .flat_map(|resource| &resource.scope_metrics)
+                .flat_map(|scope| &scope.metrics)
+                .find(|metric| metric.name == "platform.job_delay")?;
+            let Some(metric::Data::Gauge(gauge)) = &delay.data else {
+                return None;
+            };
+            match gauge.data_points.last()?.value {
+                Some(number_data_point::Value::AsInt(seconds)) => Some(seconds),
+                _ => None,
+            }
+        })
+        .collect()
 }
 
 #[tokio::test]
@@ -1696,12 +1705,14 @@ async fn platform_112_serve_records_how_long_the_job_that_waited_longest_has_wai
     let collector = Collector::start().await.unwrap();
     let database = TestDatabase::migrated().await;
     // Of a kind that no registry holds, which no dispatcher claims: of the jobs that wait to run,
-    // the first waited longest, while a dead letter and a job whose claim's lease holds it
-    // waited longer.
+    // the one whose claim's lease ran out waited longest, then one that no claim holds, while a
+    // dead letter and a job whose claim's lease holds it waited longer.
     database
         .owner_executes(
             "INSERT INTO jobs (kind, payload, run_at, state, dead_at, claim_id, lease_expires_at) \
              VALUES \
+             ('tests.unknown', '{}', now() - interval '90 minutes', 'waiting', NULL, \
+              gen_random_uuid(), now() - interval '1 minute'), \
              ('tests.unknown', '{}', now() - interval '1 hour', 'waiting', NULL, NULL, NULL), \
              ('tests.unknown', '{}', now() - interval '10 minutes', 'waiting', NULL, NULL, NULL), \
              ('tests.unknown', '{}', now() - interval '2 hours', 'dead', now(), NULL, NULL), \
@@ -1711,26 +1722,33 @@ async fn platform_112_serve_records_how_long_the_job_that_waited_longest_has_wai
         .await;
 
     let server = database.exporting_to(&collector, &[]).await;
-    // The scheduler runs the sweeps at its first tick, after the jobs started, and an export holds
-    // their count.
-    collector
-        .wait_for(|received| received.count("platform.job_runs", None) > 0)
+    // The metrics go out every 15 seconds, as the records do, so the third export that holds the
+    // gauge holds a later record than the first, and the second may.
+    let grown = |delays: &[i64]| {
+        delays.len() >= 3 || matches!(delays, [first, .., last] if *last >= first + 15)
+    };
+    let received = collector
+        .wait_for(|received| grown(&job_delays(received)))
         .await;
     server.stop().await;
     let since = database
         .owner_reads(
             "SELECT floor(extract(epoch FROM now() - run_at))::bigint::text FROM jobs \
-             WHERE kind = 'tests.unknown' AND state = 'waiting' AND claim_id IS NULL \
-             ORDER BY run_at LIMIT 1",
+             WHERE kind = 'tests.unknown' AND state = 'waiting' AND lease_expires_at <= now()",
         )
         .await
         .remove(0);
 
-    let recorded = job_delay(&collector.received());
+    let delays = job_delays(&received);
     let since: i64 = since.parse().unwrap();
+    let (first, last) = (delays[0], delays[delays.len() - 1]);
     assert!(
-        recorded.is_some_and(|seconds| (3_600..=since).contains(&seconds)),
-        "{recorded:?} of at most {since}"
+        (5_400..=since).contains(&first),
+        "{delays:?} of at most {since}"
+    );
+    assert!(
+        (first + 15..=since).contains(&last),
+        "{delays:?} of at most {since}"
     );
 }
 

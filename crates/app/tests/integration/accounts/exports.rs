@@ -12,7 +12,8 @@ use crate::support::{
     api::Response,
     api::one,
     audit::{self, Client},
-    execute_on, lists, mailbox, providers, query_waits_on_a_lock, streams,
+    email_change, execute_on, lists, mailbox, password_reset, providers, query_waits_on_a_lock,
+    streams,
     users::{self, SignedIn},
     workspaces,
 };
@@ -788,22 +789,36 @@ fn holds(archive: &[u8], text: &str) -> bool {
         .any(|(_, bytes)| String::from_utf8_lossy(bytes).contains(text))
 }
 
+/// A code of `ada`'s of each purpose, so the export's document of codes has a record of each to
+/// show: a reset code and a change code, which the jobs of her requests issue, and a code that
+/// proves an address, written here, since the job of one issues none to an account that proved
+/// its address, as hers has (AUTH-030).
+async fn codes_of_each_purpose(api: &Api, ada: &SignedIn) {
+    let reset = password_reset::ask(api, "ada@example.com").await;
+    assert_eq!(reset.status, 202);
+    let change = email_change::ask(api, ada, "ada.new@example.com").await;
+    assert_eq!(change.status, 202);
+    api.run_jobs().await;
+    api.database()
+        .owner_executes(&format!(
+            "INSERT INTO verification_codes (user_id, purpose, code_hash, expires_at) \
+             VALUES ('{}', 'email_verification', '\\x0123abcd', now() + interval '10 minutes')",
+            ada.user_id
+        ))
+        .await;
+}
+
 #[tokio::test]
 async fn accounts_024_the_archive_holds_the_user_s_data_and_only_the_content_of_their_own_workspaces()
  {
     let api = Api::new().await;
     let (ada, grace, own, shared) = arranged(&api).await;
-    // A code of Ada's of each purpose, which the job of a code that proves an address issues no
-    // account that proved its address, as hers has (AUTH-030), so the export's document of codes
-    // has a record of each to show, and a name for her session's device, which is personal data
-    // the export holds (AUTH-042).
+    codes_of_each_purpose(&api, &ada).await;
+    // A name for her session's device, which is personal data the export holds (AUTH-042).
     api.database()
         .owner_executes(&format!(
-            "INSERT INTO verification_codes (user_id, purpose, code_hash, expires_at) \
-             SELECT '{}', purpose, '\\x0123abcd', now() + interval '10 minutes' \
-             FROM unnest(enum_range(NULL::verification_purpose)) AS purpose; \
-             UPDATE sessions SET device_name = 'Ada''s laptop' WHERE user_id = '{}'",
-            ada.user_id, ada.user_id
+            "UPDATE sessions SET device_name = 'Ada''s laptop' WHERE user_id = '{}'",
+            ada.user_id
         ))
         .await;
     let id = built(&api, &ada).await;
