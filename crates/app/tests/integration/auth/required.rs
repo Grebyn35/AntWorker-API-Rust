@@ -53,6 +53,10 @@ async fn auth_070_an_account_without_an_app_is_refused_but_where_setting_one_up_
             "request.second_factor_setup_required",
             "{path}"
         );
+        assert_eq!(
+            refused.json()["detail"],
+            "A second factor is required: set up an authenticator app first."
+        );
     }
     let renamed = workspaces::rename(&api, &ada, &acme, "Side", &[]).await;
     assert_eq!(renamed.status, 403);

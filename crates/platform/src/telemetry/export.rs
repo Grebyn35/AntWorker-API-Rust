@@ -420,7 +420,71 @@ fn points<T>(data: &MetricData<T>) -> usize {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use opentelemetry::metrics::{Gauge, Histogram, MeterProvider};
+
     use super::*;
+
+    // part: client_telemetry
+    #[test]
+    fn platform_091_the_relay_reads_certificates_for_an_https_endpoint_alone() {
+        let verified = |endpoint: &str| endpoint.parse::<OtlpEndpoint>().unwrap().is_https();
+
+        assert!(verified("https://collector.example:4318"));
+        assert!(verified("HTTPS://collector.example"));
+        assert!(!verified("http://collector:4318"));
+    }
+    // end part: client_telemetry
+
+    /// An exporter of metrics that keeps, for each export, the data points that [`data_points`]
+    /// counts in it.
+    #[derive(Clone, Default)]
+    struct Counting(Arc<Mutex<Vec<usize>>>);
+
+    impl PushMetricExporter for Counting {
+        async fn export(&self, metrics: &ResourceMetrics) -> OTelSdkResult {
+            self.0.lock().unwrap().push(data_points(metrics));
+            Ok(())
+        }
+
+        fn force_flush(&self) -> OTelSdkResult {
+            Ok(())
+        }
+
+        fn shutdown_with_timeout(&self, _: Duration) -> OTelSdkResult {
+            Ok(())
+        }
+
+        fn temporality(&self) -> Temporality {
+            Temporality::Cumulative
+        }
+    }
+
+    #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test records into a meter provider of its own, which no declaration reaches"
+    )]
+    fn obs_10_an_export_of_metrics_counts_each_of_its_data_points() {
+        let exported = Counting::default();
+        let provider = SdkMeterProvider::builder()
+            .with_reader(PeriodicReader::builder(exported.clone()).build())
+            .build();
+        let meter = provider.meter("test");
+        let counter = meter.u64_counter("test.counted").build();
+        for error_type in ["first", "second"] {
+            counter.add(1, &[KeyValue::new(names::ERROR_TYPE, error_type)]);
+        }
+        // In the form of a path, which check-instrument doesn't read as a span's `record`.
+        Gauge::record(&meter.u64_gauge("test.gauged").build(), 1, &[]);
+        Histogram::record(&meter.f64_histogram("test.measured").build(), 1.0, &[]);
+
+        provider.force_flush().unwrap();
+
+        // The counter's two data points, the gauge's one, and the histogram's one.
+        assert_eq!(*exported.0.lock().unwrap(), [4]);
+    }
 
     #[test]
     fn platform_066_each_signal_has_its_path_under_the_endpoint() {

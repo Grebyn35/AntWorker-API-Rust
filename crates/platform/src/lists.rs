@@ -3,8 +3,6 @@
 //! items (API-05), which a route reads from the parameters of its `http::Query<T>` and hands its
 //! service.
 
-use std::borrow::Cow;
-
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -274,12 +272,6 @@ impl PartialSchema for Limit {
     }
 }
 
-impl ToSchema for Limit {
-    fn name() -> Cow<'static, str> {
-        Cow::Borrowed("Limit")
-    }
-}
-
 impl PartialSchema for Search {
     fn schema() -> RefOr<Schema> {
         ObjectBuilder::new()
@@ -287,12 +279,6 @@ impl PartialSchema for Search {
             .min_length(Some(1))
             .max_length(Some(SEARCH_MAX_CHARS))
             .into()
-    }
-}
-
-impl ToSchema for Search {
-    fn name() -> Cow<'static, str> {
-        Cow::Borrowed("Search")
     }
 }
 
@@ -351,12 +337,6 @@ impl PartialSchema for Moment {
     }
 }
 
-impl ToSchema for Moment {
-    fn name() -> Cow<'static, str> {
-        Cow::Borrowed("Moment")
-    }
-}
-
 /// The characters of a cursor: its bytes in base64url, without padding.
 const CURSOR_CHARS: usize = (4 * CURSOR_LEN).div_ceil(3);
 
@@ -369,12 +349,6 @@ impl PartialSchema for Cursor {
             .max_length(Some(CURSOR_CHARS))
             .pattern(Some("^[A-Za-z0-9_-]+$"))
             .into()
-    }
-}
-
-impl ToSchema for Cursor {
-    fn name() -> Cow<'static, str> {
-        Cow::Borrowed("Cursor")
     }
 }
 

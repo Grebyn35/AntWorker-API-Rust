@@ -15,7 +15,7 @@ use std::{
 use http::StatusCode;
 use opentelemetry_proto::tonic::{
     common::v1::any_value,
-    metrics::v1::metric,
+    metrics::v1::{metric, number_data_point},
     resource::v1::Resource,
     trace::v1::{Span, span::SpanKind},
 };
@@ -527,6 +527,41 @@ async fn platform_070_the_resident_memory_is_recorded_at_once_and_every_15_secon
     assert_eq!(first, Some(1_000_000.0));
     assert_eq!(second, Some(2_000_000.0));
     assert_eq!(readings.load(Ordering::SeqCst), 2);
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn platform_070_serve_s_first_export_of_metrics_holds_its_resident_memory() {
+    let collector = Collector::start().await.unwrap();
+    let database = TestDatabase::migrated().await;
+    let _server = database.exporting_to(&collector, &[]).await;
+
+    // The SDK exports the metrics 15 seconds after the process starts.
+    let received = collector
+        .wait_for(|received| !received.metrics.is_empty())
+        .await;
+
+    let memory: Vec<i64> = received.metrics[0]
+        .resource_metrics
+        .iter()
+        .flat_map(|resource| &resource.scope_metrics)
+        .flat_map(|scope| &scope.metrics)
+        .filter(|metric| metric.name == "process.memory.usage")
+        .filter_map(|metric| match &metric.data {
+            Some(metric::Data::Gauge(gauge)) => Some(&gauge.data_points),
+            _ => None,
+        })
+        .flatten()
+        .filter_map(|point| match point.value {
+            Some(number_data_point::Value::AsInt(bytes)) => Some(bytes),
+            _ => None,
+        })
+        .collect();
+    // The resident set of a process that serves is more than a mebibyte.
+    assert!(
+        matches!(memory[..], [bytes] if bytes > 1 << 20),
+        "{memory:?}"
+    );
 }
 
 #[tokio::test]

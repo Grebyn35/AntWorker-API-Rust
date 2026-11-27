@@ -259,6 +259,10 @@ async fn platform_080_a_signed_url_past_its_time_answers_401_signed_url_expired(
 
     assert_eq!(response.status, 401);
     assert_eq!(response.json()["code"], "request.signed_url_expired");
+    assert_eq!(
+        response.json()["detail"],
+        "The URL's time has passed: read the file again for a fresh one."
+    );
 }
 
 #[tokio::test]

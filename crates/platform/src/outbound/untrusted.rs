@@ -235,11 +235,14 @@ impl Resolve for PublicAddresses {
     }
 }
 
-/// Whether `address` is a public one: none of the private, loopback, link-local, shared,
-/// documentation, benchmarking, multicast and reserved ranges of the Internet Assigned Numbers
-/// Authority's special-purpose registries. An IPv4-mapped address, or one of the prefix of
-/// translated addresses, `64:ff9b::/96`, is as public as the IPv4 address it carries, and a 6to4
-/// or Teredo address is not public, whatever it carries.
+/// Whether `address` is a public one. An IPv4 address is public in none of the ranges of the
+/// Internet Assigned Numbers Authority's special-purpose registry that are private, loopback,
+/// link-local, shared, documentation, benchmarking, multicast, reserved, the protocol assignments
+/// or "this network". An IPv6 address is public when it is a global unicast address, of
+/// `2000::/3`, outside its documentation prefixes, the protocol assignments of `2001::/23`, which
+/// hold Teredo's tunnels, and 6to4's `2002::/16`, whatever they carry. An IPv4-mapped address, or
+/// one of the prefix of translated addresses, `64:ff9b::/96`, is as public as the IPv4 address it
+/// carries.
 fn public(address: IpAddr) -> bool {
     match address {
         IpAddr::V4(address) => public_v4(address),
@@ -332,11 +335,13 @@ mod tests {
             "ff02::1",
             "2001:db8::1",
             "2001::1",
+            "2001:1ff:ffff::1",
             "2002:a00:1::1",
             // 6to4's and Teredo's, each carrying 8.8.8.8.
             "2002:808:808::1",
             "2001:0:808:808::f7f7:f7f7",
             "3fff::1",
+            "3fff:fff::1",
         ] {
             assert!(!public(address.parse().unwrap()), "{address}");
         }
@@ -345,9 +350,16 @@ mod tests {
             "8.8.8.8",
             "100.63.255.255",
             "172.32.0.1",
+            "192.0.1.1",
             "198.17.255.255",
             "::ffff:8.8.8.8",
             "64:ff9b::808:808",
+            // Past the ends of 2001::/23, 2001:db8::/32 and 3fff::/20, and one whose second
+            // segment is below 0x1000, as 3fff::/20's are.
+            "2001:200::1",
+            "2001:db9::1",
+            "3fff:1000::1",
+            "2620:fe::fe",
             "2606:4700:4700::1111",
             "2a00:1450:4001::1",
         ] {

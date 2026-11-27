@@ -467,6 +467,7 @@ async fn auth_006_each_email_allows_its_attempts_from_each_address_then_answers_
     assert_eq!(second.status, 401);
     assert_eq!(third.status, 429, "the same /64");
     assert_eq!(third.json()["code"], "request.rate_limited");
+    assert_eq!(third.json()["title"], "Too many requests");
     assert!(
         third
             .header("ratelimit-policy")

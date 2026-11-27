@@ -156,6 +156,22 @@ mod tests {
     }
 
     #[test]
+    fn platform_080_the_time_of_the_unix_epoch_is_written_0_and_read_back() {
+        let epoch = time::OffsetDateTime::UNIX_EPOCH;
+
+        let signed = signer(1).sign("/v1/a/content", session(), Timestamp::from_database(epoch));
+
+        assert!(
+            signed.url.starts_with("/v1/a/content?expires=0&"),
+            "{}",
+            signed.url
+        );
+        let signature = signature_of(&signed.url);
+        assert_eq!(signature.expires_at(), Some(epoch));
+        assert!(signer(1).matches("/v1/a/content", &signature));
+    }
+
+    #[test]
     fn platform_080_a_time_written_with_a_sign_or_a_leading_zero_is_malformed() {
         let signed = signer(1).sign("/v1/a/content", session(), until());
         assert!(signer(1).matches("/v1/a/content", &signature_of(&signed.url)));

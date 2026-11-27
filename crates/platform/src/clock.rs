@@ -207,5 +207,22 @@ mod testing {
             let clock = TestClock::default();
             clock.sleep(Duration::ZERO).await;
         }
+
+        #[test]
+        fn test_06_a_sleep_that_was_dropped_waits_no_more() {
+            let clock = TestClock::default();
+            let duration = Duration::from_secs(5);
+            let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+            drop(clock.sleep(duration));
+
+            let mut sleeping = std::pin::pin!(clock.sleeping(duration));
+            let before = sleeping.as_mut().poll(&mut context).is_ready();
+            let _waiting = clock.sleep(duration);
+            // A wait that completed is polled no more.
+            let after = (!before).then(|| sleeping.as_mut().poll(&mut context).is_ready());
+
+            assert!(!before, "a sleep that was dropped still waits");
+            assert_eq!(after, Some(true), "a sleep that waits isn't seen");
+        }
     }
 }

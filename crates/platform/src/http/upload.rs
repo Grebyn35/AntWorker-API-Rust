@@ -397,6 +397,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn obs_04_the_bytes_that_an_upload_read_print_how_many_they_are() {
+        let mut upload = upload("the file's bytes", &turns());
+
+        let read = format!("{:?}", upload.held(user(1), 64).await.unwrap());
+
+        assert!(read.contains("length: 16"), "{read}");
+    }
+
+    #[tokio::test]
+    async fn platform_074_an_upload_whose_body_stops_before_its_end_answers_400() {
+        use crate::errors::ErrorCode;
+
+        // A byte, then the failure of a body whose sender closed the connection.
+        let stopping = futures_util::stream::iter([
+            Ok(Bytes::from_static(b"x")),
+            Err(std::io::Error::other("the connection closed")),
+        ]);
+        let mut upload = upload("", &turns());
+        upload.body = Body::from_stream(stopping);
+
+        let refused = upload.held(user(1), 64).await.unwrap_err();
+
+        assert_eq!(refused.code(), "request.invalid_body");
+        assert_eq!(
+            refused.detail().as_deref(),
+            Some("The body stopped before its end.")
+        );
+    }
+
+    #[tokio::test]
     async fn platform_074_a_replica_reads_four_uploads_at_once_and_a_fifth_waits_for_a_turn() {
         let turns = turns();
         let mut read = Vec::new();

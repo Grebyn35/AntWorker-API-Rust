@@ -106,6 +106,58 @@ async fn platform_004_concurrent_runs_apply_a_migration_outside_a_transaction_on
 }
 
 #[tokio::test]
+async fn platform_004_a_wait_for_another_run_s_lock_that_is_cancelled_fails_migrate() {
+    let db = TestDatabase::empty().await;
+    // Each try then waits half an hour, so a try that waits again is one that the cancellation
+    // didn't end.
+    db.admin_executes(&format!(
+        "ALTER DATABASE {} SET deadlock_timeout = '1h'",
+        db.name()
+    ))
+    .await;
+    let mut held = db.owner_connection().await;
+    execute_on(&mut held, &format!("SELECT pg_advisory_lock({LOCK})")).await;
+    let url = db.owner_url();
+    let waiting = format!(
+        "SELECT pid::text || ' ' || query_start::text FROM pg_stat_activity \
+         WHERE datname = '{}' AND wait_event_type = 'Lock' AND query LIKE '%pg_advisory_lock%'",
+        db.name()
+    );
+
+    let migrating = tokio::spawn(async move { migrate(&url, &TWO_TABLES).await });
+    support::query_waits_on_a_lock(&db, "pg_advisory_lock").await;
+    let first = db.admin_reads(&waiting).await.remove(0);
+    let (pid, started) = first.split_once(' ').unwrap();
+    db.admin_executes(&format!("SELECT pg_cancel_backend({pid})"))
+        .await;
+    let again = format!(
+        "SELECT count(*)::text FROM pg_stat_activity WHERE pid = {pid} \
+         AND wait_event_type = 'Lock' AND query_start > '{started}'::timestamptz"
+    );
+    let waited_again = loop {
+        if migrating.is_finished() {
+            break false;
+        }
+        if db.admin_reads(&again).await != ["0"] {
+            break true;
+        }
+        tokio::task::yield_now().await;
+    };
+    let refused = if waited_again {
+        None
+    } else {
+        migrating.await.unwrap().err()
+    };
+
+    assert!(!waited_again, "the run waited for the lock again");
+    assert!(
+        matches!(refused, Some(MigrateError::Failed(_))),
+        "{refused:?}"
+    );
+    assert_eq!(db.tables().await, owned_by_owner(&[]));
+}
+
+#[tokio::test]
 async fn platform_004_migrate_refuses_a_role_other_than_owner() {
     let db = TestDatabase::empty().await;
 

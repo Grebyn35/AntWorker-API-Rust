@@ -75,4 +75,17 @@ mod tests {
         assert_eq!(resident_in(status), Some(12_345 * 1024));
         assert_eq!(resident_in("Name:\tantworker-api\n"), None);
     }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn platform_070_the_process_s_resident_set_is_reported_in_bytes() {
+        let resident = resident().await;
+
+        // A process that runs the tests holds more than a mebibyte and less than a gibibyte:
+        // more than 1,048,576 bytes, and fewer kilobytes, which the kernel's report counts.
+        assert!(
+            resident.is_some_and(|bytes| bytes > 1 << 20),
+            "{resident:?}"
+        );
+    }
 }

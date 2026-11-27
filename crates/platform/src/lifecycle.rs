@@ -93,12 +93,8 @@ pub fn probe(listen_addr: SocketAddr) -> Result<(), ProbeError> {
         io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock => ProbeError::TimedOut { address },
         _ => ProbeError::NotHttp { address },
     };
-    let mut stream = TcpStream::connect_timeout(&address, PROBE_TIMEOUT).map_err(|source| {
-        match source.kind() {
-            io::ErrorKind::TimedOut => ProbeError::TimedOut { address },
-            _ => ProbeError::Unreachable { address, source },
-        }
-    })?;
+    let mut stream = TcpStream::connect_timeout(&address, PROBE_TIMEOUT)
+        .map_err(|source| not_connected(address, source))?;
     stream
         .set_read_timeout(Some(PROBE_TIMEOUT))
         .map_err(failed)?;
@@ -141,6 +137,15 @@ fn probe_address(listen_addr: SocketAddr) -> SocketAddr {
         ip => ip,
     };
     SocketAddr::new(ip, listen_addr.port())
+}
+
+/// Why [`probe`] couldn't connect to `address`, from the connection's failure `source`: a
+/// connection that took longer than [`PROBE_TIMEOUT`] reached no instance that answered in time.
+fn not_connected(address: SocketAddr, source: io::Error) -> ProbeError {
+    match source.kind() {
+        io::ErrorKind::TimedOut => ProbeError::TimedOut { address },
+        _ => ProbeError::Unreachable { address, source },
+    }
 }
 
 /// The status code and the body of an HTTP/1.1 answer, or `None` if it isn't one.
@@ -494,6 +499,20 @@ mod tests {
         );
         assert_eq!(parse_answer(b"SSH-2.0-OpenSSH_9.9\r\n\r\n"), None);
         assert_eq!(parse_answer(b"HTTP/1.1 200 OK\r\n"), None);
+    }
+
+    #[test]
+    fn platform_063_a_connection_that_times_out_names_an_address_that_didn_t_answer_in_time() {
+        let address: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+
+        let timed_out = not_connected(address, io::ErrorKind::TimedOut.into());
+        let refused = not_connected(address, io::ErrorKind::ConnectionRefused.into());
+
+        assert_eq!(
+            timed_out.to_string(),
+            "127.0.0.1:8080 didn't answer within 3 seconds"
+        );
+        assert_eq!(refused.to_string(), "can't reach 127.0.0.1:8080");
     }
 
     #[test]

@@ -6,6 +6,9 @@
 
 use std::sync::{Arc, Mutex};
 
+// part: client_telemetry
+use opentelemetry::trace::SpanKind;
+// end part: client_telemetry
 use opentelemetry::trace::Status;
 use opentelemetry_sdk::trace::{InMemorySpanExporter, SdkTracerProvider, SpanData};
 use tracing::{
@@ -97,6 +100,23 @@ impl EndedSpans {
             })
             .collect()
     }
+
+    // part: client_telemetry
+    /// The kind of each span named `name` that has ended, in the order they ended: `client`,
+    /// `server`, `internal`, `producer` or `consumer`.
+    pub fn kinds(&self, name: &str) -> Vec<&'static str> {
+        self.ended(name)
+            .iter()
+            .map(|span| match span.span_kind {
+                SpanKind::Client => "client",
+                SpanKind::Server => "server",
+                SpanKind::Internal => "internal",
+                SpanKind::Producer => "producer",
+                SpanKind::Consumer => "consumer",
+            })
+            .collect()
+    }
+    // end part: client_telemetry
 
     /// The attribute `key` of each span named `name` that has ended, in the order they ended, as
     /// text, or `None` for a span without it.

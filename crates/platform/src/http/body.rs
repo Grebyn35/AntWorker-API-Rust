@@ -279,6 +279,76 @@ mod tests {
     }
 
     #[test]
+    fn platform_051_a_refused_field_refuses_the_request_whatever_the_others_built() {
+        let mut errors = FieldErrors::new();
+        let refused = errors.check("/a", Err::<u8, _>(Invalid::new("too_long", "Too long.")));
+        assert!(refused.is_none());
+
+        // A value built from the fields that weren't refused.
+        let error = errors.finish(Some(2)).unwrap_err();
+
+        let RequestError::InvalidFields(fields) = error else {
+            unreachable!("{error:?}");
+        };
+        assert_eq!(fields.len(), 1);
+        assert_eq!(fields[0].field, "/a");
+    }
+
+    #[test]
+    fn platform_045_a_refused_parameter_refuses_the_query_whatever_the_others_built() {
+        let mut errors = FieldErrors::new();
+        let refused = errors.check(
+            "/limit",
+            Err::<u8, _>(Invalid::new("out_of_range", "Over.")),
+        );
+        assert!(refused.is_none());
+
+        let error = errors.finish_query(Some(2)).unwrap_err();
+
+        let RequestError::InvalidQuery(parameters) = error else {
+            unreachable!("{error:?}");
+        };
+        assert_eq!(parameters.len(), 1);
+        assert_eq!(parameters[0].field, "/limit");
+    }
+
+    #[tokio::test]
+    async fn platform_049_a_body_whose_reading_fails_but_for_its_limit_is_an_invalid_body() {
+        let request = |body: axum::body::Body| {
+            Request::builder()
+                .method("POST")
+                .uri("/v1/things")
+                .header(header::CONTENT_TYPE, JSON)
+                .body(body)
+                .unwrap()
+        };
+        // The sender closes the connection in the middle of the body.
+        let cut = axum::body::Body::from_stream(futures_util::stream::iter([
+            Ok(Bytes::from_static(br#"{"name":"#)),
+            Err(std::io::Error::from(std::io::ErrorKind::ConnectionReset)),
+        ]));
+        let over = axum::body::Body::new(http_body_util::Limited::new(
+            axum::body::Body::from(r#"{"name":"Ada"}"#),
+            4,
+        ));
+
+        let stopped = Json::<serde_json::Value>::from_request(request(cut), &()).await;
+        let limited = Json::<serde_json::Value>::from_request(request(over), &()).await;
+
+        assert!(
+            matches!(
+                stopped,
+                Err(Problem(RequestError::InvalidBody(BodyFault::Incomplete)))
+            ),
+            "{stopped:?}"
+        );
+        assert!(
+            matches!(limited, Err(Problem(RequestError::PayloadTooLarge))),
+            "{limited:?}"
+        );
+    }
+
+    #[test]
     fn platform_049_bytes_after_the_body_s_json_value_make_it_no_json() {
         let parsed = |body: &str| parse::<serde_json::Value>(body.as_bytes());
 

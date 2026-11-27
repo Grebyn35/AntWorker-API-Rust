@@ -10,6 +10,7 @@ use std::{
     time::Duration,
 };
 
+use opentelemetry_proto::tonic::metrics::v1::{metric, number_data_point};
 use platform::{
     authn::Principal,
     clock::{SharedClock, TestClock},
@@ -20,7 +21,7 @@ use platform::{
         Service, names,
         testing::{
             self,
-            collector::{Collector, attribute},
+            collector::{Collector, Received, attribute},
             spans::EndedSpans,
         },
     },
@@ -206,6 +207,7 @@ async fn platform_013_a_job_runs_with_the_scope_of_the_proof_that_enqueued_it() 
     )]
     let principal = Principal::new(user, SessionId::from_uuid(uuid::Uuid::from_u128(8)));
     enqueue(&database, principal.job_scope(), &probe("mine")).await;
+    let id = db.owner_reads("SELECT id::text FROM jobs").await;
 
     let clock: SharedClock = Arc::new(TestClock::default());
     jobs.run_pending(&database, &clock).await;
@@ -215,6 +217,7 @@ async fn platform_013_a_job_runs_with_the_scope_of_the_proof_that_enqueued_it() 
     assert_eq!(contexts[0].scope().user(), Some(user));
     assert_eq!(contexts[0].scope().workspace(), None);
     assert_eq!(contexts[0].attempt(), 1);
+    assert_eq!(id, [contexts[0].id().to_string()]);
 }
 
 #[tokio::test]
@@ -461,12 +464,20 @@ async fn platform_016_a_replica_runs_at_most_4_jobs_at_once_and_claims_only_kind
         starts.recv().await.unwrap();
     }
     clock.sleeping(POLL).await;
+    // A poll while the 4 runs go on claims nothing.
+    clock.advance(POLL);
+    clock.sleeping(POLL).await;
     let four_claimed = db
         .owner_reads("SELECT count(*)::text FROM jobs WHERE claim_id IS NOT NULL")
         .await;
-    let fifth_waited = starts.try_recv().is_err();
+    // A fifth run that started already is kept, so that the test goes on to its assertions.
+    let early = starts.try_recv().ok();
+    let fifth_waited = early.is_none();
     steering.release.add_permits(1);
-    let fifth = starts.recv().await.unwrap();
+    let fifth = match early {
+        Some(label) => label,
+        None => starts.recv().await.unwrap(),
+    };
     // A job committed with no run in flight runs at a poll. The clock moves on only while the
     // replica sleeps its poll, and each time it does, until the job starts: a claim that read
     // the queue before the commit may return after it, and the replica then sleeps a poll from
@@ -522,6 +533,42 @@ async fn platform_017_a_run_that_passes_its_time_limit_is_cancelled_and_fails() 
         jobs,
         ["waiting 1 internal error: the run passed its time limit true"]
     );
+}
+
+#[tokio::test]
+async fn platform_017_a_run_that_goes_on_renews_its_job_s_lease_every_20_seconds() {
+    let db = TestDatabase::migrated().await;
+    let database = db.app().await;
+    let (steering, mut starts) = Steering::new(&[Act::Wait]);
+    enqueue(&database, JobScope::for_tests(), &probe("long")).await;
+    let clock = Arc::new(TestClock::default());
+    let (stop, running) = start(registry(&database, &steering), &database, &clock);
+    starts.recv().await.unwrap();
+    // The sweeps, which the scheduler runs at its first tick, have ended, so the renewal that the
+    // clock waits for below is the probe's.
+    let swept = "SELECT count(*)::text FROM job_schedules \
+                 WHERE claim_id IS NULL AND next_run_at > now()";
+    while db.owner_reads(swept).await != ["4"] {
+        tokio::task::yield_now().await;
+    }
+    let lease = db
+        .owner_reads("SELECT lease_expires_at::text FROM jobs")
+        .await
+        .remove(0);
+
+    clock.advance(RENEWAL);
+    // The run sleeps again once it has renewed.
+    clock.sleeping(RENEWAL).await;
+    let renewed = db
+        .owner_reads(&format!(
+            "SELECT (lease_expires_at > '{lease}'::timestamptz)::text FROM jobs"
+        ))
+        .await;
+    steering.release.add_permits(1);
+    stop.send_replace(true);
+    running.await.unwrap();
+
+    assert_eq!(renewed, ["true"]);
 }
 
 #[tokio::test]
@@ -1627,6 +1674,64 @@ async fn platform_020_a_runs_span_links_to_the_trace_that_enqueued_it() {
         Some("platform.send_email")
     );
     assert_eq!(mailbox::to(&to).await.len(), 1);
+}
+
+/// The value of the gauge `platform.job_delay` in the last export of `received` that holds it.
+fn job_delay(received: &Received) -> Option<i64> {
+    let (_, delay) = received
+        .metrics()
+        .into_iter()
+        .find(|(_, metric)| metric.name == "platform.job_delay")?;
+    let Some(metric::Data::Gauge(gauge)) = &delay.data else {
+        return None;
+    };
+    match gauge.data_points.last()?.value {
+        Some(number_data_point::Value::AsInt(seconds)) => Some(seconds),
+        _ => None,
+    }
+}
+
+#[tokio::test]
+async fn platform_112_serve_records_how_long_the_job_that_waited_longest_has_waited() {
+    let collector = Collector::start().await.unwrap();
+    let database = TestDatabase::migrated().await;
+    // Of a kind that no registry holds, which no dispatcher claims: of the jobs that wait to run,
+    // the first waited longest, while a dead letter and a job whose claim's lease holds it
+    // waited longer.
+    database
+        .owner_executes(
+            "INSERT INTO jobs (kind, payload, run_at, state, dead_at, claim_id, lease_expires_at) \
+             VALUES \
+             ('tests.unknown', '{}', now() - interval '1 hour', 'waiting', NULL, NULL, NULL), \
+             ('tests.unknown', '{}', now() - interval '10 minutes', 'waiting', NULL, NULL, NULL), \
+             ('tests.unknown', '{}', now() - interval '2 hours', 'dead', now(), NULL, NULL), \
+             ('tests.unknown', '{}', now() - interval '2 hours', 'waiting', NULL, \
+              gen_random_uuid(), now() + interval '1 hour')",
+        )
+        .await;
+
+    let server = database.exporting_to(&collector, &[]).await;
+    // The scheduler runs the sweeps at its first tick, after the jobs started, and an export holds
+    // their count.
+    collector
+        .wait_for(|received| received.count("platform.job_runs", None) > 0)
+        .await;
+    server.stop().await;
+    let since = database
+        .owner_reads(
+            "SELECT floor(extract(epoch FROM now() - run_at))::bigint::text FROM jobs \
+             WHERE kind = 'tests.unknown' AND state = 'waiting' AND claim_id IS NULL \
+             ORDER BY run_at LIMIT 1",
+        )
+        .await
+        .remove(0);
+
+    let recorded = job_delay(&collector.received());
+    let since: i64 = since.parse().unwrap();
+    assert!(
+        recorded.is_some_and(|seconds| (3_600..=since).contains(&seconds)),
+        "{recorded:?} of at most {since}"
+    );
 }
 
 #[tokio::test]

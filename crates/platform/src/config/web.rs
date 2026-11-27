@@ -217,6 +217,28 @@ mod tests {
     }
 
     #[test]
+    fn sec_10_the_test_origin_is_an_http_origin_on_a_loopback_ip_address() {
+        for origin in [
+            "http://127.0.0.1:4000",
+            "http://127.0.0.1:4000/",
+            "http://[::1]:4000",
+        ] {
+            assert!(loopback_origin(origin).is_some(), "{origin}");
+        }
+        for other in [
+            "https://127.0.0.1:4000",
+            "http://example.com:4000",
+            "http://ada@127.0.0.1:4000",
+            "http://ada:secret@127.0.0.1:4000",
+            "http://127.0.0.1:4000/path",
+            "http://127.0.0.1:4000/?query",
+            "http://127.0.0.1:4000/#fragment",
+        ] {
+            assert!(loopback_origin(other).is_none(), "{other}");
+        }
+    }
+
+    #[test]
     fn platform_053_trusted_proxies_are_addresses_or_ranges() {
         let parsed = proxies("172.18.0.0/16, 203.0.113.7,2001:db8::/32, 198.51.100.0/24 ").unwrap();
         assert_eq!(parsed.len(), 4);

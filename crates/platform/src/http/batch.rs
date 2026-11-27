@@ -387,7 +387,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn obs_04_a_batch_prints_none_of_its_bytes() {
+    async fn obs_04_a_batch_prints_how_many_bytes_it_holds_and_none_of_them() {
         let batch = read(&[PROTOBUF], b"the batch's bytes".to_vec(), 64)
             .await
             .unwrap();
@@ -395,6 +395,7 @@ mod tests {
         let printed = format!("{batch:?}");
 
         assert!(!printed.contains("the batch"), "{printed}");
+        assert!(printed.contains("length: 17"), "{printed}");
     }
 
     #[tokio::test]
@@ -407,7 +408,8 @@ mod tests {
             &[PROTOBUF, ("content-encoding", "gzip, gzip")],
             &[PROTOBUF, ("content-encoding", "")],
         ] {
-            let refusal = read(headers, vec![], 10).await.unwrap_err();
+            // Gzip that inflates, so that the headers alone refuse the body.
+            let refusal = read(headers, gzip(b"spans"), 100).await.unwrap_err();
 
             assert_eq!(refusal.code(), "request.invalid_body", "{headers:?}");
         }
@@ -450,11 +452,32 @@ mod tests {
         let declared = read(&[PROTOBUF, ("content-length", "11")], vec![], 10).await;
         let inflated = read(&[PROTOBUF, GZIP], bomb.clone(), 1023).await;
         let fits = read(&[PROTOBUF, GZIP], bomb, 1024).await;
+        let declared_fits = read(&[PROTOBUF, ("content-length", "10")], vec![0; 10], 10).await;
 
         for refused in [sent, declared, inflated] {
             assert_eq!(refused.unwrap_err().code(), "request.payload_too_large");
         }
         assert_eq!(fits.unwrap().bytes.len(), 1024);
+        assert_eq!(declared_fits.unwrap().bytes.len(), 10);
+    }
+
+    #[tokio::test]
+    async fn platform_111_a_body_whose_reading_fails_but_for_its_limit_is_an_invalid_body() {
+        // The sender closes the connection in the middle of the body.
+        let cut = Body::from_stream(futures_util::stream::iter([
+            Ok(Bytes::from_static(b"spans")),
+            Err(std::io::Error::from(std::io::ErrorKind::ConnectionReset)),
+        ]));
+        let request = Request::builder()
+            .header(PROTOBUF.0, PROTOBUF.1)
+            .extension(BatchTurns::new())
+            .body(cut)
+            .unwrap();
+        let batch = Batch::from_request(request, &()).await.unwrap();
+
+        let refusal = batch.read(user(0), 100, &Workers::new()).await.unwrap_err();
+
+        assert_eq!(refusal.code(), "request.invalid_body");
     }
 
     #[tokio::test]

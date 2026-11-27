@@ -223,12 +223,19 @@ impl Gate {
         })
     }
 
-    /// Starts a work for each turn of `workers`, and waits until they all run.
+    /// Starts a work for each turn of `workers`, and waits until they all run. The count of free
+    /// turns, which [`Gate::waits_or_starts`] reads, is every turn before and none after.
     async fn take_every_turn(&mut self, workers: &Workers) -> Vec<JoinHandle<()>> {
+        assert_eq!(
+            workers.free(),
+            workers.turns(),
+            "the free turns before any work"
+        );
         let callers: Vec<_> = (0..workers.turns()).map(|_| self.start(workers)).collect();
         for _ in &callers {
             self.next_started().await;
         }
+        assert_eq!(workers.free(), 0, "the free turns once every turn is taken");
         callers
     }
 

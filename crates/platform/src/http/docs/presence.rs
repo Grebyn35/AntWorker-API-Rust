@@ -122,3 +122,139 @@ fn nullable(schema: &RefOr<Schema>) -> bool {
     };
     null(&schema) || schema["oneOf"].as_array().into_iter().flatten().any(null)
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::Value;
+    use utoipa::openapi::{
+        AllOfBuilder, ArrayBuilder, ComponentsBuilder, ContentBuilder, ObjectBuilder, OneOfBuilder,
+        OpenApi, OpenApiBuilder, PathItem, PathsBuilder, Ref, RefOr, ResponseBuilder, Schema,
+        path::{HttpMethod, OperationBuilder},
+        request_body::RequestBodyBuilder,
+        schema::{AnyOfBuilder, SchemaType, Type},
+    };
+
+    /// A schema of `kind` or `null`.
+    fn or_null(kind: Type) -> ObjectBuilder {
+        ObjectBuilder::new().schema_type(SchemaType::from_iter([kind, Type::Null]))
+    }
+
+    /// An object whose one property, `note`, may be `null`.
+    fn noted() -> ObjectBuilder {
+        ObjectBuilder::new().property("note", or_null(Type::String))
+    }
+
+    /// The content of a media type, whose schema is `schema`.
+    fn json_content(schema: impl Into<RefOr<Schema>>) -> utoipa::openapi::Content {
+        ContentBuilder::new().schema(Some(schema)).build()
+    }
+
+    /// The document of `POST /v1/things`, which takes `body`, if any, and answers `answer`, with
+    /// `components`, once `require_nullable` has read it, as JSON.
+    fn required_in(
+        body: Option<RefOr<Schema>>,
+        answer: impl Into<RefOr<Schema>>,
+        components: ComponentsBuilder,
+    ) -> Value {
+        let mut operation = OperationBuilder::new().response(
+            "200",
+            ResponseBuilder::new()
+                .description("Done.")
+                .content("application/json", json_content(answer)),
+        );
+        if let Some(body) = body {
+            operation = operation.request_body(Some(
+                RequestBodyBuilder::new()
+                    .content("application/json", json_content(body))
+                    .build(),
+            ));
+        }
+        let paths =
+            PathsBuilder::new().path("/v1/things", PathItem::new(HttpMethod::Post, operation));
+        let mut document: OpenApi = OpenApiBuilder::new()
+            .paths(paths)
+            .components(Some(components.build()))
+            .build();
+
+        super::require_nullable(&mut document);
+
+        serde_json::to_value(document).unwrap()
+    }
+
+    /// The names of the properties that `schema` requires, in alphabetical order.
+    fn names(schema: &Value) -> Vec<&str> {
+        let mut names: Vec<&str> = schema["required"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect();
+        names.sort_unstable();
+        names
+    }
+
+    #[test]
+    fn api_05_a_response_s_property_that_may_be_null_is_required_at_any_depth() {
+        let answer = ObjectBuilder::new()
+            .property("direct", or_null(Type::Integer))
+            .property(
+                "linked",
+                OneOfBuilder::new()
+                    .item(Ref::from_schema_name("Thing"))
+                    .item(ObjectBuilder::new().schema_type(Type::Null)),
+            )
+            .property(
+                "either",
+                ObjectBuilder::new()
+                    .schema_type(SchemaType::from_iter([Type::String, Type::Integer])),
+            )
+            .property("list", ArrayBuilder::new().items(noted()))
+            .property("choice", OneOfBuilder::new().item(noted()))
+            .property(
+                "both",
+                AllOfBuilder::new()
+                    .item(noted())
+                    .item(ObjectBuilder::new().description(Some("Both."))),
+            )
+            .property("any", AnyOfBuilder::new().item(noted()));
+
+        let document = required_in(None, answer, ComponentsBuilder::new());
+
+        let answer = &document["paths"]["/v1/things"]["post"]["responses"]["200"]["content"]["application/json"]
+            ["schema"];
+        assert_eq!(names(answer), ["direct", "linked"]);
+        for nested in [
+            "/properties/list/items",
+            "/properties/choice/oneOf/0",
+            "/properties/both/allOf/0",
+            "/properties/any/anyOf/0",
+        ] {
+            assert_eq!(names(answer.pointer(nested).unwrap()), ["note"], "{nested}");
+        }
+    }
+
+    #[test]
+    fn api_05_a_component_that_a_request_refers_to_keeps_a_property_that_may_be_null_unrequired() {
+        let request = ObjectBuilder::new().property(
+            "detail",
+            OneOfBuilder::new()
+                .item(Ref::from_schema_name("Detail"))
+                .item(ObjectBuilder::new().schema_type(Type::Null)),
+        );
+        let components = ComponentsBuilder::new()
+            .schema("Request", request)
+            .schema("Detail", noted())
+            .schema("Answer", noted());
+
+        let document = required_in(
+            Some(Ref::from_schema_name("Request").into()),
+            Ref::from_schema_name("Answer"),
+            components,
+        );
+
+        let schemas = &document["components"]["schemas"];
+        assert_eq!(names(&schemas["Answer"]), ["note"]);
+        assert!(names(&schemas["Request"]).is_empty());
+        assert!(names(&schemas["Detail"]).is_empty());
+    }
+}

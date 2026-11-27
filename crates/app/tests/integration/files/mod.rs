@@ -1554,6 +1554,36 @@ async fn files_012_a_read_whose_answer_names_no_size_it_reads_counts_once_as_fai
 }
 
 #[tokio::test]
+async fn files_012_a_read_whose_bytes_stop_coming_counts_again_as_unavailable() {
+    let api = Api::new().await;
+    let (workspace, ada, _) = acme(&api, "member").await;
+    let id = files::arrange_row(api.database(), &workspace, "Blue").await;
+    jobs::not_due(api.database()).await;
+    let collector = Collector::start().await.unwrap();
+    // It answers a read, sends half of the object's bytes, then closes the connection.
+    let bucket = bucket::cutting().await;
+    let env = [("S3_ENDPOINT", bucket.endpoint.as_str())];
+    let server = files::serving(api.database(), &collector, &env).await;
+    let bearer = format!("Bearer {}", ada.access);
+    let content = format!("/v1/workspaces/{workspace}/files/{id}/content");
+
+    let answer = server
+        .request("GET", &content, &[("authorization", &bearer)])
+        .await;
+    server.stop().await;
+
+    assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
+    assert_eq!(
+        counts::of(
+            &collector.received(),
+            "platform.storage_requests",
+            "storage.outcome"
+        ),
+        ["ok 1", "unavailable 1"]
+    );
+}
+
+#[tokio::test]
 async fn files_012_a_bucket_that_answers_it_can_t_serve_counts_as_not_answering() {
     for status in [500, 503, 429] {
         let bucket = bucket::scripted(Some(status)).await;

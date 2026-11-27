@@ -169,6 +169,54 @@ fn test_06_a_watch_prints_its_test_s_lines_then_each_line_it_logs_until_it_ends(
     }
 }
 
+#[test]
+fn test_06_a_watch_prints_its_test_s_lines_while_another_thread_s_watch_prints() {
+    testing::install(SERVICE).unwrap();
+    let test = std::thread::current().name().unwrap().to_owned();
+    tracing::info!("logged before the watch printed beside another");
+    let (printing, printing_there) = mpsc::channel();
+    let (ended, ending) = mpsc::channel::<()>();
+    // A watch of another thread, which prints that thread's lines, as another test's watch does
+    // once that test has run long.
+    let other = std::thread::spawn(move || {
+        let there = Printed::default();
+        let watch = Watch::printing_to(Duration::ZERO, there.clone());
+        while there.text().is_empty() {
+            tracing::info!("logged while the other watch starts");
+            std::thread::yield_now();
+        }
+        printing.send(()).unwrap();
+        ending.recv().unwrap();
+        drop(watch);
+    });
+    printing_there.recv().unwrap();
+    let printed = Printed::default();
+
+    let watch = Watch::printing_to(Duration::ZERO, printed.clone());
+    // Once the watch prints, it prints each line that the test logs, so a line logged while the
+    // text is empty ends the wait whether or not it printed what the test logged before.
+    while printed.text().is_empty() {
+        tracing::info!("logged while the watch starts");
+        std::thread::yield_now();
+    }
+    drop(watch);
+    ended.send(()).unwrap();
+    other.join().unwrap();
+
+    let text = printed.text();
+    let lines: Vec<&str> = text.lines().collect();
+    assert!(
+        lines[0].starts_with(&format!("{test} has run for 0 seconds")),
+        "{text}"
+    );
+    let first = lines[1].strip_prefix(&format!("{test}: ")).unwrap();
+    let first: serde_json::Value = serde_json::from_str(first).unwrap();
+    assert_eq!(
+        first["message"], "logged before the watch printed beside another",
+        "{text}"
+    );
+}
+
 #[tokio::test]
 async fn platform_099_a_request_that_the_server_refuses_before_the_router_gets_its_bare_answer_and_no_line()
  {

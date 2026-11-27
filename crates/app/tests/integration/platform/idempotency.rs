@@ -81,6 +81,10 @@ async fn platform_036_the_key_with_another_request_answers_422() {
 
     assert_eq!(reused.status, 422);
     assert_eq!(reused.json()["code"], "request.idempotency_key_reused");
+    assert_eq!(
+        reused.json()["detail"],
+        "The key was sent before with another request: send a new key for this one."
+    );
 }
 
 #[tokio::test]
@@ -106,8 +110,27 @@ async fn platform_036_a_key_whose_first_request_hasn_t_committed_answers_409_the
 
     assert_eq!(waiting.status, 409);
     assert_eq!(waiting.json()["code"], "request.idempotency_key_in_flight");
+    assert_eq!(
+        waiting.json()["detail"],
+        "The key's first request is still running: retry later."
+    );
     assert_eq!(retry.status, 200);
     assert_eq!(retry.json()["run"], 1);
+}
+
+#[tokio::test]
+async fn platform_036_a_claim_whose_insert_fails_otherwise_than_by_giving_up_its_wait_answers_500()
+{
+    let api = fixtures::api().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    api.database()
+        .owner_executes("REVOKE INSERT ON idempotency_records FROM app")
+        .await;
+
+    let refused = send_keyed(&api, &ada, &json!({ "value": "a" }), Some("\"k-1\"")).await;
+
+    assert_eq!(refused.status, 500);
+    assert_eq!(refused.json()["code"], "request.internal_error");
 }
 
 #[tokio::test]
@@ -154,6 +177,53 @@ async fn platform_036_a_record_older_than_24_hours_counts_as_absent() {
     assert_eq!(again.json(), json!({ "value": "b", "run": 2 }));
 }
 
+/// How many claims of a key `platform.idempotent_requests` has counted as `outcome`, in every
+/// test that runs alongside.
+fn claims(outcome: &str) -> f64 {
+    testing::recorded("platform.idempotent_requests")
+        .into_iter()
+        .filter(|point| {
+            point.labels.get("idempotency.outcome").map(String::as_str) == Some(outcome)
+        })
+        .map(|point| point.value)
+        .sum()
+}
+
+#[tokio::test]
+async fn platform_036_a_claim_of_a_key_is_counted_by_how_it_ended() {
+    let api = fixtures::api().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let outcomes = ["new", "replayed", "reused", "in_flight"];
+    let before = outcomes.map(claims);
+    let mut held = api.database().owner_connection().await;
+    execute_on(&mut held, "BEGIN").await;
+    execute_on(
+        &mut held,
+        &format!(
+            "INSERT INTO idempotency_records (user_id, key, fingerprint) \
+             VALUES ('{}', 'k-2', '\\x00')",
+            ada.user_id
+        ),
+    )
+    .await;
+
+    let first = send_keyed(&api, &ada, &json!({ "value": "a" }), Some("\"k-1\"")).await;
+    let replayed = send_keyed(&api, &ada, &json!({ "value": "a" }), Some("\"k-1\"")).await;
+    let reused = send_keyed(&api, &ada, &json!({ "value": "b" }), Some("\"k-1\"")).await;
+    let in_flight = send_keyed(&api, &ada, &json!({ "value": "a" }), Some("\"k-2\"")).await;
+    execute_on(&mut held, "ROLLBACK").await;
+
+    let statuses = [&first, &replayed, &reused, &in_flight].map(|response| response.status);
+    assert_eq!(statuses, [200, 200, 422, 409]);
+    // The keyed route is a fixture of the tests' own, which no `serve` has, and a fork may leave
+    // out every route of the API's own that takes a key, so this file's tests send none. Other
+    // tests claim keys too, so each count grows by at least this test's one (TEST-07).
+    let after = outcomes.map(claims);
+    for ((outcome, before), after) in outcomes.iter().zip(before).zip(after) {
+        assert!(after >= before + 1.0, "{outcome}: {after} after {before}");
+    }
+}
+
 #[tokio::test]
 async fn obs_04_a_stored_result_that_doesn_t_read_as_its_type_fails_and_logs_none_of_it() {
     let api = fixtures::api().await;
@@ -198,6 +268,10 @@ async fn platform_037_a_malformed_key_answers_400_and_keys_are_per_user() {
     for refused in [&unquoted, &too_long] {
         assert_eq!(refused.status, 400);
         assert_eq!(refused.json()["code"], "request.invalid_idempotency_key");
+        assert_eq!(
+            refused.json()["detail"],
+            "Send Idempotency-Key as a quoted string of 1 to 255 characters."
+        );
     }
     assert_eq!(ada_first.json()["run"], 1);
     assert_eq!(grace_same_key.json()["run"], 2);

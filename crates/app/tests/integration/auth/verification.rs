@@ -33,6 +33,10 @@ async fn auth_025_an_account_that_must_verify_is_refused_but_where_verifying_nee
         let refused = api.get(path).bearer(&ada.access).send().await;
         assert_eq!(refused.status, 403, "{path}");
         assert_eq!(refused.json()["code"], "request.email_unverified");
+        assert_eq!(
+            refused.json()["detail"],
+            "Verify the account's email address first."
+        );
     }
     let renamed = users::rename(&api, &ada, "Ada", None).await;
     assert_eq!(renamed.status, 403);

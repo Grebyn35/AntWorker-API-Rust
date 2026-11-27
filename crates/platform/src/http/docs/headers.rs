@@ -87,7 +87,14 @@ fn other_members(members: &mut Vec<RefOr<Schema>>, bare: bool) -> Option<RefOr<S
 #[cfg(test)]
 mod tests {
     use serde_json::{Value, json};
-    use utoipa::PartialSchema;
+    use utoipa::{
+        PartialSchema,
+        openapi::{
+            ArrayBuilder, ObjectBuilder, OneOfBuilder, RefOr, Schema,
+            path::{OperationBuilder, ParameterBuilder, ParameterIn},
+            schema::{AnyOfBuilder, SchemaType, Type},
+        },
+    };
     use utoipa_axum::routes;
 
     use crate::{http::Routes, idempotency::IdempotencyKey, telemetry::Service};
@@ -126,6 +133,77 @@ mod tests {
                 (&json!("If-Match"), &json!({ "type": "string" })),
                 (&json!("Idempotency-Key"), &key),
             ]
+        );
+    }
+
+    /// What `without_null` leaves of `schema` as a header parameter's, in the document's JSON.
+    fn without_null_in(schema: impl Into<RefOr<Schema>>) -> Value {
+        let header = ParameterBuilder::new()
+            .name("X-Thing")
+            .parameter_in(ParameterIn::Header)
+            .schema(Some(schema));
+        let mut operation = OperationBuilder::new().parameter(header).build();
+
+        super::without_null(&mut operation);
+
+        serde_json::to_value(operation.parameters).unwrap()[0]["schema"].clone()
+    }
+
+    fn of_type(kind: Type) -> ObjectBuilder {
+        ObjectBuilder::new().schema_type(kind)
+    }
+
+    #[test]
+    fn api_17_null_beside_the_type_of_a_header_s_array_is_taken_out() {
+        let list = ArrayBuilder::new()
+            .schema_type(SchemaType::from_iter([Type::Array, Type::Null]))
+            .items(of_type(Type::String));
+
+        assert_eq!(
+            without_null_in(list),
+            json!({ "type": "array", "items": { "type": "string" } })
+        );
+    }
+
+    #[test]
+    fn api_17_null_beside_a_member_of_a_header_s_any_of_is_taken_out() {
+        let any_of = AnyOfBuilder::new()
+            .item(of_type(Type::String))
+            .item(of_type(Type::Null));
+
+        assert_eq!(without_null_in(any_of), json!({ "type": "string" }));
+    }
+
+    #[test]
+    fn api_17_a_header_s_one_of_or_any_of_keeps_what_it_holds_but_null() {
+        let described = OneOfBuilder::new()
+            .item(of_type(Type::String))
+            .item(of_type(Type::Null))
+            .description(Some("A version."));
+        let two = AnyOfBuilder::new()
+            .item(of_type(Type::String))
+            .item(of_type(Type::Integer))
+            .item(of_type(Type::Null));
+
+        assert_eq!(
+            without_null_in(described),
+            json!({ "oneOf": [{ "type": "string" }], "description": "A version." })
+        );
+        assert_eq!(
+            without_null_in(two),
+            json!({ "anyOf": [{ "type": "string" }, { "type": "integer" }] })
+        );
+    }
+
+    #[test]
+    fn api_17_null_beside_no_other_alternative_is_left_in_a_header_s_schema() {
+        let null_alone = ObjectBuilder::new().schema_type(SchemaType::from_iter([Type::Null]));
+        let null_member = OneOfBuilder::new().item(of_type(Type::Null));
+
+        assert_eq!(without_null_in(null_alone), json!({ "type": ["null"] }));
+        assert_eq!(
+            without_null_in(null_member),
+            json!({ "oneOf": [{ "type": "null" }] })
         );
     }
 }

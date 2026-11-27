@@ -476,6 +476,38 @@ mod tests {
         );
     }
 
+    /// A module's refusal whose code and title say all, which gives no detail of its own.
+    #[derive(Debug, thiserror::Error)]
+    #[error("the note is unreadable")]
+    struct Unreadable;
+
+    impl ErrorCode for Unreadable {
+        fn code(&self) -> &'static str {
+            "notes.unreadable"
+        }
+
+        fn title(&self) -> &'static str {
+            "Unreadable note"
+        }
+
+        fn category(&self) -> Category {
+            Category::Validation
+        }
+    }
+
+    #[test]
+    fn api_07_a_problem_whose_error_gives_no_detail_holds_none() {
+        let response = Problem(Unreadable).into_response();
+        let body = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(axum::body::to_bytes(response.into_body(), usize::MAX))
+            .unwrap();
+        let problem: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(problem["code"], "notes.unreadable");
+        assert!(problem.get("detail").is_none(), "{problem}");
+    }
+
     #[test]
     fn err_08_an_internal_error_answers_the_fixed_body_and_reports_its_cause() {
         let response = Problem(Internal::new(Rejected)).into_response();

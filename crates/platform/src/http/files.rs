@@ -126,6 +126,20 @@ mod tests {
         assert!(disposition_name(&HeaderMap::new()).is_none());
     }
 
+    #[test]
+    fn platform_075_a_backslash_outside_a_quoted_string_quotes_nothing() {
+        // The `;` after a token's `\` still ends its parameter, so `filename*` is read, and a token
+        // keeps its `\`.
+        assert_eq!(
+            name("attachment; filename=back\\; filename*=UTF-8''caf%C3%A9.txt").as_deref(),
+            Some("café.txt")
+        );
+        assert_eq!(
+            name("attachment; filename=a\\b.txt").as_deref(),
+            Some("a\\b.txt")
+        );
+    }
+
     /// The types of disposition that the tests send: the two a download answers, the one a
     /// browser's form sends, and one that no specification defines.
     const TYPES: [&str; 4] = [

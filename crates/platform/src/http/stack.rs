@@ -442,3 +442,22 @@ impl Extractor for Headers<'_> {
         self.0.keys().map(HeaderName::as_str).collect()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn platform_067_each_method_http_defines_is_named_and_any_other_is_other() {
+        for defined in [
+            "CONNECT", "DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT", "QUERY", "TRACE",
+        ] {
+            let method = Method::from_bytes(defined.as_bytes()).unwrap();
+            assert_eq!(method_name(&method), defined);
+        }
+        for other in ["PROPFIND", "get", "PURGE"] {
+            let method = Method::from_bytes(other.as_bytes()).unwrap();
+            assert_eq!(method_name(&method), OTHER, "{other}");
+        }
+    }
+}

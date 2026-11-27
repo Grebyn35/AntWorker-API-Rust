@@ -121,7 +121,69 @@ pub(super) fn unread(call: Call, what: &str) -> StorageError {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
     use super::*;
+    use crate::{clock::TestClock, storage::StorageConfig, types::Secret};
+
+    /// What the client reads of a page of the listing `call` that a bucket on the loopback
+    /// address answers with `page`, after the request's head.
+    async fn fetched_from(page: Vec<u8>, call: Call) -> Result<Vec<u8>, StorageError> {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut stream = BufReader::new(stream);
+            let mut line = String::new();
+            while stream.read_line(&mut line).await.unwrap_or(0) > 2 {
+                line.clear();
+            }
+            let head = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", page.len());
+            let stream = stream.get_mut();
+            // A client that stops reading closes the connection, which ends the writes.
+            if stream.write_all(head.as_bytes()).await.is_ok() {
+                stream.write_all(&page).await.unwrap_or_default();
+            }
+        });
+        let config = StorageConfig {
+            endpoint: endpoint.parse().unwrap(),
+            region: "us-east-1".to_owned(),
+            bucket: "files".to_owned(),
+            access_key_id: "an-id".to_owned(),
+            secret_access_key: Secret::new("a-secret".to_owned()),
+            path_style: true,
+            ca_path: None,
+        };
+        let storage = Storage::new(&config, Arc::new(TestClock::default())).unwrap();
+        fetched(&storage, endpoint.parse().unwrap(), call).await
+    }
+
+    /// Has a page of 8 MiB of the listing `call` read whole, and one of a byte more fail.
+    async fn reads_8_mib_and_no_more(call: Call) {
+        let most = 8 << 20;
+
+        let read = fetched_from(vec![b' '; most], call).await;
+        let over = fetched_from(vec![b' '; most + 1], call).await;
+
+        assert_eq!(read.map(|page| page.len()).ok(), Some(most));
+        assert!(
+            matches!(over, Err(StorageError::Failed(_))),
+            "{:?}",
+            over.map(|page| page.len())
+        );
+    }
+
+    #[tokio::test]
+    async fn platform_101_a_page_of_8_mib_is_read_and_one_of_a_byte_more_fails() {
+        reads_8_mib_and_no_more(Call::List).await;
+    }
+
+    #[tokio::test]
+    async fn platform_102_a_page_of_8_mib_is_read_and_one_of_a_byte_more_fails() {
+        reads_8_mib_and_no_more(Call::Versions).await;
+    }
 
     /// A page that lists `objects`, each given as the elements of its `Contents`, and `rest`
     /// after them.

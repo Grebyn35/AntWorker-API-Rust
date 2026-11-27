@@ -163,12 +163,6 @@ impl PartialSchema for AnyId {
     }
 }
 
-impl ToSchema for AnyId {
-    fn name() -> Cow<'static, str> {
-        Cow::Borrowed("AnyId")
-    }
-}
-
 /// How many characters a UUID holds in the form that the API reads.
 pub const ID_CHARS: usize = 36;
 
@@ -471,6 +465,7 @@ mod tests {
     #[test]
     fn sec_01_a_secret_never_prints_its_value() {
         let secret = Secret::new("hunter2".to_owned());
+        assert_eq!(format!("{secret:?}"), "Secret([redacted])");
         assert!(!format!("{secret:?}").contains("hunter2"));
         assert!(!format!("{secret:#?}").contains("hunter2"));
         assert_eq!(secret.expose(), "hunter2");
@@ -539,6 +534,7 @@ mod tests {
         for refused in [
             "2026-11-01T02:26:40.1234567Z",
             "2026-11-01T02:26:40.Z",
+            "2026-11-01T02:26:40250Z",
             "2026-11-01T02:26:40",
             "2026-11-01T02:26:40+00:00",
             "2026-11-01 02:26:40Z",

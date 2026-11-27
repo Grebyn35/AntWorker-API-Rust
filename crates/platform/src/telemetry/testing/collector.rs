@@ -127,7 +127,6 @@ pub fn text(value: &AnyValue) -> Option<String> {
     match value.value.as_ref()? {
         any_value::Value::StringValue(text) => Some(text.clone()),
         any_value::Value::IntValue(number) => Some(number.to_string()),
-        any_value::Value::BoolValue(boolean) => Some(boolean.to_string()),
         _ => None,
     }
 }

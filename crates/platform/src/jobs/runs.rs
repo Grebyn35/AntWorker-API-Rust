@@ -87,3 +87,59 @@ impl<C> Runs<C> {
         self.claims.into_values().collect()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use futures_util::FutureExt;
+    use tokio::sync::{oneshot, watch};
+
+    use super::Runs;
+
+    #[tokio::test]
+    async fn platform_016_the_runs_in_flight_count_until_each_ends() {
+        let mut runs = Runs::new();
+        let idle = runs.is_empty();
+        let (end, ended) = oneshot::channel::<()>();
+        runs.spawn("claim", async move { ended.await.unwrap() });
+        let (running, in_flight) = (runs.len(), runs.is_empty());
+
+        // The wait for a run to end goes on while the run does.
+        let waited = runs.next().now_or_never().is_none();
+        end.send(()).unwrap();
+        runs.next().await;
+
+        assert!(idle);
+        assert_eq!((running, in_flight), (1, false));
+        assert!(waited, "the wait ended while the run went on");
+        assert_eq!((runs.len(), runs.is_empty()), (0, true));
+    }
+
+    /// A value whose drop panics, as a run's cancellation may meet a panic.
+    struct PanicsWhenDropped;
+
+    impl Drop for PanicsWhenDropped {
+        #[expect(
+            clippy::panic,
+            reason = "the test's run panics as it is cancelled, as a run with a bug may"
+        )]
+        fn drop(&mut self) {
+            panic!("the run panicked as it was cancelled");
+        }
+    }
+
+    #[tokio::test]
+    async fn platform_018_a_run_that_panics_as_it_is_cancelled_is_left_to_its_lease() {
+        let mut runs = Runs::new();
+        runs.spawn("cancelled", std::future::pending());
+        let panics = PanicsWhenDropped;
+        runs.spawn("panics", async move {
+            let _panics = panics;
+            std::future::pending::<()>().await;
+        });
+        let (_passed, deadline) = watch::channel(true);
+
+        let released = runs.drain(deadline).await;
+
+        assert_eq!(released, ["cancelled"]);
+    }
+}

@@ -142,7 +142,38 @@ fn whole(content_range: &str) -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
+    use crate::{clock::TestClock, storage::StorageConfig, types::Secret};
+
+    #[tokio::test]
+    async fn platform_094_a_read_of_a_range_of_no_bytes_fails_before_any_request_is_sent() {
+        // Nothing listens on port 9 of the loopback address, so a request sent there fails as
+        // a bucket that didn't answer.
+        let config = StorageConfig {
+            endpoint: "http://127.0.0.1:9".parse().unwrap(),
+            region: "us-east-1".to_owned(),
+            bucket: "files".to_owned(),
+            access_key_id: "an-id".to_owned(),
+            secret_access_key: Secret::new("a-secret".to_owned()),
+            path_style: true,
+            ca_path: None,
+        };
+        let storage = Storage::new(&config, Arc::new(TestClock::default())).unwrap();
+        let key = ObjectKey::from_stored("avatars/0a");
+
+        let sent = storage.get(&key, Some(5..6)).await.err();
+
+        assert!(
+            matches!(sent, Some(StorageError::Unavailable(_))),
+            "{sent:?}"
+        );
+        for range in [5..5, Range { start: 6, end: 5 }, 0..0] {
+            let unsent = storage.get(&key, Some(range.clone())).await.err();
+            assert!(matches!(unsent, Some(StorageError::Failed(_))), "{range:?}");
+        }
+    }
 
     #[test]
     fn platform_094_an_object_s_size_is_the_length_that_a_head_s_answer_names_in_digits() {

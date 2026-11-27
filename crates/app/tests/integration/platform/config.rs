@@ -57,6 +57,26 @@ async fn ops_01_the_libpq_variables_of_what_a_url_gives_leave_its_connection_to_
     assert!(output.status.success(), "{output:?}");
 }
 
+#[tokio::test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a test may block (CODE-05), and writes the file that the binary reads"
+)]
+async fn ops_01_a_setting_is_read_from_the_file_that_its_file_setting_names() {
+    let db = TestDatabase::migrated().await;
+    let path = std::env::temp_dir().join(format!("{}-environment", db.name()));
+    std::fs::write(&path, "test\n").unwrap();
+    let env = [
+        ("ENVIRONMENT", ""),
+        ("ENVIRONMENT_FILE", path.to_str().unwrap()),
+    ];
+
+    let output = db.run_api(&["migrate"], &env).await;
+
+    std::fs::remove_file(&path).unwrap();
+    assert!(output.status.success(), "{output:?}");
+}
+
 /// Each setting of `.env.example` whose type is a whole number in a range, with its range.
 fn ranged_settings() -> Vec<(String, i64, i64)> {
     ranged(".env.example")

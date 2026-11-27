@@ -839,6 +839,8 @@ async fn sec_05_a_wrong_reset_code_makes_the_same_keyed_hashes_whether_an_accoun
         checks.push((status, api.keyed_hashes() - before));
     }
 
+    // The checks make keyed hashes, so that their counts compare their work.
+    assert!(checks[0].1 > 0, "{checks:?}");
     for (status, hashes) in &checks {
         assert_eq!(*status, 401);
         assert_eq!(*hashes, checks[0].1, "{checks:?}");

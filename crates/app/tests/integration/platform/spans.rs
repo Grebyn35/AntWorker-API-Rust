@@ -196,7 +196,7 @@ async fn around<T>(spans: &OpenSpans, work: impl Future<Output = T>) -> T {
 
 /// The advisory lock that a commit ordered with the events takes before it commits
 /// (PLATFORM-028): the bytes of `events`.
-const POSITION_LOCK: i64 = 0x6576_656e_7473;
+pub(super) const POSITION_LOCK: i64 = 0x6576_656e_7473;
 
 #[tokio::test]
 async fn platform_104_a_unit_of_work_s_span_lasts_until_it_has_committed() {

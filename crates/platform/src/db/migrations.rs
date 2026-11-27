@@ -334,7 +334,7 @@ fn modified(migrations: &Migrator, applied: &[AppliedMigration]) -> Vec<i64> {
 
 #[cfg(test)]
 mod tests {
-    use super::concurrent_index;
+    use super::{MigrateError, Versions, concurrent_index};
 
     #[test]
     fn platform_005_a_migration_outside_a_transaction_is_one_concurrent_build_of_an_index() {
@@ -352,6 +352,11 @@ mod tests {
             (
                 "CREATE INDEX CONCURRENTLY IF NOT EXISTS a_b_idx ON a (b) \
                  WHERE c = 'x; -- y' AND d = 'it''s'; -- done\n-- more\n",
+                "a_b_idx",
+            ),
+            // A `/` that starts no comment, and a `*` that follows none.
+            (
+                "CREATE INDEX CONCURRENTLY IF NOT EXISTS a_b_idx ON a ((b / 2)) WHERE c * 2 > 1;",
                 "a_b_idx",
             ),
         ] {
@@ -392,5 +397,17 @@ mod tests {
         ] {
             assert_eq!(concurrent_index(sql), None, "{sql}");
         }
+    }
+
+    #[test]
+    fn platform_006_the_refusal_names_each_migration_that_differs_by_its_version() {
+        let refused =
+            MigrateError::Modified(Versions(vec![20_260_101_000_000, 20_260_102_000_000]));
+
+        assert_eq!(
+            refused.to_string(),
+            "migrations 20260101000000, 20260102000000 differ from the copies already applied; \
+             restore the files and put the change in a new migration"
+        );
     }
 }

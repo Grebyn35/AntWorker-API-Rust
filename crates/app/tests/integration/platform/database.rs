@@ -166,7 +166,7 @@ async fn platform_001_the_refusal_names_every_way_the_role_breaks_the_rule() {
     let db = TestDatabase::migrated().await;
     let (role, url) = db.role("CREATEDB CREATEROLE").await;
     let expected = [
-        RoleProblem::NotApp(role),
+        RoleProblem::NotApp(role.clone()),
         RoleProblem::CreatesDatabases,
         RoleProblem::CreatesRoles,
     ];
@@ -178,9 +178,13 @@ async fn platform_001_the_refusal_names_every_way_the_role_breaks_the_rule() {
         "{refused:?}"
     );
     let message = refused.map(|error| error.to_string()).unwrap_or_default();
-    for problem in &expected {
-        assert!(message.contains(&problem.to_string()), "{message}");
-    }
+    assert_eq!(
+        message,
+        format!(
+            "DATABASE_URL connects as a role that can't serve: it is {role}, not app; it can \
+             create databases; it can create roles"
+        )
+    );
 }
 
 #[tokio::test]
@@ -249,6 +253,33 @@ async fn platform_002_after_bootstrap_the_roles_have_their_attributes_and_grants
     );
     assert!(grants.owner_connects && grants.app_connects && grants.owner_creates_objects);
     assert!(!grants.app_creates_temporary_tables && !grants.app_creates_objects);
+}
+
+#[tokio::test]
+async fn platform_002_bootstrap_refuses_urls_that_don_t_all_name_one_database() {
+    let db = TestDatabase::migrated().await;
+    let config = db.bootstrap_config();
+    let other = format!("{}_other", db.name());
+    let mut owner_elsewhere = db.bootstrap_config();
+    owner_elsewhere.owner = config.owner.with_database(&other);
+    let mut app_elsewhere = db.bootstrap_config();
+    app_elsewhere.app = config.app.with_database(&other);
+
+    let refused = db
+        .with_roles_locked(async {
+            [
+                platform::db::bootstrap(&owner_elsewhere, &Workers::new()).await,
+                platform::db::bootstrap(&app_elsewhere, &Workers::new()).await,
+            ]
+        })
+        .await;
+
+    for refused in refused {
+        assert!(
+            matches!(refused, Err(BootstrapError::DifferentDatabases)),
+            "{refused:?}"
+        );
+    }
 }
 
 #[tokio::test]

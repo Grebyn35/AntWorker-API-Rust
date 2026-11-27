@@ -2,11 +2,9 @@
 //! defines it, and the fingerprint of its request, which a unit of work claims as its first
 //! statement and completes at its commit ([the platform spec](../../../docs/spec/platform.md#idempotency)).
 
-use std::borrow::Cow;
-
 use sha2::{Digest, Sha256};
 use utoipa::{
-    PartialSchema, ToSchema,
+    PartialSchema,
     openapi::{ObjectBuilder, RefOr, Schema, Type},
 };
 
@@ -84,12 +82,6 @@ impl PartialSchema for IdempotencyKey {
             .schema_type(Type::String)
             .pattern(Some(r#"^ *"(?:[ !#-\[\]-~]|\\["\\]){1,255}" *$"#))
             .into()
-    }
-}
-
-impl ToSchema for IdempotencyKey {
-    fn name() -> Cow<'static, str> {
-        Cow::Borrowed("IdempotencyKey")
     }
 }
 

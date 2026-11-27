@@ -326,18 +326,54 @@ impl ExportArchive {
         document: &mut Document,
         at_least: usize,
     ) -> Result<(), Internal> {
-        loop {
-            let buffer = &mut document.deflated;
-            if buffer.len() < at_least || buffer.is_empty() {
-                return Ok(());
-            }
-            let rest = buffer.split_off(buffer.len().min(CHUNK));
-            let chunk = mem::replace(buffer, rest);
+        while let Some(chunk) = next_chunk(&mut document.deflated, at_least) {
             let offset = document.stored;
             document.stored += chunk.len() as u64;
             self.store
                 .chunk(uow, self.id, document.position, offset, chunk)
                 .await?;
         }
+        Ok(())
+    }
+}
+
+/// The first [`CHUNK`] bytes of `deflated`, or all of them when it holds fewer, taken from it once
+/// it holds `at_least` bytes or more, and one at least.
+fn next_chunk(deflated: &mut Vec<u8>, at_least: usize) -> Option<Vec<u8>> {
+    if deflated.len() < at_least || deflated.is_empty() {
+        return None;
+    }
+    let rest = deflated.split_off(deflated.len().min(CHUNK));
+    Some(mem::replace(deflated, rest))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The sizes of the chunks that a hand-over that waits for `at_least` bytes takes from
+    /// `deflated`, in their order.
+    fn handed(deflated: &mut Vec<u8>, at_least: usize) -> Vec<usize> {
+        std::iter::from_fn(|| next_chunk(deflated, at_least))
+            .map(|chunk| chunk.len())
+            .collect()
+    }
+
+    #[test]
+    fn platform_084_a_chunk_is_handed_over_once_it_fills_and_the_last_bytes_once_it_ends() {
+        // A write hands over each chunk that is full, of 1 MiB, and keeps what is less.
+        let mut deflated = vec![0; CHUNK - 1];
+        assert!(handed(&mut deflated, CHUNK).is_empty());
+        deflated.push(0);
+        assert_eq!(handed(&mut deflated, CHUNK), [CHUNK]);
+        let mut deflated = vec![0; 2 * CHUNK + 1];
+        assert_eq!(handed(&mut deflated, CHUNK), [CHUNK, CHUNK]);
+        assert_eq!(deflated.len(), 1);
+
+        // The document's end hands over the rest, however few its bytes.
+        assert_eq!(handed(&mut deflated, 1), [1]);
+        let mut deflated = vec![0; CHUNK + 1];
+        assert_eq!(handed(&mut deflated, 1), [CHUNK, 1]);
+        assert!(deflated.is_empty());
     }
 }

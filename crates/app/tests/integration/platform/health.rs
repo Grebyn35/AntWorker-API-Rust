@@ -7,6 +7,7 @@ use std::{
 };
 
 use http::StatusCode;
+use platform::telemetry::testing;
 use serde_json::{Value, json};
 
 use crate::support::{Api, CHECK_INTERVAL, TestDatabase, closed_port, http_request, run_binary};
@@ -69,6 +70,29 @@ async fn platform_061_readiness_follows_the_instance_s_own_database_connection()
         json!({"status": "database_unavailable"})
     );
     assert_eq!(recovered.status, StatusCode::OK);
+    // The hub runs on the test's own thread, so its lines are the test's (TEST-06).
+    let changes: Vec<String> = testing::logged_on_this_thread()
+        .into_iter()
+        .filter(|line| {
+            line["message"]
+                .as_str()
+                .is_some_and(|message| message.starts_with("the database "))
+        })
+        .map(|line| {
+            format!(
+                "{} {}",
+                line["level"].as_str().unwrap_or("-"),
+                line["message"].as_str().unwrap_or("-")
+            )
+        })
+        .collect();
+    assert_eq!(
+        changes,
+        [
+            "WARN the database stopped answering",
+            "INFO the database answers again"
+        ]
+    );
 }
 
 #[tokio::test]

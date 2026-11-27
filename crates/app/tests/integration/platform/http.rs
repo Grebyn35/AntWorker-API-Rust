@@ -259,6 +259,32 @@ async fn platform_045_a_documented_query_parameter_passes() {
 }
 
 #[tokio::test]
+async fn platform_045_a_query_parameter_named_as_a_path_parameter_or_a_header_is_refused() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let acme = workspaces::arrange(api.database(), "Acme", &[(&ada.user_id, "owner")]).await;
+
+    // The rename's documentation lists `workspace_id` in its path and `If-Match` among its
+    // headers.
+    let response = api
+        .patch(
+            &format!("/v1/workspaces/{acme}?workspace_id={acme}&If-Match=%221%22"),
+            &json!({ "name": "Renamed" }),
+        )
+        .bearer(&ada.access)
+        .send()
+        .await;
+
+    assert_eq!(
+        response.refused_parameters(),
+        [
+            ("/If-Match".to_owned(), "unknown".to_owned()),
+            ("/workspace_id".to_owned(), "unknown".to_owned()),
+        ]
+    );
+}
+
+#[tokio::test]
 async fn platform_092_a_json_body_that_names_a_member_twice_answers_400() {
     let api = Api::new().await;
     let twice = format!(
@@ -889,6 +915,37 @@ async fn platform_097_a_foreign_key_s_failure_stays_an_internal_error_while_the_
         .map(|line| line["level"].clone())
         .collect();
     assert_eq!(levels, ["ERROR", "INFO"]);
+}
+
+#[tokio::test]
+async fn platform_097_an_internal_error_that_no_foreign_key_caused_stays_once_the_session_is_gone()
+{
+    let api = fixtures::api().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let db = api.database();
+    // The keyed route's insert of its event waits for the events that the test holds, while the
+    // test ends Ada's session.
+    let mut events = db
+        .holding("LOCK TABLE events IN ACCESS EXCLUSIVE MODE")
+        .await;
+    let failing = api.spawn(
+        Method::POST,
+        "/v1/keyed",
+        &ada.access,
+        Some(json!({ "value": "a", "fail": true })),
+    );
+    query_waits_on_a_lock(db, "INSERT INTO events").await;
+    db.owner_executes(&format!(
+        "DELETE FROM sessions WHERE user_id = '{}'",
+        ada.user_id
+    ))
+    .await;
+    execute_on(&mut events, "ROLLBACK").await;
+    let (status, body) = failing.await.unwrap();
+
+    // The route fails once its event is written, which no foreign key refused.
+    assert_eq!(status, 500);
+    assert_eq!(body["code"], "request.internal_error");
 }
 
 /// How many failed checks of a session the process has counted as ignored errors (ERR-11).

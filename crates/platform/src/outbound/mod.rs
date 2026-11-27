@@ -329,6 +329,46 @@ mod tests {
         assert_eq!(target.as_str(), "http://127.0.0.1:4000/user/emails?page=1");
     }
 
+    #[test]
+    fn sec_01_a_request_prints_its_method_and_host_alone() {
+        let request = Request::post("https://provider.example.com/token?state=the-state")
+            .header("x-code", "the-header")
+            .basic("the-client", &Secret::new("the-password".to_owned()))
+            .form(&[("code", "the-code")]);
+
+        let printed = format!("{request:?}");
+
+        assert!(printed.contains("POST"), "{printed}");
+        assert!(printed.contains("provider.example.com"), "{printed}");
+        for hidden in [
+            "/token",
+            "the-state",
+            "the-header",
+            "the-client",
+            "the-password",
+            "the-code",
+        ] {
+            assert!(!printed.contains(hidden), "{hidden}: {printed}");
+        }
+        let bearer = Request::get("https://provider.example.com/user")
+            .bearer(Secret::new("the-token".to_owned()));
+        assert!(!format!("{bearer:?}").contains("the-token"));
+    }
+
+    #[test]
+    fn sec_01_a_response_prints_its_status_and_its_body_s_length_alone() {
+        let response = Response {
+            status: 200,
+            body: br#"{"access_token":"the-token"}"#.to_vec(),
+        };
+
+        let printed = format!("{response:?}");
+
+        assert!(printed.contains("status: 200"), "{printed}");
+        assert!(printed.contains("body_bytes: 28"), "{printed}");
+        assert!(!printed.contains("the-token"), "{printed}");
+    }
+
     /// The test that runs in a process whose environment names a proxy, by its path.
     const PAST_A_PROXY: &str =
         "outbound::tests::sec_10_each_client_reaches_a_local_server_while_a_proxy_is_named";

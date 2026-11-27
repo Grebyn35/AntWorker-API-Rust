@@ -14,7 +14,10 @@ use opentelemetry_proto::tonic::{
 };
 use platform::{
     clock::TestClock,
-    telemetry::{OtlpEndpoint, Relay, RelayError, Signal, testing::collector::Collector},
+    telemetry::{
+        OtlpEndpoint, Relay, RelayError, Signal,
+        testing::{collector::Collector, spans::EndedSpans},
+    },
 };
 use serde_json::json;
 
@@ -314,6 +317,11 @@ async fn client_telemetry_006_a_body_that_isn_t_a_batch_is_refused_and_counts_in
         assert_eq!(refused.status, 400);
         assert_eq!(refused.json()["code"], "request.invalid_body");
     }
+    assert_eq!(
+        other_coding.json()["detail"],
+        "The body must be sent as gzip, or with no Content-Encoding."
+    );
+    assert_eq!(not_gzip.json()["detail"], "The body isn't valid gzip.");
     for refused in [&too_large, &inflates_too_large, &too_large_without_consent] {
         assert_eq!(refused.status, 413);
         assert_eq!(refused.json()["code"], "request.payload_too_large");
@@ -900,6 +908,26 @@ async fn platform_091_forward_posts_the_batch_to_its_signal_s_path_and_a_2xx_tak
         })
         .collect();
     assert_eq!(received, sent);
+}
+
+#[tokio::test]
+async fn platform_091_forward_sends_in_a_client_span_named_post_with_the_endpoint_s_host() {
+    let collector = collector().await;
+    let relay = relay(&collector.collector_endpoint(), &Arc::default());
+    let spans = EndedSpans::default();
+    let on_this_thread = tracing::dispatcher::set_default(&spans.dispatch());
+
+    let forwarded = relay
+        .forward(Signal::Traces, PROTOBUF, Bytes::from_static(BATCH))
+        .await;
+    drop(on_this_thread);
+
+    assert!(forwarded.is_ok(), "{forwarded:?}");
+    assert_eq!(
+        spans.attributes("POST", "server.address"),
+        [Some("127.0.0.1".to_owned())]
+    );
+    assert_eq!(spans.kinds("POST"), ["client"]);
 }
 
 #[tokio::test]

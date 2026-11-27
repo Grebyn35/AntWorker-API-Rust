@@ -166,6 +166,8 @@ mod tests {
     fn platform_076_the_uri_style_is_host_or_path() {
         let path = changed("", &[("S3_URI_STYLE", "path")]);
         assert!(read(Environment::Production, &path).unwrap().path_style);
+        let host = changed("", &[("S3_URI_STYLE", "host")]);
+        assert!(!read(Environment::Production, &host).unwrap().path_style);
         let other = changed("", &[("S3_URI_STYLE", "virtual")]);
         assert!(read(Environment::Production, &other).is_err());
     }

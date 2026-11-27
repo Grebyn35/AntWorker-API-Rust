@@ -132,3 +132,29 @@ impl Committed {
         id == self.own || self.snapshot.includes(id)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn platform_029_a_workspace_event_reaches_a_member_who_joined_before_it_or_in_its_transaction()
+    {
+        let workspace = WorkspaceId::from_uuid(uuid::Uuid::from_u128(1));
+        // The event's transaction is 110, whose commit's snapshot holds as completed those below
+        // 100, and those from 100 to 109 but 104, which was still running.
+        let committed = Committed::parse("110", "100:110:104").unwrap();
+        let reaches = |joined: u64| {
+            let mut memberships = Memberships::default();
+            memberships.insert(workspace, joined, &["members.read"]);
+            memberships.admits(workspace, "members.read", &committed)
+        };
+
+        let reached: Vec<u64> = [99, 104, 105, 110, 111]
+            .into_iter()
+            .filter(|joined| reaches(*joined))
+            .collect();
+
+        assert_eq!(reached, [99, 105, 110]);
+    }
+}

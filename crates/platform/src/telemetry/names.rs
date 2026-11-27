@@ -140,3 +140,21 @@ pub const MIGRATION_VERSIONS: &str = "migration.versions";
 pub const DATABASE_CONNECTIONS: &str = "database.connections";
 /// How many CPU-heavy works an instance runs at once, at most (PLATFORM-060).
 pub const WORKERS_TURNS: &str = "workers.turns";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn obs_05_convention_refuses_a_name_that_differs_from_the_published_one_in_its_last_character()
+    {
+        let refused =
+            std::panic::catch_unwind(|| convention("server.addresz", otel::SERVER_ADDRESS));
+
+        assert!(refused.is_err());
+        assert_eq!(
+            convention("server.address", otel::SERVER_ADDRESS),
+            "server.address"
+        );
+    }
+}

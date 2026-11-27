@@ -1,22 +1,23 @@
 //! The real-time hub (the platform spec's "Events and the real-time hub"): who receives what, in
 //! which order, and when a stream closes, through the stream itself (TEST-07); the trace ID that
 //! a stream reads of an event, and the trace that its delivery links to (PLATFORM-095, OBS-07);
-//! what the hub loads and records (PLATFORM-027, PLATFORM-034, PLATFORM-035); the connections
-//! that its checks open (OPS-18); the sweep of old events (PLATFORM-019); and a wait for a line
-//! of the hub (TEST-06).
+//! what the hub loads and records (PLATFORM-027, PLATFORM-034, PLATFORM-035, PLATFORM-069); the
+//! connections that its checks open (OPS-18); the sweep of old events (PLATFORM-019); and a wait
+//! for a line of the hub, and the head that a test reads (TEST-06).
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use http::StatusCode;
-use platform::{telemetry::testing, types::UserId};
+use platform::{clock::TestClock, lifecycle::Readiness, telemetry::testing, types::UserId};
 use serde_json::json;
 
+use super::spans::POSITION_LOCK;
 use crate::support::{
-    Api, CHECK_INTERVAL, Options, Proxy,
+    Api, CHECK_INTERVAL, Options, Proxy, TestDatabase,
     announcements::{self, Note, published::NOTED},
     client,
     events::{self, Event},
-    hex,
+    execute_on, hex, queries_waiting_on_locks, query_waits_on_a_lock,
     streams::{self, Stream},
     users, workspaces,
 };
@@ -1241,10 +1242,252 @@ async fn test_06_a_wait_for_a_line_of_the_hub_ends_on_no_line_of_another_test() 
     assert!(!logged("the hub couldn't load events"));
 }
 
+#[tokio::test]
+async fn platform_028_a_commit_that_publishes_waits_for_the_lock_of_the_commits_that_publish() {
+    let api = announcements::api().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let user = UserId::from_uuid(ada.user_id.parse().unwrap());
+    let db = api.database();
+    // As a commit that publishes holds it while it positions its events.
+    let mut held = db
+        .holding(&format!("SELECT pg_advisory_xact_lock({POSITION_LOCK})"))
+        .await;
+    let pool = api.pool().clone();
+
+    let committing = tokio::spawn(async move {
+        let mut uow = pool.begin(&client(), None).await?;
+        uow.publish_to_user(&NOTED, user, &note("waits")).await?;
+        uow.commit().await
+    });
+    let waited = loop {
+        if committing.is_finished() {
+            break false;
+        }
+        let waiting = queries_waiting_on_locks(db).await;
+        if waiting
+            .iter()
+            .any(|query| query.contains("pg_advisory_xact_lock"))
+        {
+            break true;
+        }
+        tokio::task::yield_now().await;
+    };
+    execute_on(&mut held, "COMMIT").await;
+    let committed = committing.await.unwrap();
+
+    assert!(waited, "the commit ended without the lock");
+    assert!(committed.is_ok(), "{committed:?}");
+}
+
+#[tokio::test]
+async fn platform_028_a_stream_that_resumes_past_its_hub_s_head_skips_what_its_client_has() {
+    let api = announcements::api().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    api.hub_holds_what_committed().await;
+    // An event that commits with no notification, which no hub loads until a later one comes, as
+    // the hub of a replica lags behind the one whose stream delivered it.
+    api.database()
+        .owner_executes(&events::statement(
+            &[Event::to_user(&ada.user_id, r#"{"label": "received"}"#)],
+            false,
+        ))
+        .await;
+    let received = api
+        .database()
+        .owner_reads("SELECT id::text FROM events ORDER BY position DESC LIMIT 1")
+        .await
+        .remove(0);
+    let bearer = format!("Bearer {}", ada.access);
+    let resumed = [
+        ("authorization", bearer.as_str()),
+        ("last-event-id", received.as_str()),
+    ];
+    let mut stream = streams::open(&api, &resumed).await.stream().unwrap();
+    stream.opened().await;
+
+    // The hub loads both events at this one's notification.
+    announcements::announce(&api, &ada, 1).await;
+    let next = stream.event().await;
+
+    assert_eq!(next.event.as_deref(), Some("announcement.made"));
+}
+
+#[tokio::test]
+async fn platform_031_a_session_that_ends_while_its_stream_opens_closes_the_stream_before_any_event()
+ {
+    let api = announcements::api().await;
+    let name = api.database().name().to_owned();
+    let ended = || {
+        testing::recorded("platform.stream_closes")
+            .into_iter()
+            .find(|point| {
+                point.labels.get("db.namespace") == Some(&name)
+                    && point.labels["stream.close_reason"] == "session_ended"
+            })
+            .map(|point| point.value)
+    };
+    let ada = users::register(&api, "ada@example.com").await;
+    let other = users::new_session(&api, "ada@example.com").await;
+    announcements::announce(&api, &ada, 1).await;
+    let last = api
+        .database()
+        .owner_reads("SELECT id::text FROM events ORDER BY position DESC LIMIT 1")
+        .await
+        .remove(0);
+    // The stream reads its caller's memberships once the hub holds it, which waits for this lock.
+    let mut held = api
+        .database()
+        .holding("LOCK TABLE workspace_memberships IN ACCESS EXCLUSIVE MODE")
+        .await;
+    let bearer = format!("Bearer {}", ada.access);
+    let resumed = [
+        ("authorization", bearer.as_str()),
+        ("last-event-id", last.as_str()),
+    ];
+
+    let (opened, signed_out) = tokio::join!(streams::open(&api, &resumed), async {
+        query_waits_on_a_lock(api.database(), "FROM workspace_memberships").await;
+        let signed_out = users::sign_out(&api).bearer(&ada.access).send().await;
+        // An event after the session's end, which its replay would hold.
+        announcements::announce(&api, &other, 1).await;
+        while ended() != Some(1.0) {
+            tokio::task::yield_now().await;
+        }
+        execute_on(&mut held, "ROLLBACK").await;
+        signed_out
+    });
+    let mut stream = opened.stream().unwrap();
+    stream.opened().await;
+    let (before, reason) = stream.closed().await;
+
+    assert_eq!(signed_out.status, StatusCode::NO_CONTENT);
+    assert!(before.is_empty(), "{before:?}");
+    assert_eq!(reason, "session_ended");
+}
+
+#[tokio::test]
+async fn platform_033_a_load_that_fails_is_tried_again_after_a_reconnect_that_finds_no_event_past_the_head()
+ {
+    let api = announcements::api().await;
+    let clock = api.clock();
+    let name = api.database().name().to_owned();
+    let unloaded = || {
+        testing::recorded("platform.events_unloaded")
+            .into_iter()
+            .find(|point| point.labels.get("db.namespace") == Some(&name))
+            .map(|point| point.value)
+    };
+    let ada = users::register(&api, "ada@example.com").await;
+    api.hub_holds_what_committed().await;
+    clock.sleeping(CHECK_INTERVAL).await;
+    // Every pooled connection is held, so the hub's load waits out the pool and fails.
+    let held = api.every_connection().await;
+    api.database()
+        .owner_executes(&events::statement(
+            &[Event::to_user(&ada.user_id, "{}")],
+            true,
+        ))
+        .await;
+    while !unloaded().is_some_and(|owed| owed > 0.0) {
+        tokio::task::yield_now().await;
+    }
+    drop(held);
+
+    // The event goes while the listener is lost, as with its user's account, so the log's head
+    // that the reconnect reads is the hub's own.
+    lose_the_connection(
+        &api,
+        "DELETE FROM events WHERE position = (SELECT max(position) FROM events)",
+    )
+    .await;
+    clock.sleeping(CHECK_INTERVAL).await;
+    clock.advance(CHECK_INTERVAL);
+    clock.sleeping(CHECK_INTERVAL).await;
+
+    // The check after the reconnect makes the load, which owes nothing once it reaches the
+    // position that the notification named (PLATFORM-035).
+    assert_eq!(unloaded(), Some(0.0));
+}
+
+#[tokio::test]
+async fn platform_069_the_database_gauge_follows_each_check_once_the_streams_have_closed() {
+    let api = announcements::api().await;
+    let clock = api.clock();
+    let name = api.database().name().to_owned();
+    let reachable = || {
+        testing::recorded("platform.database_reachable")
+            .into_iter()
+            .find(|point| point.labels.get("db.namespace") == Some(&name))
+            .map(|point| point.value)
+    };
+    let ada = users::register(&api, "ada@example.com").await;
+    let mut stream = streams::opened(&api, &ada).await;
+    clock.sleeping(CHECK_INTERVAL).await;
+
+    api.readiness().stop();
+    let (_, reason) = stream.closed().await;
+    api.database().cut_off_app().await;
+    clock.advance(CHECK_INTERVAL);
+    // A hub whose task ended would sleep no more, and a panic writes its line (ERR-12).
+    let checked = tokio::select! {
+        () = clock.sleeping(CHECK_INTERVAL) => true,
+        () = error_logged() => false,
+    };
+
+    assert_eq!(reason, "shutdown");
+    assert!(
+        checked,
+        "the hub stopped checking once it closed its streams"
+    );
+    assert_eq!(reachable(), Some(0.0));
+}
+
+#[tokio::test]
+async fn test_06_a_test_reads_the_hub_s_head_as_the_last_position_it_loaded() {
+    let db = TestDatabase::migrated().await;
+    let application = crate::support::api::application(
+        &db.app().await,
+        Options::default(),
+        Arc::new(TestClock::default()),
+        Readiness::new(),
+    )
+    .await;
+    let user = users::without_password(&db, "ada@example.com").await;
+    let started = application.hub.head().await;
+
+    db.owner_executes(&events::statement(&[Event::to_user(&user, "{}")], true))
+        .await;
+    let newest: i64 = db
+        .owner_reads("SELECT max(position)::text FROM events")
+        .await
+        .remove(0)
+        .parse()
+        .unwrap();
+    // The hub loads the event once its notification reaches it.
+    let mut head = application.hub.head().await;
+    while head.is_some_and(|head| head < newest) {
+        tokio::task::yield_now().await;
+        head = application.hub.head().await;
+    }
+
+    assert_eq!(started, Some(0));
+    assert_eq!(head, Some(newest));
+}
+
 /// Whether the hub of this test has logged `message`: its runtime runs the hub on the test's own
 /// thread, so that a line of another test's hub ends no wait of this one (TEST-06).
 fn logged(message: &str) -> bool {
     testing::logged_on_this_thread()
         .iter()
         .any(|line| line["message"] == message)
+}
+
+/// Completes once a line at `ERROR` of this test's own is logged, as a panic's is (ERR-12).
+async fn error_logged() {
+    while !testing::logged_on_this_thread()
+        .iter()
+        .any(|line| line["level"] == "ERROR")
+    {
+        tokio::task::yield_now().await;
+    }
 }

@@ -390,4 +390,24 @@ mod tests {
 
         assert_eq!(others, [("device_token_ab", "two")]);
     }
+
+    #[test]
+    fn obs_04_cookies_print_their_names_and_none_of_their_values() {
+        let mut headers = HeaderMap::new();
+        headers.append(
+            header::COOKIE,
+            HeaderValue::from_static("__Host-access_token=secret-token; theme=dark-mode"),
+        );
+        let cookies = Cookies {
+            pairs: pairs(&headers),
+            may_authenticate: true,
+        };
+
+        let printed = format!("{cookies:?}");
+
+        assert!(printed.contains("__Host-access_token"), "{printed}");
+        assert!(printed.contains("theme"), "{printed}");
+        assert!(!printed.contains("secret-token"), "{printed}");
+        assert!(!printed.contains("dark-mode"), "{printed}");
+    }
 }

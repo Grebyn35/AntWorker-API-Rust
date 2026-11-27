@@ -34,6 +34,21 @@ async fn auth_009_a_request_without_a_valid_access_token_answers_401() {
 }
 
 #[tokio::test]
+async fn auth_009_an_access_token_under_another_scheme_than_bearer_answers_401() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+
+    let response = api
+        .get("/v1/users/me")
+        .header("authorization", &format!("Basic {}", ada.access))
+        .send()
+        .await;
+
+    assert_eq!(response.status, 401);
+    assert_eq!(response.json()["code"], "request.unauthenticated");
+}
+
+#[tokio::test]
 async fn auth_009_an_expired_access_token_answers_its_own_401() {
     let api = Api::new().await;
     let ada = users::register(&api, "ada@example.com").await;

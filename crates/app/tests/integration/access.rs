@@ -3,13 +3,14 @@
 
 use futures_util::future::BoxFuture;
 use http::{Method, StatusCode};
+use platform::telemetry::testing::collector::Collector;
 use serde_json::json;
 
 use crate::support::{
     Api, Options, TestDatabase,
     api::Response,
     api::call,
-    execute_on, fixtures, queries_wait_on_locks, query_waits_on_a_lock,
+    counts, execute_on, fixtures, queries_wait_on_locks, query_waits_on_a_lock,
     users::{self, SignedIn},
     workspaces,
 };
@@ -396,6 +397,55 @@ async fn platform_010_a_rank_refusal_records_itself_and_rolls_the_operation_back
         .owner_reads("SELECT action FROM audit_entries WHERE workspace_id IS NOT NULL")
         .await;
     assert_eq!(actions, ["access.denied"]);
+}
+
+#[tokio::test]
+async fn platform_110_authorization_counts_each_refusal_by_why() {
+    let api = Api::new().await;
+    let owner = users::register(&api, "owner@example.com").await;
+    let admin = users::register(&api, "admin@example.com").await;
+    let member = users::register(&api, "member@example.com").await;
+    let stranger = users::register(&api, "stranger@example.com").await;
+    let db = api.database();
+    let workspace = workspaces::arrange(db, "Acme", &[(&owner.user_id, "owner")]).await;
+    workspaces::join(db, &workspace, &admin.user_id, "admin").await;
+    workspaces::join(db, &workspace, &member.user_id, "member").await;
+    let members = format!("/v1/workspaces/{workspace}/members");
+    let remove_owner = format!("{members}/{}", owner.user_id);
+    // A `serve` of the test's own, which exports to the stand-in collector, so that no other
+    // test's refusals reach what it counts (TEST-07).
+    let collector = Collector::start().await.unwrap();
+    let endpoint = collector.endpoint();
+    let server = db
+        .serve(&[
+            ("ENVIRONMENT", "test"),
+            ("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint.as_str()),
+        ])
+        .await;
+
+    // A stranger's read, and the owner's removal by a member, whose role doesn't allow it, and
+    // by an admin, whose rank doesn't.
+    let mut statuses = Vec::new();
+    for (method, path, caller) in [
+        ("GET", &members, &stranger),
+        ("DELETE", &remove_owner, &member),
+        ("DELETE", &remove_owner, &admin),
+    ] {
+        let bearer = format!("Bearer {}", caller.access);
+        let headers = [("authorization", bearer.as_str())];
+        statuses.push(server.send(method, path, &headers, b"").await.0);
+    }
+    server.stop().await;
+
+    assert_eq!(statuses, [404, 403, 403]);
+    assert_eq!(
+        counts::of(
+            &collector.received(),
+            "platform.authorization_refusals",
+            "authorization.reason"
+        ),
+        ["not_member 1", "permission 1", "rank 1"]
+    );
 }
 
 #[tokio::test]

@@ -485,6 +485,34 @@ mod tests {
     }
 
     #[test]
+    fn platform_083_no_piece_of_any_range_is_empty() {
+        // An entry stored as it is, one that stores no bytes, and one deflated: a range that ends
+        // where an entry's bytes start, or that holds the entry of no bytes, covers none of them.
+        let entries: Vec<Entry> = [
+            ("a", b"abcde".as_slice(), false),
+            ("b", b"".as_slice(), false),
+            ("c", b"abcde".as_slice(), true),
+        ]
+        .into_iter()
+        .map(|(path, bytes, deflated)| entry(path, bytes, deflated).0)
+        .collect();
+        let layout = Layout::new(entries, at());
+        let size = layout.size();
+
+        for start in 0..size {
+            for end in start + 1..=size {
+                for piece in layout.pieces(start..end) {
+                    let empty = match piece {
+                        Piece::Bytes(bytes) => bytes.is_empty(),
+                        Piece::Entry { offsets, .. } => offsets.is_empty(),
+                    };
+                    assert!(!empty, "{start}..{end}");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn platform_083_the_same_entries_at_the_same_time_give_the_same_bytes() {
         let (entries, stored, _) = three();
         let first = Layout::new(entries.clone(), at());
@@ -528,6 +556,105 @@ mod tests {
             )
         );
         assert_eq!(file.unix_mode(), Some(0o100_644));
+    }
+
+    /// The time that a ZIP reader reads of the one entry of an archive made at `time`, as its
+    /// year, month, day, hour, minute and second, if it reads one.
+    fn modified(time: OffsetDateTime) -> Option<(u16, u8, u8, u8, u8, u8)> {
+        let (entry, stored) = entry("0", b"", false);
+        let layout = Layout::new(vec![entry], time);
+        let archive = bytes(&layout, &[stored], 0..layout.size());
+        let mut zip = zip::ZipArchive::new(Cursor::new(archive)).unwrap();
+        let modified = zip.by_index(0).unwrap().last_modified()?;
+        Some((
+            modified.year(),
+            modified.month(),
+            modified.day(),
+            modified.hour(),
+            modified.minute(),
+            modified.second(),
+        ))
+    }
+
+    #[test]
+    fn platform_083_a_time_in_1980_is_its_own_and_one_before_1980_is_1980_s_first_moment() {
+        let utc = |year, month, day, (hour, minute, second)| {
+            time::Date::from_calendar_date(year, month, day)
+                .unwrap()
+                .with_hms(hour, minute, second)
+                .unwrap()
+                .assume_utc()
+        };
+
+        let in_1980 = modified(utc(1980, time::Month::June, 15, (12, 34, 56)));
+        let before = modified(utc(1979, time::Month::December, 31, (23, 59, 59)));
+
+        assert_eq!(in_1980, Some((1980, 6, 15, 12, 34, 56)));
+        assert_eq!(before, Some((1980, 1, 1, 0, 0, 0)));
+    }
+
+    #[test]
+    fn platform_083_zip64_s_end_record_names_unix_and_version_4_5() {
+        // Three entries pass a count of 2, so ZIP64's end record stands, of 56 bytes, before its
+        // locator, of 20, and the end record, of 22.
+        let entries: Vec<Entry> = (0..3)
+            .map(|index| entry(&index.to_string(), b"", false).0)
+            .collect();
+        let limits = Limits {
+            field: Limits::FORMAT.field,
+            count: 2,
+        };
+
+        let layout = Layout::with_limits(entries, at(), limits);
+
+        let directory = &layout.directory;
+        let record = directory.len() - 22 - 20 - 56;
+        assert_eq!(u32_at(directory, record), ZIP64_END);
+        // The version that made it, Unix's 3 in its upper byte and 4.5 in its lower, then the
+        // version needed to extract it.
+        assert_eq!(u16_at(directory, record + 12), (3 << 8) | 45);
+        assert_eq!(u16_at(directory, record + 14), 45);
+    }
+
+    #[test]
+    fn platform_083_a_directory_s_header_gives_each_value_that_passes_in_one_zip64_field() {
+        // Two entries of 150 bytes, stored as they are, under a field of 100: the first passes it
+        // by its size and its stored size, and the second by those and its offset, 201, after
+        // the first's local header, of 51 bytes with ZIP64's field, and its bytes.
+        let limits = Limits {
+            field: 100,
+            count: Limits::FORMAT.count,
+        };
+        let content = vec![b'x'; 150];
+        let (entries, stored): (Vec<_>, Vec<_>) = ["0", "1"]
+            .into_iter()
+            .map(|path| entry(path, &content, false))
+            .unzip();
+
+        let layout = Layout::with_limits(entries, at(), limits);
+
+        // Each directory's header: its 46 bytes, its name of one byte, then ZIP64's field, its
+        // ID, the length of its values, and the values.
+        let directory = &layout.directory;
+        let second = 46 + 1 + 4 + 2 * 8;
+        for (start, values) in [(0, vec![150, 150]), (second, vec![150, 150, 201])] {
+            let header = &directory[start..];
+            let length = values.len() * 8;
+            assert_eq!(usize::from(u16_at(header, 30)), 4 + length, "{start}");
+            assert_eq!(u16_at(header, 47), ZIP64_EXTRA, "{start}");
+            assert_eq!(usize::from(u16_at(header, 49)), length, "{start}");
+            let held: Vec<u64> = header[51..51 + length]
+                .chunks(8)
+                .map(|value| u64::from_le_bytes(value.try_into().unwrap()))
+                .collect();
+            assert_eq!(held, values, "{start}");
+        }
+        let archive = bytes(&layout, &stored, 0..layout.size());
+        let read: Vec<Vec<u8>> = read_back(archive)
+            .into_iter()
+            .map(|(_, bytes, _)| bytes)
+            .collect();
+        assert_eq!(read, [content.clone(), content]);
     }
 
     #[test]
