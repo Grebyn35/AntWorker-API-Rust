@@ -4,7 +4,7 @@ Tracks the rewrite from `AntWorker-API` (commit `0210895`) to this repository. I
 
 ## Current work
 
-**Now:** step 6.4, the ADRs ([Build order](#build-order)). Step 6.3 is done: the probe of the tests (D254, D255) worked every module's list, its review ended `clean`, and the triage of what was found beside the lists ended its review at six passes; the probe's branches are deleted. Nothing awaits the owner. Each development database is recreated, since five migrations' comments changed ([the guide](guides/adding-a-module.md#migrations-and-the-query-cache)), and each `.env` sets `SHUTDOWN_DRAIN_SECONDS` to 70 or more, or leaves it out (D226), and `SIGN_IN_ATTEMPTS` to at most half `SIGN_IN_EMAIL_ATTEMPTS` (AUTH-006). This repository turns private, as the template, once the migration closes, and its `SECURITY.md` then names an address the owner gives (D208). The weekly rescan fails until the next release. The trial server runs 0.1.0-rc.11; its Grafana Cloud alerts reach no contact point. Its next release needs a B2 files bucket as [deploy.md](operations/deploy.md) asks, then `just server-setup` and `--allow-restart`, and first proves on B2 the buckets' check, the scanner's start, Caddy's certificates, a signed upload, `just restore-files`, a restore's downtime, and a second restore.
+**Now:** step 6.4, the ADRs ([Build order](#build-order)). Step 6.3 is done: the probe of the tests (D254, D255) worked every module's list, its review ended `clean`, and the triage of what was found beside the lists ended its review at six passes, with one known gap; the probe's branches are deleted. Nothing awaits the owner. Each development database is recreated, since five migrations' comments changed ([the guide](guides/adding-a-module.md#migrations-and-the-query-cache)), and each `.env` sets `SHUTDOWN_DRAIN_SECONDS` to 70 or more, or leaves it out (D226), and `SIGN_IN_ATTEMPTS` to at most half `SIGN_IN_EMAIL_ATTEMPTS` (AUTH-006). This repository turns private, as the template, once the migration closes, and its `SECURITY.md` then names an address the owner gives (D208). The weekly rescan fails until the next release. The trial server runs 0.1.0-rc.11; its Grafana Cloud alerts reach no contact point. Its next release needs a B2 files bucket as [deploy.md](operations/deploy.md) asks, then `just server-setup` and `--allow-restart`, and first proves on B2 the buckets' check, the scanner's start, Caddy's certificates, a signed upload, `just restore-files`, a restore's downtime, and a second restore.
 
 ## Build order
 
@@ -114,6 +114,7 @@ Built code that doesn't follow a rule or a behavior yet ([Changing a rule](stand
 
 | Rule or behavior | Built code that doesn't follow it | Closed by |
 |---|---|---|
+| TEST-01, PLATFORM-003 | No test holds PLATFORM-003's case of a database that `app` owns: one on the tests' Postgres makes each connection as `app` there fail its check of the role, which reads what `app` owns anywhere on the server, so the tests that run beside it fail, as CI run 46142297970's `platform_100_` test did | 6.4, by a test on a Postgres that no other test uses at the same time, such as the end-to-end server's |
 
 ## Rule proposals
 
@@ -300,7 +301,7 @@ Each pass of each review, run with the `conformance-review` skill in `.claude/sk
 | The triage of what was found beside the probe's lists (step 6.3) at c4f625dd: the scope of the second pass, and c4f625dd, which acted on it | 3 | 3 (3, 1, 1 shared) | 2 | 0 | `next pass`: bf739c8d |
 | The triage of what was found beside the probe's lists (step 6.3) at bf739c8d: the scope of the third pass, and bf739c8d, which acted on it | 4 | 3 (2, 1, 0 shared) | 2 | 1 | `next pass`: 674ac865 |
 | The triage of what was found beside the probe's lists (step 6.3) at 674ac865: the scope of the fourth pass, and 674ac865, which acted on it | 5 | 2 (2, 0, 0 shared) | 2 | 0 | `next pass`: 9b9dcc41 |
-| The triage of what was found beside the probe's lists (step 6.3) at 9b9dcc41: the scope of the fifth pass, and 9b9dcc41, which acted on it; its sixth pass and its last | 6 | 3 (2, 1, 0 shared) | 3 | 1 | `stopped: six passes`: d8d781d8 |
+| The triage of what was found beside the probe's lists (step 6.3) at 9b9dcc41: the scope of the fifth pass, and 9b9dcc41, which acted on it; its sixth pass and its last | 6 | 3 (2, 1, 0 shared) | 3 | 1 | `stopped: six passes`: d8d781d8, and a known gap for its third |
 
 ### The areas of the review of the whole codebase
 
