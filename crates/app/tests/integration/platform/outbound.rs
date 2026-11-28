@@ -448,11 +448,14 @@ async fn obs_06_the_configured_client_s_span_carries_the_status_of_an_answer_ove
 }
 
 #[tokio::test]
-async fn obs_06_the_untrusted_client_s_span_carries_the_status_of_the_answer_after_its_redirects() {
+async fn obs_06_the_untrusted_client_s_span_names_the_host_it_was_given_and_the_status_after_its_redirects()
+ {
     let (client, origin) = serving(|path| {
         Some(match path {
             "/moved" => redirect("/ada.png"),
             "/plain" => redirect("http://pictures.example.com/ada.png"),
+            // One of the client's hosts, which it follows as far as the host's addresses.
+            "/listed" => redirect("https://localhost/ada.png"),
             _ => response("200 OK", &["Content-Length: 4"], b"\x89PNG"),
         })
     })
@@ -462,6 +465,7 @@ async fn obs_06_the_untrusted_client_s_span_carries_the_status_of_the_answer_aft
 
     let followed = client.get(&format!("{origin}/moved"), 16).await;
     let refused = client.get(&format!("{origin}/plain"), 16).await;
+    let elsewhere = client.get(&format!("{origin}/listed"), 16).await;
     drop(on_this_thread);
 
     assert!(followed.is_ok(), "{followed:?}");
@@ -469,13 +473,17 @@ async fn obs_06_the_untrusted_client_s_span_carries_the_status_of_the_answer_aft
         matches!(refused, Err(FetchError::Refused(_))),
         "{refused:?}"
     );
+    assert!(
+        matches!(&elsewhere, Err(FetchError::Refused(reason)) if reason.contains("no public")),
+        "{elsewhere:?}"
+    );
     let read = |key: &str| spans.attributes("GET", key);
     let address = Some("127.0.0.1".to_owned());
     assert_eq!(
         [read("server.address"), read("http.response.status_code")],
         [
-            vec![address.clone(), address],
-            vec![Some("200".to_owned()), None]
+            vec![address.clone(), address.clone(), address],
+            vec![Some("200".to_owned()), None, None]
         ]
     );
 }

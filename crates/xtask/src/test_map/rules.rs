@@ -30,8 +30,8 @@ const END_TO_END: (&str, &str) = ("crates/app/tests/e2e/", "`ci: e2e`");
 
 /// A finding for each rule whose `Check` names `test` while no test is named for the rule, nor
 /// for an ID that the line cites, and for each test that a rule whose `Check` doesn't name `test`
-/// names, but those of the tasks that the line names. `proven` holds the tests that each ID
-/// names.
+/// names, but one of `xtask` where the line holds a `ci:` item and an end-to-end one where it
+/// holds `ci: e2e`. `proven` holds the tests that each ID names.
 pub(super) fn check(repo: &Repo, proven: &Named) -> Vec<Finding> {
     let mut findings = Vec::new();
     let rules = repo
@@ -93,7 +93,8 @@ pub(super) fn check(repo: &Repo, proven: &Named) -> Vec<Finding> {
 }
 
 /// A finding for each test named by `id`, a rule whose `Check` line, `line`, gives `test`
-/// nothing, but those of the tasks that the line names.
+/// nothing, but one of `xtask` where the line holds a `ci:` item and an end-to-end one where it
+/// holds `ci: e2e`.
 fn untested(id: &str, line: &str, proven: &Named) -> Vec<Finding> {
     let named = proven.get(id).map_or(&[][..], Vec::as_slice);
     named
@@ -154,7 +155,8 @@ mod tests {
     }
 
     #[test]
-    fn test_01_a_rule_whose_check_gives_test_nothing_names_only_the_tests_of_its_tasks() {
+    fn test_01_a_rule_whose_check_gives_test_nothing_names_xtask_s_tests_under_ci_and_end_to_end_ones_under_e2e()
+     {
         let rules = "# Rules\n\n\
                      ### STYLE-01 Left to a check\nIt holds.\n\
                      - Check: `ci: check-style`, plus `ci: e2e`.\n\n\

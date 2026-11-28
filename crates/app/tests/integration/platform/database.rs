@@ -413,14 +413,15 @@ async fn platform_003_in_production_bootstrap_refuses_a_server_with_a_database_i
     // databases, since bootstrap names the first by name, so the refusal names it: `name`'s
     // collation, C, orders names by their bytes, and U+0001, the lowest byte that a name may
     // hold, starts no other database's name that a server holds by its tasks or its tests.
-    let owned = format!("\u{1}platform_003_owned_{}", std::process::id());
+    let owned = "\u{1}platform_003_owned";
     let production = platform::config::BootstrapConfig {
         environment: platform::config::Environment::Production,
         ..db.bootstrap_config()
     };
 
-    // The database is there only while the lock is held, so a test that holds it too, such as
-    // the test of another database of the roles', never meets it.
+    // The database is made and dropped under the lock, so a test that holds it too, such as the
+    // test of another database of the roles', meets none but one that a run killed under the lock
+    // left, which the drop first takes, since every run gives it one name.
     let refused = db
         .with_roles_locked(async {
             db.admin_executes(&format!("DROP DATABASE IF EXISTS \"{owned}\""))
