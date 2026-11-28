@@ -358,7 +358,7 @@ async fn platform_002_running_bootstrap_again_sets_each_password_from_its_url() 
     assert_eq!(db.owner_reads("SELECT current_user::text").await, ["owner"]);
 }
 
-/// The database that `owner` owns of PLATFORM-003's test of one, named to come first of the
+/// The database that a role owns of PLATFORM-003's test of one, named to come first of the
 /// server's databases, since bootstrap names the first by name: `name`'s collation, C, orders
 /// names by their bytes, and U+0001, the lowest byte that a name may hold, starts no other
 /// database's name that a server holds by its tasks or its tests. Every run gives it this one
@@ -419,7 +419,8 @@ async fn platform_003_in_production_bootstrap_refuses_a_server_with_another_data
 #[tokio::test]
 async fn platform_003_in_production_bootstrap_refuses_a_server_with_a_database_its_role_owns() {
     let db = TestDatabase::migrated().await;
-    // A database that `owner` owns, with no grant on it, which the refusal names (OWNED).
+    // A database that `owner` owns, then one that `app` owns, with no grant on it, which the
+    // refusal names (OWNED).
     let owned = OWNED;
     let production = platform::config::BootstrapConfig {
         environment: platform::config::Environment::Production,
@@ -430,21 +431,27 @@ async fn platform_003_in_production_bootstrap_refuses_a_server_with_a_database_i
     // holds it too, never meets it.
     let refused = db
         .with_roles_locked(async {
-            db.admin_executes(&format!("DROP DATABASE IF EXISTS \"{owned}\""))
-                .await;
-            db.admin_executes(&format!("CREATE DATABASE \"{owned}\" OWNER owner"))
-                .await;
-            let refused = platform::db::bootstrap(&production, &Workers::new()).await;
-            db.admin_executes(&format!("DROP DATABASE \"{owned}\""))
-                .await;
+            let mut refused = Vec::new();
+            for role in ["owner", "app"] {
+                db.admin_executes(&format!("DROP DATABASE IF EXISTS \"{owned}\""))
+                    .await;
+                db.admin_executes(&format!("CREATE DATABASE \"{owned}\" OWNER {role}"))
+                    .await;
+                refused.push(platform::db::bootstrap(&production, &Workers::new()).await);
+                db.admin_executes(&format!("DROP DATABASE \"{owned}\""))
+                    .await;
+            }
             refused
         })
         .await;
 
-    assert!(
-        matches!(&refused, Err(BootstrapError::SharedServer(named)) if *named == owned),
-        "{refused:?}"
-    );
+    assert_eq!(refused.len(), 2);
+    for refused in &refused {
+        assert!(
+            matches!(refused, Err(BootstrapError::SharedServer(named)) if *named == owned),
+            "{refused:?}"
+        );
+    }
 }
 
 #[tokio::test]

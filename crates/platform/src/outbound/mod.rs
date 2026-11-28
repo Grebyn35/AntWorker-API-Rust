@@ -210,8 +210,9 @@ impl Configured {
     ///
     /// # Errors
     ///
-    /// When the URL is invalid, or isn't HTTPS in production; when no answer comes within the
-    /// client's time limits; or when its body is over a mebibyte.
+    /// When the URL is invalid, or isn't HTTPS in production; when the request can't be sent, such
+    /// as when no connection opens; when no answer comes within the client's time limits; or when
+    /// its body is over a mebibyte, or breaks off before its end.
     pub async fn send(&self, request: Request) -> Result<Response, OutboundError> {
         let url = self.target(&request.url)?;
         let host = url.host_str().unwrap_or_default().to_owned();

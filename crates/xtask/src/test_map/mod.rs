@@ -1,11 +1,10 @@
 //! `check-test-map`: every test's name starts with a behavior or rule ID that exists
-//! (TEST-01), a rule whose `Check` names `test` has one, and one whose `Check` doesn't names no
-//! test but one of `xtask` under a `ci:` item and an end-to-end one under `ci: e2e`, as
-//! `rules.rs` says, the tests name
-//! what `named.rs` says of the modules' declarations (SEC-18, SEC-19), no test's wait counts its
-//! polls as `waits.rs` reads one (TEST-06), no two files of the tests define a function of one
-//! body, as `copies.rs` reads one (TEST-09), and the report shows which behaviors tests prove
-//! (DOC-09).
+//! (TEST-01). A rule whose `Check` names `test` has a test, and one whose `Check` doesn't names
+//! none but one of `xtask` under a `ci:` item and an end-to-end one under `ci: e2e`, as `rules.rs`
+//! says. The tests name what `named.rs` says of the modules' declarations (SEC-18, SEC-19), no
+//! test's wait counts its polls as `waits.rs` reads one (TEST-06), no two files of the tests
+//! define a function of one body, as `copies.rs` reads one (TEST-09), and the report shows which
+//! behaviors tests prove (DOC-09).
 //!
 //! While `docs/MIGRATION.md` exists, specs are written ahead of their code, so a behavior that
 //! no test proves is reported. Once the migration closes, it fails the check.

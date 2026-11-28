@@ -49,7 +49,7 @@ pub fn subcommands(repo: &Repo) -> Vec<Finding> {
 /// The name of each subcommand that `line` runs through `xtask`: the word after each
 /// `{{ xtask }}` in it, with or without spaces inside its braces, wherever the line holds it, such
 /// as after a recipe's `@` or inside a command's `$(...)`, of the letters, digits, `-` and `_`
-/// that follow it after a space.
+/// that follow it after whitespace.
 fn run_through_xtask(line: &str) -> Vec<&str> {
     line.split("{{")
         .skip(1)

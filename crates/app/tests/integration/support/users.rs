@@ -66,7 +66,8 @@ pub async fn register_unverified(api: &Api, email: &str) -> SignedIn {
 }
 
 /// The user and the session of a registration with `body`, such as one that [`registration`]
-/// builds, with a field that a test adds, whose account must still prove its address.
+/// builds, with a field that a test adds, whose account must still prove its address while email
+/// is on (AUTH-025).
 pub async fn registered(api: &Api, body: &Value) -> SignedIn {
     let response = api.post("/v1/users", body).send().await;
     assert_eq!(response.status, 201, "{}", response.json());
