@@ -640,7 +640,11 @@ const OWN: [&str; 2] = ["Ada's notes", "Ada's drafts"];
 /// holds; returns Ada, Grace, her own workspaces' IDs, in the order of [`OWN`], and Grace's
 /// workspace's ID.
 async fn arranged(api: &Api) -> (SignedIn, SignedIn, Vec<String>, String) {
-    let ada = users::register_on(api, "ada@example.com", "Ada's laptop").await;
+    // A registration names its device, which its session keeps (AUTH-042).
+    let mut registration = users::registration("ada@example.com");
+    registration["device_name"] = json!("Ada's laptop");
+    let ada = users::registered(api, &registration).await;
+    users::verified(api, &ada.user_id).await;
     let grace = users::register(api, "grace@example.com").await;
     let db = api.database();
     let mut own = Vec::new();

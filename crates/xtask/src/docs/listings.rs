@@ -6,10 +6,10 @@ use std::collections::BTreeSet;
 
 use crate::{Finding, repo::Repo, text};
 
-/// Each name that `just/check.just` runs as `{{ xtask }} <name>` is among the code spans of the
-/// line of `docs/operations/ci.md` that says they are `xtask`'s subcommands, before those words,
-/// and of each line right after it that starts `So are`, and each of those is one that it runs,
-/// as ci.md asks of a new check.
+/// Each name that `just/check.just` runs through `xtask`, as [`run_through_xtask`] reads one, is
+/// among the code spans of the line of `docs/operations/ci.md` that says they are `xtask`'s
+/// subcommands, before those words, and of each line right after it that starts `So are`, and
+/// each of those is one that it runs, as ci.md asks of a new check.
 pub fn subcommands(repo: &Repo) -> Vec<Finding> {
     let (Some(recipes), Some(ci)) = (
         repo.file("just/check.just"),
@@ -17,12 +17,7 @@ pub fn subcommands(repo: &Repo) -> Vec<Finding> {
     ) else {
         return Vec::new();
     };
-    let run: BTreeSet<&str> = recipes
-        .text
-        .lines()
-        .filter_map(|line| line.trim_start().strip_prefix("{{ xtask }} "))
-        .filter_map(|command| command.split_whitespace().next())
-        .collect();
+    let run: BTreeSet<&str> = recipes.text.lines().flat_map(run_through_xtask).collect();
     let lines: Vec<&str> = ci.text.lines().collect();
     let opening = " are subcommands of the `xtask` crate";
     let start = lines.iter().position(|line| line.contains(opening));
@@ -48,6 +43,25 @@ pub fn subcommands(repo: &Repo) -> Vec<Finding> {
     unlisted
         .chain(unrun)
         .map(|message| Finding::new(path, line, message))
+        .collect()
+}
+
+/// The name of each subcommand that `line` runs through `xtask`: the word after each
+/// `{{ xtask }}` in it, with or without spaces inside its braces, wherever the line holds it, such
+/// as after a recipe's `@` or inside a command's `$(...)`, of the letters, digits, `-` and `_`
+/// that follow it after a space.
+fn run_through_xtask(line: &str) -> Vec<&str> {
+    line.split("{{")
+        .skip(1)
+        .filter_map(|rest| {
+            let rest = rest.trim_start().strip_prefix("xtask")?.trim_start();
+            let rest = rest.strip_prefix("}}")?;
+            let name = rest.strip_prefix(char::is_whitespace)?.trim_start();
+            let end = name
+                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '_'))
+                .unwrap_or(name.len());
+            Some(&name[..end]).filter(|name| !name.is_empty())
+        })
         .collect()
 }
 

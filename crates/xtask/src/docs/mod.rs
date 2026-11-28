@@ -472,10 +472,11 @@ mod tests {
     #[test]
     fn doc_01_the_list_of_xtask_s_subcommands_is_the_one_that_check_just_runs() {
         let recipes = "check-a:\n    {{ xtask }} check-a\ncheck-b:\n    {{ xtask }} check-b --all\n\
-                       check-s3:\n    {{ xtask }} check-s3\nother:\n    cargo run --package app\n";
+                       check-s3:\n    {{ xtask }} check-s3\ncheck-at:\n    @{{xtask}} check-at\n\
+                       check-in:\n    x=$({{ xtask }} check-in)\nother:\n    cargo run --package app\n";
         // The fixture's marker is built, so that this file holds none.
         let ci = format!(
-            "# CI\n\n`check-a`, `check-s3` and `check-c` are subcommands of the `xtask` crate (ARCH-01).\n\
+            "# CI\n\n`check-a`, `check-s3`, `check-at`, `check-in` and `check-c` are subcommands of the `xtask` crate (ARCH-01).\n\
              So are `check-d`. <!-- {} gadgets -->\n\n`check-b` runs elsewhere.\n",
             "part:"
         );
