@@ -1654,12 +1654,7 @@ async fn platform_020_a_runs_span_links_to_the_trace_that_enqueued_it() {
     )
     .await;
 
-    let _server = database
-        .serve(&[
-            ("ENVIRONMENT", "production"),
-            ("OTEL_EXPORTER_OTLP_ENDPOINT", &collector.endpoint()),
-        ])
-        .await;
+    let _server = database.exporting_to(&collector, &[]).await;
     let received = collector
         .wait_for(|received| {
             received

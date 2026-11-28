@@ -1359,13 +1359,7 @@ async fn set_up_through_serve(
     collector: &Collector,
     database: &TestDatabase,
 ) -> (Server, String, String) {
-    let server = database
-        .serve(&[
-            ("ENVIRONMENT", "production"),
-            ("EMAIL", "off"),
-            ("OTEL_EXPORTER_OTLP_ENDPOINT", &collector.endpoint()),
-        ])
-        .await;
+    let server = database.exporting_to(collector, &[("EMAIL", "off")]).await;
     let registration = users::registration("ada@example.com").to_string();
     let (_, session) = send(&server, "/v1/users", &[], &registration).await;
     let bearer = format!("Bearer {}", session["access_token"].as_str().unwrap());

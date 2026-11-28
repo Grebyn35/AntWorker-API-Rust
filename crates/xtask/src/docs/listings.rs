@@ -1,6 +1,6 @@
 //! Two lists that documents keep of the code, which `check-docs` holds to it: the subcommands
-//! of `xtask` in `docs/operations/ci.md` (ARCH-01), and the Rust files directly in the
-//! composition root's directory in the layout of `app` in `docs/architecture.md` (DOC-01).
+//! of `xtask` in `docs/operations/ci.md`, and the Rust files directly in the composition root's
+//! directory in the layout of `app` in `docs/architecture.md` (DOC-01).
 
 use std::collections::BTreeSet;
 
@@ -41,10 +41,10 @@ pub fn subcommands(repo: &Repo) -> Vec<Finding> {
     let path = "docs/operations/ci.md";
     let line = start.map_or(1, |start| start + 1);
     let unlisted = run.difference(&listed).map(|name| {
-        format!("`{name}`, which just/check.just runs through xtask, isn't in the list of xtask's subcommands (ARCH-01)")
+        format!("`{name}`, which just/check.just runs through xtask, isn't in the list of xtask's subcommands (DOC-01)")
     });
     let unrun = listed.difference(&run).map(|name| {
-        format!("the list of xtask's subcommands names `{name}`, which just/check.just doesn't run through xtask (ARCH-01)")
+        format!("the list of xtask's subcommands names `{name}`, which just/check.just doesn't run through xtask (DOC-01)")
     });
     unlisted
         .chain(unrun)

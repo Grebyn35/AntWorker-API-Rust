@@ -110,8 +110,9 @@ pub enum StorageError {
     /// The bucket answered 404, which a read takes for an object that the bucket doesn't hold.
     #[error("the bucket holds no object of the key")]
     NotFound,
-    /// The bucket didn't answer in time, the connection to it failed, or it answered that it
-    /// can't serve now, with a 5xx or a 429 (FILES-012).
+    /// The bucket didn't answer in time, no connection to it opened, the request couldn't be
+    /// sent, the answer's bytes stopped coming, or it answered that it can't serve now, with a
+    /// 5xx or a 429 (FILES-012).
     #[error("the bucket didn't answer")]
     Unavailable(#[source] Internal),
     /// The bucket refused the request, with a status that is neither a success nor one of

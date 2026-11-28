@@ -6,9 +6,8 @@
 //! nested under it, the check reads no ID, and fails on each that holds `` `test` `` where the
 //! `Check` line holds none. It also fails on each test whose name starts with the ID of a rule
 //! whose `Check` line holds no `` `test` ``, but one whose path starts with `crates/xtask/`,
-//! where the line holds `` `ci: ``, since `xtask` holds the code of the tasks that `ci:` names,
-//! and one whose path starts with `crates/app/tests/e2e/`, where the line holds
-//! `` `ci: e2e` ``. Which tests prove the rule's words stays review's.
+//! where the line holds `` `ci: ``, and one whose path starts with `crates/app/tests/e2e/`, where
+//! the line holds `` `ci: e2e` ``. Which tests prove the rule's words stays review's.
 
 use super::Named;
 use crate::{Finding, catalog::document_in, repo::Repo, text};
@@ -22,8 +21,8 @@ const CHECK: &str = "- Check:";
 /// The start of each line of the list nested under a `Check` line, as DOC-08 reads one.
 const NESTED: &str = "  ";
 
-/// The start of the paths of the tests of `xtask`, which holds the code of the tasks that a
-/// `Check` line's `ci:` items name, and the text that starts each such item.
+/// The start of the paths of the tests of `xtask`, and the text that starts each `ci:` item of a
+/// `Check` line.
 const TASKS: (&str, &str) = ("crates/xtask/", "`ci: ");
 
 /// The start of the paths of the end-to-end tests, and the item of a `Check` line that names them.
@@ -160,7 +159,8 @@ mod tests {
                      ### STYLE-01 Left to a check\nIt holds.\n\
                      - Check: `ci: check-style`, plus `ci: e2e`.\n\n\
                      ### STYLE-02 Proven by its own test\nIt holds.\n- Check: `test`.\n\n\
-                     ### STYLE-03 Left to the compiler\nIt holds.\n- Check: `compiler`.\n";
+                     ### STYLE-03 Left to the compiler\nIt holds.\n- Check: `compiler`.\n\n\
+                     ### STYLE-04 Left to another task\nIt holds.\n- Check: `ci: check-style`.\n";
         let named = "#[test]\nfn style_01_holds() {}\n#[test]\nfn style_02_holds() {}\n";
         let unchecked = "#[test]\nfn style_03_is_checked() {}\n";
         let outcome = run_with(&[
@@ -179,6 +179,10 @@ mod tests {
                 "crates/app/tests/e2e/compiled.rs",
                 "#[test]\nfn style_03_holds_end_to_end() {}\n",
             ),
+            (
+                "crates/app/tests/e2e/styled.rs",
+                "#[test]\nfn style_04_holds_end_to_end() {}\n",
+            ),
         ]);
 
         let mut findings: Vec<String> = outcome
@@ -193,6 +197,10 @@ mod tests {
             [
                 "crates/app/tests/e2e/compiled.rs:2: test `style_03_holds_end_to_end` is named by \
                  STYLE-03, whose Check gives `test` nothing, nor the task whose test it is: the \
+                 line gives the test's kind what it proves, or the test is named by what it proves \
+                 (TEST-01)",
+                "crates/app/tests/e2e/styled.rs:2: test `style_04_holds_end_to_end` is named by \
+                 STYLE-04, whose Check gives `test` nothing, nor the task whose test it is: the \
                  line gives the test's kind what it proves, or the test is named by what it proves \
                  (TEST-01)",
                 "crates/widgets/src/lib.rs:2: test `style_01_holds` is named by STYLE-01, whose \

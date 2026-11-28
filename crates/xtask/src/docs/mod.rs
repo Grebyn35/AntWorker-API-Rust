@@ -9,7 +9,7 @@
 //! contracts match the contracts that the composition root registers (DOC-07, in `contracts`);
 //! and test prefixes, paths to Rust files, the name of a codebase this one replaces, and paths
 //! into the inventory are named only where they resolve or DOC-13 allows (`references`); and two
-//! lists that documents keep of the code hold what the code holds (ARCH-01, DOC-01, in `listings`).
+//! lists that documents keep of the code hold what the code holds (DOC-01, in `listings`).
 
 mod enforced;
 mod listings;
@@ -470,7 +470,7 @@ mod tests {
     }
 
     #[test]
-    fn arch_01_the_list_of_xtask_s_subcommands_is_the_one_that_check_just_runs() {
+    fn doc_01_the_list_of_xtask_s_subcommands_is_the_one_that_check_just_runs() {
         let recipes = "check-a:\n    {{ xtask }} check-a\ncheck-b:\n    {{ xtask }} check-b --all\n\
                        other:\n    cargo run --package app\n";
         // The fixture's marker is built, so that this file holds none.
@@ -486,9 +486,9 @@ mod tests {
         assert_eq!(
             found,
             [
-                "docs/operations/ci.md:3: `check-b`, which just/check.just runs through xtask, isn't in the list of xtask's subcommands (ARCH-01)",
-                "docs/operations/ci.md:3: the list of xtask's subcommands names `check-c`, which just/check.just doesn't run through xtask (ARCH-01)",
-                "docs/operations/ci.md:3: the list of xtask's subcommands names `check-d`, which just/check.just doesn't run through xtask (ARCH-01)",
+                "docs/operations/ci.md:3: `check-b`, which just/check.just runs through xtask, isn't in the list of xtask's subcommands (DOC-01)",
+                "docs/operations/ci.md:3: the list of xtask's subcommands names `check-c`, which just/check.just doesn't run through xtask (DOC-01)",
+                "docs/operations/ci.md:3: the list of xtask's subcommands names `check-d`, which just/check.just doesn't run through xtask (DOC-01)",
             ]
         );
     }

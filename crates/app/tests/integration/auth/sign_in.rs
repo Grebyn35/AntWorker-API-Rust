@@ -243,13 +243,7 @@ async fn auth_005_an_unknown_email_and_an_account_without_a_password_verify_a_ha
  {
     let collector = Collector::start().await.unwrap();
     let database = TestDatabase::migrated().await;
-    let endpoint = collector.endpoint();
-    let server = database
-        .serve(&[
-            ("ENVIRONMENT", "production"),
-            ("OTEL_EXPORTER_OTLP_ENDPOINT", &endpoint),
-        ])
-        .await;
+    let server = database.exporting_to(&collector, &[]).await;
     let registration = users::registration("ada@example.com");
     let registered = server
         .post_in_trace(

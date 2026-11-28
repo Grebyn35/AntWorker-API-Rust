@@ -10,17 +10,16 @@ use super::{Server, TestDatabase, bucket, scanner};
 /// (PLATFORM-076), exporting its telemetry to `collector`, and with `env` in place of any of
 /// those settings that it names.
 pub async fn serving(db: &TestDatabase, collector: &Collector, env: &[(&str, &str)]) -> Server {
-    let (bucket, endpoint) = (db.bucket().await, collector.endpoint());
+    let bucket = db.bucket().await;
     let mut settings = vec![
         ("ENVIRONMENT", "test"),
         ("S3_ENDPOINT", bucket::ENDPOINT),
         ("S3_BUCKET", &bucket),
         ("S3_URI_STYLE", "path"),
         ("CLAMD_ADDRESS", scanner::ADDRESS),
-        ("OTEL_EXPORTER_OTLP_ENDPOINT", &endpoint),
     ];
     settings.extend_from_slice(env);
-    db.serve(&settings).await
+    db.exporting_to(collector, &settings).await
 }
 
 /// The periodic jobs that list and delete the bucket's objects, which a `serve` runs, calling its

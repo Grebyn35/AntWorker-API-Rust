@@ -104,12 +104,7 @@ async fn an_email_s_spans(collector: &Collector) -> Received {
         "00-8a3c60f7d188f8fa79d48a391a778fa6-00f067aa0ba902b7-01",
     )
     .await;
-    let _server = database
-        .serve(&[
-            ("ENVIRONMENT", "production"),
-            ("OTEL_EXPORTER_OTLP_ENDPOINT", &collector.endpoint()),
-        ])
-        .await;
+    let _server = database.exporting_to(collector, &[]).await;
     collector
         .wait_for(|received| {
             let arrived = |name: &str| received.spans().iter().any(|(_, span)| span.name == name);
@@ -449,12 +444,7 @@ async fn platform_044_a_health_probe_writes_no_line() {
 async fn obs_15_serve_exports_no_span_of_a_health_probe() {
     let collector = Collector::start().await.unwrap();
     let database = TestDatabase::migrated().await;
-    let server = database
-        .serve(&[
-            ("ENVIRONMENT", "production"),
-            ("OTEL_EXPORTER_OTLP_ENDPOINT", &collector.endpoint()),
-        ])
-        .await;
+    let server = database.exporting_to(&collector, &[]).await;
     let (probed, after) = (
         "6e0c63257de34c926f9efcd03927272e",
         "a3ce929d0e0e47364bf92f3577b34da6",
@@ -596,13 +586,7 @@ async fn platform_069_the_database_gauge_follows_each_check() {
 async fn platform_066_serve_exports_its_spans_and_log_records_with_their_trace_context() {
     let collector = Collector::start().await.unwrap();
     let database = TestDatabase::migrated().await;
-    let endpoint = collector.endpoint();
-    let mut server = database
-        .serve(&[
-            ("ENVIRONMENT", "production"),
-            ("OTEL_EXPORTER_OTLP_ENDPOINT", &endpoint),
-        ])
-        .await;
+    let mut server = database.exporting_to(&collector, &[]).await;
     let trace = "0af7651916cd43dd8448eb211c80319c";
 
     let response = server
@@ -682,13 +666,7 @@ async fn platform_066_serve_exports_its_spans_and_log_records_with_their_trace_c
 async fn platform_067_a_method_http_doesn_t_define_is_other_in_the_span() {
     let collector = Collector::start().await.unwrap();
     let database = TestDatabase::migrated().await;
-    let endpoint = collector.endpoint();
-    let server = database
-        .serve(&[
-            ("ENVIRONMENT", "production"),
-            ("OTEL_EXPORTER_OTLP_ENDPOINT", &endpoint),
-        ])
-        .await;
+    let server = database.exporting_to(&collector, &[]).await;
     let trace = "5bf1a8b1a1e04e7a8c0f1d2e3a4b5c6d";
 
     let response = server

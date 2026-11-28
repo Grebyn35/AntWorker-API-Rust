@@ -1661,32 +1661,60 @@ async fn obs_07_the_bucket_s_client_sends_no_trace_context_to_the_bucket() {
 }
 
 #[tokio::test]
-async fn obs_06_a_call_of_the_bucket_runs_in_a_client_span_with_the_bucket_s_address_and_port() {
-    // A bucket that the tests' storage doesn't hold, so the storage answers the call with a
+async fn obs_06_each_call_of_the_bucket_runs_in_a_client_span_named_by_its_operation_with_the_bucket_s_address_and_port()
+ {
+    // A bucket that the tests' storage doesn't hold, so the storage answers each call with a
     // failure, which ends the call's span as any answer does.
     let storage = bucket::storage("obs-06-no-such-bucket");
+    let key = ObjectKey::from_stored("avatars/0a");
     let spans = EndedSpans::default();
     let on_this_thread = tracing::dispatcher::set_default(&spans.dispatch());
 
-    let headed = storage.head(&ObjectKey::from_stored("avatars/0a")).await;
+    let put = storage
+        .put(&key, Bytes::from_static(b"x"), "image/png")
+        .await;
+    let got = storage.get(&key, None).await.map(drop);
+    let headed = storage.head(&key).await.map(drop);
+    let deleted = storage.delete(&key).await;
+    let listed = storage.list("avatars/").try_next().await.map(drop);
+    let versions = storage.versions("avatars/").try_next().await.map(drop);
     drop(on_this_thread);
 
-    assert!(headed.is_err(), "{headed:?}");
-    // The span holds no part of the key.
-    let values = spans.values("S3 HeadObject");
     assert!(
-        values.iter().flatten().all(|value| !value.contains("0a")),
-        "{values:?}"
+        put.is_err() && got.is_err() && headed.is_err(),
+        "{put:?} {got:?} {headed:?}"
     );
-    let read = |key: &str| spans.attributes("S3 HeadObject", key);
+    assert!(
+        listed.is_err() && versions.is_err(),
+        "{listed:?} {versions:?}"
+    );
+    // A deletion that the bucket answers with an error, or with nothing to delete, ends its
+    // span all the same.
+    drop(deleted);
     let endpoint: url::Url = bucket::ENDPOINT.parse().unwrap();
-    assert_eq!(
-        [read("server.address"), read("server.port")],
-        [
-            [endpoint.host_str().map(str::to_owned)],
-            [endpoint.port().map(|port| port.to_string())]
-        ]
-    );
+    let host = endpoint.host_str().map(str::to_owned);
+    let port = endpoint.port().map(|port| port.to_string());
+    for operation in [
+        "S3 PutObject",
+        "S3 GetObject",
+        "S3 HeadObject",
+        "S3 DeleteObject",
+        "S3 ListObjectsV2",
+        "S3 ListObjectVersions",
+    ] {
+        // The span holds no part of the key.
+        let values = spans.values(operation);
+        assert!(
+            values.iter().flatten().all(|value| !value.contains("0a")),
+            "{operation}: {values:?}"
+        );
+        let read = |key: &str| spans.attributes(operation, key);
+        assert_eq!(
+            [read("server.address"), read("server.port")],
+            [[host.clone()], [port.clone()]],
+            "{operation}"
+        );
+    }
 }
 
 #[test]

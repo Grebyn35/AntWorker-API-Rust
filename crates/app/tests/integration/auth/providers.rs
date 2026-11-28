@@ -1376,13 +1376,9 @@ async fn auth_079_a_deletion_that_fails_is_logged_and_counted_and_refuses_nothin
         TestDatabase::migrated().await,
     );
     let options = both_clients(&upstream);
-    let endpoint = collector.endpoint();
     let mut env = options.env();
-    env.extend([
-        ("ENVIRONMENT", "test"),
-        ("OTEL_EXPORTER_OTLP_ENDPOINT", &endpoint),
-    ]);
-    let mut server = database.serve(&env).await;
+    env.push(("ENVIRONMENT", "test"));
+    let mut server = database.exporting_to(&collector, &env).await;
     let grant = second_grant().to_string();
 
     let (status, session) = server

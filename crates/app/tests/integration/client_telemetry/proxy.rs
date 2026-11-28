@@ -672,13 +672,9 @@ async fn client_telemetry_010_with_the_setting_the_feature_is_on() {
 /// test's batches reach, and exports its own telemetry to `exported`.
 async fn forwarding_serve(api: &Api, collector: &Upstream, exported: &Collector) -> Server {
     let options = forwarding(collector, UNBOUNDED, UNBOUNDED);
-    let endpoint = exported.endpoint();
     let mut env = options.env();
-    env.extend([
-        ("ENVIRONMENT", "test"),
-        ("OTEL_EXPORTER_OTLP_ENDPOINT", &endpoint),
-    ]);
-    api.database().serve(&env).await
+    env.push(("ENVIRONMENT", "test"));
+    api.database().exporting_to(exported, &env).await
 }
 
 /// Sends `body` to `path` of `server` as `user`, with `headers`, such as its `Content-Type`, and
@@ -1018,12 +1014,10 @@ async fn obs_08_the_relay_s_span_exports_the_collector_s_status_as_a_number() {
     // Without email, an account is served without proving its address (AUTH-025), and the
     // stand-in collector takes the batches too.
     let server = database
-        .serve(&[
-            ("ENVIRONMENT", "production"),
-            ("EMAIL", "off"),
-            ("OTEL_EXPORTER_OTLP_ENDPOINT", &endpoint),
-            ("CLIENT_TELEMETRY_ENDPOINT", &endpoint),
-        ])
+        .exporting_to(
+            &collector,
+            &[("EMAIL", "off"), ("CLIENT_TELEMETRY_ENDPOINT", &endpoint)],
+        )
         .await;
     let registration = users::registration("ada@example.com").to_string();
     let json_body = [("content-type", "application/json")];

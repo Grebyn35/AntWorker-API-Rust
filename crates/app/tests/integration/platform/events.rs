@@ -993,12 +993,7 @@ async fn obs_07_an_event_s_delivery_links_to_the_trace_that_published_it() {
     let collector = testing::collector::Collector::start().await.unwrap();
     let database = crate::support::TestDatabase::migrated().await;
     let trace = "4bf92f3577b34da6a3ce929d0e0e4736";
-    let _server = database
-        .serve(&[
-            ("ENVIRONMENT", "production"),
-            ("OTEL_EXPORTER_OTLP_ENDPOINT", &collector.endpoint()),
-        ])
-        .await;
+    let _server = database.exporting_to(&collector, &[]).await;
     let user = crate::support::users::without_password(&database, "u@example.com").await;
 
     // An event committed and notified as a unit of work's commit does it, with the trace context
