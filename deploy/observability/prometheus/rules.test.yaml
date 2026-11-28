@@ -1000,7 +1000,8 @@ tests:
               summary: A replica's hub has owed its streams events it couldn't load for 5 minutes.
               runbook: docs/operations/runbooks.md#eventsstalled
 
-  # A runnable job waits longer and longer from the 5th minute on, as when no replica claims it.
+  # A job that no lease holds waits longer and longer from the 5th minute on, as when no replica
+  # claims it.
   - interval: 1m
     input_series:
       - series: 'platform_job_delay_seconds{job="api", instance="a"}'
@@ -1015,7 +1016,7 @@ tests:
           - exp_labels:
               severity: page
             exp_annotations:
-              summary: A runnable job has waited more than 10 minutes past its time to run, for 5 minutes.
+              summary: A job that no lease holds has waited more than 10 minutes past its time to run, for 5 minutes.
               runbook: docs/operations/runbooks.md#jobsdelayed
 
   # Each replica's series is born with its first dead letter: one's at the 2nd minute, the

@@ -60,8 +60,8 @@ static DURATION: Histogram<1> = Histogram::new(
 static DELAY: Gauge<0> = Gauge::new(
     "platform.job_delay",
     "s",
-    "How long the longest-waiting runnable job has waited past its run_at, 0 when none waits, \
-     recorded by each replica every 15 seconds.",
+    "How long the longest-waiting job of any kind that no lease holds has waited past its \
+     run_at, 0 when none waits, recorded by each replica every 15 seconds.",
     [],
 );
 
@@ -449,9 +449,10 @@ fn deadline(
     deadline
 }
 
-/// Records how long the longest-waiting runnable job has waited, every [`DELAY_EVERY`], until
-/// `stopping` turns true, and gives `recorded` each number of seconds that it records: a test's
-/// way to read its own watcher's records (`telemetry::testing::watch_job_delay`).
+/// Records how long the longest-waiting job of any kind that no lease holds has waited, every
+/// [`DELAY_EVERY`], until `stopping` turns true, and gives `recorded` each number of seconds that
+/// it records: a test's way to read its own watcher's records
+/// (`telemetry::testing::watch_job_delay`).
 pub(crate) async fn watch_delay(
     database: Database,
     clock: SharedClock,

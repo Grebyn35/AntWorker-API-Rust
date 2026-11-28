@@ -193,8 +193,8 @@ impl Database {
         Ok(done.rows_affected() > 0)
     }
 
-    /// How long the longest-waiting runnable job has waited past its `run_at`, or zero when none
-    /// waits or when that wait is longer than a `Duration` holds.
+    /// How long the longest-waiting job of any kind that no lease holds has waited past its
+    /// `run_at`, or zero when none waits or when that wait is longer than a `Duration` holds.
     pub(crate) async fn job_delay(&self) -> Result<Duration, Internal> {
         let seconds = sqlx::query_scalar!(
             r#"SELECT coalesce(extract(epoch FROM now() - min(run_at)), 0)::float8 AS "seconds!"

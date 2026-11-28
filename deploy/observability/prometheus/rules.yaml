@@ -392,7 +392,7 @@ groups:
         labels:
           severity: page
         annotations:
-          summary: A runnable job has waited more than 10 minutes past its time to run, for 5 minutes.
+          summary: A job that no lease holds has waited more than 10 minutes past its time to run, for 5 minutes.
           runbook: docs/operations/runbooks.md#jobsdelayed
 
       - alert: JobsDeadLettered

@@ -36,6 +36,7 @@ Tests use the real database, the real routes and the real services. Fakes exist 
 - a proxy that `HTTP_PROXY` names, and the servers that the clients of SEC-10 call, in SEC-10's test that each client reaches its server while `HTTP_PROXY` names a proxy: a listener of the test's own replaces the proxy, and closes the first connection that it takes, and one local server, which answers every request alike, replaces the server of each client that the test builds
 - the clock (a test clock)
 - the kernel's report of the process's resident memory, which `platform::telemetry::testing::watch_memory` takes from the test
+- the operating system's secure random source, in the unit tests of `auth`'s codes, which give `VerificationCode::drawn` the numbers that it draws, and `of_bits` the bits of a code (AUTH-030, AUTH-036)
 - the OpenTelemetry Collector, which a stand-in receiver of the OpenTelemetry Protocol (OTLP) replaces, as do the in-memory logger and meter of `platform::telemetry::testing`, and, for the count of an export's data points, an exporter of a unit test's own that keeps what each export holds (OBS-10)
 - the reference deployment's backup bucket, which SeaweedFS replaces, serving the S3 protocol on the end-to-end tests' server
 - a managed observability backend, which a collector there replaces, receiving OTLP over HTTPS from one user, and its Grafana, which a Grafana there replaces, with the backend's data sources, behind a Caddy that answers 503 for a time when a test asks, as a Grafana Cloud instance does while it loads again
