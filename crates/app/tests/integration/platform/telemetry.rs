@@ -15,7 +15,7 @@ use std::{
 use http::StatusCode;
 use opentelemetry_proto::tonic::{
     common::v1::any_value,
-    metrics::v1::{metric, number_data_point},
+    metrics::v1::{AggregationTemporality, metric, number_data_point},
     resource::v1::Resource,
     trace::v1::{Span, span::SpanKind},
 };
@@ -185,29 +185,28 @@ async fn platform_067_a_5xx_of_a_module_whose_only_error_is_internal_records_the
     api.database()
         .owner_executes("REVOKE SELECT ON superadmins FROM app")
         .await;
+    let collector = Collector::start().await.unwrap();
+    // A `serve` of the test's own, on the test's database, which holds Ada's session.
+    let server = api.database().exporting_to(&collector, &[]).await;
+    let bearer = format!("Bearer {}", ada.access);
 
-    let response = api
-        .get("/v1/users/me/superadmin")
-        .bearer(&ada.access)
-        .send()
+    let (status, _) = server
+        .send(
+            "GET",
+            "/v1/users/me/superadmin",
+            &[("authorization", &bearer)],
+            b"",
+        )
         .await;
+    server.stop().await;
 
-    assert_eq!(response.status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(status, 500);
     // The response's body shows no error's own code, since every internal error answers alike
     // (ERR-08), so the duration's label is where the module's code shows.
-    let wanted: BTreeMap<String, String> = [
-        ("error.type", "request.internal_error"),
-        ("http.request.method", "GET"),
-        ("http.response.status_code", "500"),
-        ("http.route", "/v1/users/me/superadmin"),
-    ]
-    .into_iter()
-    .map(|(name, value)| (name.to_owned(), value.to_owned()))
-    .collect();
-    let recorded = durations();
-    assert!(
-        recorded.iter().any(|point| point.labels == wanted),
-        "{recorded:#?}"
+    assert_eq!(
+        requests_counted(&collector),
+        ["error.type=request.internal_error http.request.method=GET \
+             http.response.status_code=500 http.route=/v1/users/me/superadmin 1"]
     );
 }
 // end part: superadmins
@@ -811,6 +810,54 @@ async fn platform_066_the_smtp_span_exports_the_server_s_port_as_a_number() {
     assert_eq!(
         value(send, "server.port"),
         Some(any_value::Value::IntValue(port))
+    );
+}
+
+#[tokio::test]
+async fn platform_066_serve_exports_its_sums_and_histograms_with_cumulative_temporality() {
+    let collector = Collector::start().await.unwrap();
+    let database = TestDatabase::migrated().await;
+    let server = database.exporting_to(&collector, &[]).await;
+
+    let response = server.request("GET", "/v1/capabilities", &[]).await;
+    server.stop().await;
+
+    assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+    // Each metric of each export whose points have a temporality, by its kind and its name.
+    let received = collector.received();
+    let temporalities: Vec<(&str, &str, i32)> = received
+        .metrics()
+        .into_iter()
+        .filter_map(|(_, metric)| {
+            let (kind, temporality) = match metric.data.as_ref()? {
+                metric::Data::Sum(sum) => ("sum", sum.aggregation_temporality),
+                metric::Data::Histogram(histogram) => {
+                    ("histogram", histogram.aggregation_temporality)
+                }
+                metric::Data::ExponentialHistogram(histogram) => {
+                    ("exponential histogram", histogram.aggregation_temporality)
+                }
+                metric::Data::Gauge(_) | metric::Data::Summary(_) => return None,
+            };
+            Some((kind, metric.name.as_str(), temporality))
+        })
+        .collect();
+    let cumulative = i32::from(AggregationTemporality::Cumulative);
+    let others: Vec<_> = temporalities
+        .iter()
+        .filter(|(_, _, temporality)| *temporality != cumulative)
+        .collect();
+    assert!(others.is_empty(), "{others:?}");
+    // The export's own counts are sums, and the request's duration a histogram.
+    assert!(
+        temporalities.iter().any(|(kind, _, _)| *kind == "sum"),
+        "{temporalities:?}"
+    );
+    assert!(
+        temporalities
+            .iter()
+            .any(|(_, name, _)| *name == "http.server.request.duration"),
+        "{temporalities:?}"
     );
 }
 

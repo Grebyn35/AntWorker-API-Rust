@@ -106,7 +106,7 @@ The server refuses to start unless it connects as the role `app`, and that role 
   On a sequence that a mechanism of `platform` draws from, such as `events_position_seq`, it has `USAGE` alone, which takes the next value, and can't set one.
 - `app` has `statement_timeout` and `idle_in_transaction_session_timeout` set at the role level.
 - Why: a role can do only what its job needs, and a stuck transaction can't hold locks indefinitely.
-- Check: `ci: check-schema`.
+- Check: `ci: check-schema`, plus `test` (after bootstrap, `owner` alone creates objects in the application schema, and `app` reads and writes rows and changes nothing else).
 
 ## Queries
 
@@ -175,7 +175,7 @@ Transactions use `READ COMMITTED`, but for the job that builds an export's archi
 
 An operation whose correctness depends on rows that another request may change at the same time does one of two things, as its module spec states: it locks them with `SELECT ... FOR UPDATE`, or a weaker mode of Postgres's row locks, such as `FOR NO KEY UPDATE`, which lets an insert that names the row go on (DATA-23), taking locks in a consistent order, or it changes them with an update that checks what it read (DATA-18). Nothing inside the API retries a transaction. A unit of work may run a locking read again: under `READ COMMITTED`, a read that waited for a change that left its row no match finds none, as a read of a workspace's owner does once a transfer made the member it waited at an admin, and the same read, run again, locks the row that matches. A deadlock is a defect, and surfaces as an internal error. A failed job is retried by the job system (PLATFORM-014).
 - Why: a unit of work carries the effects of every module the operation called, so no one layer holds what it would need to re-run it. Under `READ COMMITTED` there are no serialization failures, so a deadlock means two operations took locks in different orders: a bug to fix, not to retry.
-- Check: `review`.
+- Check: `test` (the `app` role's transactions run `READ COMMITTED` whatever the database's default, and the locks that two operations take on the same rows, each pair run together in a test of its own), plus `review`.
 
 ### DATA-21 No external calls inside a transaction
 A transaction never waits on HTTP or the Simple Mail Transfer Protocol (SMTP): external effects that follow a change are jobs (D1). A request that must call another system to learn what it changes calls it before its unit of work opens, as a sign-in through a provider exchanges its code, and deletes a token that doesn't lapse, before it reads an account (AUTH-077, AUTH-079, AUTH-100).

@@ -4,7 +4,7 @@
 use platform::{
     authn::{AuditScope, Principal},
     db::UnitOfWork,
-    errors::{self, FieldError, Internal, RequestError},
+    errors::{self, Internal, RequestError},
     rate_limit::RateLimits,
     types::{Client, EmailAddress, Secret, UserId},
 };
@@ -297,12 +297,10 @@ impl Auth {
             Found::Off => return Err(RequestError::FeatureDisabled.into()),
             Found::Unknown => return Err(AuthError::ProviderNotFound),
         };
+        // The request's conversion refused a redirect URI that none of the provider's clients
+        // lists (AUTH-078).
         let client = provider.client_for(&grant.redirect_uri).ok_or_else(|| {
-            RequestError::InvalidFields(vec![FieldError::new(
-                "/redirect_uri",
-                "invalid_redirect_uri",
-                "The redirect URI is none that the provider's clients list.",
-            )])
+            Internal::new("a grant's redirect URI that none of its provider's clients lists")
         })?;
         let exchange = Exchange {
             client,

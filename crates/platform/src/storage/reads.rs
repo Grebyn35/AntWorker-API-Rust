@@ -16,7 +16,10 @@ impl Storage {
     /// The object `key`'s bytes, or those of `range` alone, offsets of its bytes that it holds,
     /// as the bucket streams them. The bucket has as long for each next chunk as for its first
     /// answer, counted from when the chunk is asked for, so a client that reads slowly never cuts
-    /// its download short.
+    /// its download short. It fails as the variants of [`StorageError`] say, and with `Failed`
+    /// before any request for a `range` that holds no byte, and for an answer that names no size
+    /// of the whole object, or that holds the whole object where a range was asked for
+    /// (PLATFORM-094).
     pub async fn get(
         &self,
         key: &ObjectKey,
@@ -68,7 +71,9 @@ impl Storage {
     }
 
     /// How many bytes the object `key` holds, as the bucket's answer to S3's `HeadObject` names
-    /// them, which sends none of them.
+    /// them, which sends none of them. It fails as the variants of [`StorageError`] say, and with
+    /// `Failed` for an answer whose `Content-Length` isn't a number, in decimal digits alone,
+    /// that 64 bits hold (PLATFORM-094).
     pub async fn head(&self, key: &ObjectKey) -> Result<u64, StorageError> {
         let request = key.addressed().map(|object| {
             let action = self.bucket.head_object(Some(&self.credentials), object);

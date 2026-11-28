@@ -59,10 +59,25 @@ pub async fn register(api: &Api, email: &str) -> SignedIn {
     user
 }
 
+/// Registers `email` as [`register`] does, from a device that the registration names
+/// `device_name`, which its session keeps (AUTH-042).
+pub async fn register_on(api: &Api, email: &str, device_name: &str) -> SignedIn {
+    let mut body = registration(email);
+    body["device_name"] = json!(device_name);
+    let user = registered(api, &body).await;
+    verified(api, &user.user_id).await;
+    user
+}
+
 /// Registers `email`, and returns the user and their session, whose account must still prove its
 /// address while email is on (AUTH-025).
 pub async fn register_unverified(api: &Api, email: &str) -> SignedIn {
-    let response = api.post("/v1/users", &registration(email)).send().await;
+    registered(api, &registration(email)).await
+}
+
+/// The user and the session of a registration with `body`.
+async fn registered(api: &Api, body: &Value) -> SignedIn {
+    let response = api.post("/v1/users", body).send().await;
     assert_eq!(response.status, 201, "{}", response.json());
     SignedIn::from(&response)
 }

@@ -1207,20 +1207,26 @@ async fn platform_020_a_run_whose_outcome_the_queue_records_is_counted_by_its_ki
     let db = TestDatabase::migrated().await;
     let database = db.app().await;
     let mut jobs = Jobs::new(&database, Duration::from_secs(86_400));
-    // A run that fails, and runs again later; one that fails for good; and one that succeeds.
-    let results = Mutex::new(VecDeque::from([
-        Err(JobFailure::Transient(Internal::new("the run failed"))),
-        Err(JobFailure::Permanent(Internal::new(
+    // A run that fails, and runs again later; two that fail for good; and three that succeed:
+    // each outcome a number of times of its own, so that counts which gave an outcome another's
+    // label differ from these.
+    let mut results = VecDeque::new();
+    results.push_back(Err(JobFailure::Transient(Internal::new("the run failed"))));
+    for _ in 0..2 {
+        results.push_back(Err(JobFailure::Permanent(Internal::new(
             "the run failed for good",
-        ))),
-        Ok(()),
-    ]));
+        ))));
+    }
+    for _ in 0..3 {
+        results.push_back(Ok(()));
+    }
+    let results = Mutex::new(results);
     jobs.queued(move |_, Counted| {
         let result = results.lock().unwrap().pop_front().unwrap();
         async move { result }
     })
     .unwrap();
-    for _ in 0..3 {
+    for _ in 0..6 {
         enqueue(&database, JobScope::for_tests(), &Counted).await;
     }
 
@@ -1229,7 +1235,7 @@ async fn platform_020_a_run_whose_outcome_the_queue_records_is_counted_by_its_ki
 
     assert_eq!(
         counted(Counted::KIND),
-        ["dead_lettered 1", "retried 1", "succeeded 1"]
+        ["dead_lettered 2", "retried 1", "succeeded 3"]
     );
 }
 

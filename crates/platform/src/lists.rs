@@ -311,12 +311,6 @@ macro_rules! filter_values {
                 $crate::lists::values_schema::<$item>()
             }
         }
-
-        impl ::utoipa::ToSchema for $name {
-            fn name() -> ::std::borrow::Cow<'static, str> {
-                ::std::borrow::Cow::Borrowed(stringify!($name))
-            }
-        }
     };
 }
 

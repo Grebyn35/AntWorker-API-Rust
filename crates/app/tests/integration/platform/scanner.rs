@@ -6,7 +6,7 @@ use std::{sync::Arc, time::Duration};
 use platform::{
     clock::TestClock,
     scanner::{ScanError, Verdict},
-    telemetry::testing::collector::Collector,
+    telemetry::testing::{collector::Collector, spans::EndedSpans},
 };
 
 use crate::{
@@ -55,15 +55,21 @@ async fn platform_079_a_scan_is_clean_or_names_the_signature_it_found() {
 async fn platform_079_a_clean_scan_and_one_that_finds_a_signature_count_by_their_verdicts() {
     let eicar = scanner::eicar();
 
+    // Each verdict a number of times of its own, so that counts which gave a verdict the other's
+    // label differ from these.
     let (answers, counted) = scanned(
         scanner::ADDRESS,
-        &[("a.txt", b"hello".as_slice()), ("eicar.txt", &eicar)],
+        &[
+            ("a.txt", b"hello".as_slice()),
+            ("eicar.txt", &eicar),
+            ("eicar.txt", &eicar),
+        ],
     )
     .await;
 
-    // Stored, then refused for the signature (FILES-005).
-    assert_eq!(answers, [201, 422]);
-    assert_eq!(counted, ["clean 1", "found 1"]);
+    // Stored, then refused for the signature, twice (FILES-005).
+    assert_eq!(answers, [201, 422, 422]);
+    assert_eq!(counted, ["clean 1", "found 2"]);
 }
 
 #[tokio::test]
@@ -147,4 +153,23 @@ async fn platform_079_an_answer_that_is_an_error_or_unreadable_fails_the_scan() 
 
         assert!(matches!(error, ScanError::Failed(_)), "{line}: {error:?}");
     }
+}
+
+#[tokio::test]
+async fn obs_06_a_scan_runs_in_a_client_span_with_the_scanner_s_address_and_port() {
+    let stand_in = scanner::scripted(Script::Answer("stream: OK")).await;
+    let client = scanner::client(&stand_in.address, Arc::new(TestClock::default()));
+    let spans = EndedSpans::default();
+    let on_this_thread = tracing::dispatcher::set_default(&spans.dispatch());
+
+    let scanned = client.scan(b"hello").await;
+    drop(on_this_thread);
+
+    assert_eq!(scanned.unwrap(), Verdict::Clean);
+    let (host, port) = stand_in.address.rsplit_once(':').unwrap();
+    let read = |key: &str| spans.attributes("clamd INSTREAM", key);
+    assert_eq!(
+        [read("server.address"), read("server.port")],
+        [[Some(host.to_owned())], [Some(port.to_owned())]]
+    );
 }

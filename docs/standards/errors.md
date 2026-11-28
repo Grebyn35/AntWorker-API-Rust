@@ -38,7 +38,7 @@ An error that only a subcommand reports, such as `seed`'s, implements no `ErrorC
 | `Internal` | 500 | Anything else |
 
 - Why: the same kind of failure always produces the same status (D8, D17).
-- Check: `compiler` (the category is an enum, and the mapping lives in one function), plus `ci: check-openapi` (an operation whose access level is `public` lists no code for a 403 but `request.origin_not_allowed`).
+- Check: `compiler` (the category is an enum, and the mapping lives in one function), plus `test` (each category's status), plus `ci: check-openapi` (an operation whose access level is `public` lists no code for a 403 but `request.origin_not_allowed`).
 
 ## Moving errors
 
@@ -72,12 +72,12 @@ A 500 response has a fixed title and no detail. Its only identifying field is `t
 ### ERR-09 `detail` is for humans and never carries internals
 `detail` holds a human-readable sentence, which holds on every route that answers its code, for every caller that the route answers it to: it names no field or step that only some of those routes or callers have. It never includes SQL, file paths, internal identifiers, stack traces or secrets. Clients act on `code`, never on the text.
 - Why: the text can change or be translated, while the code is the contract.
-- Check: `review`.
+- Check: `test` (the detail of a wrong code, read on a setup's confirmation, and that of removing oneself from a workspace, read for its owner), plus `review`.
 
 ### ERR-10 An error is logged once, where it is handled
-The HTTP boundary logs every 5xx at `ERROR`, with its cause chain and trace ID, but a health probe's (OPS-05), a panic's, whose one `ERROR` line the panic hook writes (ERR-12), and the 503 of a feature that the deployment turned off, which is no failure (OPS-04). 4xx responses appear in the request's completion log (OBS-03) and are not logged at `WARN` or `ERROR`. Code that returns an error never logs it. An error that a download's bytes meet once its status is sent can become no response: it ends the body short, and is an ignored error of ERR-11 (PLATFORM-100).
+The HTTP boundary logs every 5xx at `ERROR`, with its cause chain, every cause of it, the outermost first, and its trace ID, but a health probe's (OPS-05), a panic's, whose one `ERROR` line the panic hook writes (ERR-12), and the 503 of a feature that the deployment turned off, which is no failure (OPS-04). 4xx responses appear in the request's completion log (OBS-03) and are not logged at `WARN` or `ERROR`. Code that returns an error never logs it. An error that a download's bytes meet once its status is sent can become no response: it ends the body short, and is an ignored error of ERR-11 (PLATFORM-100).
 - Why: one log entry per failure, at a level that means something (D17).
-- Check: `review`.
+- Check: `test` (a chain lists every cause, the outermost first), plus `review`.
 
 ### ERR-11 An ignored error is explicit
 An error is deliberately ignored only through `platform::errors::ignore(error, reason)`, which logs it at `WARN` in a standard shape and counts it in the `platform.errors_ignored` metric, labelled by reason. `let _ =` on a fallible call is not allowed (CODE-03). An error that the code reads as a value, where its doc says what value, is no ignored error, such as a cookie that may not authenticate its request, which counts as none (AUTH-096), or the body of a probe's answer that isn't its JSON, which names no status. So is the `PoisonError` of a lock that a panic poisoned, whose value `platform::errors::Held` takes as the panic left it, where the lock's doc says why that value is whole.

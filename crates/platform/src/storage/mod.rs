@@ -103,17 +103,20 @@ impl std::fmt::Debug for Storage {
     }
 }
 
-/// A failure to reach the bucket.
+/// A failure to reach the bucket, each as its variant says. A call of a key that no URL
+/// addresses ([`ObjectKey::is_addressed`]) fails with `Failed` before any request.
 #[derive(Debug, thiserror::Error)]
 pub enum StorageError {
-    /// The bucket holds no object of the key.
+    /// The bucket answered 404, which a read takes for an object that the bucket doesn't hold.
     #[error("the bucket holds no object of the key")]
     NotFound,
     /// The bucket didn't answer in time, the connection to it failed, or it answered that it
     /// can't serve now, with a 5xx or a 429 (FILES-012).
     #[error("the bucket didn't answer")]
     Unavailable(#[source] Internal),
-    /// The bucket refused the request, or answered what the client couldn't read.
+    /// The bucket refused the request, with a status that is neither a success nor one of
+    /// those above, or answered what the client couldn't read, or the call failed before any
+    /// request, as the doc of each call says.
     #[error("the bucket's request failed")]
     Failed(#[source] Internal),
 }
@@ -177,7 +180,11 @@ impl Storage {
     /// The client of the bucket that `config` describes, whose waits for the bucket's answers are
     /// measured by `clock`. It reaches the bucket only when asked, so a bucket that doesn't
     /// answer at startup keeps no route from serving. Building it reads the certificates it
-    /// trusts from their files, once (the platform spec's Storage).
+    /// trusts from their files, once (the platform spec's Storage). It fails when the endpoint
+    /// has no host, or a scheme other than `http` and `https`; when, with `path_style` false,
+    /// the bucket's name, a dot and the endpoint's host aren't a host that a URL keeps as they
+    /// are; and when the certificates can't be read from their files, rustls refuses one of
+    /// them, or the HTTP client can't be built with them.
     pub fn new(config: &StorageConfig, clock: SharedClock) -> Result<Self, Internal> {
         let style = if config.path_style {
             UrlStyle::Path
@@ -209,7 +216,8 @@ impl Storage {
         })
     }
 
-    /// Writes `bytes` as the object `key`, of media type `media_type`.
+    /// Writes `bytes` as the object `key`, of media type `media_type`. It fails as the variants
+    /// of [`StorageError`] say.
     pub async fn put(
         &self,
         key: &ObjectKey,
@@ -226,7 +234,8 @@ impl Storage {
     }
 
     /// Deletes the object `key`. An object that isn't there counts as deleted, so a second
-    /// deletion of it succeeds.
+    /// deletion of it succeeds: it fails as the variants of [`StorageError`] say, but never with
+    /// `NotFound`.
     pub async fn delete(&self, key: &ObjectKey) -> Result<(), StorageError> {
         let request = key.addressed().map(|object| {
             let action = self.bucket.delete_object(Some(&self.credentials), object);
@@ -239,6 +248,8 @@ impl Storage {
     }
 
     /// The objects whose keys start with `prefix`, as the bucket lists them, a page at a time.
+    /// The stream ends after its first failure: a page's request fails as the variants of
+    /// [`StorageError`] say, and a page that PLATFORM-101 fails gives `Failed`.
     pub fn list(&self, prefix: &str) -> BoxStream<'static, Result<Listed, StorageError>> {
         self.listed(listing::pages(self.clone(), prefix.to_owned()), Call::List)
     }

@@ -15,7 +15,7 @@ mod ranges;
 mod restoring;
 mod workspace_pictures;
 
-use std::{sync::Arc, time::Duration};
+use std::{iter::repeat_n, sync::Arc, time::Duration};
 
 use axum::body::Body;
 use bytes::Bytes;
@@ -23,7 +23,7 @@ use futures_util::{TryStreamExt, stream};
 use platform::{
     clock::TestClock,
     storage::{ObjectKey, Storage, StorageConfig},
-    telemetry::testing::{self, collector::Collector},
+    telemetry::testing::{self, collector::Collector, spans::EndedSpans},
     types::Secret,
 };
 use serde_json::{Value, json};
@@ -1660,6 +1660,29 @@ async fn obs_07_the_bucket_s_client_sends_no_trace_context_to_the_bucket() {
     }
 }
 
+#[tokio::test]
+async fn obs_06_a_call_of_the_bucket_runs_in_a_client_span_with_the_bucket_s_address_and_port() {
+    // A bucket that the tests' storage doesn't hold, so the storage answers the call with a
+    // failure, which ends the call's span as any answer does.
+    let storage = bucket::storage("obs-06-no-such-bucket");
+    let spans = EndedSpans::default();
+    let on_this_thread = tracing::dispatcher::set_default(&spans.dispatch());
+
+    let headed = storage.head(&ObjectKey::from_stored("avatars/0a")).await;
+    drop(on_this_thread);
+
+    assert!(headed.is_err(), "{headed:?}");
+    let read = |key: &str| spans.attributes("S3 HeadObject", key);
+    let endpoint: url::Url = bucket::ENDPOINT.parse().unwrap();
+    assert_eq!(
+        [read("server.address"), read("server.port")],
+        [
+            [endpoint.host_str().map(str::to_owned)],
+            [endpoint.port().map(|port| port.to_string())]
+        ]
+    );
+}
+
 #[test]
 fn platform_076_the_client_refuses_to_start_without_its_authorities_file() {
     let config = |ca_path: Option<&str>| StorageConfig {
@@ -1735,18 +1758,22 @@ async fn files_013_uploads_are_counted_by_how_they_ended() {
     let server = files::serving(api.database(), &collector, &[]).await;
 
     let eicar = scanner::eicar();
-    for (name, bytes) in [
-        ("a.txt", b"hello".as_slice()),
-        ("a.png", b"hello"),
-        ("eicar.txt", &eicar),
-    ] {
-        upload_to(&server, &ada, &workspace, name, bytes, None).await;
+    // Each outcome a number of times of its own, so that counts which gave an outcome another's
+    // label differ from these.
+    let mut sent = vec![("a.txt", b"hello".as_slice())];
+    sent.extend(repeat_n(("a.png", b"hello".as_slice()), 2));
+    sent.extend(repeat_n(("eicar.txt", eicar.as_slice()), 3));
+    let mut statuses = Vec::new();
+    for (name, bytes) in sent {
+        let (status, _) = upload_to(&server, &ada, &workspace, name, bytes, None).await;
+        statuses.push(status);
     }
     server.stop().await;
 
+    assert_eq!(statuses, [201, 422, 422, 422, 422, 422]);
     assert_eq!(
         uploads_counted(&collector),
-        ["malware_detected 1", "stored 1", "unsupported_type 1"]
+        ["malware_detected 3", "stored 1", "unsupported_type 2"]
     );
 }
 

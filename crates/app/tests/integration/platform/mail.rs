@@ -8,7 +8,7 @@ use platform::{
     jobs::JobFailure,
     lifecycle::Readiness,
     mail::{Email, Mail},
-    telemetry::testing::{self, collector::Collector},
+    telemetry::testing::{self, collector::Collector, spans::EndedSpans},
     types::EmailAddress,
 };
 use serde_json::json;
@@ -455,6 +455,38 @@ async fn platform_025_each_email_that_send_now_sends_carries_a_message_id_of_its
             email.message_id
         );
     }
+}
+
+#[tokio::test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test of send_now calls it, as a job's handler does (OBS-06)"
+)]
+async fn obs_06_a_send_runs_in_a_client_span_with_the_mail_server_s_address_and_port() {
+    // A server on a port of its own, which refuses the recipient: the send's span ends all the
+    // same.
+    let server = refusing_server().await;
+    let options = Options::default()
+        .set("SMTP_HOST", server.ip())
+        .set("SMTP_PORT", server.port());
+    let mail = mail(&options);
+    let spans = EndedSpans::default();
+    let on_this_thread = tracing::dispatcher::set_default(&spans.dispatch());
+
+    let sent = mail
+        .send_now(secret_email(&mailbox::address("spanned")))
+        .await;
+    drop(on_this_thread);
+
+    assert!(matches!(sent, Err(JobFailure::Permanent(_))), "{sent:?}");
+    let read = |key: &str| spans.attributes("smtp send", key);
+    assert_eq!(
+        [read("server.address"), read("server.port")],
+        [
+            [Some(server.ip().to_string())],
+            [Some(server.port().to_string())]
+        ]
+    );
 }
 
 /// How many sends to the mail server ended as `unavailable`, in every test that runs alongside.

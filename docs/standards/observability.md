@@ -33,7 +33,7 @@ Of the telemetry that a user's client sends through the telemetry proxy, the col
 - Why: telemetry is copied widely and kept for a long time (D7).
 - Check: `compiler`, `test`, with SEC-01's of `Secret`, `ci: check-instrument`, `ci: e2e`, plus `review`, each for what its item below says.
   - `compiler`: the types that have no `Debug`.
-  - `test`: the `Debug` of each redacting type that the rule names prints none of what it redacts, and what the rule says that it prints, and an internal error's `Debug` prints its cause's messages and not the cause's own `Debug`. The logs of `bootstrap` hold no password verifier, and those of a request whose stored result doesn't read as its type none of the result.
+  - `test`: the `Debug` of each redacting type that the rule names prints none of what it redacts, and what the rule says that it prints, and an internal error's `Debug` holds none of its cause's own `Debug`, which may hold personal data, such as the values that a constraint refused. The logs of `bootstrap` hold no password verifier, and those of a request whose stored result doesn't read as its type none of the result.
   - `ci: check-instrument`: every `#[instrument]` that [its row in ci.md](../operations/ci.md#checks-that-exist) names has `skip_all`.
   - `ci: e2e`: the proxy's span, its log line and its own log hold no client address or user agent, under any name, and the bundled Postgres's log holds no value that a unique constraint refused.
   - `review`: the rest of the rule.

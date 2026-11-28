@@ -14,7 +14,7 @@ mod rules;
 pub mod sent;
 mod waits;
 
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 
 use syn::{Attribute, ItemFn, visit::Visit};
 
@@ -23,6 +23,9 @@ use crate::{
     catalog::{Behavior, Catalog},
     repo::Repo,
 };
+
+/// The tests that each ID names, by the ID: each test's path, line and name.
+type Named = BTreeMap<String, Vec<(String, usize, String)>>;
 
 /// The migration tracker. While it exists, unproven behaviors are reported, not failed.
 const TRACKER: &str = "docs/MIGRATION.md";
@@ -40,7 +43,7 @@ pub fn check(repo: &Repo, catalog: &Catalog) -> Outcome {
     for (prefix, behaviors) in catalog.behaviors() {
         let unproven: Vec<&Behavior> = behaviors
             .iter()
-            .filter(|behavior| !proven.contains(&behavior.id))
+            .filter(|behavior| !proven.contains_key(&behavior.id))
             .collect();
         proven_count += behaviors.len() - unproven.len();
         total += behaviors.len();
@@ -66,10 +69,10 @@ pub fn check(repo: &Repo, catalog: &Catalog) -> Outcome {
     outcome
 }
 
-/// The IDs that tests name. A test whose name starts with no ID, or with an ID that doesn't
-/// exist, is reported.
-fn proven(repo: &Repo, catalog: &Catalog, findings: &mut Vec<Finding>) -> BTreeSet<String> {
-    let mut proven = BTreeSet::new();
+/// The tests that each ID names, by the ID: each test's path, line and name. A test whose name
+/// starts with no ID, or with an ID that doesn't exist, is reported.
+fn proven(repo: &Repo, catalog: &Catalog, findings: &mut Vec<Finding>) -> Named {
+    let mut proven = Named::new();
     for (path, line, name) in tests(repo, findings) {
         let problem = match id_of(&name) {
             None => "doesn't start with a behavior or rule ID".to_owned(),
@@ -77,7 +80,7 @@ fn proven(repo: &Repo, catalog: &Catalog, findings: &mut Vec<Finding>) -> BTreeS
                 format!("names {id}, which no spec or rule defines")
             }
             Some(id) => {
-                proven.insert(id);
+                proven.entry(id).or_default().push((path, line, name));
                 continue;
             }
         };
@@ -214,7 +217,13 @@ mod tests {
     fn test_01_a_test_must_start_with_an_id_that_exists() {
         let outcome = run(&[("crates/widgets/src/lib.rs", TESTS), (TRACKER, "")]);
 
-        let findings: Vec<String> = outcome.findings.iter().map(ToString::to_string).collect();
+        // The fixture's STYLE-01 gives `test` nothing, which `rules.rs`'s own test reads.
+        let findings: Vec<String> = outcome
+            .findings
+            .iter()
+            .map(ToString::to_string)
+            .filter(|finding| !finding.contains("is named by"))
+            .collect();
         assert_eq!(
             findings,
             [

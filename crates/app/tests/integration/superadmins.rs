@@ -5,6 +5,7 @@
 //! subcommand shows its operator (OPS-03).
 
 use http::Method;
+use platform::telemetry::testing::collector::Collector;
 use serde_json::{Value, json};
 
 use crate::{
@@ -12,7 +13,7 @@ use crate::{
     support::{
         Api,
         api::reads,
-        audit, execute_on,
+        audit, counts, execute_on,
         lists::pages,
         mailbox,
         operator::{self, EMAIL_OFF, SENDS_EMAIL, finished, printed, refused},
@@ -409,6 +410,42 @@ async fn superadmins_004_every_route_of_a_superadmin_s_refuses_a_caller_who_is_n
         entries(&api, "access.denied").await.0.len(),
         routes.len(),
         "{routes:?}"
+    );
+}
+
+#[tokio::test]
+async fn superadmins_004_each_refusal_counts_as_one_for_a_permission() {
+    let api = Api::new().await;
+    let ada = users::register(&api, "ada@example.com").await;
+    let grace = users::register(&api, "grace@example.com").await;
+    let db = api.database();
+    // A `serve` of the test's own, which exports to the stand-in collector, so that no other
+    // test's refusals reach what it counts (TEST-07).
+    let collector = Collector::start().await.unwrap();
+    let endpoint = collector.endpoint();
+    let server = db
+        .serve(&[
+            ("ENVIRONMENT", "test"),
+            ("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint.as_str()),
+        ])
+        .await;
+
+    let mut statuses = Vec::new();
+    for caller in [&ada, &grace] {
+        let bearer = format!("Bearer {}", caller.access);
+        let headers = [("authorization", bearer.as_str())];
+        statuses.push(server.send("GET", EVERY, &headers, b"").await.0);
+    }
+    server.stop().await;
+
+    assert_eq!(statuses, [403, 403]);
+    assert_eq!(
+        counts::of(
+            &collector.received(),
+            "platform.authorization_refusals",
+            "authorization.reason"
+        ),
+        ["permission 2"]
     );
 }
 

@@ -132,11 +132,7 @@ macro_rules! id_type {
             }
         }
 
-        impl ToSchema for $name {
-            fn name() -> Cow<'static, str> {
-                Cow::Borrowed(stringify!($name))
-            }
-        }
+        impl ToSchema for $name {}
     };
 }
 
@@ -307,11 +303,7 @@ impl PartialSchema for Timestamp {
     }
 }
 
-impl ToSchema for Timestamp {
-    fn name() -> Cow<'static, str> {
-        Cow::Borrowed("Timestamp")
-    }
-}
+impl ToSchema for Timestamp {}
 
 /// A version of an editable resource, which its `ETag` names (PLATFORM-071), such as the
 /// `version` of its row, which the shared trigger raises on every update (DATA-02), or one that
@@ -430,11 +422,7 @@ impl PartialSchema for EmailAddress {
     }
 }
 
-impl ToSchema for EmailAddress {
-    fn name() -> Cow<'static, str> {
-        Cow::Borrowed("EmailAddress")
-    }
-}
+impl ToSchema for EmailAddress {}
 
 /// The HTML standard's valid email address: a local part of letters, digits and
 /// ``.!#$%&'*+/=?^_`{|}~-``, then `@`, then labels separated by dots, each of 1 to 63 letters,

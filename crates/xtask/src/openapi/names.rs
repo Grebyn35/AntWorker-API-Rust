@@ -27,10 +27,10 @@
 //!   its string; `stringify!($name)`, or no `fn name` for the type `$name`, in a `macro_rules!`
 //!   each of whose rules' matchers takes `$name:ident` as its first fragment but those of kinds
 //!   `meta` and `vis`, the first identifier of the arguments of each invocation of that macro,
-//!   `<macro>!(…)`, after their attributes and a `pub` with its restriction, as `id_type!` and
-//!   `filter_values!` take their types' names; and `P::NAME`, where `P:` and the path of a trait
-//!   stand between `impl` and the impl's body, the string literal of `const NAME: … = "…";` in
-//!   the body of each `<trait> for`, as `LongCode` names its schemas by its kinds' `SCHEMA`.
+//!   `<macro>!(…)`, after their attributes and a `pub` with its restriction, as `id_type!` takes
+//!   its types' names; and `P::NAME`, where `P:` and the path of a trait stand between `impl`
+//!   and the impl's body, the string literal of `const NAME: … = "…";` in the body of each
+//!   `<trait> for`, as `LongCode` names its schemas by its kinds' `SCHEMA`.
 //!
 //! A name's `ToSchema` is written in the file of its derive or its impl: for an invocation's
 //! name, in the file of the `macro_rules!`, and for a constant's, in the file of the impl of

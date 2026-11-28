@@ -4,10 +4,12 @@
 //! with the rule's ID, or the line cites the ID of a behavior or of another rule that a test's
 //! name starts with. Of the lines that two spaces indent right after the `Check` line, the list
 //! nested under it, the check reads no ID, and fails on each that holds `` `test` `` where the
-//! `Check` line holds none. Which tests prove the rule's words stays review's.
+//! `Check` line holds none. It also fails on each test whose name starts with the ID of a rule
+//! whose `Check` line holds no `` `test` ``, but one whose path starts with `crates/xtask/`, a
+//! check's own test, or with `crates/app/tests/e2e/`, an end-to-end test: the line's `ci:` items
+//! stand for those. Which tests prove the rule's words stays review's.
 
-use std::collections::BTreeSet;
-
+use super::Named;
 use crate::{Finding, catalog::document_in, repo::Repo, text};
 
 /// How a `Check` line names a test as what enforces its rule.
@@ -19,9 +21,15 @@ const CHECK: &str = "- Check:";
 /// The start of each line of the list nested under a `Check` line, as DOC-08 reads one.
 const NESTED: &str = "  ";
 
+/// The starts of the paths of the tests that a `Check` line's `ci:` items stand for: the checks'
+/// own tests, and the end-to-end tests.
+const CI_TESTS: [&str; 2] = ["crates/xtask/", "crates/app/tests/e2e/"];
+
 /// A finding for each rule whose `Check` names `test` while no test is named for the rule, nor
-/// for an ID that the line cites. `proven` holds the IDs that tests' names start with.
-pub(super) fn check(repo: &Repo, proven: &BTreeSet<String>) -> Vec<Finding> {
+/// for an ID that the line cites, and for each test that a rule whose `Check` doesn't name `test`
+/// names, but the tests that its `ci:` items stand for. `proven` holds the tests that each ID
+/// names.
+pub(super) fn check(repo: &Repo, proven: &Named) -> Vec<Finding> {
     let mut findings = Vec::new();
     let rules = repo
         .files()
@@ -59,8 +67,12 @@ pub(super) fn check(repo: &Repo, proven: &BTreeSet<String>) -> Vec<Finding> {
                 continue;
             };
             listed = Some(line.contains(TEST));
+            if !line.contains(TEST) {
+                findings.extend(untested(id, proven));
+            }
             let cited = text::id_tokens(line).into_iter().map(|token| token.id());
-            let tested = proven.contains(id) || cited.into_iter().any(|id| proven.contains(&id));
+            let tested =
+                proven.contains_key(id) || cited.into_iter().any(|id| proven.contains_key(&id));
             if line.contains(TEST) && !tested {
                 findings.push(Finding::new(
                     &file.path,
@@ -75,6 +87,27 @@ pub(super) fn check(repo: &Repo, proven: &BTreeSet<String>) -> Vec<Finding> {
         }
     }
     findings
+}
+
+/// A finding for each test named by `id`, a rule whose `Check` line gives `test` nothing, but
+/// those that the line's `ci:` items stand for.
+fn untested(id: &str, proven: &Named) -> Vec<Finding> {
+    let named = proven.get(id).map_or(&[][..], Vec::as_slice);
+    named
+        .iter()
+        .filter(|(path, _, _)| !CI_TESTS.iter().any(|start| path.starts_with(start)))
+        .map(|(path, line, name)| {
+            Finding::new(
+                path,
+                *line,
+                format!(
+                    "test `{name}` is named by {id}, whose Check gives `test` nothing: the line \
+                     gives `test` what the test proves, or the test is named by what it proves \
+                     (TEST-01)"
+                ),
+            )
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -110,6 +143,41 @@ mod tests {
         assert!(
             findings[1].starts_with("docs/standards/style.md:17: the Check of STYLE-04 names"),
             "{findings:?}"
+        );
+    }
+
+    #[test]
+    fn test_01_a_rule_whose_check_gives_test_nothing_names_only_checks_and_end_to_end_tests() {
+        let rules = "# Rules\n\n\
+                     ### STYLE-01 Left to a check\nIt holds.\n- Check: `ci: check-style`.\n\n\
+                     ### STYLE-02 Proven by its own test\nIt holds.\n- Check: `test`.\n";
+        let named = "#[test]\nfn style_01_holds() {}\n#[test]\nfn style_02_holds() {}\n";
+        let outcome = run_with(&[
+            ("docs/standards/style.md", rules),
+            ("crates/widgets/src/lib.rs", named),
+            (
+                "crates/xtask/src/style.rs",
+                "#[test]\nfn style_01_is_checked() {}\n",
+            ),
+            (
+                "crates/app/tests/e2e/style.rs",
+                "#[test]\nfn style_01_holds_end_to_end() {}\n",
+            ),
+        ]);
+
+        let findings: Vec<String> = outcome
+            .findings
+            .iter()
+            .map(ToString::to_string)
+            .filter(|finding| finding.contains("is named by"))
+            .collect();
+        assert_eq!(
+            findings,
+            [
+                "crates/widgets/src/lib.rs:2: test `style_01_holds` is named by STYLE-01, whose \
+                 Check gives `test` nothing: the line gives `test` what the test proves, or the \
+                 test is named by what it proves (TEST-01)"
+            ]
         );
     }
 

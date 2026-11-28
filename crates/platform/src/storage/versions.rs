@@ -64,12 +64,15 @@ pub struct VersionBytes {
 impl Storage {
     /// What the bucket keeps of the objects whose keys start with `prefix`, as it lists it, a
     /// page at a time: the versions of an object together, the newest first, as S3 orders them.
+    /// The stream ends after its first failure: a page's request fails as the variants of
+    /// [`StorageError`] say, and a page that PLATFORM-102 fails gives `Failed`.
     pub fn versions(&self, prefix: &str) -> BoxStream<'static, Result<Version, StorageError>> {
         self.listed(pages(self.clone(), prefix.to_owned()), Call::Versions)
     }
 
     /// The bytes of the version `id` of the object `key`, as the bucket streams them, as
-    /// [`Storage::get`] streams an object's.
+    /// [`Storage::get`] streams an object's. It fails as the variants of [`StorageError`] say,
+    /// and with `Failed` for an answer that gives no length of its bytes (PLATFORM-094).
     pub async fn version(&self, key: &ObjectKey, id: &str) -> Result<VersionBytes, StorageError> {
         let request = key.addressed().map(|object| {
             let mut action = self.bucket.get_object(Some(&self.credentials), object);

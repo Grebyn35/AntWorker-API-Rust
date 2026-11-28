@@ -609,14 +609,10 @@ async fn accounts_023_the_archive_holds_every_module_s_data_as_of_one_moment() {
     let meanwhile = async {
         query_waits_on_a_lock(db, "FROM exports").await;
         // Both commit while the run waits: a workspace of Ada's, which the contract of
-        // `workspaces` reads first, and a name for her session's device, which the contract of
-        // `auth` reads later.
+        // `workspaces` reads first, and a second session of hers, which the contract of `auth`
+        // reads later.
         workspaces::arrange(db, "Ada's notes", &[(&ada.user_id, "owner")]).await;
-        db.owner_executes(&format!(
-            "UPDATE sessions SET device_name = 'Ada''s laptop' WHERE id = '{}'",
-            ada.session_id
-        ))
-        .await;
+        users::new_session(&api, "ada@example.com").await;
         execute_on(&mut held, "ROLLBACK").await;
     };
     tokio::join!(run, meanwhile);
@@ -632,18 +628,19 @@ async fn accounts_023_the_archive_holds_every_module_s_data_as_of_one_moment() {
     assert!(document(&archive, "access/memberships.json").is_empty());
     let sessions = document(&archive, "auth/sessions.json");
     assert_eq!(sessions.len(), 1);
-    assert_eq!(sessions[0]["device_name"], Value::Null);
+    assert_eq!(sessions[0]["id"], ada.session_id.as_str());
 }
 
 /// The names of the workspaces whose only member is Ada that [`arranged`] creates, in their order.
 const OWN: [&str; 2] = ["Ada's notes", "Ada's drafts"];
 
-/// Ada, with two workspaces of her own, named [`OWN`], and one of Grace's, an entry of her own
-/// log that Grace acted in, and an entry of each workspace's log, among what each workspace
+/// Ada, whose session's device is named `Ada's laptop`, which is personal data the export holds
+/// (AUTH-042), with two workspaces of her own, named [`OWN`], and one of Grace's, an entry of her
+/// own log that Grace acted in, and an entry of each workspace's log, among what each workspace
 /// holds; returns Ada, Grace, her own workspaces' IDs, in the order of [`OWN`], and Grace's
 /// workspace's ID.
 async fn arranged(api: &Api) -> (SignedIn, SignedIn, Vec<String>, String) {
-    let ada = users::register(api, "ada@example.com").await;
+    let ada = users::register_on(api, "ada@example.com", "Ada's laptop").await;
     let grace = users::register(api, "grace@example.com").await;
     let db = api.database();
     let mut own = Vec::new();
@@ -814,13 +811,6 @@ async fn accounts_024_the_archive_holds_the_user_s_data_and_only_the_content_of_
     let api = Api::new().await;
     let (ada, grace, own, shared) = arranged(&api).await;
     codes_of_each_purpose(&api, &ada).await;
-    // A name for her session's device, which is personal data the export holds (AUTH-042).
-    api.database()
-        .owner_executes(&format!(
-            "UPDATE sessions SET device_name = 'Ada''s laptop' WHERE user_id = '{}'",
-            ada.user_id
-        ))
-        .await;
     let id = built(&api, &ada).await;
 
     let archive = download(&api, &ada, &id, &[]).await.body;

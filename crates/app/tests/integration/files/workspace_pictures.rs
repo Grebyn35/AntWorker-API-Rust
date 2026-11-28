@@ -755,13 +755,15 @@ async fn files_013_a_picture_s_upload_is_counted_by_how_it_ended() {
     ];
     let picture = format!("/v1/workspaces/{workspace}/picture");
 
-    for bytes in [files::PNG, b"hello"] {
+    // Each outcome a number of times of its own, so that counts which gave an outcome the
+    // other's label differ from these.
+    for bytes in [files::PNG, b"hello", b"hello"] {
         server.send("PUT", &picture, &headers, bytes).await;
     }
     server.stop().await;
 
     assert_eq!(
         uploads_counted(&collector),
-        ["stored 1", "unsupported_type 1"]
+        ["stored 1", "unsupported_type 2"]
     );
 }

@@ -7,7 +7,7 @@ use platform::{
     config::Environment,
     errors::Held,
     outbound::{Configured, FetchError, OutboundConfig, Request, Untrusted},
-    telemetry,
+    telemetry::{self, testing::spans::EndedSpans},
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -373,4 +373,37 @@ async fn obs_07_neither_client_sends_the_trace_context_to_the_server_it_calls() 
             assert!(!head.contains(&format!("\r\n{header}:")), "{head}");
         }
     }
+}
+
+#[tokio::test]
+async fn obs_06_a_request_of_either_client_runs_in_a_span_named_by_its_method_with_its_server() {
+    let (config, origin) =
+        origin(|_| Some(response("200 OK", &["Content-Length: 4"], b"\x89PNG"))).await;
+    let configured = Configured::new(Environment::Test, &config).unwrap();
+    let untrusted = Untrusted::new(&config, vec![HOST.to_owned()]).unwrap();
+    let spans = EndedSpans::default();
+    let on_this_thread = tracing::dispatcher::set_default(&spans.dispatch());
+
+    let sent = configured
+        .send(Request::post("https://provider.example.com/token"))
+        .await;
+    let fetched = untrusted.get(&format!("{origin}/ada.png"), 16).await;
+    drop(on_this_thread);
+
+    assert!(sent.is_ok(), "{sent:?}");
+    assert!(fetched.is_ok(), "{fetched:?}");
+    // The configured client sends its request to the tests' origin, the server whose address its
+    // span names, in place of the URL's host.
+    let read = |method: &str| {
+        let attribute = |key: &str| spans.attributes(method, key);
+        [
+            attribute("server.address"),
+            attribute("http.response.status_code"),
+        ]
+    };
+    let answered = [
+        vec![Some("127.0.0.1".to_owned())],
+        vec![Some("200".to_owned())],
+    ];
+    assert_eq!([read("POST"), read("GET")], [answered.clone(), answered]);
 }

@@ -342,14 +342,18 @@ fn short(value: usize) -> u16 {
 }
 
 /// `time` in MS-DOS's format, in UTC, to the even second: its time, then its date. A time before
-/// 1980, which the format can't hold, is 1980's first moment.
+/// 1980, which the format can't hold, is 1980's first moment, and one after 2107, which it can't
+/// hold either, is the last that it holds, 23:59:58 on 31 December 2107.
 fn dos_time(time: OffsetDateTime) -> (u16, u16) {
     let time = time.to_offset(time::UtcOffset::UTC);
     if time.year() < 1980 {
         return (0, (1 << 5) | 1);
     }
+    if time.year() > 2107 {
+        return ((23 << 11) | (59 << 5) | 29, (127 << 9) | (12 << 5) | 31);
+    }
     let (hour, minute, second) = time.to_hms();
-    let year = u16::try_from(time.year() - 1980).unwrap_or(127).min(127);
+    let year = u16::try_from(time.year() - 1980).unwrap_or(127);
     let clock = (u16::from(hour) << 11) | (u16::from(minute) << 5) | u16::from(second / 2);
     let date = (year << 9) | (u16::from(u8::from(time.month())) << 5) | u16::from(time.day());
     (clock, date)
@@ -576,21 +580,37 @@ mod tests {
         ))
     }
 
+    /// The moment of `year`, `month` and `day` at `hour`, `minute` and `second`, in UTC.
+    fn utc(
+        year: i32,
+        month: time::Month,
+        day: u8,
+        (hour, minute, second): (u8, u8, u8),
+    ) -> OffsetDateTime {
+        time::Date::from_calendar_date(year, month, day)
+            .unwrap()
+            .with_hms(hour, minute, second)
+            .unwrap()
+            .assume_utc()
+    }
+
     #[test]
     fn platform_083_a_time_in_1980_is_its_own_and_one_before_1980_is_1980_s_first_moment() {
-        let utc = |year, month, day, (hour, minute, second)| {
-            time::Date::from_calendar_date(year, month, day)
-                .unwrap()
-                .with_hms(hour, minute, second)
-                .unwrap()
-                .assume_utc()
-        };
-
         let in_1980 = modified(utc(1980, time::Month::June, 15, (12, 34, 56)));
         let before = modified(utc(1979, time::Month::December, 31, (23, 59, 59)));
 
         assert_eq!(in_1980, Some((1980, 6, 15, 12, 34, 56)));
         assert_eq!(before, Some((1980, 1, 1, 0, 0, 0)));
+    }
+
+    #[test]
+    fn platform_083_a_time_in_2107_is_its_own_and_one_after_2107_is_the_last_that_the_format_holds()
+    {
+        let in_2107 = modified(utc(2107, time::Month::June, 15, (12, 34, 56)));
+        let after = modified(utc(2108, time::Month::January, 1, (0, 0, 0)));
+
+        assert_eq!(in_2107, Some((2107, 6, 15, 12, 34, 56)));
+        assert_eq!(after, Some((2107, 12, 31, 23, 59, 58)));
     }
 
     #[test]
