@@ -52,7 +52,9 @@ impl<C> Runs<C> {
     }
 
     /// Waits for every run until `deadline` passes, then cancels those still going, and returns
-    /// their claims, which the caller releases.
+    /// the claims of those that the cancellation ended, which the caller releases: one that ended
+    /// before the cancellation reached it holds no claim, and the claim of one that panics as it
+    /// is cancelled is left to its lease, as after a crash (PLATFORM-018).
     pub(super) async fn drain(mut self, mut deadline: watch::Receiver<bool>) -> Vec<C> {
         let passed = deadline.wait_for(|passed| *passed);
         tokio::pin!(passed);

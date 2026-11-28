@@ -57,7 +57,7 @@ The instance installs its handlers for the shutdown signals before it connects t
 4. Drain requests, up to a deadline no shorter than the longest timeout of a route plus the bounds of the waits that a request makes outside it, before and after (OPS-07), so a request that its route lets finish isn't cut short.
    An upload's timeout is the longest. <!-- part: files -->
    A download's bytes stream for as long as its client takes to read them, so the deadline may cut one short, which its client resumes from another instance, asking for the bytes it lacks with a `Range` (PLATFORM-081).
-5. Cancel jobs and release their leases.
+5. Cancel the jobs still running, and release their leases, but those that PLATFORM-018 leaves to run out.
 6. Flush telemetry.
 
 The whole sequence fits inside the container's grace period, with margin.

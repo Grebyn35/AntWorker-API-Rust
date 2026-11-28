@@ -41,9 +41,9 @@ struct Claim {
 }
 
 /// Claims and runs jobs until `stopping` turns true, then waits for the runs in flight until
-/// `deadline` passes, and releases those it then cancels, through [`release_within`]
-/// (PLATFORM-018). A claim that the database hasn't answered when `deadline` passes is given up
-/// then, through [`before`].
+/// `deadline` passes, and releases those it then cancels, but one that panics as it is
+/// cancelled, through [`release_within`] (PLATFORM-018). A claim that the database hasn't
+/// answered when `deadline` passes is given up then, through [`before`].
 pub(super) async fn dispatch(
     queued: Arc<HashMap<&'static str, Queued>>,
     database: Database,

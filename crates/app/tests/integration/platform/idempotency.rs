@@ -207,20 +207,28 @@ async fn platform_036_a_claim_of_a_key_is_counted_by_how_it_ended() {
     )
     .await;
 
-    let first = send_keyed(&api, &ada, &json!({ "value": "a" }), Some("\"k-1\"")).await;
-    let replayed = send_keyed(&api, &ada, &json!({ "value": "a" }), Some("\"k-1\"")).await;
-    let reused = send_keyed(&api, &ada, &json!({ "value": "b" }), Some("\"k-1\"")).await;
-    let in_flight = send_keyed(&api, &ada, &json!({ "value": "a" }), Some("\"k-2\"")).await;
+    // Each outcome is claimed a number of times of its own, so a count under another outcome's
+    // label leaves a label short of its number: two new keys, four replays and three reuses of
+    // the first, and one claim of the key that the held transaction inserted, which waits for it.
+    let (a, b) = (json!({ "value": "a" }), json!({ "value": "b" }));
+    let mut sent = vec![(&a, "\"k-1\""), (&a, "\"k-3\"")];
+    sent.extend([(&a, "\"k-1\""); 4]);
+    sent.extend([(&b, "\"k-1\""); 3]);
+    sent.push((&a, "\"k-2\""));
+    let mut statuses = Vec::new();
+    for (body, key) in sent {
+        statuses.push(send_keyed(&api, &ada, body, Some(key)).await.status);
+    }
     execute_on(&mut held, "ROLLBACK").await;
 
-    let statuses = [&first, &replayed, &reused, &in_flight].map(|response| response.status);
-    assert_eq!(statuses, [200, 200, 422, 409]);
+    assert_eq!(statuses, [200, 200, 200, 200, 200, 200, 422, 422, 422, 409]);
     // The keyed route is a fixture of the tests' own, which no `serve` has, and a fork may leave
     // out every route of the API's own that takes a key, so this file's tests send none. Other
-    // tests claim keys too, so each count grows by at least this test's one (TEST-07).
+    // tests claim keys too, so each count grows by at least this test's own (TEST-07).
     let after = outcomes.map(claims);
-    for ((outcome, before), after) in outcomes.iter().zip(before).zip(after) {
-        assert!(after >= before + 1.0, "{outcome}: {after} after {before}");
+    let own = [2.0, 4.0, 3.0, 1.0];
+    for (((outcome, before), after), own) in outcomes.iter().zip(before).zip(after).zip(own) {
+        assert!(after >= before + own, "{outcome}: {after} after {before}");
     }
 }
 

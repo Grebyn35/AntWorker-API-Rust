@@ -215,9 +215,9 @@ impl Jobs {
 
     /// Runs the dispatcher and the scheduler on `database` until `stopping` turns true, then
     /// the runs in flight until `grace` has passed, and then gives up a claim, or the insert of
-    /// the schedules, that the database hasn't answered, and cancels and releases the runs still
-    /// going, waiting at most 2 seconds for the releases (PLATFORM-018). `serve` gives it the
-    /// time it gives the requests in flight.
+    /// the schedules, that the database hasn't answered, and cancels the runs still going, and
+    /// releases each but one that panics as it is cancelled, waiting at most 2 seconds for the
+    /// releases (PLATFORM-018). `serve` gives it the time it gives the requests in flight.
     pub async fn run(
         self,
         database: Database,
@@ -381,7 +381,7 @@ fn failed() {
     tracing::Span::current().record(names::OTEL_STATUS_CODE, "error");
 }
 
-/// Waits for `release`, the releases of the claims that the deadline cancelled, for at most
+/// Waits for `release`, the releases of the claims that `Runs::drain` returns, for at most
 /// [`RELEASE_WITHIN`] on `clock`, and then drops it, since a statement's own waits bound no
 /// database that stops answering (D226). A claim whose release hasn't ended is then left as a
 /// replica that crashed leaves its claims: its lease runs out, unless the database still carries
