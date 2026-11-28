@@ -415,12 +415,8 @@ async fn platform_110_authorization_counts_each_refusal_by_why() {
     // A `serve` of the test's own, which exports to the stand-in collector, so that no other
     // test's refusals reach what it counts (TEST-07).
     let collector = Collector::start().await.unwrap();
-    let endpoint = collector.endpoint();
     let server = db
-        .serve(&[
-            ("ENVIRONMENT", "test"),
-            ("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint.as_str()),
-        ])
+        .exporting_to(&collector, &[("ENVIRONMENT", "test")])
         .await;
 
     // A stranger's read, and the owner's removal by a member, whose role doesn't allow it, twice,

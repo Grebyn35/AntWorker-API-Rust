@@ -32,15 +32,13 @@ const NEW_PASSWORD: &str = "lantern-orchard-58-brisk";
 /// codes and the apps that a test's API issued (SEC-03, AUTH-066), exporting its telemetry to
 /// `collector`, and with `env` in place of any of those settings that it names.
 async fn serving(db: &TestDatabase, collector: &Collector, env: &[(&str, &str)]) -> Server {
-    let endpoint = collector.endpoint();
     let mut settings = vec![
         ("ENVIRONMENT", "test"),
         ("HMAC_KEY", api::HMAC_KEY),
         ("ENCRYPTION_KEYS", api::ENCRYPTION_KEYS),
-        ("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint.as_str()),
     ];
     settings.extend_from_slice(env);
-    db.serve(&settings).await
+    db.exporting_to(collector, &settings).await
 }
 
 /// Posts `body` to `path` of `server`, with `access` as its bearer token when given, and gives

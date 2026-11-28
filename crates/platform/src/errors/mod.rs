@@ -364,6 +364,10 @@ mod tests {
     #[error("outer")]
     struct Outer(#[source] std::io::Error);
 
+    #[derive(Debug, thiserror::Error)]
+    #[error("outermost")]
+    struct Outermost(#[source] Outer);
+
     #[test]
     fn err_11_a_lock_that_a_panic_poisoned_holds_what_the_panic_left() {
         let lock = std::sync::Mutex::new(vec![1]);
@@ -382,8 +386,8 @@ mod tests {
 
     #[test]
     fn err_10_a_chain_lists_every_cause_outermost_first() {
-        let error = Outer(std::io::Error::other("inner"));
-        assert_eq!(chain(&error), "outer: inner");
+        let error = Outermost(Outer(std::io::Error::other("inner")));
+        assert_eq!(chain(&error), "outermost: outer: inner");
     }
 
     /// A cause whose `Debug` output holds personal data, as a database error's detail can.

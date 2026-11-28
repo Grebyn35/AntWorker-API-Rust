@@ -49,7 +49,7 @@ The telemetry proxy's routes answer what the OpenTelemetry Protocol asks of an e
 - Why: one shape for every resource and every list (D8).
 - Check: `ci: check-openapi`, `test`, plus `review`, each for what its item below says.
   - `ci: check-openapi`: the names of properties, in each place that the comment of [its `schemas.rs`](../../crates/xtask/src/openapi/schemas.rs) lists, a list's shape, and that a property which may be `null` is `required` in each schema that no request gives, as the comment of [its `presence.rs`](../../crates/xtask/src/openapi/presence.rs) says which those are.
-  - `test`: the document that the API writes requires each property that may be `null`, whose `type` holds `null` or one of whose `oneOf` is `null`, in the schema of a response and in each component but those that a request's body refers to, directly or through another component, and in the items of an array and the members of a `oneOf`, an `allOf` or an `anyOf` that a response's schema holds.
+  - `test`: the document that the API writes requires each property that may be `null`, whose `type` holds `null` or one of whose `oneOf` is `null`, in the schema of a response and in each component but those that a request's body or its parameters refer to, directly or through another component, and in the items of an array and the members of a `oneOf`, an `allOf` or an `anyOf` that a response's schema holds.
   - `review`: an array of sub-resources that a resource holds, and a field that a response may leave out.
 
 ### API-06 Lists use opaque cursors

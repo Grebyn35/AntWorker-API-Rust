@@ -422,12 +422,8 @@ async fn superadmins_004_each_refusal_counts_as_one_for_a_permission() {
     // A `serve` of the test's own, which exports to the stand-in collector, so that no other
     // test's refusals reach what it counts (TEST-07).
     let collector = Collector::start().await.unwrap();
-    let endpoint = collector.endpoint();
     let server = db
-        .serve(&[
-            ("ENVIRONMENT", "test"),
-            ("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint.as_str()),
-        ])
+        .exporting_to(&collector, &[("ENVIRONMENT", "test")])
         .await;
 
     let mut statuses = Vec::new();

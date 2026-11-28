@@ -371,11 +371,24 @@ async fn platform_003_in_production_bootstrap_refuses_a_server_with_another_data
         ..db.bootstrap_config()
     };
 
-    let (before, refused, after) = db
+    let (before, refused, owner, after) = db
         .with_roles_locked(async {
             let before = db.admin_reads(verifiers).await;
             let refused = platform::db::bootstrap(&production, &Workers::new()).await;
-            (before, refused, db.admin_reads(verifiers).await)
+            // Read under the lock, which keeps the owned test's database away: empty when the
+            // database, another test's, is gone since.
+            let owner = match &refused {
+                Err(BootstrapError::SharedServer(named)) => {
+                    db.admin_reads(&format!(
+                        "SELECT pg_get_userbyid(datdba)::text FROM pg_database \
+                         WHERE datname = '{}'",
+                        named.replace('\'', "''")
+                    ))
+                    .await
+                }
+                _ => Vec::new(),
+            };
+            (before, refused, owner, db.admin_reads(verifiers).await)
         })
         .await;
 
@@ -384,15 +397,9 @@ async fn platform_003_in_production_bootstrap_refuses_a_server_with_another_data
         _ => "",
     };
     assert!(!named.is_empty() && named != db.name(), "{refused:?}");
-    // A database that neither role owns, so the refusal is for a privilege that they hold on it.
-    let owner = db
-        .admin_reads(&format!(
-            "SELECT pg_get_userbyid(datdba)::text FROM pg_database WHERE datname = '{}'",
-            named.replace('\'', "''")
-        ))
-        .await;
+    // Neither role owns the database, so the refusal is for a privilege that they hold on it.
     assert!(
-        owner.len() == 1 && owner[0] != "owner" && owner[0] != "app",
+        owner.iter().all(|owner| owner != "owner" && owner != "app"),
         "{named}: {owner:?}"
     );
     assert_eq!(after, before, "no password changed");

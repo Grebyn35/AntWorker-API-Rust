@@ -1775,6 +1775,12 @@ fn delays_recorded(database: Database, clock: &Arc<TestClock>) -> mpsc::Unbounde
 async fn platform_112_the_delay_is_recorded_at_once_and_every_15_seconds_after() {
     let db = TestDatabase::migrated().await;
     let clock = Arc::new(TestClock::default());
+    // A job of a kind that no release runs, whose run_at is an hour away.
+    db.owner_executes(
+        "INSERT INTO jobs (kind, payload, run_at) \
+         VALUES ('tests.unknown', '{}', now() + interval '1 hour')",
+    )
+    .await;
     let mut records = delays_recorded(db.app().await, &clock);
 
     // The watcher starts its sleep after it records, so a sleep that waits while no record has
@@ -1784,7 +1790,7 @@ async fn platform_112_the_delay_is_recorded_at_once_and_every_15_seconds_after()
         first = records.recv() => first,
         () = clock.sleeping(DELAY_EVERY) => None,
     };
-    // No job waits, so each record is 0.
+    // The one job hasn't passed its run_at, so each record is 0.
     assert_eq!(first, Some(0));
 
     clock.advance(DELAY_EVERY - Duration::from_secs(1));

@@ -129,7 +129,7 @@ mod tests {
     use utoipa::openapi::{
         AllOfBuilder, ArrayBuilder, ComponentsBuilder, ContentBuilder, ObjectBuilder, OneOfBuilder,
         OpenApi, OpenApiBuilder, PathItem, PathsBuilder, Ref, RefOr, ResponseBuilder, Schema,
-        path::{HttpMethod, OperationBuilder},
+        path::{HttpMethod, OperationBuilder, ParameterBuilder, ParameterIn},
         request_body::RequestBodyBuilder,
         schema::{AnyOfBuilder, SchemaType, Type},
     };
@@ -256,5 +256,44 @@ mod tests {
         assert_eq!(names(&schemas["Answer"]), ["note"]);
         assert!(names(&schemas["Request"]).is_empty());
         assert!(names(&schemas["Detail"]).is_empty());
+    }
+
+    #[test]
+    fn api_05_a_component_that_a_request_s_parameters_refer_to_keeps_a_property_that_may_be_null_unrequired()
+     {
+        let parameter = |name: &str, schema: &str| {
+            ParameterBuilder::new()
+                .name(name)
+                .parameter_in(ParameterIn::Query)
+                .schema(Some(Ref::from_schema_name(schema)))
+                .build()
+        };
+        let operation = OperationBuilder::new()
+            .parameter(parameter("filter", "Filter"))
+            .response(
+                "200",
+                ResponseBuilder::new().description("Done.").content(
+                    "application/json",
+                    json_content(Ref::from_schema_name("Answer")),
+                ),
+            );
+        let mut item = PathItem::new(HttpMethod::Get, operation);
+        item.parameters = Some(vec![RefOr::T(parameter("scope", "Scope"))]);
+        let components = ComponentsBuilder::new()
+            .schema("Filter", noted())
+            .schema("Scope", noted())
+            .schema("Answer", noted());
+        let mut document: OpenApi = OpenApiBuilder::new()
+            .paths(PathsBuilder::new().path("/v1/things", item))
+            .components(Some(components.build()))
+            .build();
+
+        super::require_nullable(&mut document);
+
+        let document = serde_json::to_value(document).unwrap();
+        let schemas = &document["components"]["schemas"];
+        assert_eq!(names(&schemas["Answer"]), ["note"]);
+        assert!(names(&schemas["Filter"]).is_empty());
+        assert!(names(&schemas["Scope"]).is_empty());
     }
 }

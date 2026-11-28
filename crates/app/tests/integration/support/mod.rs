@@ -991,9 +991,7 @@ fn settings() -> BootstrapConfig {
 ///
 /// The drop reads the templates named after the administrator's database, so it leaves those of
 /// a run whose administrator's URL named another database, whether built or left as
-/// `<name>_building` by a run killed while it built. One that the roles hold privileges on, and
-/// whose name sorts before the database that PLATFORM-003's test of a database its role owns
-/// creates, fails that test until it is dropped, since the refusal names the first by name.
+/// `<name>_building` by a run killed while it built.
 async fn template(settings: &BootstrapConfig) -> &'static str {
     TEMPLATE
         .get_or_init(|| async {

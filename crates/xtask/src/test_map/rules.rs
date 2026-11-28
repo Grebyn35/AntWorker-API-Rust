@@ -5,9 +5,10 @@
 //! name starts with. Of the lines that two spaces indent right after the `Check` line, the list
 //! nested under it, the check reads no ID, and fails on each that holds `` `test` `` where the
 //! `Check` line holds none. It also fails on each test whose name starts with the ID of a rule
-//! whose `Check` line holds no `` `test` ``, but one whose path starts with `crates/xtask/`, a
-//! check's own test, or with `crates/app/tests/e2e/`, an end-to-end test: the line's `ci:` items
-//! stand for those. Which tests prove the rule's words stays review's.
+//! whose `Check` line holds no `` `test` ``, but one whose path starts with `crates/xtask/`,
+//! where the line holds `` `ci: ``, since `xtask` holds the code of the tasks that `ci:` names,
+//! and one whose path starts with `crates/app/tests/e2e/`, where the line holds
+//! `` `ci: e2e` ``. Which tests prove the rule's words stays review's.
 
 use super::Named;
 use crate::{Finding, catalog::document_in, repo::Repo, text};
@@ -21,13 +22,16 @@ const CHECK: &str = "- Check:";
 /// The start of each line of the list nested under a `Check` line, as DOC-08 reads one.
 const NESTED: &str = "  ";
 
-/// The starts of the paths of the tests that a `Check` line's `ci:` items stand for: the checks'
-/// own tests, and the end-to-end tests.
-const CI_TESTS: [&str; 2] = ["crates/xtask/", "crates/app/tests/e2e/"];
+/// The start of the paths of the tests of `xtask`, which holds the code of the tasks that a
+/// `Check` line's `ci:` items name, and the text that starts each such item.
+const TASKS: (&str, &str) = ("crates/xtask/", "`ci: ");
+
+/// The start of the paths of the end-to-end tests, and the item of a `Check` line that names them.
+const END_TO_END: (&str, &str) = ("crates/app/tests/e2e/", "`ci: e2e`");
 
 /// A finding for each rule whose `Check` names `test` while no test is named for the rule, nor
 /// for an ID that the line cites, and for each test that a rule whose `Check` doesn't name `test`
-/// names, but the tests that its `ci:` items stand for. `proven` holds the tests that each ID
+/// names, but those of the tasks that the line names. `proven` holds the tests that each ID
 /// names.
 pub(super) fn check(repo: &Repo, proven: &Named) -> Vec<Finding> {
     let mut findings = Vec::new();
@@ -68,7 +72,7 @@ pub(super) fn check(repo: &Repo, proven: &Named) -> Vec<Finding> {
             };
             listed = Some(line.contains(TEST));
             if !line.contains(TEST) {
-                findings.extend(untested(id, proven));
+                findings.extend(untested(id, line, proven));
             }
             let cited = text::id_tokens(line).into_iter().map(|token| token.id());
             let tested =
@@ -89,21 +93,25 @@ pub(super) fn check(repo: &Repo, proven: &Named) -> Vec<Finding> {
     findings
 }
 
-/// A finding for each test named by `id`, a rule whose `Check` line gives `test` nothing, but
-/// those that the line's `ci:` items stand for.
-fn untested(id: &str, proven: &Named) -> Vec<Finding> {
+/// A finding for each test named by `id`, a rule whose `Check` line, `line`, gives `test`
+/// nothing, but those of the tasks that the line names.
+fn untested(id: &str, line: &str, proven: &Named) -> Vec<Finding> {
     let named = proven.get(id).map_or(&[][..], Vec::as_slice);
     named
         .iter()
-        .filter(|(path, _, _)| !CI_TESTS.iter().any(|start| path.starts_with(start)))
+        .filter(|(path, _, _)| {
+            ![TASKS, END_TO_END]
+                .iter()
+                .any(|(start, item)| path.starts_with(start) && line.contains(item))
+        })
         .map(|(path, line, name)| {
             Finding::new(
                 path,
                 *line,
                 format!(
-                    "test `{name}` is named by {id}, whose Check gives `test` nothing: the line \
-                     gives `test` what the test proves, or the test is named by what it proves \
-                     (TEST-01)"
+                    "test `{name}` is named by {id}, whose Check gives `test` nothing, nor the \
+                     task whose test it is: the line gives the test's kind what it proves, or the \
+                     test is named by what it proves (TEST-01)"
                 ),
             )
         })
@@ -147,11 +155,14 @@ mod tests {
     }
 
     #[test]
-    fn test_01_a_rule_whose_check_gives_test_nothing_names_only_checks_and_end_to_end_tests() {
+    fn test_01_a_rule_whose_check_gives_test_nothing_names_only_the_tests_of_its_tasks() {
         let rules = "# Rules\n\n\
-                     ### STYLE-01 Left to a check\nIt holds.\n- Check: `ci: check-style`.\n\n\
-                     ### STYLE-02 Proven by its own test\nIt holds.\n- Check: `test`.\n";
+                     ### STYLE-01 Left to a check\nIt holds.\n\
+                     - Check: `ci: check-style`, plus `ci: e2e`.\n\n\
+                     ### STYLE-02 Proven by its own test\nIt holds.\n- Check: `test`.\n\n\
+                     ### STYLE-03 Left to the compiler\nIt holds.\n- Check: `compiler`.\n";
         let named = "#[test]\nfn style_01_holds() {}\n#[test]\nfn style_02_holds() {}\n";
+        let unchecked = "#[test]\nfn style_03_is_checked() {}\n";
         let outcome = run_with(&[
             ("docs/standards/style.md", rules),
             ("crates/widgets/src/lib.rs", named),
@@ -163,20 +174,33 @@ mod tests {
                 "crates/app/tests/e2e/style.rs",
                 "#[test]\nfn style_01_holds_end_to_end() {}\n",
             ),
+            ("crates/xtask/src/compiled.rs", unchecked),
+            (
+                "crates/app/tests/e2e/compiled.rs",
+                "#[test]\nfn style_03_holds_end_to_end() {}\n",
+            ),
         ]);
 
-        let findings: Vec<String> = outcome
+        let mut findings: Vec<String> = outcome
             .findings
             .iter()
             .map(ToString::to_string)
             .filter(|finding| finding.contains("is named by"))
             .collect();
+        findings.sort();
         assert_eq!(
             findings,
             [
+                "crates/app/tests/e2e/compiled.rs:2: test `style_03_holds_end_to_end` is named by \
+                 STYLE-03, whose Check gives `test` nothing, nor the task whose test it is: the \
+                 line gives the test's kind what it proves, or the test is named by what it proves \
+                 (TEST-01)",
                 "crates/widgets/src/lib.rs:2: test `style_01_holds` is named by STYLE-01, whose \
-                 Check gives `test` nothing: the line gives `test` what the test proves, or the \
-                 test is named by what it proves (TEST-01)"
+                 Check gives `test` nothing, nor the task whose test it is: the line gives the \
+                 test's kind what it proves, or the test is named by what it proves (TEST-01)",
+                "crates/xtask/src/compiled.rs:2: test `style_03_is_checked` is named by STYLE-03, \
+                 whose Check gives `test` nothing, nor the task whose test it is: the line gives \
+                 the test's kind what it proves, or the test is named by what it proves (TEST-01)"
             ]
         );
     }
