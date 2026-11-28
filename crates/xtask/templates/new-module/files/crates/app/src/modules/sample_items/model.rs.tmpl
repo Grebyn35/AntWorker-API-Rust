@@ -1,7 +1,5 @@
 //! The sample item's domain types (D25), and what its routes answer.
 
-use std::borrow::Cow;
-
 use platform::types::{Invalid, Timestamp, Version, WorkspaceId, one_line};
 use serde::{Deserialize, Serialize};
 use utoipa::{
@@ -59,11 +57,7 @@ impl PartialSchema for SampleItemName {
     }
 }
 
-impl ToSchema for SampleItemName {
-    fn name() -> Cow<'static, str> {
-        Cow::Borrowed("SampleItemName")
-    }
-}
+impl ToSchema for SampleItemName {}
 
 /// A sample item that a member creates (SAMPLE_ITEMS-001).
 #[derive(Clone, Debug, PartialEq, Eq)]

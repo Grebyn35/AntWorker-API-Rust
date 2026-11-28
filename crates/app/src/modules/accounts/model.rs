@@ -1,7 +1,5 @@
 //! The user record's domain types (D25).
 
-use std::borrow::Cow;
-
 use platform::{
     errors::Internal,
     types::{EmailAddress, Invalid, Timestamp, UserId, Version, one_line},
@@ -70,11 +68,7 @@ impl PartialSchema for DisplayName {
     }
 }
 
-impl ToSchema for DisplayName {
-    fn name() -> Cow<'static, str> {
-        Cow::Borrowed("DisplayName")
-    }
-}
+impl ToSchema for DisplayName {}
 
 /// The caller's own user record (ACCOUNTS-001).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, ToSchema)]

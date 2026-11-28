@@ -1,4 +1,4 @@
-//! TLS for the clients the API builds itself: rustls with its ring provider (SEC-16), verifying a
+//! TLS for the HTTP clients that the API builds itself: rustls with its ring provider (SEC-16), verifying a
 //! server against the operating system's certificates, as a verified database connection does
 //! (D38).
 

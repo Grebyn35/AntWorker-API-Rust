@@ -1,7 +1,5 @@
 //! A device's name, and a session as the list of a user's sessions shows it (AUTH-042, AUTH-043).
 
-use std::borrow::Cow;
-
 use platform::types::{Invalid, SessionId, Timestamp, one_line};
 use serde::Serialize;
 use utoipa::{
@@ -61,11 +59,7 @@ impl PartialSchema for DeviceName {
     }
 }
 
-impl ToSchema for DeviceName {
-    fn name() -> Cow<'static, str> {
-        Cow::Borrowed("DeviceName")
-    }
-}
+impl ToSchema for DeviceName {}
 
 /// One of the user's sessions, as their list shows it (AUTH-043).
 #[derive(Clone, Debug, Serialize, ToSchema)]

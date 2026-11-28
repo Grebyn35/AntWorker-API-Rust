@@ -406,4 +406,76 @@ async fn obs_06_a_request_of_either_client_runs_in_a_span_named_by_its_method_wi
         vec![Some("200".to_owned())],
     ];
     assert_eq!([read("POST"), read("GET")], [answered.clone(), answered]);
+    // Neither span holds the request's path.
+    for (method, path) in [("POST", "/token"), ("GET", "/ada.png")] {
+        let values = spans.values(method);
+        assert!(
+            values.iter().flatten().all(|value| !value.contains(path)),
+            "{values:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn obs_06_the_configured_client_s_span_carries_the_status_of_an_answer_over_its_limit_or_cut_short()
+ {
+    const MEBIBYTE: usize = 1 << 20;
+    let client = configured(|path| {
+        Some(match path {
+            "/over" => response("502 Bad Gateway", &[], &vec![0; MEBIBYTE + 1]),
+            // A body shorter than its length, whose connection ends.
+            _ => response("503 Service Unavailable", &["Content-Length: 4"], b"ok"),
+        })
+    })
+    .await;
+    let spans = EndedSpans::default();
+    let on_this_thread = tracing::dispatcher::set_default(&spans.dispatch());
+
+    let over = client
+        .send(Request::get("https://provider.example.com/over"))
+        .await;
+    let cut = client
+        .send(Request::get("https://provider.example.com/cut"))
+        .await;
+    drop(on_this_thread);
+
+    assert!(over.is_err(), "{over:?}");
+    assert!(cut.is_err(), "{cut:?}");
+    assert_eq!(
+        spans.attributes("GET", "http.response.status_code"),
+        [Some("502".to_owned()), Some("503".to_owned())]
+    );
+}
+
+#[tokio::test]
+async fn obs_06_the_untrusted_client_s_span_carries_the_status_of_the_answer_after_its_redirects() {
+    let (client, origin) = serving(|path| {
+        Some(match path {
+            "/moved" => redirect("/ada.png"),
+            "/plain" => redirect("http://pictures.example.com/ada.png"),
+            _ => response("200 OK", &["Content-Length: 4"], b"\x89PNG"),
+        })
+    })
+    .await;
+    let spans = EndedSpans::default();
+    let on_this_thread = tracing::dispatcher::set_default(&spans.dispatch());
+
+    let followed = client.get(&format!("{origin}/moved"), 16).await;
+    let refused = client.get(&format!("{origin}/plain"), 16).await;
+    drop(on_this_thread);
+
+    assert!(followed.is_ok(), "{followed:?}");
+    assert!(
+        matches!(refused, Err(FetchError::Refused(_))),
+        "{refused:?}"
+    );
+    let read = |key: &str| spans.attributes("GET", key);
+    let address = Some("127.0.0.1".to_owned());
+    assert_eq!(
+        [read("server.address"), read("http.response.status_code")],
+        [
+            vec![address.clone(), address],
+            vec![Some("200".to_owned()), None]
+        ]
+    );
 }

@@ -1672,6 +1672,12 @@ async fn obs_06_a_call_of_the_bucket_runs_in_a_client_span_with_the_bucket_s_add
     drop(on_this_thread);
 
     assert!(headed.is_err(), "{headed:?}");
+    // The span holds no part of the key.
+    let values = spans.values("S3 HeadObject");
+    assert!(
+        values.iter().flatten().all(|value| !value.contains("0a")),
+        "{values:?}"
+    );
     let read = |key: &str| spans.attributes("S3 HeadObject", key);
     let endpoint: url::Url = bucket::ENDPOINT.parse().unwrap();
     assert_eq!(

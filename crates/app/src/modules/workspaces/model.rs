@@ -1,7 +1,5 @@
 //! The workspace's domain types (D25), and what its routes answer.
 
-use std::borrow::Cow;
-
 use platform::types::{
     EmailAddress, ID_CHARS, Invalid, Timestamp, UserId, Version, WorkspaceId, one_line, read_id,
 };
@@ -63,11 +61,7 @@ impl PartialSchema for WorkspaceName {
     }
 }
 
-impl ToSchema for WorkspaceName {
-    fn name() -> Cow<'static, str> {
-        Cow::Borrowed("WorkspaceName")
-    }
-}
+impl ToSchema for WorkspaceName {}
 
 // part: workspace_creation
 /// A workspace that a user creates (WORKSPACES-001).
@@ -285,11 +279,7 @@ impl PartialSchema for MemberId {
     }
 }
 
-impl ToSchema for MemberId {
-    fn name() -> Cow<'static, str> {
-        Cow::Borrowed("MemberId")
-    }
-}
+impl ToSchema for MemberId {}
 
 /// A workspace whose only member is the user, as their export holds it (the accounts spec's
 /// "What an export holds").

@@ -379,9 +379,21 @@ async fn platform_003_in_production_bootstrap_refuses_a_server_with_another_data
         })
         .await;
 
+    let named = match &refused {
+        Err(BootstrapError::SharedServer(named)) => named.as_str(),
+        _ => "",
+    };
+    assert!(!named.is_empty() && named != db.name(), "{refused:?}");
+    // A database that neither role owns, so the refusal is for a privilege that they hold on it.
+    let owner = db
+        .admin_reads(&format!(
+            "SELECT pg_get_userbyid(datdba)::text FROM pg_database WHERE datname = '{}'",
+            named.replace('\'', "''")
+        ))
+        .await;
     assert!(
-        matches!(&refused, Err(BootstrapError::SharedServer(named)) if named != db.name()),
-        "{refused:?}"
+        owner.len() == 1 && owner[0] != "owner" && owner[0] != "app",
+        "{named}: {owner:?}"
     );
     assert_eq!(after, before, "no password changed");
     drop(other);
@@ -391,21 +403,28 @@ async fn platform_003_in_production_bootstrap_refuses_a_server_with_another_data
 async fn platform_003_in_production_bootstrap_refuses_a_server_with_a_database_its_role_owns() {
     let db = TestDatabase::migrated().await;
     // A database that `owner` owns, with no grant on it, named to come first of the server's
-    // databases, so the refusal names it.
-    let owned = format!("a077_owned_{}", std::process::id());
-    db.admin_executes(&format!("DROP DATABASE IF EXISTS \"{owned}\""))
-        .await;
-    db.admin_executes(&format!("CREATE DATABASE \"{owned}\" OWNER owner"))
-        .await;
+    // databases, since bootstrap names the first by name, so the refusal names it: `name`'s
+    // collation, C, orders names by their bytes, and U+0001, the lowest byte that a name may
+    // hold, starts no other database's name that a server holds by its tasks or its tests.
+    let owned = format!("\u{1}platform_003_owned_{}", std::process::id());
     let production = platform::config::BootstrapConfig {
         environment: platform::config::Environment::Production,
         ..db.bootstrap_config()
     };
 
+    // The database is there only while the lock is held, so a test that holds it too, such as
+    // the test of another database of the roles', never meets it.
     let refused = db
-        .with_roles_locked(platform::db::bootstrap(&production, &Workers::new()))
-        .await;
-    db.admin_executes(&format!("DROP DATABASE \"{owned}\""))
+        .with_roles_locked(async {
+            db.admin_executes(&format!("DROP DATABASE IF EXISTS \"{owned}\""))
+                .await;
+            db.admin_executes(&format!("CREATE DATABASE \"{owned}\" OWNER owner"))
+                .await;
+            let refused = platform::db::bootstrap(&production, &Workers::new()).await;
+            db.admin_executes(&format!("DROP DATABASE \"{owned}\""))
+                .await;
+            refused
+        })
         .await;
 
     assert!(

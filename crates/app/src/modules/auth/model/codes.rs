@@ -149,11 +149,7 @@ impl PartialSchema for VerificationCode {
     }
 }
 
-impl ToSchema for VerificationCode {
-    fn name() -> Cow<'static, str> {
-        Cow::Borrowed("VerificationCode")
-    }
-}
+impl ToSchema for VerificationCode {}
 
 /// Crockford's base32 alphabet, each character at its value: the digits, and the letters but I,
 /// L, O and U (AUTH-036).

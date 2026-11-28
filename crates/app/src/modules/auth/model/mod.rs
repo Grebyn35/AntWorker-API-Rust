@@ -4,7 +4,7 @@
 //! name and a session as a user's list of them shows it; and in `identities.rs`, a user's
 //! identities as they read them.
 
-use std::{borrow::Cow, collections::HashSet, sync::LazyLock, time::Duration};
+use std::{collections::HashSet, sync::LazyLock, time::Duration};
 
 use platform::{
     errors::Internal,
@@ -193,11 +193,7 @@ impl PartialSchema for Password {
     }
 }
 
-impl ToSchema for Password {
-    fn name() -> Cow<'static, str> {
-        Cow::Borrowed("Password")
-    }
-}
+impl ToSchema for Password {}
 
 /// The most characters a device ID has.
 const DEVICE_ID_MAX_CHARS: usize = 64;
@@ -247,11 +243,7 @@ impl PartialSchema for DeviceId {
     }
 }
 
-impl ToSchema for DeviceId {
-    fn name() -> Cow<'static, str> {
-        Cow::Borrowed("DeviceId")
-    }
-}
+impl ToSchema for DeviceId {}
 
 /// How a client takes its session's tokens: a browser, which every request with an `Origin`
 /// comes from, as cookies, and any other client in the body (AUTH-015, SEC-07).

@@ -223,22 +223,18 @@ impl Configured {
             { names::SERVER_ADDRESS } = %host,
             { names::HTTP_RESPONSE_STATUS_CODE } = tracing::field::Empty,
         );
-        let answered = self
-            .answer(request, url, host)
-            .instrument(span.clone())
-            .await;
-        if let Ok(response) = &answered {
-            span.record(names::HTTP_RESPONSE_STATUS_CODE, i64::from(response.status));
-        }
-        answered
+        let answer = self.answer(request, url, host, &span);
+        answer.instrument(span.clone()).await
     }
 
-    /// Sends `request` to `url`, of the host `host`, and reads its answer whole.
+    /// Sends `request` to `url`, of the host `host`, and reads its answer whole, recording its
+    /// status in `span` as its head comes.
     async fn answer(
         &self,
         request: Request,
         url: url::Url,
         host: String,
+        span: &tracing::Span,
     ) -> Result<Response, OutboundError> {
         let mut builder = self.client.request(request.method.clone(), url);
         for (name, value) in &request.headers {
@@ -264,6 +260,7 @@ impl Configured {
         };
         let mut response = builder.send().await.map_err(failed)?;
         let status = response.status().as_u16();
+        span.record(names::HTTP_RESPONSE_STATUS_CODE, i64::from(status));
         let mut body = Vec::new();
         while let Some(chunk) = response.chunk().await.map_err(failed)? {
             if body.len() + chunk.len() > MAX_BODY_BYTES {

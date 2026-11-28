@@ -1,8 +1,6 @@
 //! The domain types of second factors (D25, D134): an authenticator app's secret, which computes
 //! its codes, a code as the user typed it, and what a request gives to prove the factor.
 
-use std::borrow::Cow;
-
 use data_encoding::BASE32_NOPAD;
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 use platform::{
@@ -161,11 +159,7 @@ impl PartialSchema for AppCode {
     }
 }
 
-impl ToSchema for AppCode {
-    fn name() -> Cow<'static, str> {
-        Cow::Borrowed("AppCode")
-    }
-}
+impl ToSchema for AppCode {}
 
 /// What a request gives to prove an account's second factor: its app's code, or one of its
 /// recovery codes (AUTH-059, AUTH-062, AUTH-065).

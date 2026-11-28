@@ -132,6 +132,20 @@ impl EndedSpans {
             .collect()
     }
 
+    /// The value of every attribute of each span named `name` that has ended, in the order they
+    /// ended, as text.
+    pub fn values(&self, name: &str) -> Vec<Vec<String>> {
+        self.ended(name)
+            .iter()
+            .map(|span| {
+                span.attributes
+                    .iter()
+                    .map(|attribute| attribute.value.to_string())
+                    .collect()
+            })
+            .collect()
+    }
+
     /// Each span named `name` that has ended, in the order they ended.
     fn ended(&self, name: &str) -> Vec<SpanData> {
         let ended = self.exporter.get_finished_spans().unwrap_or_else(|error| {
