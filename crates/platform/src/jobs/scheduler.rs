@@ -21,7 +21,8 @@ use crate::{
 /// How often the scheduler looks for periodic jobs that are due.
 const TICK: Duration = Duration::from_secs(10);
 
-/// A run's claim, which a shutdown releases.
+/// A run's claim, which a shutdown releases unless the run panics as it is cancelled
+/// (PLATFORM-018).
 struct Claim {
     name: &'static str,
     claim: Uuid,

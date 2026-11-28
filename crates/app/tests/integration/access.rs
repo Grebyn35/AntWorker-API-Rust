@@ -423,28 +423,28 @@ async fn platform_110_authorization_counts_each_refusal_by_why() {
         ])
         .await;
 
-    // A stranger's read, and the owner's removal by a member, whose role doesn't allow it, and
-    // by an admin, whose rank doesn't.
+    // A stranger's read, and the owner's removal by a member, whose role doesn't allow it, twice,
+    // and by an admin, whose rank doesn't, three times: each reason a number of times of its
+    // own, so that counts which gave a reason another's label differ from these.
+    let mut sent = vec![("GET", &members, &stranger)];
+    sent.extend(std::iter::repeat_n(("DELETE", &remove_owner, &member), 2));
+    sent.extend(std::iter::repeat_n(("DELETE", &remove_owner, &admin), 3));
     let mut statuses = Vec::new();
-    for (method, path, caller) in [
-        ("GET", &members, &stranger),
-        ("DELETE", &remove_owner, &member),
-        ("DELETE", &remove_owner, &admin),
-    ] {
+    for (method, path, caller) in sent {
         let bearer = format!("Bearer {}", caller.access);
         let headers = [("authorization", bearer.as_str())];
         statuses.push(server.send(method, path, &headers, b"").await.0);
     }
     server.stop().await;
 
-    assert_eq!(statuses, [404, 403, 403]);
+    assert_eq!(statuses, [404, 403, 403, 403, 403, 403]);
     assert_eq!(
         counts::of(
             &collector.received(),
             "platform.authorization_refusals",
             "authorization.reason"
         ),
-        ["not_member 1", "permission 1", "rank 1"]
+        ["not_member 1", "permission 2", "rank 3"]
     );
 }
 

@@ -122,7 +122,8 @@ pub fn attribute(attributes: &[KeyValue], key: &str) -> Option<String> {
         .and_then(text)
 }
 
-/// A value as text: a string as itself, a number in decimal.
+/// A value as text: a string as itself, an integer in decimal, and `None` for a value of another
+/// type.
 pub fn text(value: &AnyValue) -> Option<String> {
     match value.value.as_ref()? {
         any_value::Value::StringValue(text) => Some(text.clone()),

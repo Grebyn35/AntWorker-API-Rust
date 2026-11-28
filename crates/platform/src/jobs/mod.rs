@@ -35,7 +35,7 @@ const RENEWAL: Duration = Duration::from_secs(20);
 const DELAY_EVERY: Duration = Duration::from_secs(15);
 
 /// How long the dispatcher and the scheduler each wait, after the deadline, for the releases of
-/// the claims that it cancelled (PLATFORM-018).
+/// the claims that `Runs::drain` returns (PLATFORM-018).
 const RELEASE_WITHIN: Duration = Duration::from_secs(2);
 
 static RUNS: Counter<2> = Counter::new(

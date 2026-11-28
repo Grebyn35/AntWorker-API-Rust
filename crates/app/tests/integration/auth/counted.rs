@@ -4,6 +4,8 @@
 //! their codes and their apps on the same database, and what its own requests count reaches no
 //! collector.
 
+use std::iter::repeat_n;
+
 use platform::telemetry::testing::collector::Collector;
 use serde_json::{Value, json};
 
@@ -68,32 +70,35 @@ async fn auth_104_sign_ins_with_a_password_are_counted_by_how_they_ended() {
     let bob = users::register(&api, "bob@example.com").await;
     second_factors::add_app(&api, &bob).await;
     let collector = Collector::start().await.unwrap();
-    // One attempt of each email from an address, so that Eve's second is refused (AUTH-006).
-    let limits = [("SIGN_IN_ATTEMPTS", "1"), ("SIGN_IN_EMAIL_ATTEMPTS", "2")];
+    // Three attempts of each email from an address, so that Eve's fourth and later are refused
+    // (AUTH-006).
+    let limits = [("SIGN_IN_ATTEMPTS", "3"), ("SIGN_IN_EMAIL_ATTEMPTS", "6")];
     let server = serving(api.database(), &collector, &limits).await;
 
     // Ada's sign-in without a password, which its body's validation refuses (AUTH-004), and
-    // which counts nowhere.
+    // which counts nowhere. Then each outcome a number of times of its own, so that counts which
+    // gave an outcome another's label differ from these.
+    let mut sent = vec![("ada@example.com", ""), ("ada@example.com", PASSWORD)];
+    sent.extend(repeat_n(("bob@example.com", PASSWORD), 2));
+    sent.extend(repeat_n(("eve@example.com", "wrong-password-123"), 3));
+    sent.extend(repeat_n(("eve@example.com", PASSWORD), 4));
     let mut statuses = Vec::new();
-    for (email, password) in [
-        ("ada@example.com", ""),
-        ("ada@example.com", PASSWORD),
-        ("bob@example.com", PASSWORD),
-        ("eve@example.com", "wrong-password-123"),
-        ("eve@example.com", PASSWORD),
-    ] {
+    for (email, password) in sent {
         let body = json!({ "email": email, "password": password });
         statuses.push(post(&server, "/v1/sessions", None, &body).await);
     }
     server.stop().await;
 
-    assert_eq!(statuses, [400, 201, 200, 401, 429]);
+    assert_eq!(
+        statuses,
+        [400, 201, 200, 200, 401, 401, 401, 429, 429, 429, 429]
+    );
     assert_eq!(
         counted(&collector, "auth.sign_ins"),
         [
-            "challenged 1",
-            "invalid_credentials 1",
-            "rate_limited 1",
+            "challenged 2",
+            "invalid_credentials 3",
+            "rate_limited 4",
             "succeeded 1"
         ]
     );
@@ -123,18 +128,24 @@ async fn auth_104_exchanges_of_a_provider_s_code_are_counted_by_provider_and_by_
         let body = with_fields(grant(), fields);
         refused.push(post(&server, "/v1/sessions/provider", None, &body).await);
     }
-    let succeeded = post(&server, "/v1/sessions/provider", None, &grant()).await;
+    // Each outcome a number of times of its own, so that counts which gave an outcome another's
+    // label differ from these.
+    let mut exchanged = vec![post(&server, "/v1/sessions/provider", None, &grant()).await];
     upstream.set("POST", "/token", 400, json!({ "error": "invalid_grant" }));
-    let rejected = post(&server, "/v1/sessions/provider", None, &grant()).await;
+    for _ in 0..2 {
+        exchanged.push(post(&server, "/v1/sessions/provider", None, &grant()).await);
+    }
     upstream.set("POST", "/token", 500, json!({}));
-    let unavailable = post(&server, "/v1/sessions/provider", None, &grant()).await;
+    for _ in 0..3 {
+        exchanged.push(post(&server, "/v1/sessions/provider", None, &grant()).await);
+    }
     server.stop().await;
 
     assert_eq!(refused, [503, 404, 400, 400]);
-    assert_eq!([succeeded, rejected, unavailable], [201, 401, 503]);
+    assert_eq!(exchanged, [201, 401, 401, 503, 503, 503]);
     assert_eq!(
         counted(&collector, "auth.provider_exchanges"),
-        ["rejected 1", "succeeded 1", "unavailable 1"]
+        ["rejected 2", "succeeded 1", "unavailable 3"]
     );
     assert_eq!(
         counts::of(
@@ -142,7 +153,7 @@ async fn auth_104_exchanges_of_a_provider_s_code_are_counted_by_provider_and_by_
             "auth.provider_exchanges",
             "auth.provider"
         ),
-        ["stand_in 3"]
+        ["stand_in 6"]
     );
 }
 
@@ -203,26 +214,34 @@ async fn auth_105_confirmations_of_a_code_that_proves_the_address_are_counted_by
 
     // A code of 5 digits, which the body's validation refuses (AUTH-032), and which counts
     // nowhere.
-    let short = json!({ "code": &code[1..] });
-    let refused = post(&server, path, Some(&ada.access), &short).await;
-    let wrong = json!({ "code": other_code(&code) });
-    let wrong = post(&server, path, Some(&ada.access), &wrong).await;
-    let verified = post(&server, path, Some(&ada.access), &json!({ "code": code })).await;
-    let expired = post(&server, path, Some(&bob.access), &json!({ "code": code })).await;
-    let limited = post(&server, path, Some(&eve.access), &json!({ "code": code })).await;
+    // Then each outcome a number of times of its own, so that counts which gave an outcome
+    // another's label differ from these.
+    let (right, wrong) = (
+        json!({ "code": code }),
+        json!({ "code": other_code(&code) }),
+    );
+    let mut sent = vec![(&ada, json!({ "code": &code[1..] }))];
+    sent.extend(repeat_n((&ada, wrong), 3));
+    sent.push((&ada, right.clone()));
+    sent.extend(repeat_n((&bob, right.clone()), 2));
+    sent.extend(repeat_n((&eve, right), 4));
+    let mut statuses = Vec::new();
+    for (user, body) in &sent {
+        statuses.push(post(&server, path, Some(&user.access), body).await);
+    }
     server.stop().await;
 
     assert_eq!(
-        [refused, wrong, verified, expired, limited],
-        [400, 422, 200, 422, 429]
+        statuses,
+        [400, 422, 422, 422, 200, 422, 422, 429, 429, 429, 429]
     );
     assert_eq!(
         counted(&collector, "auth.email_verifications"),
         [
-            "code_expired 1",
-            "rate_limited 1",
+            "code_expired 2",
+            "rate_limited 4",
             "verified 1",
-            "wrong_code 1"
+            "wrong_code 3"
         ]
     );
 }
@@ -324,33 +343,35 @@ async fn auth_105_confirmations_of_a_change_of_the_address_are_counted_by_how_th
 
     // A code of 8 characters, which the body's validation refuses (AUTH-052), and which counts
     // nowhere.
-    let short = body(&new[0], "0000-0000");
-    let refused = post(&server, path, Some(&ada.access), &short).await;
-    let wrong = post(
-        &server,
-        path,
-        Some(&ada.access),
-        &body(&new[0], WRONG_LONG_CODE),
-    )
-    .await;
-    let changed = post(&server, path, Some(&ada.access), &body(&new[0], &code)).await;
-    let expired = post(&server, path, Some(&bob.access), &body(&new[1], &code)).await;
-    let in_use = post(&server, path, Some(&carol.access), &body(&new[2], &carols)).await;
-    let limited = post(&server, path, Some(&eve.access), &body(&new[3], &code)).await;
+    // Then each outcome a number of times of its own, so that counts which gave an outcome
+    // another's label differ from these: a refusal of an address in use leaves Carol's code as
+    // it was (AUTH-052).
+    let mut sent = vec![(&ada, body(&new[0], "0000-0000"))];
+    sent.extend(repeat_n((&ada, body(&new[0], WRONG_LONG_CODE)), 4));
+    sent.push((&ada, body(&new[0], &code)));
+    sent.extend(repeat_n((&bob, body(&new[1], &code)), 3));
+    sent.extend(repeat_n((&carol, body(&new[2], &carols)), 2));
+    sent.extend(repeat_n((&eve, body(&new[3], &code)), 5));
+    let mut statuses = Vec::new();
+    for (user, body) in &sent {
+        statuses.push(post(&server, path, Some(&user.access), body).await);
+    }
     server.stop().await;
 
     assert_eq!(
-        [refused, wrong, changed, expired, in_use, limited],
-        [400, 422, 200, 422, 409, 429]
+        statuses,
+        [
+            400, 422, 422, 422, 422, 200, 422, 422, 422, 409, 409, 429, 429, 429, 429, 429
+        ]
     );
     assert_eq!(
         counted(&collector, "auth.email_changes"),
         [
             "changed 1",
-            "code_expired 1",
-            "email_in_use 1",
-            "rate_limited 1",
-            "wrong_code 1"
+            "code_expired 3",
+            "email_in_use 2",
+            "rate_limited 5",
+            "wrong_code 4"
         ]
     );
 }

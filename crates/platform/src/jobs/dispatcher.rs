@@ -33,7 +33,8 @@ const FIRST_RETRY: Duration = Duration::from_secs(10);
 /// The longest wait before a retry.
 const LONGEST_RETRY: Duration = Duration::from_secs(3_600);
 
-/// A run's claim, which a shutdown releases.
+/// A run's claim, which a shutdown releases unless the run panics as it is cancelled
+/// (PLATFORM-018).
 struct Claim {
     kind: &'static str,
     id: Uuid,
