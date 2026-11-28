@@ -162,7 +162,8 @@ mod tests {
                      - Check: `ci: check-style`, plus `ci: e2e`.\n\n\
                      ### STYLE-02 Proven by its own test\nIt holds.\n- Check: `test`.\n\n\
                      ### STYLE-03 Left to the compiler\nIt holds.\n- Check: `compiler`.\n\n\
-                     ### STYLE-04 Left to another task\nIt holds.\n- Check: `ci: check-style`.\n";
+                     ### STYLE-04 Left to another task\nIt holds.\n- Check: `ci: check-style`.\n\n\
+                     ### STYLE-05 Left to a check alone\nIt holds.\n- Check: `ci: check-style`.\n";
         let named = "#[test]\nfn style_01_holds() {}\n#[test]\nfn style_02_holds() {}\n";
         let unchecked = "#[test]\nfn style_03_is_checked() {}\n";
         let outcome = run_with(&[
@@ -177,6 +178,10 @@ mod tests {
                 "#[test]\nfn style_01_holds_end_to_end() {}\n",
             ),
             ("crates/xtask/src/compiled.rs", unchecked),
+            (
+                "crates/xtask/src/styled.rs",
+                "#[test]\nfn style_05_is_checked() {}\n",
+            ),
             (
                 "crates/app/tests/e2e/compiled.rs",
                 "#[test]\nfn style_03_holds_end_to_end() {}\n",

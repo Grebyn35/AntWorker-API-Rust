@@ -36,7 +36,6 @@ pub fn subcommands(repo: &Repo) -> Vec<Finding> {
             std::iter::once(list).chain(after.copied())
         })
         .flat_map(|line| line.split('`').skip(1).step_by(2))
-        .filter(|name| name.chars().all(|c| c.is_ascii_lowercase() || c == '-'))
         .collect();
     let path = "docs/operations/ci.md";
     let line = start.map_or(1, |start| start + 1);

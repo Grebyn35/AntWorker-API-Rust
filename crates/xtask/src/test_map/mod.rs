@@ -1,6 +1,7 @@
 //! `check-test-map`: every test's name starts with a behavior or rule ID that exists
 //! (TEST-01), a rule whose `Check` names `test` has one, and one whose `Check` doesn't names no
-//! test but those of the tasks that `rules.rs` says, the tests name
+//! test but one of `xtask` under a `ci:` item and an end-to-end one under `ci: e2e`, as
+//! `rules.rs` says, the tests name
 //! what `named.rs` says of the modules' declarations (SEC-18, SEC-19), no test's wait counts its
 //! polls as `waits.rs` reads one (TEST-06), no two files of the tests define a function of one
 //! body, as `copies.rs` reads one (TEST-09), and the report shows which behaviors tests prove

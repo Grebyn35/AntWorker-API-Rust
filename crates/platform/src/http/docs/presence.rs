@@ -69,15 +69,19 @@ fn asked(document: &OpenApi) -> BTreeSet<String> {
 /// Adds to `names` the name of each component that a `$ref` anywhere in `value` names.
 fn references(value: &Value, names: &mut Vec<String>) {
     match value {
-        Value::String(text) => {
-            if let Some(name) = text.strip_prefix(SCHEMAS) {
-                names.push(name.to_owned());
+        Value::Array(items) => items.iter().for_each(|item| references(item, names)),
+        Value::Object(members) => {
+            for (key, member) in members {
+                match member {
+                    Value::String(text) if key == "$ref" => {
+                        if let Some(name) = text.strip_prefix(SCHEMAS) {
+                            names.push(name.to_owned());
+                        }
+                    }
+                    _ => references(member, names),
+                }
             }
         }
-        Value::Array(items) => items.iter().for_each(|item| references(item, names)),
-        Value::Object(members) => members
-            .values()
-            .for_each(|member| references(member, names)),
         _ => {}
     }
 }
@@ -295,5 +299,22 @@ mod tests {
         assert_eq!(names(&schemas["Answer"]), ["note"]);
         assert!(names(&schemas["Filter"]).is_empty());
         assert!(names(&schemas["Scope"]).is_empty());
+    }
+
+    #[test]
+    fn api_05_a_text_that_names_a_component_outside_a_ref_refers_to_nothing() {
+        let request = ObjectBuilder::new().description(Some("#/components/schemas/Answer"));
+        let components = ComponentsBuilder::new().schema("Answer", noted());
+
+        let document = required_in(
+            Some(request.into()),
+            Ref::from_schema_name("Answer"),
+            components,
+        );
+
+        assert_eq!(
+            names(&document["components"]["schemas"]["Answer"]),
+            ["note"]
+        );
     }
 }
