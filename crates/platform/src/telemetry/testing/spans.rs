@@ -119,7 +119,8 @@ impl EndedSpans {
     // end part: client_telemetry
 
     /// The attribute `key` of each span named `name` that has ended, in the order they ended, as
-    /// text, or `None` for a span without it.
+    /// text, or `None` for a span without it. A value that a span records again, after it began
+    /// with one, doesn't replace the one that this reads.
     pub fn attributes(&self, name: &str, key: &str) -> Vec<Option<String>> {
         self.ended(name)
             .iter()
