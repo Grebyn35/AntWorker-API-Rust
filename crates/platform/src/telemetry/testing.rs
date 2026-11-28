@@ -280,6 +280,23 @@ where
     super::process::watch_reading(clock, read);
 }
 
+/// Runs the watcher of `platform.job_delay` on `database` and `clock`, as the jobs of `serve` run
+/// it, for as long as the runtime runs, and gives `recorded` each number of seconds that it
+/// records in the gauge: the job loops of the tests that run alongside set the gauge too, under
+/// no label, so a test reads its own watcher's records through `recorded` (TEST-07).
+pub fn watch_job_delay(
+    database: crate::db::Database,
+    clock: crate::clock::SharedClock,
+    recorded: impl Fn(u64) + Send + 'static,
+) {
+    let (stop, stopping) = tokio::sync::watch::channel(false);
+    tokio::spawn(async move {
+        // The watcher stops once the sender drops, so the task holds it.
+        let _stop = stop;
+        crate::jobs::watch_delay(database, clock, stopping, recorded).await;
+    });
+}
+
 /// The data points of the metric `name`, as everything recorded in the process so far adds up
 /// to, the recordings of the tests that run alongside included: TEST-07 says how a test asserts
 /// a count of them. Empty if [`install`] hasn't run or nothing recorded the metric.

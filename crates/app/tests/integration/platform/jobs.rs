@@ -50,6 +50,9 @@ const POLL: Duration = Duration::from_secs(1);
 const TICK: Duration = Duration::from_secs(10);
 const RENEWAL: Duration = Duration::from_secs(20);
 
+/// How often a replica records how long jobs wait (PLATFORM-112).
+const DELAY_EVERY: Duration = Duration::from_secs(15);
+
 /// A job whose runs a test steers.
 #[derive(Serialize, Deserialize)]
 struct Probe {
@@ -1749,6 +1752,88 @@ async fn platform_112_serve_records_how_long_the_job_that_waited_longest_has_wai
     assert!(
         (first + 15..=since).contains(&last),
         "{delays:?} of at most {since}"
+    );
+}
+
+/// The seconds that a watcher of `platform.job_delay` of the test's own records, reading
+/// `database` on `clock`, a message for each record (TEST-07).
+fn delays_recorded(database: Database, clock: &Arc<TestClock>) -> mpsc::UnboundedReceiver<u64> {
+    let (recorded, records) = mpsc::unbounded_channel();
+    testing::watch_job_delay(database, clock.clone(), move |seconds| {
+        recorded.send(seconds).unwrap();
+    });
+    records
+}
+
+#[tokio::test]
+async fn platform_112_the_delay_is_recorded_at_once_and_every_15_seconds_after() {
+    let db = TestDatabase::migrated().await;
+    let clock = Arc::new(TestClock::default());
+    let mut records = delays_recorded(db.app().await, &clock);
+
+    // The watcher starts its sleep after it records, so a sleep that waits while no record has
+    // come started first.
+    let first = tokio::select! {
+        biased;
+        first = records.recv() => first,
+        () = clock.sleeping(DELAY_EVERY) => None,
+    };
+    // No job waits, so each record is 0.
+    assert_eq!(first, Some(0));
+
+    clock.advance(DELAY_EVERY - Duration::from_secs(1));
+    // A second short of 15 seconds, the sleep still waits, and nothing more has been recorded.
+    let early = tokio::select! {
+        biased;
+        early = records.recv() => early,
+        () = clock.sleeping(DELAY_EVERY) => None,
+    };
+    assert_eq!(early, None);
+
+    clock.advance(Duration::from_secs(1));
+    let second = records.recv().await;
+    assert_eq!(second, Some(0));
+}
+
+#[tokio::test]
+async fn platform_112_the_delay_is_that_of_the_job_that_waited_longest_of_any_kind() {
+    let db = TestDatabase::migrated().await;
+    let clock = Arc::new(TestClock::default());
+    // Of kinds that no release runs.
+    db.owner_executes(
+        "INSERT INTO jobs (kind, payload, run_at) \
+         VALUES ('tests.unknown', '{}', now() - interval '90 minutes')",
+    )
+    .await;
+    let mut records = delays_recorded(db.app().await, &clock);
+
+    let first = records.recv().await.unwrap();
+    // A job of another kind that has waited longer is the one that the next record measures.
+    db.owner_executes(
+        "INSERT INTO jobs (kind, payload, run_at) \
+         VALUES ('tests.other', '{}', now() - interval '2 hours')",
+    )
+    .await;
+    clock.sleeping(DELAY_EVERY).await;
+    clock.advance(DELAY_EVERY);
+    let second = records.recv().await.unwrap();
+    let waited = |kind: &str| {
+        format!(
+            "SELECT floor(extract(epoch FROM now() - run_at))::bigint::text FROM jobs \
+             WHERE kind = '{kind}'"
+        )
+    };
+    let unknown = db.owner_reads(&waited("tests.unknown")).await.remove(0);
+    let other = db.owner_reads(&waited("tests.other")).await.remove(0);
+
+    let (unknown, other): (u64, u64) = (unknown.parse().unwrap(), other.parse().unwrap());
+    assert!(
+        (5_400..=unknown).contains(&first),
+        "{first} of at most {unknown}"
+    );
+    assert!(
+        (7_200..=other).contains(&second),
+        "{second} of at most {other}"
     );
 }
 

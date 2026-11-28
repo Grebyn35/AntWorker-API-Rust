@@ -229,6 +229,7 @@ impl Jobs {
             database.clone(),
             clock.clone(),
             stopping.clone(),
+            |_| {},
         ));
         let deadline = deadline(clock.clone(), stopping.clone(), grace);
         let queued: Arc<HashMap<_, _>> = Arc::new(self.queued);
@@ -449,11 +450,20 @@ fn deadline(
 }
 
 /// Records how long the longest-waiting runnable job has waited, every [`DELAY_EVERY`], until
-/// `stopping` turns true.
-async fn watch_delay(database: Database, clock: SharedClock, mut stopping: watch::Receiver<bool>) {
+/// `stopping` turns true, and gives `recorded` each number of seconds that it records: a test's
+/// way to read its own watcher's records (`telemetry::testing::watch_job_delay`).
+pub(crate) async fn watch_delay(
+    database: Database,
+    clock: SharedClock,
+    mut stopping: watch::Receiver<bool>,
+    recorded: impl Fn(u64) + Send,
+) {
     while !*stopping.borrow() {
         match database.job_delay().await {
-            Ok(delay) => DELAY.set(delay.as_secs(), []),
+            Ok(delay) => {
+                DELAY.set(delay.as_secs(), []);
+                recorded(delay.as_secs());
+            }
             Err(error) => tracing::warn!(
                 { names::EXCEPTION_MESSAGE } = crate::errors::chain(&error),
                 "can't read how long jobs wait"
